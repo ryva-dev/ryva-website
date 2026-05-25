@@ -69,6 +69,15 @@ const stats = [
   { value: "2 min", label: "To first passing test" },
 ];
 
+const prevents = [
+  { title: "Silent regressions", desc: "Catch output quality drops before your users do." },
+  { title: "Surprise bills", desc: "Know your LLM spend before the invoice arrives." },
+  { title: "Black box failures", desc: "See the exact prompt and response for every run." },
+  { title: "Unsafe releases", desc: "Test for prompt injection, hallucination, and edge cases before deploying." },
+  { title: "Model guesswork", desc: "Compare models on cost and quality with real test data." },
+  { title: "Audit gaps", desc: "Keep a complete, queryable history of every agent decision." },
+];
+
 export default function Home() {
   return (
     <div className="min-h-screen bg-white text-gray-900">
@@ -100,6 +109,9 @@ export default function Home() {
       {/* Hero */}
       <section className="max-w-6xl mx-auto px-6 pt-20 pb-16">
         <div className="max-w-2xl">
+          <p className="text-gray-500 text-lg max-w-2xl mb-6">
+            AI agents are being shipped with no version history, no test coverage, no traceability, and no reliable way to know what changed. Ryva fixes that.
+          </p>
           <div className="inline-flex items-center gap-2 text-xs font-medium text-[#16a34a] bg-green-50 border border-green-200 rounded-full px-3 py-1 mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] inline-block" />
             Open source. MIT licensed. Free to use.
@@ -108,8 +120,7 @@ export default function Home() {
             The engineering framework<br />for agentic AI.
           </h1>
           <p className="text-lg text-gray-500 leading-relaxed mb-8 max-w-xl">
-            Structure, test, and observe every AI agent, model, and pipeline you ship.
-            Ryva gives AI engineers the rigor that backend teams have had for decades.
+            Built for teams moving AI agents from prototypes into production. Structure, test, and observe every agent, model, and pipeline you ship.
           </p>
           <div className="flex items-center gap-3">
             <Link
@@ -171,6 +182,39 @@ export default function Home() {
             <div key={s.label} className="px-10 first:pl-0 last:pr-0">
               <p className="text-3xl font-bold text-gray-900 tracking-tight mb-1">{s.value}</p>
               <p className="text-sm text-gray-500">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Proof bar */}
+      <div className="border-b border-gray-100">
+        <div className="max-w-6xl mx-auto px-6 flex items-center gap-6 py-6">
+          <img
+            src="https://img.shields.io/github/stars/ryva-dev/ryva?style=social"
+            alt="GitHub stars"
+            height={20}
+          />
+          <span className="text-gray-500 text-sm">Open source. MIT licensed. Free to use.</span>
+          <Link href="https://ryva-dashboard.vercel.app" className="text-[#16a34a] text-sm font-medium hover:underline">
+            See Ryva Cloud
+          </Link>
+        </div>
+      </div>
+
+      {/* What Ryva prevents */}
+      <section className="max-w-6xl mx-auto px-6 py-24">
+        <div className="max-w-xl mb-12">
+          <h2 className="text-4xl font-bold text-gray-900 tracking-tight mb-4">What Ryva prevents</h2>
+          <p className="text-gray-500 text-base leading-relaxed">
+            The failure modes of AI systems in production are not mysterious. They are predictable, and most of them are preventable.
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          {prevents.map((p) => (
+            <div key={p.title} className="border border-gray-200 rounded-xl p-6 hover:border-green-300 transition-all duration-150">
+              <h3 className="font-semibold text-gray-900 mb-2 text-sm">{p.title}</h3>
+              <p className="text-gray-500 text-sm leading-relaxed">{p.desc}</p>
             </div>
           ))}
         </div>
@@ -446,8 +490,39 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Install */}
+      {/* Enterprise */}
       <section className="bg-gray-900 py-24">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="max-w-xl mb-12">
+            <h2 className="text-4xl font-bold text-white tracking-tight mb-4">
+              Built for production. Ready for enterprise.
+            </h2>
+          </div>
+          <div className="grid grid-cols-3 gap-8">
+            <div>
+              <h3 className="font-semibold text-white mb-3">Audit trails</h3>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Every agent run is logged, traceable, and queryable. Know what your AI did, when, and why.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-white mb-3">Cost controls</h3>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Set budget limits per project. Get alerts before you overspend. Block runs automatically when limits are hit.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-white mb-3">CI/CD ready</h3>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Drop a single GitHub Actions file into any repo and Ryva runs on every pull request automatically.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Install */}
+      <section className="bg-gray-900 border-t border-gray-800 py-24">
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 className="text-4xl font-bold text-white tracking-tight mb-4">
             Up and running in two minutes
@@ -485,7 +560,7 @@ export default function Home() {
             <div className="max-w-xs">
               <Link href="/" className="font-mono font-bold text-gray-900 text-sm tracking-tight">ryva</Link>
               <p className="text-gray-400 text-sm mt-3 leading-relaxed">
-                The engineering framework for agentic AI. Open source, MIT licensed.
+                Ryva gives AI engineers the rigor that backend teams have had for decades.
               </p>
             </div>
             <div className="flex items-start gap-16">
