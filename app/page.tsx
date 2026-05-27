@@ -1,594 +1,386 @@
 import Link from "next/link";
+import TerminalHero from "./components/TerminalHero";
+import ProductTabs from "./components/ProductTabs";
+import CyclingTerminal from "./components/CyclingTerminal";
 
-const features = [
+const STATS = [
+  { value: "9",    label: "Test types built in" },
+  { value: "4",    label: "LLM providers supported" },
+  { value: "227",  label: "Unit tests in the suite" },
+  { value: "0.87", label: "Avg EU AI Act score" },
+];
+
+const PROBLEMS = [
   {
-    title: "Structured by default",
-    desc: "Every agent, prompt, tool, and pipeline is a versioned YAML file. Dependencies are declared. Everything compiles before it runs, catching broken references before they hit production.",
+    title: "No testing standard",
+    body: "Every team invents their own way to check if an agent works. Most of it is manual, inconsistent, and invisible to anyone outside the team.",
   },
   {
-    title: "Eight test types built in",
-    desc: "Schema validation, regression comparison, adversarial probing, memory retention, RAG faithfulness, hallucination detection, fuzz testing, and fine-tune evaluation. All from one CLI command.",
+    title: "No lineage or auditability",
+    body: "When something goes wrong, nobody can trace which prompt version ran, what data was retrieved, or why the model decided what it decided.",
   },
   {
-    title: "Full run observability",
-    desc: "Every agent run is traced automatically. See the exact prompt sent, the response received, the model used, and the latency in milliseconds. Inspect any run with ryva traces show.",
-  },
-  {
-    title: "Cost intelligence",
-    desc: "Track token spend per agent, forecast budget exhaustion at current usage, and surface the cheapest model that still passes all your tests. ryva forecast runs in under a second.",
-  },
-  {
-    title: "Model registry",
-    desc: "Register every model your project uses as a versioned entry. Centralize provider credentials, aliases, and capability metadata. One source of truth queried with ryva registry list.",
-  },
-  {
-    title: "Standard benchmarks",
-    desc: "Score your agents against four built-in benchmark suites: summarization quality, question answering accuracy, classification F1, and code correctness. Catch regressions before users do.",
+    title: "No governance layer",
+    body: "Regulators, legal teams, and boards are starting to ask hard questions about AI systems. Most companies have no way to answer them.",
   },
 ];
 
-const testTypes = [
+const PARTNERS = ["Anthropic", "OpenAI", "GitHub", "Google", "Ollama"];
+
+const MARQUEE_ROW1 = [
+  "Anthropic", "OpenAI", "GitHub", "Google Cloud", "Ollama",
+  "AWS", "PostgreSQL", "Slack",
+];
+const MARQUEE_ROW2 = [
+  "LangChain", "Hugging Face", "Docker", "Kubernetes",
+  "Datadog", "PagerDuty", "Vercel", "Railway",
+];
+
+const TEST_TYPES = [
+  "Schema validation",
+  "Regression comparison",
+  "Adversarial probing",
+  "Memory retention",
+  "RAG faithfulness",
+  "Hallucination detection",
+  "Fuzz testing (15 categories)",
+  "Fine-tune evaluation",
+  "Business alignment",
+];
+
+const TRUST = [
   {
-    cmd: "ryva test",
-    desc: "Validates output schema, measures latency against configured thresholds, and runs regression assertions against recorded baseline outputs.",
+    title: "SOC 2 ready",
+    body: "Tamper-evident audit logs, role-based access, and full activity history give your security team what they need.",
   },
   {
-    cmd: "ryva test --fuzz",
-    desc: "Fires 15 fuzz categories at your agent: empty strings, unicode, SQL injection patterns, prompt injection payloads, null bytes, HTML tags, and more.",
+    title: "EU AI Act compliant",
+    body: "Built-in compliance reporting for Articles 9 through 15. Machine-readable JSON output for legal and regulatory teams.",
   },
   {
-    cmd: "ryva test --memory",
-    desc: "Runs multi-turn conversations and verifies the agent correctly retains and references context from earlier turns.",
-  },
-  {
-    cmd: "ryva test --rag",
-    desc: "Tests retrieval pipelines for relevance and faithfulness. Verifies answers are grounded in retrieved documents, not hallucinated.",
-  },
-  {
-    cmd: "ryva test --hallucination",
-    desc: "Submits prompts with known facts and detects when the model generates plausible-sounding but factually incorrect claims.",
-  },
-  {
-    cmd: "ryva test --regression",
-    desc: "Compares current outputs to a saved baseline. Flags any response that diverges beyond the configured similarity threshold.",
-  },
-  {
-    cmd: "ryva test --adversarial",
-    desc: "Probes the agent with crafted inputs: prompt injections, jailbreak attempts, contradictory instructions, and boundary edge cases.",
-  },
-  {
-    cmd: "ryva test --finetune",
-    desc: "Runs the same test suite against both the base model and your fine-tuned variant, reporting accuracy delta and regression count.",
+    title: "Air-gap compatible",
+    body: "Run entirely within your private network. No telemetry, no external pings. Supports local Ollama endpoints only.",
   },
 ];
 
-const stats = [
-  { value: "8", label: "Test types built in" },
-  { value: "15", label: "Fuzz input categories" },
-  { value: "4", label: "Standard benchmarks" },
-  { value: "2 min", label: "To first passing test" },
-];
+function ArrowRight() {
+  return (
+    <svg width="20" height="16" viewBox="0 0 20 16" fill="none" aria-hidden="true">
+      <line x1="0" y1="8" x2="16" y2="8" stroke="#d1d5db" strokeWidth="1.5" />
+      <polyline points="10,3 16,8 10,13" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
-const prevents = [
-  { title: "Silent regressions", desc: "Catch output quality drops before your users do." },
-  { title: "Surprise bills", desc: "Know your LLM spend before the invoice arrives." },
-  { title: "Black box failures", desc: "See the exact prompt and response for every run." },
-  { title: "Unsafe releases", desc: "Test for prompt injection, hallucination, and edge cases before deploying." },
-  { title: "Model guesswork", desc: "Compare models on cost and quality with real test data." },
-  { title: "Audit gaps", desc: "Keep a complete, queryable history of every agent decision." },
+const LINEAGE_NODES = [
+  { label: "Input",        hash: "8f3a9c2d" },
+  { label: "Prompt v2.1",  hash: "7a2b5e9f" },
+  { label: "RAG chunks",   hash: "a1b2c3d4" },
+  { label: "LLM call",     hash: "claude-s4-5" },
+  { label: "Output",       hash: "2d8e1c7b" },
 ];
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-white text-gray-900">
+    <div className="bg-white text-gray-900">
 
-      {/* Nav */}
-      <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          <Link href="/" className="font-mono font-bold text-gray-900 text-sm tracking-tight">
-            ryva
-          </Link>
-          <div className="flex items-center gap-1">
-            <Link href="#features" className="text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors">Features</Link>
-            <Link href="#testing" className="text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors">Testing</Link>
-            <Link href="#observability" className="text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors">Observability</Link>
-            <Link href="#pricing" className="text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors">Pricing</Link>
-            <Link href="/docs" className="text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors">Docs</Link>
-            <div className="w-px h-4 bg-gray-200 mx-2" />
-            <Link href="https://github.com/ryva-dev/ryva" className="text-gray-500 hover:text-gray-900 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 transition-colors">GitHub</Link>
-            <Link
-              href="https://ryva-dashboard.vercel.app"
-              className="ml-2 bg-[#16a34a] text-white text-sm font-medium px-4 py-1.5 rounded-md hover:bg-[#15803d] transition-colors"
-            >
-              Get started
-            </Link>
+      {/* ── HERO ─────────────────────────────────── */}
+      <section className="text-center px-6 pt-24 pb-16">
+        <div className="max-w-3xl mx-auto">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 text-sm text-gray-600 border rounded-full px-4 py-1.5 mb-8" style={{ borderColor: "#e5e7eb" }}>
+            <span className="w-2 h-2 rounded-full bg-[#16a34a] shrink-0" />
+            Now with EU AI Act compliance reporting
           </div>
-        </div>
-      </nav>
 
-      {/* Hero */}
-      <section className="max-w-6xl mx-auto px-6 pt-20 pb-16">
-        <div className="max-w-2xl">
-          <p className="text-gray-500 text-lg max-w-2xl mb-6">
-            AI agents are being shipped with no version history, no test coverage, no traceability, and no reliable way to know what changed. Ryva fixes that.
-          </p>
-          <div className="inline-flex items-center gap-2 text-xs font-medium text-[#16a34a] bg-green-50 border border-green-200 rounded-full px-3 py-1 mb-8">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] inline-block" />
-            Open source. MIT licensed. Free to use.
-          </div>
-          <h1 className="text-5xl font-bold text-gray-900 tracking-tight leading-[1.1] mb-5">
-            The engineering framework<br />for agentic AI.
+          {/* Headline */}
+          <h1
+            className="font-bold text-gray-900 tracking-tight mb-6"
+            style={{ fontSize: "clamp(40px,6vw,64px)", lineHeight: 1.1 }}
+          >
+            The AI governance platform<br />
+            your engineering team<br />
+            actually needs.
           </h1>
-          <p className="text-lg text-gray-500 leading-relaxed mb-8 max-w-xl">
-            Built for teams moving AI agents from prototypes into production. Structure, test, and observe every agent, model, and pipeline you ship.
+
+          {/* Subheadline */}
+          <p className="text-gray-500 mb-10 mx-auto" style={{ fontSize: 20, maxWidth: 560, lineHeight: 1.6 }}>
+            Test, trace, align, and govern every AI agent, model, and pipeline.
+            Built for teams shipping AI in production who need more than vibes.
           </p>
-          <div className="flex items-center gap-3">
+
+          {/* CTAs */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-14">
             <Link
               href="https://github.com/ryva-dev/ryva"
-              className="bg-gray-900 text-white text-sm font-medium px-5 py-2.5 rounded-md hover:bg-gray-700 transition-colors"
+              className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-700 transition-colors"
             >
-              View on GitHub
+              Get started free
             </Link>
             <Link
-              href="https://ryva-dashboard.vercel.app"
-              className="text-gray-700 text-sm font-medium px-5 py-2.5 rounded-md border border-gray-200 hover:border-gray-400 transition-colors"
+              href="mailto:sales@ryvaforge.com"
+              className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-full border border-gray-300 hover:border-gray-500 transition-colors"
             >
-              Try Ryva Cloud
+              Contact sales
             </Link>
           </div>
+
+          {/* Partner logos */}
+          <p className="text-xs text-gray-400 uppercase tracking-widest mb-5">Works alongside your existing stack</p>
+          <div className="flex items-center justify-center gap-8 flex-wrap">
+            {PARTNERS.map((p) => (
+              <span
+                key={p}
+                className="text-gray-400 text-sm font-semibold opacity-60 hover:opacity-100 transition-opacity cursor-default"
+              >
+                {p}
+              </span>
+            ))}
+          </div>
         </div>
 
-        {/* Hero terminal */}
-        <div className="mt-16 border border-gray-200 rounded-xl overflow-hidden shadow-lg">
-          <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-            <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-            <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-            <span className="font-mono text-xs text-gray-400 ml-3">~/my-project</span>
-          </div>
-          <div className="bg-[#0d1117] px-6 py-5 font-mono text-sm leading-7">
-            <p>
-              <span className="text-gray-600">$</span>{" "}
-              <span className="text-white">pip install ryva {"&&"} ryva init my-project</span>
-            </p>
-            <p className="text-[#16a34a] pl-2 mb-3">Project initialized: 1 agent · 1 prompt · 1 tool</p>
-
-            <p>
-              <span className="text-gray-600">$</span>{" "}
-              <span className="text-white">ryva compile</span>
-            </p>
-            <p className="text-[#16a34a] pl-2 mb-3">Compiled: 1 agent · 1 pipeline · 0 errors</p>
-
-            <p>
-              <span className="text-gray-600">$</span>{" "}
-              <span className="text-white">ryva test</span>
-            </p>
-            <p className="text-[#16a34a] pl-2 mb-3">4/4 tests passed  (schema, latency, regression, adversarial)</p>
-
-            <p>
-              <span className="text-gray-600">$</span>{" "}
-              <span className="text-white">ryva traces list</span>
-            </p>
-            <p className="text-gray-500 text-xs pl-2 mb-0.5">  RUN ID      AGENT               STATUS    DURATION</p>
-            <p className="text-cyan-400 pl-2">  f87951e4    summarizer_agent    success   2201ms</p>
-          </div>
+        {/* Terminal animation */}
+        <div className="max-w-5xl mx-auto mt-16">
+          <TerminalHero />
         </div>
       </section>
 
-      {/* Stats */}
-      <section className="border-y border-gray-100 bg-gray-50">
-        <div className="max-w-6xl mx-auto px-6 py-12 grid grid-cols-4 divide-x divide-gray-200">
-          {stats.map((s) => (
-            <div key={s.label} className="px-10 first:pl-0 last:pr-0">
-              <p className="text-3xl font-bold text-gray-900 tracking-tight mb-1">{s.value}</p>
-              <p className="text-sm text-gray-500">{s.label}</p>
+      {/* ── STATS ────────────────────────────────── */}
+      <section style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0", borderBottom: "1px solid #f0f0f0" }}>
+        <div className="max-w-5xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 divide-x divide-gray-200" style={{ paddingTop: 48, paddingBottom: 48 }}>
+          {STATS.map((s) => (
+            <div key={s.label} className="text-center px-8">
+              <p className="font-bold text-gray-900 mb-1" style={{ fontSize: 48 }}>{s.value}</p>
+              <p className="text-gray-500" style={{ fontSize: 14 }}>{s.label}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Proof bar */}
-      <div className="border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-6 flex items-center gap-6 py-6">
-          <img
-            src="https://img.shields.io/github/stars/ryva-dev/ryva?style=social"
-            alt="GitHub stars"
-            height={20}
-          />
-          <span className="text-gray-500 text-sm">Open source. MIT licensed. Free to use.</span>
-          <Link href="https://ryva-dashboard.vercel.app" className="text-[#16a34a] text-sm font-medium hover:underline">
-            See Ryva Cloud
-          </Link>
-        </div>
-      </div>
-
-      {/* What Ryva prevents */}
-      <section className="max-w-6xl mx-auto px-6 py-24">
-        <div className="max-w-xl mb-12">
-          <h2 className="text-4xl font-bold text-gray-900 tracking-tight mb-4">What Ryva prevents</h2>
-          <p className="text-gray-500 text-base leading-relaxed">
-            The failure modes of AI systems in production are not mysterious. They are predictable, and most of them are preventable.
-          </p>
-        </div>
-        <div className="grid grid-cols-3 gap-4">
-          {prevents.map((p) => (
-            <div key={p.title} className="border border-gray-200 rounded-xl p-6 hover:border-green-300 transition-all duration-150">
-              <h3 className="font-semibold text-gray-900 mb-2 text-sm">{p.title}</h3>
-              <p className="text-gray-500 text-sm leading-relaxed">{p.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Features */}
-      <section id="features" className="max-w-6xl mx-auto px-6 py-24">
-        <div className="max-w-xl mb-12">
-          <h2 className="text-4xl font-bold text-gray-900 tracking-tight mb-4">
-            Everything your AI stack is missing
+      {/* ── PROBLEM STATEMENT ────────────────────── */}
+      <section className="py-24 px-6">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-center font-bold text-gray-900 tracking-tight mb-16" style={{ fontSize: "clamp(28px,4vw,40px)", lineHeight: 1.2 }}>
+            AI teams are shipping without the controls<br />
+            every other production system already has.
           </h2>
-          <p className="text-gray-500 text-base leading-relaxed">
-            One CLI. All the tooling backend engineers take for granted, purpose-built for LLM-powered systems.
-          </p>
-        </div>
-        <div className="grid grid-cols-3 gap-4">
-          {features.map((f) => (
-            <div
-              key={f.title}
-              className="border border-gray-200 rounded-lg p-6 hover:border-[#16a34a] hover:shadow-sm transition-all duration-150"
-            >
-              <h3 className="font-semibold text-gray-900 mb-2 text-sm">{f.title}</h3>
-              <p className="text-gray-500 text-sm leading-relaxed">{f.desc}</p>
-            </div>
-          ))}
+          <div className="grid md:grid-cols-3 gap-10">
+            {PROBLEMS.map((p) => (
+              <div key={p.title}>
+                <h3 className="font-semibold text-gray-900 mb-3 text-base">{p.title}</h3>
+                <p className="text-gray-500 text-sm leading-relaxed">{p.body}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* Testing */}
-      <section id="testing" className="bg-gray-50 border-y border-gray-100 py-24">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-2 gap-16 items-start">
-            <div className="pt-1">
-              <h2 className="text-4xl font-bold text-gray-900 tracking-tight mb-4">
-                Test every layer of your AI system
-              </h2>
-              <p className="text-gray-500 leading-relaxed mb-4">
-                Eight test types built in. No configuration required to get started. Each test runs in isolation and reports individually, so failures are easy to trace to their source.
-              </p>
-              <p className="text-gray-500 text-sm leading-relaxed mb-8">
-                Add <code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">ryva test</code> to your CI pipeline and it runs automatically on every push. Test results are stored alongside traces so you can jump from a failure directly to the run that caused it.
-              </p>
-              <div className="border border-gray-200 bg-white rounded-lg overflow-hidden">
-                <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-red-400" />
-                  <div className="w-2 h-2 rounded-full bg-yellow-400" />
-                  <div className="w-2 h-2 rounded-full bg-green-400" />
-                  <span className="font-mono text-xs text-gray-400 ml-2">ryva test --fuzz</span>
-                </div>
-                <div className="bg-[#0d1117] px-4 py-3 font-mono text-xs leading-6">
-                  <p className="text-[#16a34a]">15/15 fuzz tests passed</p>
-                  <p className="text-gray-500 mt-1.5">empty, whitespace, very_long, special_chars,</p>
-                  <p className="text-gray-500">unicode, sql_injection, prompt_injection,</p>
-                  <p className="text-gray-500">null_bytes, newlines, numbers_only, json_input,</p>
-                  <p className="text-gray-500">html_tags, repeat_chars, mixed_case,</p>
-                  <p className="text-gray-500">negative_number</p>
-                </div>
-              </div>
+      {/* ── PRODUCT TABS ─────────────────────────── */}
+      <section style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0", borderBottom: "1px solid #f0f0f0" }} className="py-24 px-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="max-w-xl mb-12">
+            <h2 className="font-bold text-gray-900 tracking-tight mb-4" style={{ fontSize: "clamp(26px,3.5vw,38px)" }}>
+              Every capability your AI stack needs
+            </h2>
+            <p className="text-gray-500 leading-relaxed">
+              From first test to full governance report, Ryva covers the entire production lifecycle of an AI system.
+            </p>
+          </div>
+          <ProductTabs />
+        </div>
+      </section>
+
+      {/* ── LOGO MARQUEE ─────────────────────────── */}
+      <section className="py-20 px-6">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-center font-semibold text-gray-900 mb-12 text-lg">
+            Integrates with the tools your team already uses.
+          </h2>
+          <div className="overflow-hidden">
+            <div className="flex gap-12 animate-marquee whitespace-nowrap mb-5">
+              {[...MARQUEE_ROW1, ...MARQUEE_ROW1].map((logo, i) => (
+                <span key={i} className="text-gray-400 text-sm font-semibold opacity-50 shrink-0">{logo}</span>
+              ))}
             </div>
-            <div className="space-y-2">
-              {testTypes.map((t) => (
-                <div key={t.cmd} className="bg-white border border-gray-200 rounded-lg px-4 py-3.5">
-                  <code className="text-[#16a34a] font-mono text-xs font-medium block mb-1.5">{t.cmd}</code>
-                  <p className="text-gray-500 text-xs leading-relaxed">{t.desc}</p>
-                </div>
+            <div className="flex gap-12 animate-marquee-reverse whitespace-nowrap">
+              {[...MARQUEE_ROW2, ...MARQUEE_ROW2].map((logo, i) => (
+                <span key={i} className="text-gray-400 text-sm font-semibold opacity-50 shrink-0">{logo}</span>
               ))}
             </div>
           </div>
         </div>
       </section>
 
-      {/* Observability */}
-      <section id="observability" className="max-w-6xl mx-auto px-6 py-24">
-        <div className="grid grid-cols-2 gap-16 items-center">
-          <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-            <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-red-400" />
-              <div className="w-2 h-2 rounded-full bg-yellow-400" />
-              <div className="w-2 h-2 rounded-full bg-green-400" />
-              <span className="font-mono text-xs text-gray-400 ml-2">ryva traces show f87951e4</span>
+      {/* ── FEATURE 1: Testing ───────────────────── */}
+      <section style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0", borderBottom: "1px solid #f0f0f0" }} className="py-24 px-6">
+        <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-16 items-center">
+          <div>
+            <h2 className="font-bold text-gray-900 tracking-tight mb-4" style={{ fontSize: "clamp(24px,3vw,36px)" }}>
+              Test every layer of your AI system
+            </h2>
+            <p className="text-gray-500 leading-relaxed mb-6">
+              Nine test types built in. No configuration needed to get started. Each type runs in isolation and reports individually, so failures are easy to trace.
+            </p>
+            <ul className="space-y-2 mb-8">
+              {TEST_TYPES.map((t) => (
+                <li key={t} className="flex items-center gap-3 text-sm text-gray-600">
+                  <span className="w-4 h-4 rounded-full border-2 border-[#16a34a] flex items-center justify-center shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a]" />
+                  </span>
+                  {t}
+                </li>
+              ))}
+            </ul>
+            <Link href="/product#testing" className="text-[#16a34a] text-sm font-medium hover:underline">
+              View all test types
+            </Link>
+          </div>
+          <CyclingTerminal />
+        </div>
+      </section>
+
+      {/* ── FEATURE 2: Lineage ───────────────────── */}
+      <section className="py-24 px-6">
+        <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-16 items-center">
+          {/* Lineage chain diagram */}
+          <div className="border border-gray-200 rounded-xl p-6 bg-white shadow-sm">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-6">Run lineage: f87951e4</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              {LINEAGE_NODES.map((node, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="border border-gray-200 rounded-lg p-3 text-center" style={{ minWidth: 90 }}>
+                    <p className="text-xs font-semibold text-gray-700">{node.label}</p>
+                    <p className="text-gray-400 mt-1" style={{ fontSize: 10, fontFamily: "var(--font-geist-mono)" }}>
+                      {node.hash}
+                    </p>
+                  </div>
+                  {i < LINEAGE_NODES.length - 1 && <ArrowRight />}
+                </div>
+              ))}
             </div>
-            <div className="bg-[#0d1117] px-5 py-4 font-mono text-xs leading-7">
-              <p>
-                <span className="text-gray-500">Trace:    </span>
-                <span className="text-cyan-400">f87951e4</span>
-              </p>
-              <p>
-                <span className="text-gray-500">Agent:    </span>
-                <span className="text-white">summarizer_agent</span>
-              </p>
-              <p>
-                <span className="text-gray-500">Model:    </span>
-                <span className="text-white">claude-sonnet-4-5 (anthropic)</span>
-              </p>
-              <p>
-                <span className="text-gray-500">Status:   </span>
-                <span className="text-[#16a34a]">success</span>
-              </p>
-              <p>
-                <span className="text-gray-500">Duration: </span>
-                <span className="text-white">2201ms</span>
-              </p>
-              <div className="mt-3 border border-blue-900/50 rounded bg-blue-950/20 px-3 py-2.5">
-                <p className="text-blue-400 text-xs font-medium mb-1">Step 1 - Prompt</p>
-                <p className="text-gray-400 text-xs">{`"You are a precise summarization assistant..."`}</p>
-              </div>
-              <div className="mt-2 border border-green-900/50 rounded bg-green-950/20 px-3 py-2.5">
-                <p className="text-[#16a34a] text-xs font-medium mb-1">Step 2 - Response</p>
-                <p className="text-gray-400 text-xs">{`{"summary": "...", "word_count": 8}`}</p>
-              </div>
-            </div>
+            <p className="text-[#16a34a] text-xs mt-6" style={{ fontFamily: "var(--font-geist-mono)" }}>
+              Tamper-evident signature verified
+            </p>
           </div>
           <div>
-            <h2 className="text-4xl font-bold text-gray-900 tracking-tight mb-4">
-              Full visibility on every run
+            <h2 className="font-bold text-gray-900 tracking-tight mb-4" style={{ fontSize: "clamp(24px,3vw,36px)" }}>
+              Full lineage on every run
             </h2>
-            <p className="text-gray-500 leading-relaxed mb-5">
-              Every time an agent runs, Ryva records the full execution trace. The exact prompt sent, the complete response, the model and provider, latency in milliseconds, and token cost. Nothing is summarized or omitted.
+            <p className="text-gray-500 leading-relaxed mb-4">
+              Every agent run records the full chain: input, prompt version, retrieval sources, tool calls, output, cost, and tokens. Tamper-evident. Exportable for regulators.
             </p>
-            <p className="text-gray-500 text-sm leading-relaxed mb-8">
-              Traces are indexed by run ID, agent name, and timestamp. Inspect any run from the CLI or browse all runs in Ryva Cloud. When a test fails, you can jump directly to the trace that triggered it.
+            <p className="text-gray-500 text-sm leading-relaxed mb-6">
+              Every record is signed with an HMAC signature using your project key. Run
+              {" "}<code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">ryva lineage verify</code>{" "}
+              to prove data integrity to auditors.
             </p>
-            <div className="space-y-4 mb-8">
-              <div className="flex items-baseline gap-4">
-                <code className="text-[#16a34a] font-mono text-xs shrink-0">ryva traces list</code>
-                <span className="text-gray-500 text-sm">List all recent runs, sorted by time</span>
-              </div>
-              <div className="flex items-baseline gap-4">
-                <code className="text-[#16a34a] font-mono text-xs shrink-0">ryva traces show</code>
-                <span className="text-gray-500 text-sm">Full step-by-step breakdown of a single run</span>
-              </div>
-            </div>
-            <Link href="https://ryva-dashboard.vercel.app" className="text-[#16a34a] text-sm font-medium hover:underline">
-              Browse traces in Ryva Cloud
+            <Link href="/product#lineage" className="text-[#16a34a] text-sm font-medium hover:underline">
+              Learn about lineage tracking
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Cost Intelligence */}
-      <section className="bg-gray-50 border-y border-gray-100 py-24">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-2 gap-16 items-center">
-            <div>
-              <h2 className="text-4xl font-bold text-gray-900 tracking-tight mb-4">
-                Know what you are spending before it surprises you
-              </h2>
-              <p className="text-gray-500 leading-relaxed mb-5">
-                Ryva tracks token usage per agent run and aggregates it into per-agent cost profiles.{" "}
-                <code className="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">ryva forecast</code>{" "}
-                projects your monthly spend at current call volume and tells you exactly when you will hit your budget.
-              </p>
-              <p className="text-gray-500 text-sm leading-relaxed mb-8">
-                It also surfaces cheaper model alternatives. If a smaller model passes all your existing tests, Ryva will surface it with the projected savings, so you can switch with confidence.
-              </p>
-              <div className="space-y-4 mb-8">
-                <div className="flex items-baseline gap-4">
-                  <code className="text-[#16a34a] font-mono text-xs shrink-0">ryva forecast</code>
-                  <span className="text-gray-500 text-sm">Project monthly spend at current usage, by agent</span>
-                </div>
-                <div className="flex items-baseline gap-4">
-                  <code className="text-[#16a34a] font-mono text-xs shrink-0">ryva benchmark</code>
-                  <span className="text-gray-500 text-sm">Score agents against four standard evaluation suites</span>
-                </div>
-                <div className="flex items-baseline gap-4">
-                  <code className="text-[#16a34a] font-mono text-xs shrink-0">ryva registry list</code>
-                  <span className="text-gray-500 text-sm">View all registered models and provider configurations</span>
-                </div>
-              </div>
+      {/* ── FEATURE 3: Governance ────────────────── */}
+      <section style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0", borderBottom: "1px solid #f0f0f0" }} className="py-24 px-6">
+        <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-16 items-center">
+          <div>
+            <h2 className="font-bold text-gray-900 tracking-tight mb-4" style={{ fontSize: "clamp(24px,3vw,36px)" }}>
+              EU AI Act compliance out of the box
+            </h2>
+            <p className="text-gray-500 leading-relaxed mb-4">
+              Generate a machine-readable compliance report in one command. Covers Articles 9, 10, 12, 13, 14, and 15. Export as JSON for your legal team.
+            </p>
+            <p className="text-gray-500 text-sm leading-relaxed mb-6">
+              Ryva scores each article based on your project configuration, lineage records, and test results. The output is a structured JSON file your legal team can work with directly.
+            </p>
+            <Link href="/enterprise#eu-ai-act" className="text-[#16a34a] text-sm font-medium hover:underline">
+              See the full compliance report structure
+            </Link>
+          </div>
+          {/* Governance report card */}
+          <div className="border border-gray-200 rounded-xl p-6 bg-white shadow-sm">
+            <div className="flex items-center justify-between mb-5">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">EU AI Act compliance</p>
+              <span className="bg-green-50 text-[#16a34a] text-xs font-semibold px-3 py-1 rounded-full border border-green-200">COMPLIANT</span>
             </div>
-            <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-              <div className="bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-red-400" />
-                <div className="w-2 h-2 rounded-full bg-yellow-400" />
-                <div className="w-2 h-2 rounded-full bg-green-400" />
-                <span className="font-mono text-xs text-gray-400 ml-2">ryva forecast</span>
-              </div>
-              <div className="bg-[#0d1117] px-5 py-4 font-mono text-xs leading-6">
-                <p className="text-gray-500 mb-3">Forecast: my-project  (last 30 days)</p>
-                <p className="text-gray-600 mb-1">  AGENT                CALLS    COST/CALL    MONTHLY</p>
-                <p>
-                  <span className="text-white">  summarizer_agent</span>
-                  <span className="text-gray-500">     1,240    </span>
-                  <span className="text-yellow-400">$0.0018</span>
-                  <span className="text-gray-500">       </span>
-                  <span className="text-white">$2.23</span>
-                </p>
-                <p>
-                  <span className="text-white">  classifier_agent</span>
-                  <span className="text-gray-500">       890    </span>
-                  <span className="text-yellow-400">$0.0009</span>
-                  <span className="text-gray-500">       </span>
-                  <span className="text-white">$0.80</span>
-                </p>
-                <p>
-                  <span className="text-white">  qa_extractor</span>
-                  <span className="text-gray-500">          320    </span>
-                  <span className="text-yellow-400">$0.0011</span>
-                  <span className="text-gray-500">       </span>
-                  <span className="text-white">$0.35</span>
-                </p>
-                <div className="border-t border-gray-800 mt-3 pt-3">
-                  <p className="text-gray-500">
-                    Total:{" "}
-                    <span className="text-white">$3.38</span>
-                    {" "}of{" "}
-                    <span className="text-gray-400">$25.00 budget</span>
-                    {"  "}
-                    <span className="text-[#16a34a]">(13.5% used)</span>
-                  </p>
-                  <p className="text-gray-500 mt-1">
-                    At current pace: budget lasts{" "}
-                    <span className="text-white">7.4 months</span>
-                  </p>
+            <div className="space-y-2 mb-4">
+              {[
+                { art: "Article 9",  label: "Risk management",     score: "1.00" },
+                { art: "Article 10", label: "Data governance",      score: "0.92" },
+                { art: "Article 12", label: "Record-keeping",       score: "0.95" },
+                { art: "Article 13", label: "Transparency",         score: "0.84" },
+                { art: "Article 14", label: "Human oversight",      score: "0.81" },
+                { art: "Article 15", label: "Accuracy/robustness",  score: "0.87" },
+              ].map((row) => (
+                <div key={row.art} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="w-4 h-4 rounded-full bg-[#16a34a]/10 flex items-center justify-center shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a]" />
+                    </span>
+                    <span className="text-gray-600">{row.art} — {row.label}</span>
+                  </div>
+                  <span className="text-gray-900 font-medium">{row.score}</span>
                 </div>
-                <div className="mt-3 border border-green-900/40 rounded bg-green-950/10 px-3 py-2">
-                  <p className="text-[#16a34a] text-xs mb-1">Cheaper alternatives that pass all tests:</p>
-                  <p className="text-gray-400 text-xs">claude-haiku-3    saves $1.21/mo    all 4 tests pass</p>
-                </div>
-              </div>
+              ))}
+            </div>
+            <div className="border-t border-gray-100 pt-4 flex items-center justify-between">
+              <p className="text-sm text-gray-500">Overall score</p>
+              <p className="text-xl font-bold text-gray-900">0.87</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Pricing */}
-      <section id="pricing" className="max-w-6xl mx-auto px-6 py-24">
-        <div className="max-w-xl mb-12">
-          <h2 className="text-4xl font-bold text-gray-900 tracking-tight mb-4">
-            Start for free. Scale when you need to.
+      {/* ── ENTERPRISE TRUST ─────────────────────── */}
+      <section style={{ background: "#0a0a0a" }} className="py-24 px-6">
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-white font-bold tracking-tight mb-16 text-center" style={{ fontSize: "clamp(26px,3.5vw,38px)" }}>
+            Built for teams where AI decisions have real consequences.
           </h2>
-          <p className="text-gray-500 leading-relaxed">
-            Ryva is open source and free to use. The CLI runs locally, your traces stay on your machine, and nothing is sent to an external server unless you choose Ryva Cloud.
-          </p>
+          <div className="grid md:grid-cols-3 gap-10">
+            {TRUST.map((t) => (
+              <div key={t.title}>
+                <h3 className="text-white font-semibold mb-3">{t.title}</h3>
+                <p className="text-gray-400 text-sm leading-relaxed">{t.body}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-6 max-w-3xl">
-          <div className="border border-gray-200 rounded-xl p-8">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">Open Source</p>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight mb-1">Free</p>
-            <p className="text-gray-500 text-sm mb-8">Forever. No account required.</p>
-            <div className="space-y-3 text-sm text-gray-600 mb-8">
-              <div>Full CLI: test, compile, dag, benchmark, forecast</div>
-              <div>All 8 test types and 15 fuzz categories</div>
-              <div>Local trace storage and step-level inspection</div>
-              <div>Model registry and cost forecasting</div>
-              <div>MIT licensed, self-hosted</div>
-            </div>
+      </section>
+
+      {/* ── CTA ──────────────────────────────────── */}
+      <section className="py-24 px-6 text-center">
+        <div className="max-w-2xl mx-auto">
+          <h2 className="font-bold text-gray-900 tracking-tight mb-5" style={{ fontSize: "clamp(28px,4vw,44px)", lineHeight: 1.15 }}>
+            Start with open source.<br />Scale to enterprise.
+          </h2>
+          <p className="text-gray-500 mb-10 leading-relaxed">
+            Free CLI for individual engineers. Team and enterprise plans for organizations
+            that need shared dashboards, governance reporting, and compliance exports.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
             <Link
               href="https://github.com/ryva-dev/ryva"
-              className="block text-center border border-gray-200 text-gray-700 text-sm font-medium px-5 py-2.5 rounded-md hover:border-gray-400 transition-colors"
+              className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-700 transition-colors"
             >
-              View on GitHub
-            </Link>
-          </div>
-          <div className="border border-[#16a34a] rounded-xl p-8 bg-green-50/30">
-            <p className="text-xs font-semibold text-[#16a34a] uppercase tracking-widest mb-4">Ryva Cloud</p>
-            <p className="text-3xl font-bold text-gray-900 tracking-tight mb-1">Early access</p>
-            <p className="text-gray-500 text-sm mb-8">Hosted traces, team dashboard, CI integrations.</p>
-            <div className="space-y-3 text-sm text-gray-600 mb-8">
-              <div>Everything in Open Source</div>
-              <div>Hosted trace storage with search and filters</div>
-              <div>Team collaboration and shared run history</div>
-              <div>GitHub Actions integration</div>
-              <div>Email support</div>
-            </div>
-            <Link
-              href="https://ryva-dashboard.vercel.app"
-              className="block text-center bg-[#16a34a] text-white text-sm font-medium px-5 py-2.5 rounded-md hover:bg-[#15803d] transition-colors"
-            >
-              Get started
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Enterprise */}
-      <section className="bg-gray-900 py-24">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="max-w-xl mb-12">
-            <h2 className="text-4xl font-bold text-white tracking-tight mb-4">
-              Built for production. Ready for enterprise.
-            </h2>
-          </div>
-          <div className="grid grid-cols-3 gap-8">
-            <div>
-              <h3 className="font-semibold text-white mb-3">Audit trails</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Every agent run is logged, traceable, and queryable. Know what your AI did, when, and why.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-white mb-3">Cost controls</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Set budget limits per project. Get alerts before you overspend. Block runs automatically when limits are hit.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-white mb-3">CI/CD ready</h3>
-              <p className="text-gray-400 text-sm leading-relaxed">
-                Drop a single GitHub Actions file into any repo and Ryva runs on every pull request automatically.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Install */}
-      <section className="bg-gray-900 border-t border-gray-800 py-24">
-        <div className="max-w-3xl mx-auto px-6 text-center">
-          <h2 className="text-4xl font-bold text-white tracking-tight mb-4">
-            Up and running in two minutes
-          </h2>
-          <p className="text-gray-400 leading-relaxed mb-10">
-            Open source. No account required. Your first agent test passes before you finish reading this page.
-          </p>
-          <div className="bg-[#0d1117] border border-gray-800 rounded-xl px-6 py-5 font-mono text-sm text-left mb-8 max-w-md mx-auto">
-            <p><span className="text-gray-600">$</span> <span className="text-[#16a34a]">pip install ryva</span></p>
-            <p><span className="text-gray-600">$</span> <span className="text-[#16a34a]">ryva init my-project</span></p>
-            <p><span className="text-gray-600">$</span> <span className="text-[#16a34a]">ryva test</span></p>
-            <p className="text-gray-500 mt-2 text-xs">4/4 tests passed  (schema, latency, regression, adversarial)</p>
-          </div>
-          <div className="flex items-center justify-center gap-4">
-            <Link
-              href="https://github.com/ryva-dev/ryva"
-              className="bg-white text-gray-900 text-sm font-semibold px-6 py-3 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              View on GitHub
+              Get started free
             </Link>
             <Link
-              href="https://ryva-dashboard.vercel.app"
-              className="border border-gray-700 text-white text-sm font-medium px-6 py-3 rounded-md hover:border-gray-500 transition-colors"
+              href="mailto:sales@ryvaforge.com"
+              className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-full border border-gray-300 hover:border-gray-500 transition-colors"
             >
-              Try Ryva Cloud
+              Contact sales
             </Link>
           </div>
+          <Link
+            href="https://ryva-dashboard.vercel.app"
+            className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            Already using Ryva? Sign in to Ryva Cloud
+          </Link>
         </div>
       </section>
-
-      {/* Footer */}
-      <footer className="border-t border-gray-100 py-14">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="flex items-start justify-between">
-            <div className="max-w-xs">
-              <Link href="/" className="font-mono font-bold text-gray-900 text-sm tracking-tight">ryva</Link>
-              <p className="text-gray-400 text-sm mt-3 leading-relaxed">
-                Ryva gives AI engineers the rigor that backend teams have had for decades.
-              </p>
-            </div>
-            <div className="flex items-start gap-16">
-              <div>
-                <p className="text-xs font-semibold text-gray-900 uppercase tracking-widest mb-4">Product</p>
-                <div className="space-y-3">
-                  <div><Link href="#features" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Features</Link></div>
-                  <div><Link href="#testing" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Testing</Link></div>
-                  <div><Link href="#observability" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Observability</Link></div>
-                  <div><Link href="#pricing" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Pricing</Link></div>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-900 uppercase tracking-widest mb-4">Developers</p>
-                <div className="space-y-3">
-                  <div><Link href="/docs" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Docs</Link></div>
-                  <div><Link href="https://github.com/ryva-dev/ryva" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">GitHub</Link></div>
-                  <div><Link href="https://ryva-dashboard.vercel.app" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Cloud</Link></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="border-t border-gray-100 mt-12 pt-6 flex items-center justify-between">
-            <p className="text-gray-400 text-xs">Built for AI engineers.</p>
-            <p className="text-gray-400 text-xs">MIT License</p>
-          </div>
-        </div>
-      </footer>
 
     </div>
   );
