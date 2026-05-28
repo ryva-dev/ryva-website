@@ -115,7 +115,7 @@ export default function ProductPage() {
           </p>
           <Link
             href="https://github.com/ryva-dev/ryva"
-            className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-700 transition-colors inline-block"
+            className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-md hover:bg-gray-700 transition-colors inline-block"
           >
             Get started free
           </Link>

@@ -44,7 +44,7 @@ export default function Nav() {
           </Link>
           <Link
             href="https://github.com/ryva-dev/ryva"
-            className="bg-gray-900 text-white text-sm font-medium px-4 py-1.5 rounded-full hover:bg-gray-700 transition-colors"
+            className="bg-gray-900 text-white text-sm font-medium px-4 py-1.5 rounded-md hover:bg-gray-700 transition-colors"
           >
             Get started
           </Link>

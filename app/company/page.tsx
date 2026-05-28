@@ -62,30 +62,6 @@ export default function CompanyPage() {
         </div>
       </section>
 
-      {/* Team */}
-      <section className="py-24 px-6">
-        <div className="max-w-5xl mx-auto">
-          <h2 className="font-bold text-gray-900 tracking-tight mb-12" style={{ fontSize: "clamp(26px,3.5vw,36px)" }}>
-            Team
-          </h2>
-          <div className="max-w-xs">
-            <div className="border border-gray-200 rounded-2xl p-6">
-              <div className="w-14 h-14 rounded-full bg-gray-100 mb-4 flex items-center justify-center">
-                <span className="text-gray-400 text-lg font-semibold">AB</span>
-              </div>
-              <p className="font-semibold text-gray-900 mb-0.5">Allie Ball</p>
-              <p className="text-gray-500 text-sm mb-3">Founder and CEO, Ryva Forge</p>
-              <p className="text-gray-500 text-sm leading-relaxed mb-4">
-                Previously built AI systems in production and got tired of doing it without proper tooling.
-              </p>
-              <Link href="#" className="text-[#16a34a] text-sm font-medium hover:underline">
-                LinkedIn
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Open source */}
       <section style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0", borderBottom: "1px solid #f0f0f0" }} className="py-24 px-6">
         <div className="max-w-2xl mx-auto text-center">
@@ -97,7 +73,7 @@ export default function CompanyPage() {
           </p>
           <Link
             href="https://github.com/ryva-dev/ryva"
-            className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-700 transition-colors inline-block"
+            className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-md hover:bg-gray-700 transition-colors inline-block"
           >
             View on GitHub
           </Link>

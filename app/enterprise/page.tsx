@@ -54,15 +54,9 @@ export default function EnterprisePage() {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-12">
             <Link
               href="#contact"
-              className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-700 transition-colors"
+              className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-md hover:bg-gray-700 transition-colors"
             >
               Contact sales
-            </Link>
-            <Link
-              href="#"
-              className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-full border border-gray-300 hover:border-gray-500 transition-colors"
-            >
-              Download enterprise overview
             </Link>
           </div>
           {/* Trust signals */}
@@ -298,7 +292,7 @@ export default function EnterprisePage() {
               </div>
               <button
                 type="submit"
-                className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-700 transition-colors w-full"
+                className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-md hover:bg-gray-700 transition-colors w-full"
               >
                 Contact sales team
               </button>

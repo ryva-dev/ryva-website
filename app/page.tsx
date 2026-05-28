@@ -88,7 +88,7 @@ export default function Home() {
       <section className="text-center px-6 pt-24 pb-16">
         <div className="max-w-3xl mx-auto">
           {/* Badge */}
-          <div className="inline-flex items-center gap-2 text-sm text-gray-600 border rounded-full px-4 py-1.5 mb-8" style={{ borderColor: "#e5e7eb" }}>
+          <div className="inline-flex items-center gap-2 text-sm text-gray-600 border rounded-md px-4 py-1.5 mb-8" style={{ borderColor: "#e5e7eb" }}>
             <span className="w-2 h-2 rounded-full bg-[#16a34a] shrink-0" />
             Now with EU AI Act compliance reporting
           </div>
@@ -113,13 +113,13 @@ export default function Home() {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-14">
             <Link
               href="https://github.com/ryva-dev/ryva"
-              className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-700 transition-colors"
+              className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-md hover:bg-gray-700 transition-colors"
             >
               Get started free
             </Link>
             <Link
               href="mailto:sales@ryvaforge.com"
-              className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-full border border-gray-300 hover:border-gray-500 transition-colors"
+              className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-md border border-gray-300 hover:border-gray-500 transition-colors"
             >
               Contact sales
             </Link>
@@ -302,7 +302,7 @@ export default function Home() {
           <div className="border border-gray-200 rounded-xl p-6 bg-white shadow-sm">
             <div className="flex items-center justify-between mb-5">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">EU AI Act compliance</p>
-              <span className="bg-green-50 text-[#16a34a] text-xs font-semibold px-3 py-1 rounded-full border border-green-200">COMPLIANT</span>
+              <span className="bg-green-50 text-[#16a34a] text-xs font-semibold px-3 py-1 rounded-md border border-green-200">COMPLIANT</span>
             </div>
             <div className="space-y-2 mb-4">
               {[
@@ -362,13 +362,13 @@ export default function Home() {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
             <Link
               href="https://github.com/ryva-dev/ryva"
-              className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-700 transition-colors"
+              className="bg-gray-900 text-white text-sm font-medium px-7 py-3 rounded-md hover:bg-gray-700 transition-colors"
             >
               Get started free
             </Link>
             <Link
               href="mailto:sales@ryvaforge.com"
-              className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-full border border-gray-300 hover:border-gray-500 transition-colors"
+              className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-md border border-gray-300 hover:border-gray-500 transition-colors"
             >
               Contact sales
             </Link>

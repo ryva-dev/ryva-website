@@ -129,23 +129,23 @@ export default function PricingPage() {
         </p>
 
         {/* Toggle */}
-        <div className="inline-flex items-center gap-3 border border-gray-700 rounded-full p-1 mb-16">
+        <div className="inline-flex items-end gap-8 mb-16" style={{ borderBottom: "1px solid #374151" }}>
           <button
             onClick={() => setYearly(false)}
-            className={`px-5 py-2 text-sm font-medium rounded-full transition-colors ${
-              !yearly ? "bg-white text-gray-900" : "text-gray-400 hover:text-white"
+            className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              !yearly ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"
             }`}
           >
             Monthly
           </button>
           <button
             onClick={() => setYearly(true)}
-            className={`px-5 py-2 text-sm font-medium rounded-full transition-colors ${
-              yearly ? "bg-white text-gray-900" : "text-gray-400 hover:text-white"
+            className={`pb-3 text-sm font-medium transition-colors border-b-2 -mb-px flex items-center gap-2 ${
+              yearly ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"
             }`}
           >
             Yearly
-            <span className="ml-2 text-xs text-[#16a34a]">Save 17%</span>
+            <span className="text-xs text-[#16a34a]">Save 17%</span>
           </button>
         </div>
       </section>
@@ -192,7 +192,7 @@ export default function PricingPage() {
               <div className="space-y-2">
                 <Link
                   href={plan.ctaHref}
-                  className={`block text-center text-sm font-medium px-5 py-2.5 rounded-full transition-colors ${
+                  className={`block text-center text-sm font-medium px-5 py-2.5 rounded-md transition-colors ${
                     plan.featured
                       ? "bg-gray-900 text-white hover:bg-gray-700"
                       : "bg-white text-gray-900 hover:bg-gray-100"
@@ -203,7 +203,7 @@ export default function PricingPage() {
                 {plan.ctaSecondary && (
                   <Link
                     href="mailto:sales@ryvaforge.com"
-                    className="block text-center text-sm font-medium px-5 py-2.5 rounded-full border border-gray-700 text-gray-300 hover:border-gray-500 transition-colors"
+                    className="block text-center text-sm font-medium px-5 py-2.5 rounded-md border border-gray-700 text-gray-300 hover:border-gray-500 transition-colors"
                   >
                     {plan.ctaSecondary}
                   </Link>
@@ -247,7 +247,7 @@ export default function PricingPage() {
           <p className="text-gray-400 mb-6">Questions about enterprise pricing?</p>
           <Link
             href="mailto:sales@ryvaforge.com"
-            className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-full hover:bg-gray-100 transition-colors inline-block"
+            className="bg-white text-gray-900 text-sm font-medium px-7 py-3 rounded-md hover:bg-gray-100 transition-colors inline-block"
           >
             Contact sales
           </Link>

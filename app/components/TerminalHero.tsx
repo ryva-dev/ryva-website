@@ -94,7 +94,8 @@ export default function TerminalHero() {
           fontFamily: "var(--font-geist-mono)",
           fontSize: 13,
           lineHeight: "1.9",
-          minHeight: 300,
+          height: 380,
+          overflow: "hidden",
         }}
       >
         {committed.map((line, i) => {
