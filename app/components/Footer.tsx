@@ -54,7 +54,7 @@ export default function Footer() {
               <div><Link href="/enterprise#audit" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Audit Export</Link></div>
               <div>
                 <a
-                  href="https://calendly.com/aball-ryvaforge/ryva-demo"
+                  href="mailto:sales@ryvaforge.com"
                   className="text-gray-500 hover:text-gray-900 text-sm transition-colors"
                 >
                   Contact sales
@@ -98,8 +98,12 @@ export default function Footer() {
                   PyPI
                 </a>
               </div>
-              <div><Link href="#" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Documentation</Link></div>
-              <div><Link href="#" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Changelog</Link></div>
+              <div>
+                <a href="https://github.com/ryva-dev/ryva/blob/main/README.md" className="text-gray-500 hover:text-gray-900 text-sm transition-colors" target="_blank" rel="noopener noreferrer">Documentation</a>
+              </div>
+              <div>
+                <a href="https://github.com/ryva-dev/ryva/releases" className="text-gray-500 hover:text-gray-900 text-sm transition-colors" target="_blank" rel="noopener noreferrer">Changelog</a>
+              </div>
             </div>
           </div>
         </div>

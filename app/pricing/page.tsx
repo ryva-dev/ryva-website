@@ -113,7 +113,7 @@ const PLANS: Plan[] = [
     cta: "Get started",
     ctaHref: "https://ryva-dashboard.vercel.app",
     ctaSecondary: "Contact sales",
-    ctaSecondaryHref: "https://calendly.com/aball-ryvaforge/ryva-demo",
+    ctaSecondaryHref: "mailto:sales@ryvaforge.com",
   },
   {
     name: "Enterprise",
@@ -135,7 +135,7 @@ const PLANS: Plan[] = [
       "Procurement support",
     ],
     cta: "Contact sales",
-    ctaHref: "https://calendly.com/aball-ryvaforge/ryva-demo",
+    ctaHref: "mailto:sales@ryvaforge.com",
     ctaSecondary: null,
     ctaSecondaryHref: null,
   },
@@ -199,7 +199,7 @@ export default function PricingPage() {
             >
               {plan.badge && (
                 <div
-                  className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#16a34a] text-white text-xs font-semibold px-3 py-1 rounded-full"
+                  className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#16a34a] text-white text-xs font-semibold px-3 py-1 rounded"
                 >
                   {plan.badge}
                 </div>

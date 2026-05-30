@@ -16,7 +16,7 @@ const POSTS = [
     title: "Why 94% of enterprise AI deployments fail compliance review",
     excerpt:
       "Most teams treat compliance as a documentation problem. It is actually an evidence problem. Here is what auditors actually look for.",
-    href: "#",
+    href: "/enterprise#eu-ai-act",
   },
   {
     tag: "Testing",
@@ -25,7 +25,7 @@ const POSTS = [
     title: "Fuzz testing your LLM agent: what we found across 15 input categories",
     excerpt:
       "We ran 15 fuzz input categories against four different production agents. The failure modes were surprisingly consistent.",
-    href: "#",
+    href: "/product#testing",
   },
   {
     tag: "Compliance",
@@ -34,7 +34,7 @@ const POSTS = [
     title: "Model cards for AI systems: what they are and why regulators want them",
     excerpt:
       "A model card is not a README. It is a structured disclosure document. Here is what goes in one and how Ryva generates them automatically.",
-    href: "#",
+    href: "/product#model-cards",
   },
   {
     tag: "Security",
@@ -43,7 +43,7 @@ const POSTS = [
     title: "Tamper-evident audit logs: how HMAC signing works and why it matters",
     excerpt:
       "An audit log that can be altered after the fact is not an audit log. Here is how cryptographic signing makes lineage records trustworthy.",
-    href: "#",
+    href: "/enterprise#security",
   },
 ];
 
@@ -81,12 +81,12 @@ export default function BlogPage() {
       <section className="px-6 py-16">
         <div className="max-w-5xl mx-auto">
           <a
-            href="#"
+            href="/enterprise#colorado"
             className="block bg-white rounded-xl border border-gray-200 p-8 hover:border-gray-300 transition-colors shadow-sm"
             style={{ borderLeft: "4px solid #16a34a" }}
           >
             <div className="flex items-center gap-3 mb-4">
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${TAG_COLORS["Compliance"]}`}>
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded ${TAG_COLORS["Compliance"]}`}>
                 Compliance
               </span>
               <span className="text-gray-400 text-sm">May 2026</span>
@@ -119,7 +119,7 @@ export default function BlogPage() {
               className="block bg-white rounded-xl border border-gray-200 p-6 hover:border-gray-300 transition-colors shadow-sm"
             >
               <div className="flex items-center gap-3 mb-3">
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${TAG_COLORS[post.tag] ?? "bg-gray-100 text-gray-600"}`}>
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded ${TAG_COLORS[post.tag] ?? "bg-gray-100 text-gray-600"}`}>
                   {post.tag}
                 </span>
                 <span className="text-gray-400 text-sm">{post.date}</span>
@@ -157,11 +157,11 @@ export default function BlogPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.com"
-                className="flex-1 border border-gray-200 rounded-full px-5 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-[#16a34a] transition-colors"
+                className="flex-1 border border-gray-200 rounded px-5 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-[#16a34a] transition-colors"
               />
               <button
                 type="submit"
-                className="bg-[#16a34a] text-white text-sm font-medium px-5 py-2.5 rounded-full hover:bg-[#15803d] transition-colors shrink-0"
+                className="bg-[#16a34a] text-white text-sm font-medium px-5 py-2.5 rounded hover:bg-[#15803d] transition-colors shrink-0"
               >
                 Subscribe
               </button>

@@ -56,23 +56,16 @@ export default function EnterprisePage() {
               Book a discovery call
             </a>
             <a
-              href="#"
+              href="mailto:sales@ryvaforge.com?subject=Enterprise%20Overview%20Request"
               className="border border-gray-300 text-gray-700 px-6 py-3 rounded-full font-medium hover:border-gray-500 transition-colors text-sm"
             >
-              Download overview
+              Request overview
             </a>
           </div>
-          {/* Trust badges */}
-          <div className="flex items-center justify-center gap-3 flex-wrap">
-            {["EU AI Act", "Colorado AI Act", "GDPR Compatible", "Air-gap Ready", "SOC 2 Aligned"].map((t) => (
-              <span
-                key={t}
-                className="text-xs font-semibold text-gray-500 border border-gray-200 rounded-full px-3 py-1"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
+          {/* Trust signals */}
+          <p className="text-xs font-semibold text-gray-400 tracking-wide">
+            EU AI Act &nbsp;·&nbsp; Colorado AI Act &nbsp;·&nbsp; GDPR Compatible &nbsp;·&nbsp; Air-gap Ready &nbsp;·&nbsp; SOC 2 Aligned
+          </p>
         </div>
       </section>
 

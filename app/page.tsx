@@ -51,21 +51,24 @@ const SOCIAL_PROOF = [
 const REGULATORY_CARDS = [
   {
     badge: "In force",
-    badgeColor: "bg-green-100 text-green-700 border-green-200",
+    badgeColor: "text-[#16a34a]",
     title: "EU AI Act",
     desc: "Articles 9-15 covered, machine-readable compliance reports",
+    link: "/enterprise#eu-ai-act",
   },
   {
     badge: "Effective June 2026",
-    badgeColor: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    badgeColor: "text-yellow-600",
     title: "Colorado AI Act",
     desc: "Impact assessments, audit trails, consumer notice requirements",
+    link: "/enterprise#colorado",
   },
   {
     badge: "PII protection built in",
-    badgeColor: "bg-green-100 text-green-700 border-green-200",
+    badgeColor: "text-[#16a34a]",
     title: "GDPR and HIPAA",
     desc: "PII masking, no personal data in audit trails",
+    link: "/enterprise#security",
   },
 ];
 
@@ -78,12 +81,11 @@ export default function Home() {
         <div className="grid md:grid-cols-5 gap-12 items-center">
           {/* Left: 60% */}
           <div className="md:col-span-3">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 text-sm border rounded-full px-4 py-1.5 mb-8"
-              style={{ borderColor: "#bbf7d0", background: "#f0fdf4", color: "#16a34a" }}>
+            {/* Status line */}
+            <p className="flex items-center gap-2 text-[#16a34a] text-sm font-semibold mb-8">
               <span className="w-2 h-2 rounded-full bg-[#16a34a] shrink-0" />
               Colorado AI Act effective June 2026 — Is your AI stack ready?
-            </div>
+            </p>
 
             {/* Headline */}
             <h1
@@ -158,7 +160,7 @@ export default function Home() {
               <div
                 key={p.title}
                 className="bg-white shadow-sm rounded-xl p-6"
-                style={{ borderLeft: "4px solid #f87171" }}
+                style={{ borderLeft: "4px solid #16a34a" }}
               >
                 <h3 className="font-semibold text-gray-900 mb-3 text-base">{p.title}</h3>
                 <p className="text-gray-500 text-sm leading-relaxed">{p.body}</p>
@@ -202,11 +204,12 @@ export default function Home() {
                 className="bg-white rounded-xl p-6 border"
                 style={{ borderColor: "#e5e7eb", borderRadius: 12 }}
               >
-                <span className={`inline-flex items-center text-xs font-semibold px-3 py-1 rounded-full border mb-4 ${card.badgeColor}`}>
-                  {card.badge}
-                </span>
+                <p className={`text-xs font-semibold mb-4 ${card.badgeColor}`}>{card.badge}</p>
                 <h3 className="font-semibold text-gray-900 mb-2">{card.title}</h3>
-                <p className="text-gray-500 text-sm leading-relaxed">{card.desc}</p>
+                <p className="text-gray-500 text-sm leading-relaxed mb-4">{card.desc}</p>
+                <Link href={card.link} className="text-[#16a34a] text-sm font-medium hover:underline">
+                  View coverage
+                </Link>
               </div>
             ))}
           </div>
