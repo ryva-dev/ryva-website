@@ -9,7 +9,7 @@ export default function Footer() {
           {/* Col 1: Brand */}
           <div className="col-span-2 lg:col-span-1">
             <Link href="/" className="inline-block mb-4">
-              <img src="/logo.png" height={40} alt="Ryva" style={{ height: 40 }} />
+              <img src="/logo.png" alt="Ryva" style={{ height: 32 }} />
             </Link>
             <p className="text-gray-500 text-sm leading-relaxed mb-5">
               The AI governance platform for teams shipping AI in production.
@@ -41,6 +41,7 @@ export default function Footer() {
               <div><Link href="/product#observability" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Observability</Link></div>
               <div><Link href="/product#governance" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Governance</Link></div>
               <div><Link href="/pricing" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Pricing</Link></div>
+              <div><Link href="/enterprise#security" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Security</Link></div>
             </div>
           </div>
 
@@ -53,12 +54,9 @@ export default function Footer() {
               <div><Link href="/enterprise#security" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Security</Link></div>
               <div><Link href="/enterprise#audit" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Audit Export</Link></div>
               <div>
-                <a
-                  href="mailto:sales@ryvaforge.com"
-                  className="text-gray-500 hover:text-gray-900 text-sm transition-colors"
-                >
+                <Link href="/contact" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">
                   Contact sales
-                </a>
+                </Link>
               </div>
             </div>
           </div>
@@ -69,8 +67,8 @@ export default function Footer() {
             <div className="space-y-3">
               <div><Link href="/company" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">About</Link></div>
               <div><Link href="/blog" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Blog</Link></div>
-              <div><Link href="#" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Careers</Link></div>
-              <div><Link href="#" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Press</Link></div>
+              <div><Link href="/company" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Careers</Link></div>
+              <div><Link href="/company" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Press</Link></div>
             </div>
           </div>
 
@@ -99,10 +97,10 @@ export default function Footer() {
                 </a>
               </div>
               <div>
-                <a href="https://github.com/ryva-dev/ryva/blob/main/README.md" className="text-gray-500 hover:text-gray-900 text-sm transition-colors" target="_blank" rel="noopener noreferrer">Documentation</a>
+                <Link href="/docs" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Documentation</Link>
               </div>
               <div>
-                <a href="https://github.com/ryva-dev/ryva/releases" className="text-gray-500 hover:text-gray-900 text-sm transition-colors" target="_blank" rel="noopener noreferrer">Changelog</a>
+                <Link href="/changelog" className="text-gray-500 hover:text-gray-900 text-sm transition-colors">Changelog</Link>
               </div>
             </div>
           </div>
