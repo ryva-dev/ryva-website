@@ -56,7 +56,7 @@ export default function ProductPage() {
             One platform. Test runner, lineage engine, governance reporter, model cards, cost forecasting, and audit export. All from a single CLI.
           </p>
           <a
-            href="https://calendly.com/aball-ryvaforge/ryva-demo"
+            href="/demo"
             className="bg-[#16a34a] text-white px-6 py-3 rounded-full font-medium hover:bg-[#15803d] transition-colors text-sm inline-block"
           >
             Book a demo
@@ -363,7 +363,7 @@ export default function ProductPage() {
       </section>
 
       {/* 7. Observability */}
-      <section id="observability" className="py-24 px-6">
+      <section id="observability" className="py-24 px-6" style={{ scrollMarginTop: 60 }}>
         <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-16 items-start">
           <div>
             <h2
@@ -395,8 +395,8 @@ export default function ProductPage() {
         </div>
       </section>
 
-      {/* 8. Model registry */}
-      <section id="model-registry" className="py-24 px-6" style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0", borderBottom: "1px solid #f0f0f0" }}>
+      {/* 8. Cost Intelligence */}
+      <section id="cost" className="py-24 px-6" style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0", borderBottom: "1px solid #f0f0f0" }}>
         <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-16 items-start">
           <TermBlock title="ryva registry list">
             <p><span style={{ color: "#6b7280" }}>$ </span><span style={{ color: "#16a34a" }}>ryva registry list</span></p>

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 
 const ARTICLES = [
   { id: "Article 9",  req: "Risk management system",  coverage: "Structured test results, lineage history, governance scores" },
@@ -23,11 +24,25 @@ export default function EnterprisePage() {
   const [form, setForm] = useState<FormState>({
     name: "", email: "", company: "", teamSize: "", concern: "", message: "",
   });
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitted(true);
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, formType: "enterprise" }),
+      });
+      if (res.ok) {
+        setStatus("success");
+      } else {
+        setStatus("error");
+      }
+    } catch {
+      setStatus("error");
+    }
   }
 
   return (
@@ -49,22 +64,21 @@ export default function EnterprisePage() {
             Governance, auditability, and compliance infrastructure for organizations operating AI in regulated or high-stakes environments.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-12">
-            <a
-              href="https://calendly.com/aball-ryvaforge/ryva-demo"
+            <Link
+              href="/demo"
               className="bg-[#16a34a] text-white px-6 py-3 rounded-full font-medium hover:bg-[#15803d] transition-colors text-sm"
             >
-              Book a discovery call
-            </a>
+              Book a demo
+            </Link>
             <a
               href="mailto:sales@ryvaforge.com?subject=Enterprise%20Overview%20Request"
               className="border border-gray-300 text-gray-700 px-6 py-3 rounded-full font-medium hover:border-gray-500 transition-colors text-sm"
             >
-              Request overview
+              Download overview
             </a>
           </div>
-          {/* Trust signals */}
           <p className="text-xs font-semibold text-gray-400 tracking-wide">
-            EU AI Act &nbsp;·&nbsp; Colorado AI Act &nbsp;·&nbsp; GDPR Compatible &nbsp;·&nbsp; Air-gap Ready &nbsp;·&nbsp; SOC 2 Aligned
+            EU AI Act &nbsp;&middot;&nbsp; Colorado AI Act &nbsp;&middot;&nbsp; GDPR Compatible &nbsp;&middot;&nbsp; Air-gap Ready &nbsp;&middot;&nbsp; SOC 2 Aligned
           </p>
         </div>
       </section>
@@ -89,26 +103,14 @@ export default function EnterprisePage() {
               Records are indexed by run ID, agent name, timestamp, and parent run ID. You can reconstruct the complete decision history for any agent output, including multi-step pipelines.
             </p>
           </div>
-          {/* Terminal */}
           <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-            <div
-              className="px-4 py-2.5 flex items-center gap-1.5"
-              style={{ background: "#161b22", borderBottom: "1px solid #21262d" }}
-            >
+            <div className="px-4 py-2.5 flex items-center gap-1.5" style={{ background: "#161b22", borderBottom: "1px solid #21262d" }}>
               <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
               <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
               <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-              <span
-                className="text-gray-400 text-xs ml-2"
-                style={{ fontFamily: "var(--font-geist-mono)" }}
-              >
-                ryva lineage verify --all
-              </span>
+              <span className="text-gray-400 text-xs ml-2" style={{ fontFamily: "var(--font-geist-mono)" }}>ryva lineage verify --all</span>
             </div>
-            <div
-              className="bg-[#0d1117] p-5"
-              style={{ fontFamily: "var(--font-geist-mono)", fontSize: 12, lineHeight: "1.85" }}
-            >
+            <div className="bg-[#0d1117] p-5" style={{ fontFamily: "var(--font-geist-mono)", fontSize: 12, lineHeight: "1.85" }}>
               <p><span style={{ color: "#6b7280" }}>$ </span><span style={{ color: "#16a34a" }}>ryva lineage verify --all</span></p>
               <p style={{ color: "#8b949e" }} className="mt-1">Verifying 142 lineage records...</p>
               <div className="mt-2 space-y-0.5">
@@ -145,7 +147,6 @@ export default function EnterprisePage() {
             </p>
           </div>
 
-          {/* Article table */}
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
             <table className="w-full text-sm">
               <thead>
@@ -158,10 +159,7 @@ export default function EnterprisePage() {
               </thead>
               <tbody>
                 {ARTICLES.map((a, i) => (
-                  <tr
-                    key={a.id}
-                    style={{ borderBottom: i < ARTICLES.length - 1 ? "1px solid #f3f4f6" : "none" }}
-                  >
+                  <tr key={a.id} style={{ borderBottom: i < ARTICLES.length - 1 ? "1px solid #f3f4f6" : "none" }}>
                     <td className="px-5 py-3 font-medium text-gray-900">{a.id}</td>
                     <td className="px-5 py-3 text-gray-600">{a.req}</td>
                     <td className="px-5 py-3 text-gray-500">{a.coverage}</td>
@@ -195,26 +193,14 @@ export default function EnterprisePage() {
               The package includes both EU AI Act and Colorado AI Act checklists, all 142 verified lineage records, and a machine-readable manifest regulators can process programmatically.
             </p>
           </div>
-          {/* File tree terminal */}
           <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-            <div
-              className="px-4 py-2.5 flex items-center gap-1.5"
-              style={{ background: "#161b22", borderBottom: "1px solid #21262d" }}
-            >
+            <div className="px-4 py-2.5 flex items-center gap-1.5" style={{ background: "#161b22", borderBottom: "1px solid #21262d" }}>
               <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
               <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
               <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-              <span
-                className="text-gray-400 text-xs ml-2"
-                style={{ fontFamily: "var(--font-geist-mono)" }}
-              >
-                ryva audit export
-              </span>
+              <span className="text-gray-400 text-xs ml-2" style={{ fontFamily: "var(--font-geist-mono)" }}>ryva audit export</span>
             </div>
-            <div
-              className="bg-[#0d1117] p-5"
-              style={{ fontFamily: "var(--font-geist-mono)", fontSize: 12, lineHeight: "1.85" }}
-            >
+            <div className="bg-[#0d1117] p-5" style={{ fontFamily: "var(--font-geist-mono)", fontSize: 12, lineHeight: "1.85" }}>
               <p><span style={{ color: "#6b7280" }}>$ </span><span style={{ color: "#16a34a" }}>ryva audit export</span></p>
               <p style={{ color: "#16a34a" }} className="mt-1">✓ Audit package ready</p>
               <div className="mt-3" style={{ color: "#8b949e" }}>
@@ -237,39 +223,81 @@ export default function EnterprisePage() {
         </div>
       </section>
 
+      {/* Audit engagement section */}
+      <section className="py-24 px-6" style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0", borderBottom: "1px solid #f0f0f0" }}>
+        <div className="max-w-5xl mx-auto">
+          <div className="grid md:grid-cols-2 gap-16 items-center">
+            <div>
+              <h2 className="font-bold text-gray-900 tracking-tight mb-4" style={{ fontSize: "clamp(24px,3vw,36px)" }}>
+                Your first compliance audit. 30 days.
+              </h2>
+              <p className="text-gray-500 leading-relaxed mb-6">
+                We connect to your existing AI stack, assess against EU AI Act and Colorado AI Act requirements, and deliver a complete audit package.
+              </p>
+              <div className="space-y-3">
+                {[
+                  "EU AI Act Articles 9-15 fully covered",
+                  "Colorado AI Act SB 24-205 documentation",
+                  "Model cards for every AI system",
+                  "Tamper-evident lineage records",
+                  "Fixed scope. Fixed price.",
+                ].map((item) => (
+                  <div key={item} className="flex items-center gap-3">
+                    <span className="text-[#16a34a] font-bold">&#10003;</span>
+                    <span className="text-gray-700 text-sm">{item}</span>
+                  </div>
+                ))}
+              </div>
+              <Link href="/demo" className="inline-block mt-8 bg-[#16a34a] text-white px-6 py-3 rounded-full font-medium hover:bg-[#15803d] transition-colors text-sm">
+                Book a discovery call
+              </Link>
+            </div>
+            <div className="bg-white border border-gray-100 rounded-xl p-8 shadow-sm">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-6">What you get</p>
+              <div className="space-y-4">
+                {[
+                  { num: "01", title: "Stack assessment", desc: "We inventory all AI systems and map them to regulatory requirements." },
+                  { num: "02", title: "Evidence generation", desc: "We run Ryva against your systems and generate all compliance documentation." },
+                  { num: "03", title: "Audit package", desc: "Complete zip file with everything your legal team needs for regulators." },
+                ].map((step) => (
+                  <div key={step.num} className="flex gap-4">
+                    <span className="text-2xl font-bold text-gray-100">{step.num}</span>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm mb-1">{step.title}</p>
+                      <p className="text-gray-500 text-sm">{step.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA section */}
-      <section className="py-24 px-6 text-center" style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0" }}>
+      <section className="py-24 px-6 text-center" style={{ background: "#ffffff" }}>
         <div className="max-w-2xl mx-auto">
-          <h2
-            className="font-bold text-gray-900 tracking-tight mb-5"
-            style={{ fontSize: "clamp(26px,3.5vw,36px)" }}
-          >
+          <h2 className="font-bold text-gray-900 tracking-tight mb-5" style={{ fontSize: "clamp(26px,3.5vw,36px)" }}>
             Every organization is different.
           </h2>
           <p className="text-gray-500 leading-relaxed mb-8">
             Book a discovery call and we will scope exactly what your team needs.
           </p>
-          <a
-            href="https://calendly.com/aball-ryvaforge/ryva-demo"
-            className="bg-[#16a34a] text-white px-6 py-3 rounded-full font-medium hover:bg-[#15803d] transition-colors text-sm inline-block"
-          >
+          <Link href="/demo" className="bg-[#16a34a] text-white px-6 py-3 rounded-full font-medium hover:bg-[#15803d] transition-colors text-sm inline-block">
             Book a discovery call
-          </a>
+          </Link>
         </div>
       </section>
 
       {/* Contact form */}
-      <section id="contact" className="py-24 px-6">
+      <section id="contact" className="py-24 px-6" style={{ background: "#f9fafb", borderTop: "1px solid #f0f0f0" }}>
         <div className="max-w-xl mx-auto">
-          <h2
-            className="font-bold text-gray-900 tracking-tight mb-3"
-            style={{ fontSize: "clamp(24px,3vw,36px)" }}
-          >
+          <h2 className="font-bold text-gray-900 tracking-tight mb-3" style={{ fontSize: "clamp(24px,3vw,36px)" }}>
             Get in touch
           </h2>
           <p className="text-gray-500 mb-10">We respond within one business day.</p>
 
-          {submitted ? (
+          {status === "success" ? (
             <div className="border border-green-200 bg-green-50 rounded-xl p-8 text-center">
               <p className="text-[#16a34a] font-semibold mb-2">
                 Thank you. We will be in touch within one business day.
@@ -354,11 +382,15 @@ export default function EnterprisePage() {
                   placeholder="Tell us about your use case..."
                 />
               </div>
+              {status === "error" && (
+                <p className="text-red-600 text-sm">Something went wrong. Please try again.</p>
+              )}
               <button
                 type="submit"
-                className="bg-[#16a34a] text-white text-sm font-medium px-6 py-3 rounded-full hover:bg-[#15803d] transition-colors w-full"
+                disabled={status === "loading"}
+                className="bg-[#16a34a] text-white text-sm font-medium px-6 py-3 rounded-full hover:bg-[#15803d] transition-colors w-full disabled:opacity-60"
               >
-                Send message
+                {status === "loading" ? "Sending..." : "Send message"}
               </button>
             </form>
           )}

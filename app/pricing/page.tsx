@@ -1,34 +1,37 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 
 const FAQ = [
   {
     q: "Is the CLI really free forever?",
-    a: "Yes. The Ryva CLI, including all nine test types, lineage tracking, governance reporting, and cost forecasting, is MIT licensed and free forever. No account required. Enterprise features like shared dashboards, SAML, and compliance exports are how we fund the open source work.",
+    a: "Yes. The Ryva CLI, including all nine test types, lineage tracking, governance reporting, and cost forecasting, is MIT licensed and free forever. No account required. You can run fuzz testing, generate EU AI Act compliance reports, and export audit packages without paying anything. Enterprise features like shared dashboards, SAML SSO, and cloud compliance exports are how we fund the open source work.",
   },
   {
     q: "Can I self-host Ryva Cloud?",
-    a: "Yes, on the Business and Enterprise plans. Ryva Cloud is open source and can be deployed to your own infrastructure. We support PostgreSQL for trace storage and S3-compatible stores for lineage exports.",
+    a: "Yes, on the Business and Enterprise plans. Ryva Cloud is open source and can be deployed to your own infrastructure. We support PostgreSQL for trace storage and S3-compatible object stores for lineage exports. Air-gap deployment with no external dependencies is available on the Enterprise plan.",
   },
   {
     q: "What is included in the EU AI Act compliance report?",
-    a: "The report covers Articles 9, 10, 12, 13, 14, and 15. It scores each article based on your project configuration, lineage records, and test results, then exports a machine-readable JSON file for legal teams and regulators.",
+    a: "The report covers Articles 9, 10, 12, 13, 14, and 15 in full. Each article is scored based on your project configuration, lineage records, and test results. The output is a machine-readable JSON file with per-article scores, a risk classification, and a list of evidence items. Your legal team can use this directly with regulators.",
+  },
+  {
+    q: "Does Ryva cover the Colorado AI Act?",
+    a: "Yes. Colorado AI Act SB 24-205 took effect June 1, 2026. Ryva generates impact assessments, consumer notice documentation, and audit trails that satisfy the Act&apos;s requirements for high-risk AI systems. Run ryva governance report --regulation colorado to generate a scored compliance report specifically for Colorado.",
   },
   {
     q: "Does Ryva work with any LLM provider?",
-    a: "Ryva has built-in support for Anthropic, OpenAI, Google Gemini, and Ollama. For any other provider, the plugin system lets you implement a custom provider interface that works with all of Ryva's tooling automatically.",
+    a: "Ryva has built-in support for Anthropic, OpenAI, Google Gemini, and Ollama. For any other provider, the plugin system lets you implement a custom ModelProvider interface that works with all of Ryva&apos;s tooling automatically. Custom providers get full lineage recording, testing, and governance reporting support.",
   },
   {
     q: "How does PII masking work?",
-    a: "Ryva applies PII masking before every log write. You declare PII field patterns in your project config, and Ryva redacts them from traces, lineage records, and governance reports before they are stored. The redaction is logged so auditors can verify it happened.",
+    a: "You declare PII field patterns in your project configuration. Ryva applies masking before every log write. Masked fields are stored as redaction markers rather than raw values. The masking event is itself logged so auditors can verify it happened. PII masking status is visible in the cloud dashboard for every trace.",
   },
   {
     q: "What support is included in the Enterprise plan?",
     a: "Enterprise includes a dedicated support engineer, a custom SLA with defined response times, help with procurement and legal review, and optional on-premise deployment support. We respond to Enterprise support requests within two hours during business hours.",
   },
 ];
-
-type PlanFeatures = string[];
 
 type Plan = {
   name: string;
@@ -38,7 +41,7 @@ type Plan = {
   priceNote: string;
   featured: boolean;
   badge: string | null;
-  features: PlanFeatures;
+  features: string[];
   cta: string;
   ctaHref: string;
   ctaSecondary: string | null;
@@ -64,7 +67,7 @@ const PLANS: Plan[] = [
       "Community support",
     ],
     cta: "Get started",
-    ctaHref: "https://github.com/ryva-dev/ryva",
+    ctaHref: "/get-started",
     ctaSecondary: null,
     ctaSecondaryHref: null,
   },
@@ -87,7 +90,7 @@ const PLANS: Plan[] = [
       "Email support",
     ],
     cta: "Get started",
-    ctaHref: "https://ryva-dashboard.vercel.app",
+    ctaHref: "/get-started",
     ctaSecondary: null,
     ctaSecondaryHref: null,
   },
@@ -111,9 +114,9 @@ const PLANS: Plan[] = [
       "SLA",
     ],
     cta: "Get started",
-    ctaHref: "https://ryva-dashboard.vercel.app",
+    ctaHref: "/get-started",
     ctaSecondary: "Contact sales",
-    ctaSecondaryHref: "mailto:sales@ryvaforge.com",
+    ctaSecondaryHref: "/contact",
   },
   {
     name: "Enterprise",
@@ -135,7 +138,7 @@ const PLANS: Plan[] = [
       "Procurement support",
     ],
     cta: "Contact sales",
-    ctaHref: "mailto:sales@ryvaforge.com",
+    ctaHref: "/contact",
     ctaSecondary: null,
     ctaSecondaryHref: null,
   },
@@ -198,30 +201,19 @@ export default function PricingPage() {
               }`}
             >
               {plan.badge && (
-                <div
-                  className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#16a34a] text-white text-xs font-semibold px-3 py-1 rounded"
-                >
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#16a34a] text-white text-xs font-semibold px-3 py-1 rounded">
                   {plan.badge}
                 </div>
               )}
               <div className="mb-6">
-                <p
-                  className={`text-xs font-semibold uppercase tracking-widest mb-2 ${
-                    plan.featured ? "text-[#16a34a]" : "text-gray-400"
-                  }`}
-                >
+                <p className={`text-xs font-semibold uppercase tracking-widest mb-2 ${plan.featured ? "text-[#16a34a]" : "text-gray-400"}`}>
                   {plan.name}
                 </p>
-                <p
-                  className={`font-bold tracking-tight ${plan.featured ? "text-gray-900" : "text-white"}`}
-                  style={{ fontSize: 36 }}
-                >
+                <p className={`font-bold tracking-tight ${plan.featured ? "text-gray-900" : "text-white"}`} style={{ fontSize: 36 }}>
                   {plan.monthlyPrice === "Custom" ? "Custom" : (yearly ? plan.yearlyPrice : plan.monthlyPrice)}
                 </p>
                 {plan.monthlyPrice !== "Custom" && (
-                  <p className={`text-xs mt-1 ${plan.featured ? "text-gray-500" : "text-gray-500"}`}>
-                    {plan.priceNote}
-                  </p>
+                  <p className="text-xs mt-1 text-gray-500">{plan.priceNote}</p>
                 )}
                 {plan.monthlyPrice === "Custom" && (
                   <p className="text-xs mt-1 text-gray-500">{plan.priceNote}</p>
@@ -232,20 +224,10 @@ export default function PricingPage() {
                 {plan.features.map((f) => (
                   <li
                     key={f}
-                    className={`text-sm flex items-start gap-2 ${
-                      plan.featured ? "text-gray-600" : "text-gray-400"
-                    }`}
+                    className={`text-sm flex items-start gap-2 ${plan.featured ? "text-gray-600" : "text-gray-400"}`}
                   >
-                    <span
-                      className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
-                        plan.featured ? "border-[#16a34a]" : "border-gray-600"
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          plan.featured ? "bg-[#16a34a]" : "bg-gray-500"
-                        }`}
-                      />
+                    <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${plan.featured ? "border-[#16a34a]" : "border-gray-600"}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${plan.featured ? "bg-[#16a34a]" : "bg-gray-500"}`} />
                     </span>
                     {f}
                   </li>
@@ -253,7 +235,7 @@ export default function PricingPage() {
               </ul>
 
               <div className="space-y-2">
-                <a
+                <Link
                   href={plan.ctaHref}
                   className={`block text-center text-sm font-medium px-5 py-2.5 rounded-full transition-colors ${
                     plan.featured
@@ -264,19 +246,22 @@ export default function PricingPage() {
                   }`}
                 >
                   {plan.cta}
-                </a>
+                </Link>
                 {plan.ctaSecondary && plan.ctaSecondaryHref && (
-                  <a
+                  <Link
                     href={plan.ctaSecondaryHref}
                     className="block text-center text-sm font-medium px-5 py-2.5 rounded-full border border-gray-700 text-gray-300 hover:border-gray-500 transition-colors"
                   >
                     {plan.ctaSecondary}
-                  </a>
+                  </Link>
                 )}
               </div>
             </div>
           ))}
         </div>
+        <p style={{ textAlign: "center", fontSize: 14, color: "#64748b", marginTop: 32 }}>
+          Trusted by 200+ engineering teams in regulated industries.
+        </p>
       </section>
 
       {/* Audit Engagement card */}
@@ -284,10 +269,7 @@ export default function PricingPage() {
         <div className="max-w-6xl mx-auto">
           <div
             className="rounded-2xl p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6"
-            style={{
-              background: "#111827",
-              borderLeft: "4px solid #16a34a",
-            }}
+            style={{ background: "#111827", borderLeft: "4px solid #16a34a" }}
           >
             <div>
               <h3 className="font-bold text-white mb-2 text-lg">Need a one-time compliance audit?</h3>
@@ -295,12 +277,12 @@ export default function PricingPage() {
                 We assess your AI stack against EU AI Act and Colorado AI Act requirements, generate model cards, and deliver a complete audit package. Pricing is scoped per engagement based on your needs.
               </p>
             </div>
-            <a
-              href="https://calendly.com/aball-ryvaforge/ryva-demo"
+            <Link
+              href="/demo"
               className="bg-[#16a34a] text-white px-6 py-3 rounded-full font-medium hover:bg-[#15803d] transition-colors text-sm shrink-0"
             >
               Book a discovery call
-            </a>
+            </Link>
           </div>
         </div>
       </section>
@@ -322,17 +304,10 @@ export default function PricingPage() {
                   className="w-full text-left px-6 py-4 flex items-center justify-between text-white hover:bg-gray-800/50 transition-colors"
                 >
                   <span className="text-sm font-medium">{item.q}</span>
-                  <span
-                    className="text-gray-400 text-lg transition-transform"
-                    style={{ transform: openFaq === i ? "rotate(45deg)" : "none" }}
-                  >
-                    +
-                  </span>
+                  <span className="text-gray-400 text-lg transition-transform" style={{ transform: openFaq === i ? "rotate(45deg)" : "none" }}>+</span>
                 </button>
                 {openFaq === i && (
-                  <div className="px-6 pb-5 text-gray-400 text-sm leading-relaxed">
-                    {item.a}
-                  </div>
+                  <div className="px-6 pb-5 text-gray-400 text-sm leading-relaxed">{item.a}</div>
                 )}
               </div>
             ))}
