@@ -115,10 +115,10 @@ export default function Footer() {
             &copy; 2026 Ryva Forge Inc. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <Link href="#" className="text-gray-400 hover:text-gray-600 text-xs transition-colors">
+            <Link href="/privacy" className="text-gray-400 hover:text-gray-600 text-xs transition-colors">
               Privacy Policy
             </Link>
-            <Link href="#" className="text-gray-400 hover:text-gray-600 text-xs transition-colors">
+            <Link href="/terms" className="text-gray-400 hover:text-gray-600 text-xs transition-colors">
               Terms of Service
             </Link>
           </div>
