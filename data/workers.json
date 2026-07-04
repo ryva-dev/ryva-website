@@ -1,0 +1,171 @@
+[
+  {
+    "name": "Marcus Reyes",
+    "title": "Full-Stack Engineer",
+    "department": "Engineering",
+    "experience": "8 yrs experience",
+    "salary": "$8,500/mo",
+    "status": "Available",
+    "description": "Marcus builds and maintains web applications with a focus on reliability and clean architecture. He works across frontend and backend, writes well-tested code, and ships features that hold up under real production load.",
+    "skills": ["JavaScript", "TypeScript", "React", "Node.js", "PostgreSQL"],
+    "imageUrl": "/avatars/marcus-reyes.jpg",
+    "slug": "marcus-reyes",
+    "profile": {
+      "availabilityNote": "Available for full-time or contract engagements. Comfortable working in existing codebases or greenfield projects.",
+      "category": "Software Development",
+      "experienceSummary": "Eight years building production web applications across fintech, logistics, and developer tools.",
+      "industry": "Technology",
+      "philosophy": "\"Software should be boring to operate. If a system needs constant attention, it was not designed well enough.\"",
+      "responsibilities": [
+        "Design application architecture",
+        "Build and ship features",
+        "Write and maintain tests",
+        "Review pull requests",
+        "Debug production issues",
+        "Document systems",
+        "Collaborate with product"
+      ],
+      "reviews": [
+        {
+          "company": "Vector Logistics",
+          "name": "Priya Nair",
+          "quote": "Marcus is the kind of engineer who makes the whole team better. His code reviews alone improved our standards.",
+          "rating": 5
+        },
+        {
+          "company": "Ledger Finance",
+          "name": "Tom Albright",
+          "quote": "Solid engineer. Shipped on time and communicated clearly throughout.",
+          "rating": 4
+        }
+      ],
+      "sampleWork": [
+        "Led migration of a monolith to a modular service architecture with zero downtime",
+        "Reduced API p95 latency by 63% through query optimization and caching",
+        "Built an internal feature-flag system adopted by 6 teams"
+      ],
+      "specialties": ["React", "Node.js", "PostgreSQL", "System design", "API design", "CI/CD"],
+      "summaryTitle": "Professional summary"
+    }
+  },
+  {
+    "name": "Sofia Marchetti",
+    "title": "Brand Strategist",
+    "department": "Marketing",
+    "experience": "6 yrs experience",
+    "salary": "$6,000/mo",
+    "status": "Limited availability",
+    "description": "Sofia develops brand strategies for consumer companies. She conducts market research, defines positioning, writes brand guidelines, and works with creative teams to bring positioning to life across every channel.",
+    "skills": ["Brand strategy", "Market research", "Positioning", "Messaging", "Workshop facilitation"],
+    "imageUrl": "/avatars/sofia-marchetti.jpg",
+    "slug": "sofia-marchetti",
+    "profile": {
+      "availabilityNote": "Available for strategy projects, audits, and ongoing brand advisory work.",
+      "category": "Brand Strategy",
+      "experienceSummary": "Six years shaping consumer brands through research, positioning, and messaging systems.",
+      "industry": "Marketing",
+      "philosophy": "\"A strong brand reduces decision-making friction for every team.\"",
+      "responsibilities": ["Run market research", "Develop positioning", "Write messaging frameworks", "Guide campaign strategy"],
+      "reviews": [],
+      "sampleWork": ["Repositioned a consumer brand ahead of a multi-market launch"],
+      "specialties": ["Brand strategy", "Research", "Messaging"],
+      "summaryTitle": "Professional summary"
+    }
+  },
+  {
+    "name": "David Chen",
+    "title": "Sales Development Representative",
+    "department": "Sales",
+    "experience": "4 yrs experience",
+    "salary": "$3,800/mo",
+    "status": "Available",
+    "description": "David runs outbound sales pipelines for B2B companies. He researches accounts, writes cold outreach, books qualified meetings, and hands off well-prepared opportunities to account executives.",
+    "skills": ["Outbound sales", "Lead research", "Cold email", "Prospecting", "CRM hygiene"],
+    "imageUrl": "/avatars/david-chen.jpg",
+    "slug": "david-chen",
+    "profile": {
+      "availabilityNote": "Available for outbound pipeline building and SDR operations support.",
+      "category": "Sales",
+      "experienceSummary": "Four years running B2B prospecting and outbound workflows.",
+      "industry": "Sales",
+      "philosophy": "\"Good outbound is disciplined, personalized, and measurable.\"",
+      "responsibilities": ["Research accounts", "Draft outreach", "Maintain CRM", "Book meetings"],
+      "reviews": [],
+      "sampleWork": ["Built a prospecting workflow that increased reply rates by 22%"],
+      "specialties": ["Prospecting", "Outbound sales", "CRM hygiene"],
+      "summaryTitle": "Professional summary"
+    }
+  },
+  {
+    "name": "Elena Brooks",
+    "title": "Content Strategist",
+    "department": "Content",
+    "experience": "7 yrs experience",
+    "salary": "$5,200/mo",
+    "status": "Available",
+    "description": "Elena plans editorial calendars, defines content priorities, develops long-form content, and ensures every piece serves a clear business purpose.",
+    "skills": ["Content strategy", "SEO", "Writing", "Editorial planning", "Research"],
+    "imageUrl": "/avatars/elena-brooks.jpg",
+    "slug": "elena-brooks",
+    "profile": {
+      "availabilityNote": "Available for editorial strategy and content planning engagements.",
+      "category": "Content",
+      "experienceSummary": "Seven years building editorial systems and business-focused content programs.",
+      "industry": "Content",
+      "philosophy": "\"Every piece of content should have a clear job to do.\"",
+      "responsibilities": ["Plan editorial calendars", "Set content priorities", "Guide long-form content"],
+      "reviews": [],
+      "sampleWork": ["Designed an editorial roadmap aligned to pipeline goals"],
+      "specialties": ["SEO", "Writing", "Editorial planning"],
+      "summaryTitle": "Professional summary"
+    }
+  },
+  {
+    "name": "Isabella Rossi",
+    "title": "Legal Counsel",
+    "department": "Legal",
+    "experience": "9 yrs experience",
+    "salary": "$7,000/mo",
+    "status": "Limited availability",
+    "description": "Isabella provides legal support for technology companies. She drafts and reviews contracts, manages vendor agreements, advises on compliance, and helps leadership navigate legal risk without slowing down the business.",
+    "skills": ["Contract drafting", "Legal review", "Compliance", "Terms of service", "Privacy policy"],
+    "imageUrl": "/avatars/isabella-rossi.jpg",
+    "slug": "isabella-rossi",
+    "profile": {
+      "availabilityNote": "Available for legal review, commercial contracts, and internal compliance support.",
+      "category": "Legal",
+      "experienceSummary": "Nine years advising technology businesses on contracts, risk, and compliance.",
+      "industry": "Technology",
+      "philosophy": "\"Legal should help the business move with confidence, not slow it down.\"",
+      "responsibilities": ["Draft contracts", "Review legal risk", "Advise leadership"],
+      "reviews": [],
+      "sampleWork": ["Standardized vendor contract review across a growing SaaS team"],
+      "specialties": ["Contract drafting", "Compliance", "Privacy policy"],
+      "summaryTitle": "Professional summary"
+    }
+  },
+  {
+    "name": "Lena Carter",
+    "title": "UGC Talent Manager",
+    "department": "Creator Economy",
+    "experience": "5 yrs experience",
+    "salary": "$4,200/mo",
+    "status": "Available",
+    "description": "Lena works with UGC creators to help them consistently secure paid partnerships. She organizes outreach, improves positioning, reviews portfolios, develops pitching strategies, and manages the creator pipeline from first contact to signed deal.",
+    "skills": ["Outreach strategy", "Creator relations", "Portfolio review", "Negotiation", "Pipeline tracking"],
+    "imageUrl": "/avatars/lena-carter.jpg",
+    "slug": "lena-carter",
+    "profile": {
+      "availabilityNote": "Available for creator outreach, portfolio review, and partnership pipeline support.",
+      "category": "Creator Partnerships",
+      "experienceSummary": "Five years supporting creator positioning, outreach systems, and brand deal pipelines.",
+      "industry": "Creator Economy",
+      "philosophy": "\"Consistency wins more brand deals than occasional bursts of outreach.\"",
+      "responsibilities": ["Organize outreach", "Review portfolios", "Track negotiations"],
+      "reviews": [],
+      "sampleWork": ["Built a creator pipeline that increased qualified replies week over week"],
+      "specialties": ["Creator relations", "Negotiation", "Pipeline tracking"],
+      "summaryTitle": "Professional summary"
+    }
+  }
+]

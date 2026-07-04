@@ -1,0 +1,12 @@
+.env
+node_modules/
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+data/users.json
+data/sessions.json
+data/app.db
+data/app.db-*
+data/outbox.log
+/tmp/
