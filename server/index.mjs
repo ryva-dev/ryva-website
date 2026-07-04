@@ -22,6 +22,7 @@ const isProduction = process.env.NODE_ENV === "production";
 const appUrl = process.env.APP_URL ?? "http://localhost:5173";
 const allowedOrigin = new URL(appUrl).origin;
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
+const host = process.env.HOST ?? "0.0.0.0";
 
 if (isProduction && !process.env.APP_URL) {
   throw new Error("APP_URL must be set in production.");
@@ -523,6 +524,6 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Ryva API listening on http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`Ryva API listening on http://${host}:${port}`);
 });
