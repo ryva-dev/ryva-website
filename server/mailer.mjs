@@ -20,16 +20,28 @@ function getMailerConfig() {
     throw new Error("SMTP configuration is incomplete. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM.");
   }
 
+  if (SMTP_HOST === "smtp.resend.com" && SMTP_USER === "resend") {
+    return {
+      from: SMTP_FROM,
+      mode: "resend-api",
+      token: SMTP_PASS
+    };
+  }
+
   return {
     from: SMTP_FROM,
+    mode: "smtp",
     transporter: nodemailer.createTransport({
       auth: {
         pass: SMTP_PASS,
         user: SMTP_USER
       },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
       host: SMTP_HOST,
       port: Number.parseInt(SMTP_PORT, 10),
-      secure: Number.parseInt(SMTP_PORT, 10) === 465
+      secure: Number.parseInt(SMTP_PORT, 10) === 465,
+      socketTimeout: 10000
     })
   };
 }
@@ -44,13 +56,35 @@ export async function sendTransactionalEmail({ html, subject, text, to }) {
     return { mode: "outbox", preview: outboxPath };
   }
 
-  await config.transporter.sendMail({
-    from: config.from,
-    html,
-    subject,
-    text,
-    to
-  });
+  if (config.mode === "resend-api") {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${config.token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: config.from,
+        html,
+        subject,
+        text,
+        to: [to]
+      })
+    });
 
-  return { mode: "smtp", preview: null };
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Resend API request failed: ${response.status} ${body}`);
+    }
+  } else {
+    await config.transporter.sendMail({
+      from: config.from,
+      html,
+      subject,
+      text,
+      to
+    });
+  }
+
+  return { mode: config.mode, preview: null };
 }
