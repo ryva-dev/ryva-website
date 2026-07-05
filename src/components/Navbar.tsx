@@ -5,6 +5,7 @@ type NavbarProps = {
   onLogout: () => Promise<void>;
   onSearchChange: (value: string) => void;
   searchQuery: string;
+  showSearch: boolean;
   userName: string | null;
 };
 
@@ -15,11 +16,12 @@ export function Navbar({
   onLogout,
   onSearchChange,
   searchQuery,
+  showSearch,
   userName
 }: NavbarProps) {
   return (
     <header className="navbar">
-      <a className="brand" href="#workers" aria-label="Ryva home">
+      <a className="brand" href="#home" aria-label="Ryva home">
         <span>Ryva</span>
       </a>
       <nav className="nav-links" aria-label="Primary">
@@ -33,18 +35,22 @@ export function Navbar({
           </a>
         ))}
       </nav>
-      <label className="navbar-search" htmlFor="worker-search">
-        <span className="navbar-search-icon" aria-hidden="true">
-          ○
-        </span>
-        <input
-          id="worker-search"
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Search workers by role, skill, department..."
-          type="search"
-          value={searchQuery}
-        />
-      </label>
+      {showSearch ? (
+        <label className="navbar-search" htmlFor="worker-search">
+          <span className="navbar-search-icon" aria-hidden="true">
+            ○
+          </span>
+          <input
+            id="worker-search"
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search workers by role, skill, department..."
+            type="search"
+            value={searchQuery}
+          />
+        </label>
+      ) : (
+        <div className="navbar-search-spacer" aria-hidden="true" />
+      )}
       <div className="nav-actions">
         {userName ? (
           <>
@@ -58,7 +64,7 @@ export function Navbar({
             Sign in
           </button>
         )}
-        <a className="button button-primary" href="#hire">
+        <a className="button button-primary" href="#workers">
           Hire a worker
         </a>
       </div>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AboutPage } from "./components/AboutPage";
 import { AuthModal } from "./components/AuthModal";
 import { FilterSidebar } from "./components/FilterSidebar";
+import { HomePage } from "./components/HomePage";
 import { Navbar } from "./components/Navbar";
 import { WorkerCard } from "./components/WorkerCard";
 import { WorkerProfilePage } from "./components/WorkerProfilePage";
@@ -16,18 +17,19 @@ type AuthUser = {
 };
 
 const navItems = [
+  { label: "Home", href: "#home" },
   { label: "Workers", href: "#workers" },
   { label: "About", href: "#about" }
 ];
 
-const allowedViews = new Set(["workers", "about"]);
+const allowedViews = new Set(["home", "workers", "about"]);
 
 function getViewFromHash() {
   const hash = window.location.hash.replace("#", "");
   if (hash.startsWith("worker-")) {
     return hash;
   }
-  return allowedViews.has(hash) ? hash : "workers";
+  return allowedViews.has(hash) ? hash : "home";
 }
 
 function parseSalaryValue(salary: string) {
@@ -454,6 +456,7 @@ export default function App() {
           onLogout={handleLogout}
           onSearchChange={handleSearchChange}
           searchQuery={searchQuery}
+          showSearch={view !== "home"}
           userName={user?.name ?? null}
         />
 
@@ -472,6 +475,19 @@ export default function App() {
             <p>Fetching the worker marketplace.</p>
           </div>
         ) : null}
+
+        {!isWorkersLoading && view === "home" && (
+          <HomePage
+            onBrowseWorkers={() => {
+              window.location.hash = "workers";
+            }}
+            onOpenAuth={() => {
+              setAuthError("");
+              setIsAuthModalOpen(true);
+            }}
+            workers={workers}
+          />
+        )}
 
         {!isWorkersLoading && view === "workers" && (
           <WorkersPage
