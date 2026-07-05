@@ -147,6 +147,15 @@ function hasHiredWorker(userId, workerSlug) {
 
 function readOfficeOverlaysForUser(userId) {
   return {
+    briefings: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, id, title, date_label AS dateLabel, summary,
+                agenda_json AS agendaJson, decisions_json AS decisionsJson, actions_json AS actionsJson
+         FROM office_custom_briefings
+         WHERE user_id = ?
+         ORDER BY created_at DESC`
+      )
+      .all(userId),
     chats: db
       .prepare(
         `SELECT worker_slug AS workerSlug, id, author, text, created_at AS timestamp
@@ -192,7 +201,15 @@ function readOfficeOverlaysForUser(userId) {
          WHERE user_id = ?
          ORDER BY uploaded_at DESC`
       )
-      .all(userId)
+      .all(userId),
+    globalSettings:
+      db
+        .prepare(
+          `SELECT settings_json AS settingsJson
+           FROM office_global_settings
+           WHERE user_id = ?`
+        )
+        .get(userId) ?? null
   };
 }
 
@@ -914,6 +931,102 @@ app.post("/api/office/workers/:slug/files", assertOrigin, requireAuth, async (re
   ).run(randomUUID(), req.user.id, workerSlug, "Uploaded a file.", "Files", name, nowIso());
 
   res.status(201).json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/files/:fileId/delete", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const fileId = req.params.fileId;
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  const file = db
+    .prepare(
+      `SELECT stored_name, name
+       FROM office_uploaded_files
+       WHERE id = ? AND user_id = ? AND worker_slug = ?`
+    )
+    .get(fileId, req.user.id, workerSlug);
+
+  if (!file) {
+    res.status(404).json({ error: "File not found." });
+    return;
+  }
+
+  db.prepare("DELETE FROM office_uploaded_files WHERE id = ? AND user_id = ?").run(fileId, req.user.id);
+
+  try {
+    await fs.unlink(path.join(uploadsDir, req.user.id, file.stored_name));
+  } catch {
+    // Ignore missing file on disk if metadata was present.
+  }
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Removed a file.", "Files", file.name, nowIso());
+
+  res.json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/briefings", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const { agenda, dateLabel, decisionsNeeded, recommendedActions, summary, title } = req.body ?? {};
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!title || !dateLabel) {
+    res.status(400).json({ error: "Briefing title and time are required." });
+    return;
+  }
+
+  const briefingId = randomUUID();
+  db.prepare(
+    `INSERT INTO office_custom_briefings
+     (id, user_id, worker_slug, title, date_label, summary, agenda_json, decisions_json, actions_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    briefingId,
+    req.user.id,
+    workerSlug,
+    String(title),
+    String(dateLabel),
+    String(summary || ""),
+    JSON.stringify(Array.isArray(agenda) ? agenda : []),
+    JSON.stringify(Array.isArray(decisionsNeeded) ? decisionsNeeded : []),
+    JSON.stringify(Array.isArray(recommendedActions) ? recommendedActions : []),
+    nowIso()
+  );
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Scheduled a briefing.", "Briefings", String(title), nowIso());
+
+  res.status(201).json({ ok: true });
+});
+
+app.post("/api/office/settings", assertOrigin, requireAuth, async (req, res) => {
+  const settings = req.body?.settings;
+  if (!settings || typeof settings !== "object") {
+    res.status(400).json({ error: "Office settings payload is invalid." });
+    return;
+  }
+
+  db.prepare(
+    `INSERT INTO office_global_settings (user_id, settings_json, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       settings_json = excluded.settings_json,
+       updated_at = excluded.updated_at`
+  ).run(req.user.id, JSON.stringify(settings), nowIso());
+
+  res.json({ ok: true });
 });
 
 app.use(express.static(distDir));

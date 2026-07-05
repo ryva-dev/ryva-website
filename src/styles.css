@@ -1521,6 +1521,25 @@ a:focus-visible {
   border-bottom: 0;
 }
 
+.table-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.table-link-button:hover {
+  color: #334155;
+}
+
 .knowledge-grid,
 .worker-directory {
   display: grid;
@@ -1607,6 +1626,12 @@ a:focus-visible {
 
 .file-upload-form input[type="file"] {
   max-width: 100%;
+}
+
+.notice-banner-success {
+  border-color: #d7ebe1;
+  background: #f3fbf7;
+  color: #14532d;
 }
 
 .worker-directory-card h3 {

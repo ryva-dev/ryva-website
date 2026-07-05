@@ -49,6 +49,32 @@ type OfficeOverlayFile = WorkerFile & {
   workerSlug: string;
 };
 
+type OfficeOverlayBriefing = {
+  actionsJson: string;
+  agendaJson: string;
+  dateLabel: string;
+  decisionsJson: string;
+  id: string;
+  summary: string;
+  title: string;
+  workerSlug: string;
+};
+
+type OfficeGlobalSettings = {
+  autoBriefingPrep: string;
+  briefingDigestTime: string;
+  defaultTaskPriority: string;
+  digestDelivery: string;
+  meetingBuffer: string;
+  managerSummaryFrequency: string;
+  notificationWindow: string;
+  officeHours: string;
+  quietHours: string;
+  reviewCadence: string;
+  reviewReminderLead: string;
+  timezone: string;
+};
+
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -170,17 +196,49 @@ function buildSettingsFormValues(worker: OfficeWorker) {
   };
 }
 
+function buildDefaultOfficeSettings(): OfficeGlobalSettings {
+  return {
+    autoBriefingPrep: "Enabled",
+    briefingDigestTime: "08:30",
+    defaultTaskPriority: "Medium",
+    digestDelivery: "Email and in-office",
+    meetingBuffer: "15 minutes",
+    managerSummaryFrequency: "Daily",
+    notificationWindow: "9:00 AM - 6:00 PM",
+    officeHours: "9:00 AM - 5:00 PM",
+    quietHours: "7:00 PM - 8:00 AM",
+    reviewCadence: "Weekly",
+    reviewReminderLead: "2 hours before",
+    timezone: "America/New_York"
+  };
+}
+
 function mergeOfficeWorkers(
   workers: OfficeWorker[],
   chats: OfficeOverlayChat[],
   tasks: OfficeOverlayTask[],
   worklog: OfficeOverlayWorklog[],
+  briefings: OfficeOverlayBriefing[],
   settings: OfficeOverlaySettings[],
   knowledge: OfficeOverlayKnowledge[],
   files: OfficeOverlayFile[]
 ) {
   return workers.map((worker) => ({
     ...worker,
+    briefings: [
+      ...briefings
+        .filter((entry) => entry.workerSlug === worker.id)
+        .map((entry) => ({
+          agenda: JSON.parse(entry.agendaJson) as string[],
+          dateLabel: entry.dateLabel,
+          decisionsNeeded: JSON.parse(entry.decisionsJson) as string[],
+          id: entry.id,
+          recommendedActions: JSON.parse(entry.actionsJson) as string[],
+          summary: entry.summary,
+          title: entry.title
+        })),
+      ...worker.briefings
+    ],
     chat: [...worker.chat, ...chats.filter((entry) => entry.workerSlug === worker.id)],
     files: [
       ...files
@@ -637,9 +695,11 @@ function KnowledgeProfile({
 
 function FilesPanel({
   files,
+  onDelete,
   onUpload
 }: {
   files: WorkerFile[];
+  onDelete: (fileId: string) => Promise<void>;
   onUpload: (file: File) => Promise<void>;
 }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -670,6 +730,7 @@ function FilesPanel({
             <th>Name</th>
             <th>Type</th>
             <th>Updated</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -678,11 +739,187 @@ function FilesPanel({
               <td>{file.downloadUrl ? <a href={file.downloadUrl}>{file.name}</a> : file.name}</td>
               <td>{file.type}</td>
               <td>{file.updatedAt}</td>
+              <td>{file.id ? <button className="table-link-button" onClick={() => void onDelete(file.id!)} type="button">Remove</button> : null}</td>
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function OfficeTaskComposer({
+  workers,
+  onCreate
+}: {
+  onCreate: (payload: {
+    dueDate: string;
+    priority: OfficeTask["priority"];
+    title: string;
+    workerSlug: string;
+  }) => Promise<void>;
+  workers: OfficeWorker[];
+}) {
+  const [form, setForm] = useState({
+    dueDate: "Tomorrow",
+    priority: "High" as OfficeTask["priority"],
+    title: "",
+    workerSlug: workers[0]?.id ?? ""
+  });
+
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      workerSlug: current.workerSlug || workers[0]?.id || ""
+    }));
+  }, [workers]);
+
+  return (
+    <form
+      className="settings-form-grid"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!form.workerSlug || !form.title.trim()) return;
+        void onCreate({
+          dueDate: form.dueDate,
+          priority: form.priority,
+          title: form.title.trim(),
+          workerSlug: form.workerSlug
+        });
+        setForm((current) => ({ ...current, title: "" }));
+      }}
+    >
+      <label>
+        <span>Assign to</span>
+        <select onChange={(event) => setForm({ ...form, workerSlug: event.target.value })} value={form.workerSlug}>
+          {workers.map((worker) => (
+            <option key={worker.id} value={worker.id}>
+              {worker.name} · {worker.department}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Priority</span>
+        <select
+          onChange={(event) => setForm({ ...form, priority: event.target.value as OfficeTask["priority"] })}
+          value={form.priority}
+        >
+          <option value="Low">Low</option>
+          <option value="Medium">Medium</option>
+          <option value="High">High</option>
+        </select>
+      </label>
+      <label className="settings-form-full">
+        <span>Task title</span>
+        <input
+          onChange={(event) => setForm({ ...form, title: event.target.value })}
+          placeholder="Review revised outbound sequence"
+          value={form.title}
+        />
+      </label>
+      <label>
+        <span>Due date</span>
+        <input onChange={(event) => setForm({ ...form, dueDate: event.target.value })} value={form.dueDate} />
+      </label>
+      <div className="form-actions-row">
+        <button className="button button-primary" disabled={!form.workerSlug || !form.title.trim()} type="submit">
+          Create task
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function OfficeMeetingScheduler({
+  workers,
+  onCreate
+}: {
+  onCreate: (payload: {
+    agenda: string[];
+    dateLabel: string;
+    decisionsNeeded: string[];
+    recommendedActions: string[];
+    summary: string;
+    title: string;
+    workerSlug: string;
+  }) => Promise<void>;
+  workers: OfficeWorker[];
+}) {
+  const [form, setForm] = useState({
+    agenda: "Review active work\nConfirm next approvals",
+    dateLabel: "Tomorrow · 11:00 AM",
+    decisionsNeeded: "Approve next batch",
+    recommendedActions: "Create follow-up task",
+    summary: "Scheduled office review to align on output, blockers, and next approvals.",
+    title: "Office Review",
+    workerSlug: workers[0]?.id ?? ""
+  });
+
+  useEffect(() => {
+    setForm((current) => ({
+      ...current,
+      workerSlug: current.workerSlug || workers[0]?.id || ""
+    }));
+  }, [workers]);
+
+  return (
+    <form
+      className="settings-form-grid"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!form.workerSlug || !form.title.trim()) return;
+        void onCreate({
+          agenda: form.agenda.split("\n").map((item) => item.trim()).filter(Boolean),
+          dateLabel: form.dateLabel,
+          decisionsNeeded: form.decisionsNeeded.split("\n").map((item) => item.trim()).filter(Boolean),
+          recommendedActions: form.recommendedActions.split("\n").map((item) => item.trim()).filter(Boolean),
+          summary: form.summary,
+          title: form.title.trim(),
+          workerSlug: form.workerSlug
+        });
+      }}
+    >
+      <label>
+        <span>Worker</span>
+        <select onChange={(event) => setForm({ ...form, workerSlug: event.target.value })} value={form.workerSlug}>
+          {workers.map((worker) => (
+            <option key={worker.id} value={worker.id}>
+              {worker.name} · {worker.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Date and time</span>
+        <input onChange={(event) => setForm({ ...form, dateLabel: event.target.value })} value={form.dateLabel} />
+      </label>
+      <label className="settings-form-full">
+        <span>Meeting title</span>
+        <input onChange={(event) => setForm({ ...form, title: event.target.value })} value={form.title} />
+      </label>
+      <label className="settings-form-full">
+        <span>Summary</span>
+        <textarea onChange={(event) => setForm({ ...form, summary: event.target.value })} rows={3} value={form.summary} />
+      </label>
+      <label className="settings-form-full">
+        <span>Agenda</span>
+        <textarea onChange={(event) => setForm({ ...form, agenda: event.target.value })} rows={4} value={form.agenda} />
+      </label>
+      <label className="settings-form-full">
+        <span>Decisions needed</span>
+        <textarea onChange={(event) => setForm({ ...form, decisionsNeeded: event.target.value })} rows={3} value={form.decisionsNeeded} />
+      </label>
+      <label className="settings-form-full">
+        <span>Recommended actions</span>
+        <textarea onChange={(event) => setForm({ ...form, recommendedActions: event.target.value })} rows={3} value={form.recommendedActions} />
+      </label>
+      <div className="form-actions-row settings-form-full">
+        <button className="button button-primary" disabled={!form.workerSlug || !form.title.trim()} type="submit">
+          Schedule meeting
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -977,12 +1214,29 @@ function OfficeHome({ userName, workers }: { userName: string; workers: OfficeWo
   );
 }
 
-function OfficeMeetingsPage({ workers }: { workers: OfficeWorker[] }) {
+function OfficeMeetingsPage({
+  onCreateMeeting,
+  workers
+}: {
+  onCreateMeeting: (payload: {
+    agenda: string[];
+    dateLabel: string;
+    decisionsNeeded: string[];
+    recommendedActions: string[];
+    summary: string;
+    title: string;
+    workerSlug: string;
+  }) => Promise<void>;
+  workers: OfficeWorker[];
+}) {
   const briefings = allBriefings(workers);
 
   return (
     <div className="office-page">
       <TopBar subtitle="Briefings and review meetings across every hired worker." title="Meetings" />
+      <Panel title="Schedule meeting" aside="Create a new briefing for any worker.">
+        <OfficeMeetingScheduler onCreate={onCreateMeeting} workers={workers} />
+      </Panel>
       <div className="briefing-list">
         {briefings.map((briefing) => (
           <article className="briefing-card" key={`${briefing.workerName}-${briefing.id}`}>
@@ -999,10 +1253,24 @@ function OfficeMeetingsPage({ workers }: { workers: OfficeWorker[] }) {
   );
 }
 
-function OfficeTasksPage({ workers }: { workers: OfficeWorker[] }) {
+function OfficeTasksPage({
+  workers,
+  onCreateTask
+}: {
+  onCreateTask: (payload: {
+    dueDate: string;
+    priority: OfficeTask["priority"];
+    title: string;
+    workerSlug: string;
+  }) => Promise<void>;
+  workers: OfficeWorker[];
+}) {
   return (
     <div className="office-page">
       <TopBar subtitle="Task queues across all hired workers and office work." title="Tasks" />
+      <Panel title="Create office task" aside="Assign new work directly into a worker queue.">
+        <OfficeTaskComposer onCreate={onCreateTask} workers={workers} />
+      </Panel>
       <TaskBoard tasks={workers.flatMap((worker) => worker.tasks)} />
     </div>
   );
@@ -1019,15 +1287,17 @@ function OfficeFilesPage({ workers }: { workers: OfficeWorker[] }) {
             <th>Worker</th>
             <th>Type</th>
             <th>Updated</th>
+            <th>Open</th>
           </tr>
         </thead>
         <tbody>
           {allFiles(workers).map((file) => (
             <tr key={`${file.workerName}-${file.name}`}>
-              <td>{file.name}</td>
+              <td>{file.downloadUrl ? <a href={file.downloadUrl}>{file.name}</a> : file.name}</td>
               <td>{file.workerName}</td>
               <td>{file.type}</td>
               <td>{file.updatedAt}</td>
+              <td>{file.downloadUrl ? <a className="table-link-button" href={file.downloadUrl}>Download</a> : "Unavailable"}</td>
             </tr>
           ))}
         </tbody>
@@ -1036,41 +1306,211 @@ function OfficeFilesPage({ workers }: { workers: OfficeWorker[] }) {
   );
 }
 
-function OfficeSettingsPage() {
+function BriefingComposer({
+  onCreate,
+  worker
+}: {
+  onCreate: (payload: {
+    agenda: string[];
+    dateLabel: string;
+    decisionsNeeded: string[];
+    recommendedActions: string[];
+    summary: string;
+    title: string;
+  }) => Promise<void>;
+  worker: OfficeWorker;
+}) {
+  const [form, setForm] = useState({
+    agenda: "Review current focus\nConfirm next priorities",
+    dateLabel: "Tomorrow · 10:00 AM",
+    decisionsNeeded: "Approve next work batch",
+    recommendedActions: "Create follow-up task",
+    summary: `${worker.name} needs direction on next priorities and review timing.`,
+    title: "Scheduled Briefing"
+  });
+
+  useEffect(() => {
+    setForm({
+      agenda: "Review current focus\nConfirm next priorities",
+      dateLabel: "Tomorrow · 10:00 AM",
+      decisionsNeeded: "Approve next work batch",
+      recommendedActions: "Create follow-up task",
+      summary: `${worker.name} needs direction on next priorities and review timing.`,
+      title: "Scheduled Briefing"
+    });
+  }, [worker]);
+
+  return (
+    <form
+      className="settings-form-grid"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onCreate({
+          agenda: form.agenda.split("\n").map((item) => item.trim()).filter(Boolean),
+          dateLabel: form.dateLabel,
+          decisionsNeeded: form.decisionsNeeded.split("\n").map((item) => item.trim()).filter(Boolean),
+          recommendedActions: form.recommendedActions.split("\n").map((item) => item.trim()).filter(Boolean),
+          summary: form.summary,
+          title: form.title
+        });
+      }}
+    >
+      <label>
+        <span>Briefing title</span>
+        <input onChange={(event) => setForm({ ...form, title: event.target.value })} value={form.title} />
+      </label>
+      <label>
+        <span>Date and time</span>
+        <input onChange={(event) => setForm({ ...form, dateLabel: event.target.value })} value={form.dateLabel} />
+      </label>
+      <label className="settings-form-full">
+        <span>Summary</span>
+        <textarea onChange={(event) => setForm({ ...form, summary: event.target.value })} rows={3} value={form.summary} />
+      </label>
+      <label className="settings-form-full">
+        <span>Agenda</span>
+        <textarea onChange={(event) => setForm({ ...form, agenda: event.target.value })} rows={4} value={form.agenda} />
+      </label>
+      <label className="settings-form-full">
+        <span>Decisions needed</span>
+        <textarea onChange={(event) => setForm({ ...form, decisionsNeeded: event.target.value })} rows={3} value={form.decisionsNeeded} />
+      </label>
+      <label className="settings-form-full">
+        <span>Recommended actions</span>
+        <textarea onChange={(event) => setForm({ ...form, recommendedActions: event.target.value })} rows={3} value={form.recommendedActions} />
+      </label>
+      <div className="form-actions-row settings-form-full">
+        <button className="button button-primary" type="submit">
+          Schedule briefing
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function OfficeSettingsPage({
+  initialSettings,
+  onSave
+}: {
+  initialSettings: OfficeGlobalSettings;
+  onSave: (settings: OfficeGlobalSettings) => Promise<void>;
+}) {
+  const [form, setForm] = useState(initialSettings);
+
+  useEffect(() => {
+    setForm(initialSettings);
+  }, [initialSettings]);
+
   return (
     <div className="office-page">
       <TopBar subtitle="General office settings and operating preferences." title="Settings" />
-      <div className="settings-grid">
-        <section className="knowledge-card">
-          <h4>Office preferences</h4>
-          <SimpleList
-            items={[
-              "Morning briefing digest at 8:30 AM",
-              "Review queue summaries grouped by worker",
-              "Task reminders on due date only",
-              "Connected tools placeholder for calendar, documents, and billing"
-            ]}
-          />
-        </section>
-        <section className="knowledge-card">
-          <h4>Approval rules</h4>
-          <SimpleList
-            items={[
-              "Escalate blocked work immediately",
-              "Require approval for finance exceptions and pricing changes",
-              "Send end-of-day activity digest across all workers"
-            ]}
-          />
-        </section>
-      </div>
+      <form
+        className="settings-form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onSave(form);
+        }}
+      >
+        <label>
+          <span>Manager summary frequency</span>
+          <select onChange={(event) => setForm({ ...form, managerSummaryFrequency: event.target.value })} value={form.managerSummaryFrequency}>
+            <option>Daily</option>
+            <option>Twice weekly</option>
+            <option>Weekly</option>
+          </select>
+        </label>
+        <label>
+          <span>Briefing digest time</span>
+          <input onChange={(event) => setForm({ ...form, briefingDigestTime: event.target.value })} type="time" value={form.briefingDigestTime} />
+        </label>
+        <label>
+          <span>Review cadence</span>
+          <select onChange={(event) => setForm({ ...form, reviewCadence: event.target.value })} value={form.reviewCadence}>
+            <option>Daily</option>
+            <option>Weekly</option>
+            <option>Biweekly</option>
+          </select>
+        </label>
+        <label>
+          <span>Review reminder lead time</span>
+          <select onChange={(event) => setForm({ ...form, reviewReminderLead: event.target.value })} value={form.reviewReminderLead}>
+            <option>30 minutes before</option>
+            <option>1 hour before</option>
+            <option>2 hours before</option>
+            <option>1 day before</option>
+          </select>
+        </label>
+        <label>
+          <span>Auto briefing prep</span>
+          <select onChange={(event) => setForm({ ...form, autoBriefingPrep: event.target.value })} value={form.autoBriefingPrep}>
+            <option>Enabled</option>
+            <option>Disabled</option>
+          </select>
+        </label>
+        <label>
+          <span>Digest delivery</span>
+          <select onChange={(event) => setForm({ ...form, digestDelivery: event.target.value })} value={form.digestDelivery}>
+            <option>Email and in-office</option>
+            <option>Email only</option>
+            <option>In-office only</option>
+          </select>
+        </label>
+        <label>
+          <span>Default task priority</span>
+          <select onChange={(event) => setForm({ ...form, defaultTaskPriority: event.target.value })} value={form.defaultTaskPriority}>
+            <option>Low</option>
+            <option>Medium</option>
+            <option>High</option>
+          </select>
+        </label>
+        <label className="settings-form-full">
+          <span>Office hours</span>
+          <input onChange={(event) => setForm({ ...form, officeHours: event.target.value })} value={form.officeHours} />
+        </label>
+        <label>
+          <span>Timezone</span>
+          <select onChange={(event) => setForm({ ...form, timezone: event.target.value })} value={form.timezone}>
+            <option>America/New_York</option>
+            <option>America/Chicago</option>
+            <option>America/Denver</option>
+            <option>America/Los_Angeles</option>
+            <option>UTC</option>
+          </select>
+        </label>
+        <label>
+          <span>Meeting buffer</span>
+          <select onChange={(event) => setForm({ ...form, meetingBuffer: event.target.value })} value={form.meetingBuffer}>
+            <option>0 minutes</option>
+            <option>15 minutes</option>
+            <option>30 minutes</option>
+            <option>1 hour</option>
+          </select>
+        </label>
+        <label className="settings-form-full">
+          <span>Notification window</span>
+          <input onChange={(event) => setForm({ ...form, notificationWindow: event.target.value })} value={form.notificationWindow} />
+        </label>
+        <label className="settings-form-full">
+          <span>Quiet hours</span>
+          <input onChange={(event) => setForm({ ...form, quietHours: event.target.value })} value={form.quietHours} />
+        </label>
+        <div className="form-actions-row settings-form-full">
+          <button className="button button-primary" type="submit">
+            Save office settings
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
 
 export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps) {
+  const [overlayBriefings, setOverlayBriefings] = useState<OfficeOverlayBriefing[]>([]);
   const [overlayChats, setOverlayChats] = useState<OfficeOverlayChat[]>([]);
   const [overlayFiles, setOverlayFiles] = useState<OfficeOverlayFile[]>([]);
+  const [overlayGlobalSettings, setOverlayGlobalSettings] = useState<OfficeGlobalSettings>(buildDefaultOfficeSettings());
   const [overlayKnowledge, setOverlayKnowledge] = useState<OfficeOverlayKnowledge[]>([]);
+  const [officeNotice, setOfficeNotice] = useState("");
   const [overlaySettings, setOverlaySettings] = useState<OfficeOverlaySettings[]>([]);
   const [overlayTasks, setOverlayTasks] = useState<OfficeOverlayTask[]>([]);
   const [overlayWorklog, setOverlayWorklog] = useState<OfficeOverlayWorklog[]>([]);
@@ -1078,8 +1518,18 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
 
   const baseWorkers = useMemo(() => buildOfficeWorkersFromMarketplaceWorkers(hiredWorkers), [hiredWorkers]);
   const officeWorkers = useMemo(
-    () => mergeOfficeWorkers(baseWorkers, overlayChats, overlayTasks, overlayWorklog, overlaySettings, overlayKnowledge, overlayFiles),
-    [baseWorkers, overlayChats, overlayTasks, overlayWorklog, overlaySettings, overlayKnowledge, overlayFiles]
+    () =>
+      mergeOfficeWorkers(
+        baseWorkers,
+        overlayChats,
+        overlayTasks,
+        overlayWorklog,
+        overlayBriefings,
+        overlaySettings,
+        overlayKnowledge,
+        overlayFiles
+      ),
+    [baseWorkers, overlayBriefings, overlayChats, overlayTasks, overlayWorklog, overlaySettings, overlayKnowledge, overlayFiles]
   );
   const currentHash = window.location.hash || "#app/office";
   const route = parseOfficePath(currentHash);
@@ -1089,8 +1539,10 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
   useEffect(() => {
     async function loadOverlays() {
       if (hiredWorkers.length === 0) {
+        setOverlayBriefings([]);
         setOverlayChats([]);
         setOverlayFiles([]);
+        setOverlayGlobalSettings(buildDefaultOfficeSettings());
         setOverlayKnowledge([]);
         setOverlaySettings([]);
         setOverlayTasks([]);
@@ -1100,20 +1552,29 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
 
       try {
         const response = await officeJson<{
+          briefings: OfficeOverlayBriefing[];
           chats: OfficeOverlayChat[];
           files: OfficeOverlayFile[];
+          globalSettings: { settingsJson: string } | null;
           knowledge: OfficeOverlayKnowledge[];
           settings: OfficeOverlaySettings[];
           tasks: OfficeOverlayTask[];
           worklog: OfficeOverlayWorklog[];
         }>("/api/office/overlays", { method: "GET" });
+        setOverlayBriefings(response.briefings);
         setOverlayChats(response.chats);
         setOverlayFiles(response.files);
+        setOverlayGlobalSettings(
+          response.globalSettings?.settingsJson
+            ? (JSON.parse(response.globalSettings.settingsJson) as OfficeGlobalSettings)
+            : buildDefaultOfficeSettings()
+        );
         setOverlayKnowledge(response.knowledge);
         setOverlaySettings(response.settings);
         setOverlayTasks(response.tasks);
         setOverlayWorklog(response.worklog);
         setOfficeError("");
+        setOfficeNotice("");
       } catch (error) {
         setOfficeError(error instanceof Error ? error.message : "Unable to load office updates.");
       }
@@ -1124,15 +1585,23 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
 
   async function refreshOverlays() {
     const response = await officeJson<{
+      briefings: OfficeOverlayBriefing[];
       chats: OfficeOverlayChat[];
       files: OfficeOverlayFile[];
+      globalSettings: { settingsJson: string } | null;
       knowledge: OfficeOverlayKnowledge[];
       settings: OfficeOverlaySettings[];
       tasks: OfficeOverlayTask[];
       worklog: OfficeOverlayWorklog[];
     }>("/api/office/overlays", { method: "GET" });
+    setOverlayBriefings(response.briefings);
     setOverlayChats(response.chats);
     setOverlayFiles(response.files);
+    setOverlayGlobalSettings(
+      response.globalSettings?.settingsJson
+        ? (JSON.parse(response.globalSettings.settingsJson) as OfficeGlobalSettings)
+        : buildDefaultOfficeSettings()
+    );
     setOverlayKnowledge(response.knowledge);
     setOverlaySettings(response.settings);
     setOverlayTasks(response.tasks);
@@ -1146,20 +1615,22 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       body: JSON.stringify({ text })
     });
     await refreshOverlays();
+    setOfficeNotice("Message sent.");
   }
 
-  async function handleCreateTask(worker: OfficeWorker, seed?: string) {
+  async function handleCreateTask(worker: OfficeWorker, seed?: string, overrides?: Partial<Pick<OfficeTask, "dueDate" | "priority" | "title">>) {
     await officeJson(`/api/office/workers/${worker.id}/tasks`, {
       method: "POST",
       body: JSON.stringify({
-        dueDate: "Tomorrow",
+        dueDate: overrides?.dueDate ?? "Tomorrow",
         module: worker.modules[0]?.name ?? "Work Queue",
         owner: "Worker",
-        priority: "High",
-        title: seed ?? `Follow up on ${worker.name}'s current work`
+        priority: overrides?.priority ?? "High",
+        title: overrides?.title ?? seed ?? `Follow up on ${worker.name}'s current work`
       })
     });
     await refreshOverlays();
+    setOfficeNotice("Task created.");
   }
 
   async function handleBriefingAction(workerSlug: string, action: "approve" | "followup" | "task", briefingId: string) {
@@ -1168,6 +1639,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       body: JSON.stringify({ action })
     });
     await refreshOverlays();
+    setOfficeNotice(action === "approve" ? "Briefing approved." : action === "task" ? "Task created from briefing." : "Follow-up requested.");
   }
 
   async function handleUpdateTaskStatus(workerSlug: string, taskId: string, status: OfficeTaskStatus) {
@@ -1176,6 +1648,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       body: JSON.stringify({ status })
     });
     await refreshOverlays();
+    setOfficeNotice("Task status updated.");
   }
 
   async function handleSaveKnowledge(workerSlug: string, knowledge: OfficeWorker["knowledge"]) {
@@ -1184,6 +1657,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       body: JSON.stringify({ knowledge })
     });
     await refreshOverlays();
+    setOfficeNotice("Knowledge saved.");
   }
 
   async function handleSaveSettings(workerSlug: string, settings: OfficeWorker["settings"]) {
@@ -1192,6 +1666,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       body: JSON.stringify({ settings })
     });
     await refreshOverlays();
+    setOfficeNotice("Worker settings saved.");
   }
 
   async function handleUploadFile(workerSlug: string, file: File) {
@@ -1214,6 +1689,67 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       })
     });
     await refreshOverlays();
+    setOfficeNotice("File uploaded.");
+  }
+
+  async function handleDeleteFile(workerSlug: string, fileId: string) {
+    await officeJson(`/api/office/workers/${workerSlug}/files/${fileId}/delete`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    await refreshOverlays();
+    setOfficeNotice("File removed.");
+  }
+
+  async function handleCreateBriefing(
+    workerSlug: string,
+    payload: {
+      agenda: string[];
+      dateLabel: string;
+      decisionsNeeded: string[];
+      recommendedActions: string[];
+      summary: string;
+      title: string;
+    }
+  ) {
+    await officeJson(`/api/office/workers/${workerSlug}/briefings`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    await refreshOverlays();
+    setOfficeNotice("Meeting scheduled.");
+  }
+
+  async function handleSaveOfficeSettings(settings: OfficeGlobalSettings) {
+    await officeJson("/api/office/settings", {
+      method: "POST",
+      body: JSON.stringify({ settings })
+    });
+    await refreshOverlays();
+    setOfficeNotice("Office settings saved.");
+  }
+
+  async function handleCreateOfficeTask(payload: {
+    dueDate: string;
+    priority: OfficeTask["priority"];
+    title: string;
+    workerSlug: string;
+  }) {
+    const worker = officeWorkers.find((entry) => entry.id === payload.workerSlug);
+    if (!worker) return;
+    await handleCreateTask(worker, undefined, payload);
+  }
+
+  async function handleCreateOfficeMeeting(payload: {
+    agenda: string[];
+    dateLabel: string;
+    decisionsNeeded: string[];
+    recommendedActions: string[];
+    summary: string;
+    title: string;
+    workerSlug: string;
+  }) {
+    await handleCreateBriefing(payload.workerSlug, payload);
   }
 
   let content: ReactNode;
@@ -1248,13 +1784,13 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       </div>
     );
   } else if (route.kind === "office-meetings") {
-    content = <OfficeMeetingsPage workers={officeWorkers} />;
+    content = <OfficeMeetingsPage onCreateMeeting={handleCreateOfficeMeeting} workers={officeWorkers} />;
   } else if (route.kind === "office-tasks") {
-    content = <OfficeTasksPage workers={officeWorkers} />;
+    content = <OfficeTasksPage onCreateTask={handleCreateOfficeTask} workers={officeWorkers} />;
   } else if (route.kind === "office-files") {
     content = <OfficeFilesPage workers={officeWorkers} />;
   } else if (route.kind === "office-settings") {
-    content = <OfficeSettingsPage />;
+    content = <OfficeSettingsPage initialSettings={overlayGlobalSettings} onSave={handleSaveOfficeSettings} />;
   } else if (selectedWorker) {
     let workerContent: ReactNode = <WorkerDesk worker={selectedWorker} />;
 
@@ -1263,6 +1799,9 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
+            <Panel title="Schedule briefing">
+              <BriefingComposer onCreate={(payload) => handleCreateBriefing(selectedWorker.id, payload)} worker={selectedWorker} />
+            </Panel>
             <BriefingList
               briefings={selectedWorker.briefings}
               onAction={(action, briefingId) => handleBriefingAction(selectedWorker.id, action, briefingId)}
@@ -1301,7 +1840,11 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
             <Panel title="Files">
-              <FilesPanel files={selectedWorker.files} onUpload={(file) => handleUploadFile(selectedWorker.id, file)} />
+              <FilesPanel
+                files={selectedWorker.files}
+                onDelete={(fileId) => handleDeleteFile(selectedWorker.id, fileId)}
+                onUpload={(file) => handleUploadFile(selectedWorker.id, file)}
+              />
             </Panel>
           </div>
         );
@@ -1349,6 +1892,11 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         <WorkerSidebar currentHash={currentHash} onNavigate={onNavigate} worker={selectedWorker} />
       ) : null}
       <section className="office-main">
+        {officeNotice ? (
+          <div className="notice-banner notice-banner-success">
+            <span>{officeNotice}</span>
+          </div>
+        ) : null}
         {officeError ? (
           <div className="notice-banner">
             <span>{officeError}</span>

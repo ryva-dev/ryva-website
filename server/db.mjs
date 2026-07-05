@@ -137,6 +137,27 @@ db.exec(`
     uploaded_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS office_custom_briefings (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    title TEXT NOT NULL,
+    date_label TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    agenda_json TEXT NOT NULL,
+    decisions_json TEXT NOT NULL,
+    actions_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_global_settings (
+    user_id TEXT PRIMARY KEY,
+    settings_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 db.exec(`
