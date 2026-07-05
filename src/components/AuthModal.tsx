@@ -28,6 +28,11 @@ export function AuthModal({
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
 
+  const isLogin = mode === "login";
+  const isRegister = mode === "register";
+  const isResetComplete = mode === "reset-complete";
+  const isResetRequest = mode === "reset-request";
+
   useEffect(() => {
     if (resetToken) {
       setMode("reset-complete");
@@ -58,83 +63,108 @@ export function AuthModal({
   return (
     <div aria-labelledby="auth-title" aria-modal="true" className="modal-backdrop" role="dialog">
       <div className="auth-modal">
-        <div className="auth-modal-head">
+        <div className="auth-modal-side">
+          <p className="auth-kicker">Ryva account</p>
           <h2 id="auth-title">
-            {mode === "login"
-              ? "Sign in"
-              : mode === "register"
-                ? "Create account"
-                : mode === "reset-complete"
-                  ? "Set new password"
-                  : "Reset password"}
+            {isLogin ? "Sign in to continue" : isRegister ? "Create your account" : isResetComplete ? "Choose a new password" : "Reset your password"}
           </h2>
-          <button aria-label="Close auth dialog" className="icon-button" onClick={onClose} type="button">
-            ×
-          </button>
+          <p className="auth-copy">
+            {isLogin
+              ? "Access saved profiles, hiring activity, and worker checkout."
+              : isRegister
+                ? "Use one account to compare workers, save candidates, and complete hiring once your email is verified."
+                : isResetComplete
+                  ? "Set a new password for your Ryva account."
+                  : "Enter your email and we will send a secure password reset link."}
+          </p>
+          <dl className="auth-trust-list">
+            <div>
+              <dt>Verification</dt>
+              <dd>Email verification is required before checkout.</dd>
+            </div>
+            <div>
+              <dt>Security</dt>
+              <dd>Sessions are protected and handled directly by Ryva.</dd>
+            </div>
+          </dl>
         </div>
 
-        <div className="auth-switch">
-          <button className={mode === "login" ? "auth-switch-active" : ""} onClick={() => setMode("login")} type="button">
-            Sign in
-          </button>
-          <button
-            className={mode === "register" ? "auth-switch-active" : ""}
-            onClick={() => setMode("register")}
-            type="button"
-          >
-            Register
-          </button>
-          <button
-            className={mode === "reset-request" || mode === "reset-complete" ? "auth-switch-active" : ""}
-            onClick={() => setMode(resetToken ? "reset-complete" : "reset-request")}
-            type="button"
-          >
-            Reset
-          </button>
+        <div className="auth-modal-main">
+          <div className="auth-modal-head">
+            <div>
+              <p className="auth-section-label">{isLogin ? "Sign in" : isRegister ? "Register" : "Password reset"}</p>
+              <h3>{isLogin ? "Welcome back" : isRegister ? "Set up your account" : isResetComplete ? "Enter a replacement password" : "Request a reset link"}</h3>
+            </div>
+            <button aria-label="Close auth dialog" className="icon-button" onClick={onClose} type="button">
+              ×
+            </button>
+          </div>
+
+          <div className="auth-switch">
+            <button className={isLogin ? "auth-switch-active" : ""} onClick={() => setMode("login")} type="button">
+              Sign in
+            </button>
+            <button className={isRegister ? "auth-switch-active" : ""} onClick={() => setMode("register")} type="button">
+              Create account
+            </button>
+          </div>
+
+          <form className="auth-form" onSubmit={handleSubmit}>
+            {isRegister ? (
+              <label>
+                <span>Full name</span>
+                <input required type="text" value={name} onChange={(event) => setName(event.target.value)} />
+              </label>
+            ) : null}
+
+            {!isResetComplete ? (
+              <label>
+                <span>Email address</span>
+                <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+              </label>
+            ) : null}
+
+            {!isResetRequest ? (
+              <label>
+                <span>{isResetComplete ? "New password" : "Password"}</span>
+                <input
+                  minLength={8}
+                  required
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+            ) : null}
+
+            {error ? <p className="form-error">{error}</p> : null}
+
+            <button className="button button-primary auth-submit" disabled={loading} type="submit">
+              {loading
+                ? "Working..."
+                : isLogin
+                  ? "Sign in"
+                  : isRegister
+                    ? "Create account"
+                    : isResetComplete
+                      ? "Set password"
+                      : "Send reset link"}
+            </button>
+          </form>
+
+          <div className="auth-footer-links">
+            {!isResetComplete ? (
+              <button className="auth-text-link" onClick={() => setMode(isResetRequest ? "login" : "reset-request")} type="button">
+                {isResetRequest ? "Back to sign in" : "Forgot password?"}
+              </button>
+            ) : null}
+            {!isResetRequest && !isResetComplete ? (
+              <button className="auth-text-link" onClick={() => setMode(isLogin ? "register" : "login")} type="button">
+                {isLogin ? "Need an account? Create one" : "Already have an account? Sign in"}
+              </button>
+            ) : null}
+          </div>
         </div>
-
-        <form className="auth-form" onSubmit={handleSubmit}>
-          {mode === "register" ? (
-            <label>
-              <span>Name</span>
-              <input required type="text" value={name} onChange={(event) => setName(event.target.value)} />
-            </label>
-          ) : null}
-
-          {mode !== "reset-complete" ? (
-            <label>
-              <span>Email</span>
-              <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-            </label>
-          ) : null}
-
-          {mode !== "reset-request" ? (
-            <label>
-              <span>{mode === "reset-complete" ? "New password" : "Password"}</span>
-              <input
-                minLength={8}
-                required
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-            </label>
-          ) : null}
-
-          {error ? <p className="form-error">{error}</p> : null}
-
-          <button className="button button-primary" disabled={loading} type="submit">
-            {loading
-              ? "Working..."
-              : mode === "login"
-                ? "Sign in"
-                : mode === "register"
-                  ? "Create account"
-                  : mode === "reset-complete"
-                    ? "Set password"
-                    : "Send reset link"}
-          </button>
-        </form>
       </div>
     </div>
   );
