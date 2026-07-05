@@ -58,9 +58,6 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
             </span>
             <span className="brand-title-line">is already working.</span>
           </h1>
-
-          <p className="brand-hero-meta">{activeRole.department}</p>
-
           <p className="brand-hero-description">
             Ryva brings specialist talent into one clear hiring surface for modern teams.
           </p>

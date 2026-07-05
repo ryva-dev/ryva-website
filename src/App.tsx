@@ -17,7 +17,6 @@ type AuthUser = {
 };
 
 const navItems = [
-  { label: "Home", href: "#home" },
   { label: "Workers", href: "#workers" },
   { label: "About", href: "#about" }
 ];
