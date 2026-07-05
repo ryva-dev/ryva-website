@@ -645,6 +645,25 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
   }
 
   const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (unitAmount === 0) {
+    db.prepare(
+      `INSERT INTO checkout_sessions (id, user_id, worker_slug, amount_cents, stripe_session_id, status, created_at, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(checkoutId, req.user.id, worker.slug, unitAmount, null, "completed", nowIso(), nowIso());
+
+    db.prepare(
+      `INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+         checkout_session_id = excluded.checkout_session_id,
+         status = excluded.status,
+         hired_at = excluded.hired_at`
+    ).run(randomUUID(), req.user.id, worker.slug, checkoutId, "active", nowIso());
+
+    res.json({ free: true, url: `${appUrl}/?checkout=success#app/office` });
+    return;
+  }
+
   if (!stripeKey) {
     res.status(501).json({ error: "Stripe is not configured. Set STRIPE_SECRET_KEY to enable checkout." });
     return;
