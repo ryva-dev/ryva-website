@@ -14,6 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 const workersPath = path.join(rootDir, "data", "workers.json");
+const uploadsDir = path.join(rootDir, "data", "office-uploads");
 const sessionCookieName = "ryva_session";
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 7;
 const emailTokenDurationMs = 1000 * 60 * 60 * 24;
@@ -51,7 +52,7 @@ app.use((req, res, next) => {
     return;
   }
 
-  express.json({ limit: "100kb" })(req, res, next);
+  express.json({ limit: "2mb" })(req, res, next);
 });
 app.use(cookieParser());
 
@@ -168,6 +169,28 @@ function readOfficeOverlaysForUser(userId) {
          FROM office_activity_logs
          WHERE user_id = ?
          ORDER BY created_at DESC`
+      )
+      .all(userId),
+    settings: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, settings_json AS settingsJson
+         FROM office_worker_settings
+         WHERE user_id = ?`
+      )
+      .all(userId),
+    knowledge: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, knowledge_json AS knowledgeJson
+         FROM office_worker_knowledge
+         WHERE user_id = ?`
+      )
+      .all(userId),
+    files: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, id, name, type, uploaded_at AS updatedAt
+         FROM office_uploaded_files
+         WHERE user_id = ?
+         ORDER BY uploaded_at DESC`
       )
       .all(userId)
   };
@@ -327,6 +350,30 @@ app.get("/api/office/workers", requireAuth, async (req, res) => {
 
 app.get("/api/office/overlays", requireAuth, (req, res) => {
   res.json(readOfficeOverlaysForUser(req.user.id));
+});
+
+app.get("/api/office/files/:fileId/download", requireAuth, async (req, res) => {
+  const file = db
+    .prepare(
+      `SELECT id, user_id, name, type, stored_name
+       FROM office_uploaded_files
+       WHERE id = ? AND user_id = ?`
+    )
+    .get(req.params.fileId, req.user.id);
+
+  if (!file) {
+    res.status(404).json({ error: "File not found." });
+    return;
+  }
+
+  const fullPath = path.join(uploadsDir, req.user.id, file.stored_name);
+
+  try {
+    await fs.access(fullPath);
+    res.download(fullPath, file.name);
+  } catch {
+    res.status(404).json({ error: "Stored file is missing." });
+  }
 });
 
 app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
@@ -670,6 +717,42 @@ app.post("/api/office/workers/:slug/tasks", assertOrigin, requireAuth, async (re
   res.status(201).json({ ok: true });
 });
 
+app.post("/api/office/workers/:slug/tasks/:taskId/status", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const taskId = req.params.taskId;
+  const status = String(req.body?.status ?? "");
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!["To Do", "In Progress", "Needs Review", "Completed"].includes(status)) {
+    res.status(400).json({ error: "Unsupported task status." });
+    return;
+  }
+
+  const updated = db
+    .prepare(
+      `UPDATE office_custom_tasks
+       SET status = ?
+       WHERE id = ? AND user_id = ? AND worker_slug = ?`
+    )
+    .run(status, taskId, req.user.id, workerSlug);
+
+  if (updated.changes === 0) {
+    res.status(404).json({ error: "Custom task not found." });
+    return;
+  }
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Updated task status.", "Tasks", `${taskId} -> ${status}`, nowIso());
+
+  res.json({ ok: true });
+});
+
 app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = req.params.slug;
   const briefingId = req.params.briefingId;
@@ -736,6 +819,101 @@ app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin,
   }
 
   res.status(400).json({ error: "Unsupported briefing action." });
+});
+
+app.post("/api/office/workers/:slug/settings", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const settings = req.body?.settings;
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!Array.isArray(settings)) {
+    res.status(400).json({ error: "Settings payload is invalid." });
+    return;
+  }
+
+  db.prepare(
+    `INSERT INTO office_worker_settings (id, user_id, worker_slug, settings_json, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+       settings_json = excluded.settings_json,
+       updated_at = excluded.updated_at`
+  ).run(randomUUID(), req.user.id, workerSlug, JSON.stringify(settings), nowIso());
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Updated worker settings.", "Settings", "Office preferences saved", nowIso());
+
+  res.json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/knowledge", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const knowledge = req.body?.knowledge;
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!Array.isArray(knowledge)) {
+    res.status(400).json({ error: "Knowledge payload is invalid." });
+    return;
+  }
+
+  db.prepare(
+    `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+       knowledge_json = excluded.knowledge_json,
+       updated_at = excluded.updated_at`
+  ).run(randomUUID(), req.user.id, workerSlug, JSON.stringify(knowledge), nowIso());
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Updated worker knowledge.", "Knowledge", "Operating context saved", nowIso());
+
+  res.json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/files", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const name = String(req.body?.name ?? "").trim();
+  const type = String(req.body?.type ?? "File").trim();
+  const contentBase64 = String(req.body?.contentBase64 ?? "");
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!name || !contentBase64) {
+    res.status(400).json({ error: "File name and content are required." });
+    return;
+  }
+
+  const fileId = randomUUID();
+  const storedName = `${fileId}-${name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+  const userDir = path.join(uploadsDir, req.user.id);
+  await fs.mkdir(userDir, { recursive: true });
+  await fs.writeFile(path.join(userDir, storedName), Buffer.from(contentBase64, "base64"));
+
+  db.prepare(
+    `INSERT INTO office_uploaded_files (id, user_id, worker_slug, name, type, stored_name, uploaded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(fileId, req.user.id, workerSlug, name, type || "File", storedName, nowIso());
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Uploaded a file.", "Files", name, nowIso());
+
+  res.status(201).json({ ok: true });
 });
 
 app.use(express.static(distDir));

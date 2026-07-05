@@ -106,6 +106,37 @@ db.exec(`
     created_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS office_worker_settings (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    settings_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_slug),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_worker_knowledge (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    knowledge_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_slug),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_uploaded_files (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    stored_name TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 db.exec(`

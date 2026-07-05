@@ -36,6 +36,8 @@ export type KnowledgeSection = {
 };
 
 export type WorkerFile = {
+  downloadUrl?: string;
+  id?: string;
   name: string;
   type: string;
   updatedAt: string;

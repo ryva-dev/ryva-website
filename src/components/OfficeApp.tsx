@@ -35,6 +35,20 @@ type OfficeOverlayWorklog = WorkLogEntry & {
   workerSlug: string;
 };
 
+type OfficeOverlaySettings = {
+  settingsJson: string;
+  workerSlug: string;
+};
+
+type OfficeOverlayKnowledge = {
+  knowledgeJson: string;
+  workerSlug: string;
+};
+
+type OfficeOverlayFile = WorkerFile & {
+  workerSlug: string;
+};
+
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -135,15 +149,55 @@ function buildOfficeOverview(workers: OfficeWorker[]) {
   };
 }
 
+function settingsMap(settings: OfficeWorker["settings"]) {
+  return new Map(settings.map((setting) => [setting.label, setting.value]));
+}
+
+function buildSettingsFormValues(worker: OfficeWorker) {
+  const values = settingsMap(worker.settings);
+  return {
+    approvalRules: values.get("Approval rules") ?? "",
+    briefingFrequency: values.get("Briefing frequency") ?? "Weekly",
+    briefingTime: values.get("Briefing time") ?? "09:00",
+    communicationStyle: values.get("Communication style") ?? "",
+    connectedAccounts: values.get("Connected accounts placeholder") ?? "",
+    goals: values.get("Goals") ?? "",
+    notificationPreferences: values.get("Notification preferences") ?? "",
+    preferredReviewDay: values.get("Preferred review day") ?? "Friday",
+    role: values.get("Role") ?? worker.title,
+    workerName: values.get("Worker name") ?? worker.name,
+    workingWindow: values.get("Working window") ?? "9:00 AM - 5:00 PM"
+  };
+}
+
 function mergeOfficeWorkers(
   workers: OfficeWorker[],
   chats: OfficeOverlayChat[],
   tasks: OfficeOverlayTask[],
-  worklog: OfficeOverlayWorklog[]
+  worklog: OfficeOverlayWorklog[],
+  settings: OfficeOverlaySettings[],
+  knowledge: OfficeOverlayKnowledge[],
+  files: OfficeOverlayFile[]
 ) {
   return workers.map((worker) => ({
     ...worker,
     chat: [...worker.chat, ...chats.filter((entry) => entry.workerSlug === worker.id)],
+    files: [
+      ...files
+        .filter((entry) => entry.workerSlug === worker.id)
+        .map((entry) => ({
+          downloadUrl: entry.id ? `/api/office/files/${entry.id}/download` : undefined,
+          id: entry.id,
+          name: entry.name,
+          type: entry.type,
+          updatedAt: entry.updatedAt
+        })),
+      ...worker.files
+    ],
+    knowledge:
+      knowledge
+        .filter((entry) => entry.workerSlug === worker.id)
+        .map((entry) => JSON.parse(entry.knowledgeJson) as OfficeWorker["knowledge"])[0] ?? worker.knowledge,
     recentWorkLog: [...worklog.filter((entry) => entry.workerSlug === worker.id), ...worker.recentWorkLog],
     reviewQueue: [
       ...worker.reviewQueue,
@@ -151,6 +205,10 @@ function mergeOfficeWorkers(
         .filter((task) => task.workerSlug === worker.id && task.status === "Needs Review")
         .map((task) => ({ id: `${task.id}-review`, item: task.title, note: `${task.module} · requires review` }))
     ],
+    settings:
+      settings
+        .filter((entry) => entry.workerSlug === worker.id)
+        .map((entry) => JSON.parse(entry.settingsJson) as OfficeWorker["settings"])[0] ?? worker.settings,
     tasks: [...tasks.filter((task) => task.workerSlug === worker.id), ...worker.tasks]
   }));
 }
@@ -470,7 +528,15 @@ function BriefingList({
   );
 }
 
-function TaskBoard({ tasks }: { tasks: OfficeTask[] }) {
+function TaskBoard({
+  editableTaskIds,
+  tasks,
+  onUpdateTaskStatus
+}: {
+  editableTaskIds?: Set<string>;
+  onUpdateTaskStatus?: (taskId: string, status: OfficeTaskStatus) => Promise<void>;
+  tasks: OfficeTask[];
+}) {
   return (
     <div className="task-board">
       {taskColumns(tasks).map((column) => (
@@ -489,6 +555,23 @@ function TaskBoard({ tasks }: { tasks: OfficeTask[] }) {
                 <small>
                   {task.priority} priority · due {task.dueDate}
                 </small>
+                <label className="task-status-field">
+                  <span>Status</span>
+                  <select
+                    defaultValue={task.status}
+                    disabled={!onUpdateTaskStatus || !editableTaskIds?.has(task.id)}
+                    onChange={(event) => {
+                      if (onUpdateTaskStatus) {
+                        void onUpdateTaskStatus(task.id, event.target.value as OfficeTaskStatus);
+                      }
+                    }}
+                  >
+                    <option value="To Do">To Do</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Needs Review">Needs Review</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </label>
               </article>
             ))}
           </div>
@@ -498,39 +581,108 @@ function TaskBoard({ tasks }: { tasks: OfficeTask[] }) {
   );
 }
 
-function KnowledgeProfile({ worker }: { worker: OfficeWorker }) {
+function KnowledgeProfile({
+  onSave,
+  worker
+}: {
+  onSave: (knowledge: OfficeWorker["knowledge"]) => Promise<void>;
+  worker: OfficeWorker;
+}) {
+  const [draft, setDraft] = useState(() => worker.knowledge.map((section) => ({ ...section, items: [...section.items] })));
+
+  useEffect(() => {
+    setDraft(worker.knowledge.map((section) => ({ ...section, items: [...section.items] })));
+  }, [worker]);
+
   return (
-    <div className="knowledge-grid">
-      {worker.knowledge.map((section) => (
+    <form
+      className="knowledge-grid"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onSave(
+          draft.map((section) => ({
+            ...section,
+            items: section.items.filter(Boolean)
+          }))
+        );
+      }}
+    >
+      {draft.map((section, index) => (
         <section className="knowledge-card" key={section.title}>
           <h4>{section.title}</h4>
-          <SimpleList items={section.items} />
+          <textarea
+            onChange={(event) => {
+              const next = [...draft];
+              next[index] = {
+                ...section,
+                items: event.target.value
+                  .split("\n")
+                  .map((item) => item.trim())
+              };
+              setDraft(next);
+            }}
+            rows={6}
+            value={section.items.join("\n")}
+          />
         </section>
       ))}
-    </div>
+      <div className="form-actions-row">
+        <button className="button button-primary" type="submit">
+          Save knowledge
+        </button>
+      </div>
+    </form>
   );
 }
 
-function FilesPanel({ files }: { files: WorkerFile[] }) {
+function FilesPanel({
+  files,
+  onUpload
+}: {
+  files: WorkerFile[];
+  onUpload: (file: File) => Promise<void>;
+}) {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
   return (
-    <table className="office-table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        {files.map((file) => (
-          <tr key={`${file.name}-${file.updatedAt}`}>
-            <td>{file.name}</td>
-            <td>{file.type}</td>
-            <td>{file.updatedAt}</td>
+    <div className="files-panel">
+      <form
+        className="file-upload-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (selectedFile) {
+            void onUpload(selectedFile);
+            setSelectedFile(null);
+          }
+        }}
+      >
+        <input
+          onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+          type="file"
+        />
+        <button className="button button-secondary" disabled={!selectedFile} type="submit">
+          Upload file
+        </button>
+      </form>
+      <table className="office-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Updated</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {files.map((file) => (
+            <tr key={`${file.id ?? file.name}-${file.updatedAt}`}>
+              <td>{file.downloadUrl ? <a href={file.downloadUrl}>{file.name}</a> : file.name}</td>
+              <td>{file.type}</td>
+              <td>{file.updatedAt}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -679,6 +831,108 @@ function WorkerDesk({ worker }: { worker: OfficeWorker }) {
   );
 }
 
+function WorkerSettingsForm({
+  onSave,
+  worker
+}: {
+  onSave: (settings: OfficeWorker["settings"]) => Promise<void>;
+  worker: OfficeWorker;
+}) {
+  const [form, setForm] = useState(() => buildSettingsFormValues(worker));
+
+  useEffect(() => {
+    setForm(buildSettingsFormValues(worker));
+  }, [worker]);
+
+  return (
+    <form
+      className="settings-form-grid"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void onSave([
+          { label: "Worker name", value: form.workerName },
+          { label: "Role", value: form.role },
+          { label: "Department", value: worker.department },
+          { label: "Goals", value: form.goals },
+          { label: "Communication style", value: form.communicationStyle },
+          { label: "Briefing frequency", value: form.briefingFrequency },
+          { label: "Briefing time", value: form.briefingTime },
+          { label: "Preferred review day", value: form.preferredReviewDay },
+          { label: "Working window", value: form.workingWindow },
+          { label: "Approval rules", value: form.approvalRules },
+          { label: "Notification preferences", value: form.notificationPreferences },
+          { label: "Connected accounts placeholder", value: form.connectedAccounts }
+        ]);
+      }}
+    >
+      <label>
+        <span>Worker name</span>
+        <input onChange={(event) => setForm({ ...form, workerName: event.target.value })} value={form.workerName} />
+      </label>
+      <label>
+        <span>Role</span>
+        <input onChange={(event) => setForm({ ...form, role: event.target.value })} value={form.role} />
+      </label>
+      <label>
+        <span>Briefing frequency</span>
+        <select onChange={(event) => setForm({ ...form, briefingFrequency: event.target.value })} value={form.briefingFrequency}>
+          <option>Daily</option>
+          <option>Twice weekly</option>
+          <option>Weekly</option>
+          <option>Biweekly</option>
+        </select>
+      </label>
+      <label>
+        <span>Briefing time</span>
+        <input onChange={(event) => setForm({ ...form, briefingTime: event.target.value })} type="time" value={form.briefingTime} />
+      </label>
+      <label>
+        <span>Preferred review day</span>
+        <select onChange={(event) => setForm({ ...form, preferredReviewDay: event.target.value })} value={form.preferredReviewDay}>
+          <option>Monday</option>
+          <option>Tuesday</option>
+          <option>Wednesday</option>
+          <option>Thursday</option>
+          <option>Friday</option>
+        </select>
+      </label>
+      <label>
+        <span>Working window</span>
+        <input onChange={(event) => setForm({ ...form, workingWindow: event.target.value })} value={form.workingWindow} />
+      </label>
+      <label className="settings-form-full">
+        <span>Goals</span>
+        <textarea onChange={(event) => setForm({ ...form, goals: event.target.value })} rows={4} value={form.goals} />
+      </label>
+      <label className="settings-form-full">
+        <span>Communication style</span>
+        <textarea onChange={(event) => setForm({ ...form, communicationStyle: event.target.value })} rows={3} value={form.communicationStyle} />
+      </label>
+      <label className="settings-form-full">
+        <span>Approval rules</span>
+        <textarea onChange={(event) => setForm({ ...form, approvalRules: event.target.value })} rows={3} value={form.approvalRules} />
+      </label>
+      <label className="settings-form-full">
+        <span>Notification preferences</span>
+        <textarea
+          onChange={(event) => setForm({ ...form, notificationPreferences: event.target.value })}
+          rows={3}
+          value={form.notificationPreferences}
+        />
+      </label>
+      <label className="settings-form-full">
+        <span>Connected accounts</span>
+        <input onChange={(event) => setForm({ ...form, connectedAccounts: event.target.value })} value={form.connectedAccounts} />
+      </label>
+      <div className="form-actions-row settings-form-full">
+        <button className="button button-primary" type="submit">
+          Save settings
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function OfficeHome({ userName, workers }: { userName: string; workers: OfficeWorker[] }) {
   const overview = buildOfficeOverview(workers);
 
@@ -815,14 +1069,17 @@ function OfficeSettingsPage() {
 
 export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps) {
   const [overlayChats, setOverlayChats] = useState<OfficeOverlayChat[]>([]);
+  const [overlayFiles, setOverlayFiles] = useState<OfficeOverlayFile[]>([]);
+  const [overlayKnowledge, setOverlayKnowledge] = useState<OfficeOverlayKnowledge[]>([]);
+  const [overlaySettings, setOverlaySettings] = useState<OfficeOverlaySettings[]>([]);
   const [overlayTasks, setOverlayTasks] = useState<OfficeOverlayTask[]>([]);
   const [overlayWorklog, setOverlayWorklog] = useState<OfficeOverlayWorklog[]>([]);
   const [officeError, setOfficeError] = useState("");
 
   const baseWorkers = useMemo(() => buildOfficeWorkersFromMarketplaceWorkers(hiredWorkers), [hiredWorkers]);
   const officeWorkers = useMemo(
-    () => mergeOfficeWorkers(baseWorkers, overlayChats, overlayTasks, overlayWorklog),
-    [baseWorkers, overlayChats, overlayTasks, overlayWorklog]
+    () => mergeOfficeWorkers(baseWorkers, overlayChats, overlayTasks, overlayWorklog, overlaySettings, overlayKnowledge, overlayFiles),
+    [baseWorkers, overlayChats, overlayTasks, overlayWorklog, overlaySettings, overlayKnowledge, overlayFiles]
   );
   const currentHash = window.location.hash || "#app/office";
   const route = parseOfficePath(currentHash);
@@ -833,6 +1090,9 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
     async function loadOverlays() {
       if (hiredWorkers.length === 0) {
         setOverlayChats([]);
+        setOverlayFiles([]);
+        setOverlayKnowledge([]);
+        setOverlaySettings([]);
         setOverlayTasks([]);
         setOverlayWorklog([]);
         return;
@@ -841,10 +1101,16 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       try {
         const response = await officeJson<{
           chats: OfficeOverlayChat[];
+          files: OfficeOverlayFile[];
+          knowledge: OfficeOverlayKnowledge[];
+          settings: OfficeOverlaySettings[];
           tasks: OfficeOverlayTask[];
           worklog: OfficeOverlayWorklog[];
         }>("/api/office/overlays", { method: "GET" });
         setOverlayChats(response.chats);
+        setOverlayFiles(response.files);
+        setOverlayKnowledge(response.knowledge);
+        setOverlaySettings(response.settings);
         setOverlayTasks(response.tasks);
         setOverlayWorklog(response.worklog);
         setOfficeError("");
@@ -859,10 +1125,16 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
   async function refreshOverlays() {
     const response = await officeJson<{
       chats: OfficeOverlayChat[];
+      files: OfficeOverlayFile[];
+      knowledge: OfficeOverlayKnowledge[];
+      settings: OfficeOverlaySettings[];
       tasks: OfficeOverlayTask[];
       worklog: OfficeOverlayWorklog[];
     }>("/api/office/overlays", { method: "GET" });
     setOverlayChats(response.chats);
+    setOverlayFiles(response.files);
+    setOverlayKnowledge(response.knowledge);
+    setOverlaySettings(response.settings);
     setOverlayTasks(response.tasks);
     setOverlayWorklog(response.worklog);
     setOfficeError("");
@@ -894,6 +1166,52 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
     await officeJson(`/api/office/workers/${workerSlug}/briefings/${briefingId}/action`, {
       method: "POST",
       body: JSON.stringify({ action })
+    });
+    await refreshOverlays();
+  }
+
+  async function handleUpdateTaskStatus(workerSlug: string, taskId: string, status: OfficeTaskStatus) {
+    await officeJson(`/api/office/workers/${workerSlug}/tasks/${taskId}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status })
+    });
+    await refreshOverlays();
+  }
+
+  async function handleSaveKnowledge(workerSlug: string, knowledge: OfficeWorker["knowledge"]) {
+    await officeJson(`/api/office/workers/${workerSlug}/knowledge`, {
+      method: "POST",
+      body: JSON.stringify({ knowledge })
+    });
+    await refreshOverlays();
+  }
+
+  async function handleSaveSettings(workerSlug: string, settings: OfficeWorker["settings"]) {
+    await officeJson(`/api/office/workers/${workerSlug}/settings`, {
+      method: "POST",
+      body: JSON.stringify({ settings })
+    });
+    await refreshOverlays();
+  }
+
+  async function handleUploadFile(workerSlug: string, file: File) {
+    const contentBase64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Unable to read file."));
+      reader.onload = () => {
+        const result = String(reader.result ?? "");
+        resolve(result.split(",")[1] ?? "");
+      };
+      reader.readAsDataURL(file);
+    });
+
+    await officeJson(`/api/office/workers/${workerSlug}/files`, {
+      method: "POST",
+      body: JSON.stringify({
+        contentBase64,
+        name: file.name,
+        type: file.type || "File"
+      })
     });
     await refreshOverlays();
   }
@@ -955,7 +1273,11 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <TaskBoard tasks={selectedWorker.tasks} />
+            <TaskBoard
+              editableTaskIds={new Set(overlayTasks.filter((task) => task.workerSlug === selectedWorker.id).map((task) => task.id))}
+              onUpdateTaskStatus={(taskId, status) => handleUpdateTaskStatus(selectedWorker.id, taskId, status)}
+              tasks={selectedWorker.tasks}
+            />
           </div>
         );
       } else if (route.section === "worklog") {
@@ -971,7 +1293,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <KnowledgeProfile worker={selectedWorker} />
+            <KnowledgeProfile onSave={(knowledge) => handleSaveKnowledge(selectedWorker.id, knowledge)} worker={selectedWorker} />
           </div>
         );
       } else if (route.section === "files") {
@@ -979,7 +1301,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
             <Panel title="Files">
-              <FilesPanel files={selectedWorker.files} />
+              <FilesPanel files={selectedWorker.files} onUpload={(file) => handleUploadFile(selectedWorker.id, file)} />
             </Panel>
           </div>
         );
@@ -999,22 +1321,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <table className="office-table">
-              <thead>
-                <tr>
-                  <th>Setting</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedWorker.settings.map((setting) => (
-                  <tr key={setting.label}>
-                    <td>{setting.label}</td>
-                    <td>{setting.value}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <WorkerSettingsForm onSave={(settings) => handleSaveSettings(selectedWorker.id, settings)} worker={selectedWorker} />
           </div>
         );
       }
