@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import type { Worker } from "../types";
 
@@ -8,83 +8,87 @@ type HomePageProps = {
   workers: Worker[];
 };
 
-export function HomePage({ onBrowseWorkers, onOpenAuth, workers: _workers }: HomePageProps) {
-  const [activeScene, setActiveScene] = useState<"browse" | "signin" | "hire" | null>(null);
+type RoleMoment = {
+  department: string;
+  role: string;
+};
+
+const TILE_COUNT = 108;
+
+function buildRoleMoments(workers: Worker[]): RoleMoment[] {
+  const seen = new Set<string>();
+  const moments: RoleMoment[] = [];
+
+  for (const worker of workers) {
+    const key = `${worker.title}-${worker.department}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    moments.push({ department: worker.department, role: worker.title });
+  }
+
+  return moments.slice(0, 8);
+}
+
+export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps) {
+  const roleMoments = useMemo(() => buildRoleMoments(workers), [workers]);
+  const [roleIndex, setRoleIndex] = useState(0);
+
+  useEffect(() => {
+    if (roleMoments.length <= 1) return undefined;
+
+    const interval = window.setInterval(() => {
+      setRoleIndex((current) => (current + 1) % roleMoments.length);
+    }, 2200);
+
+    return () => window.clearInterval(interval);
+  }, [roleMoments]);
+
+  const activeRole = roleMoments[roleIndex] ?? { department: "Engineering", role: "Operator" };
 
   return (
     <main className="home-page">
-      <section
-        className="brand-canvas"
-        data-scene={activeScene ?? "idle"}
-        onMouseLeave={() => setActiveScene(null)}
-      >
-        <div className="brand-canvas-wordmark">
-          <p className="brand-kicker">Ryva</p>
-          <h1>Ryva</h1>
+      <section className="brand-hero">
+        <div className="brand-hero-copy">
+          <h1 className="brand-hero-title">
+            <span className="brand-title-line">Your next</span>
+            <span className="brand-title-rotator" aria-live="polite">
+              <span key={`${activeRole.role}-${activeRole.department}`} className="brand-title-role">
+                {activeRole.role}
+              </span>
+            </span>
+            <span className="brand-title-line">is already working.</span>
+          </h1>
+
+          <p className="brand-hero-meta">{activeRole.department}</p>
+
+          <p className="brand-hero-description">
+            Ryva brings specialist talent into one clear hiring surface for modern teams.
+          </p>
+
+          <div className="brand-hero-actions">
+            <button className="button button-primary hero-button" onClick={onBrowseWorkers} type="button">
+              Browse workers
+            </button>
+            <button className="hero-link" onClick={onOpenAuth} type="button">
+              Sign in
+            </button>
+          </div>
         </div>
 
-        <div className="brand-canvas-actions" aria-label="Primary actions">
-          <button
-            className="brand-action"
-            onClick={onBrowseWorkers}
-            onFocus={() => setActiveScene("browse")}
-            onMouseEnter={() => setActiveScene("browse")}
-            type="button"
-          >
-            Browse
-          </button>
-          <button
-            className="brand-action"
-            onClick={onOpenAuth}
-            onFocus={() => setActiveScene("signin")}
-            onMouseEnter={() => setActiveScene("signin")}
-            type="button"
-          >
-            Sign in
-          </button>
-          <button
-            className="brand-action"
-            onClick={onBrowseWorkers}
-            onFocus={() => setActiveScene("hire")}
-            onMouseEnter={() => setActiveScene("hire")}
-            type="button"
-          >
-            Hire
-          </button>
-        </div>
-
-        <div className="brand-motion" aria-hidden="true">
-          <div className="motion-field">
-            <div className="motion-grid" />
-            <div className="motion-slab motion-slab-a" />
-            <div className="motion-slab motion-slab-b" />
-            <div className="motion-slab motion-slab-c" />
-            <div className="motion-window motion-window-a">
-              <div className="motion-window-lines">
-                <span className="w-30" />
-                <span className="w-70" />
-                <span className="w-46" />
-              </div>
-            </div>
-            <div className="motion-window motion-window-b">
-              <div className="motion-window-lines">
-                <span className="w-54" />
-                <span className="w-34" />
-              </div>
-            </div>
-            <div className="motion-window motion-window-c">
-              <div className="motion-window-lines">
-                <span className="w-24" />
-                <span className="w-58" />
-              </div>
-            </div>
-            <svg className="motion-draw" viewBox="0 0 520 320" fill="none">
-              <path d="M30 214C82 164 136 132 196 132C258 132 293 168 293 207C293 242 271 268 245 268C220 268 201 250 201 225C201 191 236 169 282 169C343 169 394 205 444 245" />
-              <path d="M412 219L447 247L404 249" />
-            </svg>
-            <div className="motion-selector motion-selector-a" />
-            <div className="motion-selector motion-selector-b" />
-            <div className="motion-selector motion-selector-c" />
+        <div className="brand-grid-panel" aria-hidden="true">
+          <div className="brand-grid">
+            {Array.from({ length: TILE_COUNT }, (_, index) => (
+              <span
+                key={index}
+                className={`brand-grid-tile brand-grid-tile-${(index % 6) + 1}`}
+                style={
+                  {
+                    "--tile-delay": `${(index % 18) * 0.22}s`,
+                    "--tile-duration": `${4.8 + (index % 5) * 0.45}s`,
+                  } as CSSProperties
+                }
+              />
+            ))}
           </div>
         </div>
       </section>
