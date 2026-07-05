@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { AboutPage } from "./components/AboutPage";
 import { AuthModal } from "./components/AuthModal";
 import { FilterSidebar } from "./components/FilterSidebar";
+import { HireWorkerPage } from "./components/HireWorkerPage";
 import { HomePage } from "./components/HomePage";
+import { InterviewPage } from "./components/InterviewPage";
 import { Navbar } from "./components/Navbar";
 import { OfficeApp } from "./components/OfficeApp";
 import { WorkerCard } from "./components/WorkerCard";
@@ -27,6 +29,9 @@ const allowedViews = new Set(["home", "workers", "about"]);
 function getViewFromHash() {
   const hash = window.location.hash.replace("#", "");
   if (hash.startsWith("app/office")) {
+    return hash;
+  }
+  if (hash.startsWith("interview-") || hash.startsWith("hire-")) {
     return hash;
   }
   if (hash.startsWith("worker-")) {
@@ -231,7 +236,9 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
   const [globalNotice, setGlobalNotice] = useState("");
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isSessionReady, setIsSessionReady] = useState(false);
   const [isWorkersLoading, setIsWorkersLoading] = useState(true);
+  const [pendingCheckoutWorker, setPendingCheckoutWorker] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
   const [selectedExperience, setSelectedExperience] = useState<string[]>([]);
@@ -246,6 +253,12 @@ export default function App() {
   const isOfficeRoute = view.startsWith("app/office");
   const activeWorker = view.startsWith("worker-")
     ? workers.find((worker) => `worker-${worker.slug}` === view)
+    : undefined;
+  const interviewWorker = view.startsWith("interview-")
+    ? workers.find((worker) => `interview-${worker.slug}` === view)
+    : undefined;
+  const hireWorker = view.startsWith("hire-")
+    ? workers.find((worker) => `hire-${worker.slug}` === view)
     : undefined;
 
   const filteredWorkers = useMemo(
@@ -294,6 +307,10 @@ export default function App() {
       setGlobalNotice("Checkout was cancelled. No charge was made.");
     }
 
+    if (checkoutState === "success") {
+      setPendingCheckoutWorker(params.get("worker"));
+    }
+
     if (notice || checkoutState) {
       const url = new URL(window.location.href);
       url.searchParams.delete("notice");
@@ -309,13 +326,13 @@ export default function App() {
   }, [activeWorker, view, workers.length]);
 
   useEffect(() => {
-    if (isOfficeRoute && !user) {
+    if (isOfficeRoute && isSessionReady && !user) {
       setAuthError("");
       setIsAuthModalOpen(true);
       window.location.hash = "home";
       setGlobalNotice("Sign in to access Ryva Office.");
     }
-  }, [isOfficeRoute, user]);
+  }, [isOfficeRoute, isSessionReady, user]);
 
   useEffect(() => {
     async function loadOfficeWorkers() {
@@ -351,6 +368,8 @@ export default function App() {
         setUser(response.user);
       } catch {
         setUser(null);
+      } finally {
+        setIsSessionReady(true);
       }
     }
 
@@ -359,8 +378,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") !== "success" || !user) {
+    if (!pendingCheckoutWorker || !user) {
       return;
     }
 
@@ -369,13 +387,14 @@ export default function App() {
         const response = await apiJson<{ workers: Worker[] }>("/api/office/workers", { method: "GET" });
         setHiredWorkers(response.workers);
         setGlobalNotice("Checkout complete. Your hired worker is now available in Ryva Office.");
+        setPendingCheckoutWorker(null);
       } catch {
         // Ignore refresh errors here; the office can retry on navigation.
       }
     }
 
     void refreshOfficeWorkers();
-  }, [user]);
+  }, [pendingCheckoutWorker, user]);
 
   function handleSearchChange(value: string) {
     setSearchQuery(value);
@@ -516,6 +535,14 @@ export default function App() {
     }
   }
 
+  function openWorkerInterview(workerSlug: string) {
+    window.location.hash = `interview-${workerSlug}`;
+  }
+
+  function openWorkerHire(workerSlug: string) {
+    window.location.hash = `hire-${workerSlug}`;
+  }
+
   async function handleResendVerification() {
     if (!user || user.emailVerified) return;
 
@@ -604,7 +631,15 @@ export default function App() {
         )}
 
         {!isWorkersLoading && !isOfficeRoute && view === "about" && <AboutPage />}
-        {!isWorkersLoading && !isOfficeRoute && activeWorker && <WorkerProfilePage onHire={handleCheckout} worker={activeWorker} />}
+        {!isWorkersLoading && !isOfficeRoute && activeWorker && (
+          <WorkerProfilePage onHire={openWorkerHire} onInterview={openWorkerInterview} worker={activeWorker} />
+        )}
+        {!isWorkersLoading && !isOfficeRoute && interviewWorker && (
+          <InterviewPage onBack={() => { window.location.hash = `worker-${interviewWorker.slug}`; }} onHire={openWorkerHire} worker={interviewWorker} />
+        )}
+        {!isWorkersLoading && !isOfficeRoute && hireWorker && (
+          <HireWorkerPage onBack={() => { window.location.hash = `worker-${hireWorker.slug}`; }} onConfirmHire={handleCheckout} worker={hireWorker} />
+        )}
         {!isWorkersLoading && isOfficeRoute && user && (
           <OfficeApp
             hiredWorkers={hiredWorkers}

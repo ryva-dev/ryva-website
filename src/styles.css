@@ -769,6 +769,224 @@ a:focus-visible {
   gap: 22px;
 }
 
+.interview-page {
+  padding: 28px 0 56px;
+}
+
+.interview-shell,
+.hire-page-grid,
+.onboarding-layout {
+  display: grid;
+  gap: 24px;
+}
+
+.interview-shell {
+  max-width: 1520px;
+  margin: 0 auto;
+  padding: 0 34px;
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  align-items: start;
+}
+
+.interview-sidebar,
+.interview-sidebar-right,
+.onboarding-sidebar {
+  display: grid;
+  gap: 18px;
+}
+
+.interview-worker-card,
+.interview-panel,
+.onboarding-section,
+.hire-page-shell {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.interview-worker-card,
+.interview-panel,
+.onboarding-section {
+  padding: 22px 24px;
+}
+
+.interview-worker-card h1 {
+  margin: 18px 0 4px;
+  font-size: 1.32rem;
+}
+
+.interview-summary {
+  margin: 14px 0 0;
+  color: #475569;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.interview-main {
+  display: grid;
+  gap: 18px;
+}
+
+.interview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 26px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.interview-header h2 {
+  margin: 0;
+  font-size: 1.36rem;
+}
+
+.interview-thread {
+  display: grid;
+  gap: 14px;
+  padding: 24px 26px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.interview-message {
+  padding: 16px 18px;
+  border: 1px solid #e8eef5;
+  border-radius: 12px;
+  background: #fafbfd;
+}
+
+.interview-message-manager {
+  background: #fff;
+}
+
+.interview-message strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.88rem;
+}
+
+.interview-message p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.interview-suggestions {
+  display: grid;
+  gap: 10px;
+}
+
+.interview-question-link {
+  padding: 14px 16px;
+  border: 1px solid #e8eef5;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.interview-question-link:hover {
+  background: #fafbfd;
+}
+
+.interview-composer textarea,
+.interview-panel textarea,
+.onboarding-question-card textarea,
+.onboarding-question-card input,
+.onboarding-question-card select {
+  width: 100%;
+  border: 1px solid #d7e1ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.interview-composer {
+  display: grid;
+  gap: 12px;
+  padding: 24px 26px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.interview-composer textarea,
+.interview-panel textarea,
+.onboarding-question-card textarea {
+  min-height: 112px;
+  padding: 12px 14px;
+  resize: vertical;
+}
+
+.hire-page-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 34px 34px;
+}
+
+.hire-page-grid {
+  grid-template-columns: 1fr 1fr;
+  margin-top: 22px;
+}
+
+.hire-page-actions,
+.onboarding-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.onboarding-layout {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+}
+
+.onboarding-main {
+  min-width: 0;
+}
+
+.onboarding-question-list,
+.onboarding-summary-list {
+  display: grid;
+  gap: 14px;
+}
+
+.onboarding-question-card {
+  padding: 18px 20px;
+  border: 1px solid #e8eef5;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.onboarding-question-card label {
+  display: grid;
+  gap: 8px;
+}
+
+.onboarding-question-card span {
+  color: #0f172a;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.onboarding-question-card small {
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.onboarding-question-card input,
+.onboarding-question-card select {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
 .sidebar-card {
   padding: 26px 28px;
 }

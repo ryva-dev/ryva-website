@@ -1,6 +1,7 @@
 import type { Worker } from "../types";
 
 type WorkerProfilePageProps = {
+  onInterview: (workerSlug: string) => void;
   onHire: (workerSlug: string) => void;
   worker: Worker;
 };
@@ -9,7 +10,7 @@ function renderStars(rating: number) {
   return "★".repeat(rating) + "☆".repeat(5 - rating);
 }
 
-export function WorkerProfilePage({ onHire, worker }: WorkerProfilePageProps) {
+export function WorkerProfilePage({ onHire, onInterview, worker }: WorkerProfilePageProps) {
   return (
     <main className="worker-profile-page">
       <div className="worker-profile-shell">
@@ -36,7 +37,10 @@ export function WorkerProfilePage({ onHire, worker }: WorkerProfilePageProps) {
             </div>
 
             <div className="worker-hero-actions">
-              <button className="button button-primary" onClick={() => onHire(worker.slug)} type="button">
+              <button className="button button-primary" onClick={() => onInterview(worker.slug)} type="button">
+                Interview {worker.name.split(" ")[0]}
+              </button>
+              <button className="button button-secondary" onClick={() => onHire(worker.slug)} type="button">
                 Hire {worker.name.split(" ")[0]}
               </button>
               <a className="button button-secondary" href="#workers">

@@ -167,6 +167,20 @@ db.exec(`
     updated_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS office_onboarding_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    status TEXT NOT NULL,
+    answers_json TEXT NOT NULL,
+    generated_summary_json TEXT NOT NULL,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_slug),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 db.exec(`

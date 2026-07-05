@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { WorkerOnboardingPage } from "./WorkerOnboardingPage";
 
 import type {
   Briefing,
@@ -11,6 +12,7 @@ import type {
   WorkerModule
 } from "../officeData";
 import { buildOfficeWorkersFromMarketplaceWorkers } from "../officeData";
+import type { OnboardingSessionState } from "../onboardingSchemas";
 import type { Worker } from "../types";
 
 type OfficeAppProps = {
@@ -80,6 +82,14 @@ type OfficeGlobalSettings = {
   timezone: string;
 };
 
+type OfficeOverlayOnboarding = {
+  answersJson: string;
+  completedAt: string | null;
+  generatedSummaryJson: string;
+  status: "completed" | "in_progress";
+  workerSlug: string;
+};
+
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -110,6 +120,7 @@ const officePrimaryNav = [
 ];
 
 const workerNav = [
+  { key: "onboarding", label: "Onboarding" },
   { key: "desk", label: "Desk" },
   { key: "briefings", label: "Briefings" },
   { key: "tasks", label: "Tasks" },
@@ -1584,6 +1595,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
   const [overlayFiles, setOverlayFiles] = useState<OfficeOverlayFile[]>([]);
   const [overlayGlobalSettings, setOverlayGlobalSettings] = useState<OfficeGlobalSettings>(buildDefaultOfficeSettings());
   const [overlayKnowledge, setOverlayKnowledge] = useState<OfficeOverlayKnowledge[]>([]);
+  const [overlayOnboarding, setOverlayOnboarding] = useState<OfficeOverlayOnboarding[]>([]);
   const [officeNotice, setOfficeNotice] = useState("");
   const [overlaySettings, setOverlaySettings] = useState<OfficeOverlaySettings[]>([]);
   const [overlayTasks, setOverlayTasks] = useState<OfficeOverlayTask[]>([]);
@@ -1609,6 +1621,20 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
   const route = parseOfficePath(currentHash);
   const selectedWorker =
     "workerId" in route ? officeWorkers.find((worker) => worker.id === route.workerId) ?? null : null;
+  const selectedMarketplaceWorker =
+    "workerId" in route ? hiredWorkers.find((worker) => worker.slug === route.workerId) ?? null : null;
+  const selectedOnboarding = selectedWorker
+    ? overlayOnboarding.find((entry) => entry.workerSlug === selectedWorker.id) ?? null
+    : null;
+  const selectedOnboardingSession: OnboardingSessionState | null = selectedOnboarding
+    ? {
+        answers: JSON.parse(selectedOnboarding.answersJson) as Record<string, string>,
+        completedAt: selectedOnboarding.completedAt,
+        generatedSummary: JSON.parse(selectedOnboarding.generatedSummaryJson) as string[],
+        status: selectedOnboarding.status
+      }
+    : null;
+  const selectedOnboardingCompleted = selectedOnboarding?.status === "completed";
 
   useEffect(() => {
     async function loadOverlays() {
@@ -1618,6 +1644,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         setOverlayFiles([]);
         setOverlayGlobalSettings(buildDefaultOfficeSettings());
         setOverlayKnowledge([]);
+        setOverlayOnboarding([]);
         setOverlaySettings([]);
         setOverlayTasks([]);
         setOverlayWorklog([]);
@@ -1631,6 +1658,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
           files: OfficeOverlayFile[];
           globalSettings: { settingsJson: string } | null;
           knowledge: OfficeOverlayKnowledge[];
+          onboarding: OfficeOverlayOnboarding[];
           settings: OfficeOverlaySettings[];
           tasks: OfficeOverlayTask[];
           worklog: OfficeOverlayWorklog[];
@@ -1644,6 +1672,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
             : buildDefaultOfficeSettings()
         );
         setOverlayKnowledge(response.knowledge);
+        setOverlayOnboarding(response.onboarding);
         setOverlaySettings(response.settings);
         setOverlayTasks(response.tasks);
         setOverlayWorklog(response.worklog);
@@ -1670,6 +1699,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
       files: OfficeOverlayFile[];
       globalSettings: { settingsJson: string } | null;
       knowledge: OfficeOverlayKnowledge[];
+      onboarding: OfficeOverlayOnboarding[];
       settings: OfficeOverlaySettings[];
       tasks: OfficeOverlayTask[];
       worklog: OfficeOverlayWorklog[];
@@ -1683,6 +1713,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         : buildDefaultOfficeSettings()
     );
     setOverlayKnowledge(response.knowledge);
+    setOverlayOnboarding(response.onboarding);
     setOverlaySettings(response.settings);
     setOverlayTasks(response.tasks);
     setOverlayWorklog(response.worklog);
@@ -1809,6 +1840,51 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
     setOfficeNotice("Office settings saved.");
   }
 
+  async function handleSaveOnboardingProgress(
+    workerSlug: string,
+    payload: { answers: Record<string, string>; generatedSummary: string[] }
+  ) {
+    await officeJson(`/api/office/workers/${workerSlug}/onboarding/save`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    await refreshOverlays();
+    setOfficeNotice("Onboarding progress saved.");
+  }
+
+  async function handleCompleteOnboarding(
+    workerSlug: string,
+    payload: {
+      answers: Record<string, string>;
+      briefing: {
+        agenda: string[];
+        dateLabel: string;
+        decisionsNeeded: string[];
+        recommendedActions: string[];
+        summary: string;
+        title: string;
+      };
+      generatedSummary: string[];
+      knowledge: Array<{ items: string[]; title: string }>;
+      tasks: Array<{
+        dueDate: string;
+        module: string;
+        owner: "Worker" | "You";
+        priority: "High" | "Low" | "Medium";
+        status: "Completed" | "In Progress" | "Needs Review" | "To Do";
+        title: string;
+      }>;
+      worklogEntry: { module: string; result: string };
+    }
+  ) {
+    await officeJson(`/api/office/workers/${workerSlug}/onboarding/complete`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    await refreshOverlays();
+    setOfficeNotice("New hire onboarding completed.");
+  }
+
   async function handleCreateOfficeTask(payload: {
     dueDate: string;
     priority: OfficeTask["priority"];
@@ -1855,7 +1931,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
                 </p>
                 <p className="office-note">{worker.roleSummary}</p>
                 <button className="button button-secondary" onClick={() => onNavigate(`#app/office/workers/${worker.id}/desk`)} type="button">
-                  Open desk
+                  {overlayOnboarding.find((entry) => entry.workerSlug === worker.id)?.status === "completed" ? "Open desk" : "Start onboarding"}
                 </button>
               </article>
             ))}
@@ -1874,8 +1950,53 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
   } else if (selectedWorker) {
     let workerContent: ReactNode = <WorkerDesk worker={selectedWorker} />;
 
+    if (!selectedOnboardingCompleted && route.kind !== "worker-section" && selectedMarketplaceWorker) {
+      workerContent = (
+        <WorkerOnboardingPage
+          onComplete={(payload) => handleCompleteOnboarding(selectedWorker.id, payload)}
+          onSaveProgress={(payload) => handleSaveOnboardingProgress(selectedWorker.id, payload)}
+          onStartFirstDay={(notice) => {
+            setOfficeNotice(notice);
+            onNavigate(`#app/office/workers/${selectedWorker.id}/desk`);
+          }}
+          session={selectedOnboardingSession}
+          worker={selectedMarketplaceWorker}
+        />
+      );
+    }
+
     if (route.kind === "worker-section") {
-      if (route.section === "briefings") {
+      if (route.section === "onboarding") {
+        if (selectedMarketplaceWorker) {
+          workerContent = (
+            <WorkerOnboardingPage
+              onComplete={(payload) => handleCompleteOnboarding(selectedWorker.id, payload)}
+              onSaveProgress={(payload) => handleSaveOnboardingProgress(selectedWorker.id, payload)}
+              onStartFirstDay={(notice) => {
+                setOfficeNotice(notice);
+                onNavigate(`#app/office/workers/${selectedWorker.id}/desk`);
+              }}
+              session={selectedOnboardingSession}
+              worker={selectedMarketplaceWorker}
+            />
+          );
+        }
+      } else if (!selectedOnboardingCompleted) {
+        if (selectedMarketplaceWorker) {
+          workerContent = (
+            <WorkerOnboardingPage
+              onComplete={(payload) => handleCompleteOnboarding(selectedWorker.id, payload)}
+              onSaveProgress={(payload) => handleSaveOnboardingProgress(selectedWorker.id, payload)}
+              onStartFirstDay={(notice) => {
+                setOfficeNotice(notice);
+                onNavigate(`#app/office/workers/${selectedWorker.id}/desk`);
+              }}
+              session={selectedOnboardingSession}
+              worker={selectedMarketplaceWorker}
+            />
+          );
+        }
+      } else if (route.section === "briefings") {
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />

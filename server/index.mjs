@@ -215,7 +215,15 @@ function readOfficeOverlaysForUser(userId) {
            FROM office_global_settings
            WHERE user_id = ?`
         )
-        .get(userId) ?? null
+        .get(userId) ?? null,
+    onboarding: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, status, answers_json AS answersJson,
+                generated_summary_json AS generatedSummaryJson, completed_at AS completedAt
+         FROM office_onboarding_sessions
+         WHERE user_id = ?`
+      )
+      .all(userId)
   };
 }
 
@@ -662,7 +670,7 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
          hired_at = excluded.hired_at`
     ).run(randomUUID(), req.user.id, worker.slug, checkoutId, "active", nowIso());
 
-    res.json({ free: true, url: `${appUrl}/?checkout=success#app/office` });
+    res.json({ free: true, url: `${appUrl}/?checkout=success&worker=${worker.slug}#app/office/workers/${worker.slug}/onboarding` });
     return;
   }
 
@@ -675,7 +683,7 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    success_url: `${appUrl}/?checkout=success#app/office`,
+    success_url: `${appUrl}/?checkout=success&worker=${worker.slug}#app/office/workers/${worker.slug}/onboarding`,
     cancel_url: `${appUrl}/?checkout=cancelled#worker-${worker.slug}`,
     line_items: [
       {
@@ -1154,6 +1162,163 @@ app.post("/api/office/settings", assertOrigin, requireAuth, async (req, res) => 
        settings_json = excluded.settings_json,
        updated_at = excluded.updated_at`
   ).run(req.user.id, JSON.stringify(normalizedSettings), nowIso());
+
+  res.json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/onboarding/save", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const answers = req.body?.answers;
+  const generatedSummary = req.body?.generatedSummary;
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!answers || typeof answers !== "object") {
+    res.status(400).json({ error: "Onboarding answers are required." });
+    return;
+  }
+
+  db.prepare(
+    `INSERT INTO office_onboarding_sessions
+     (id, user_id, worker_slug, status, answers_json, generated_summary_json, completed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+       status = excluded.status,
+       answers_json = excluded.answers_json,
+       generated_summary_json = excluded.generated_summary_json,
+       updated_at = excluded.updated_at`
+  ).run(
+    randomUUID(),
+    req.user.id,
+    workerSlug,
+    "in_progress",
+    JSON.stringify(answers),
+    JSON.stringify(Array.isArray(generatedSummary) ? generatedSummary : []),
+    nowIso(),
+    nowIso()
+  );
+
+  res.json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const answers = req.body?.answers;
+  const generatedSummary = req.body?.generatedSummary;
+  const knowledge = req.body?.knowledge;
+  const tasks = req.body?.tasks;
+  const briefing = req.body?.briefing;
+  const worklogEntry = req.body?.worklogEntry;
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!answers || typeof answers !== "object" || !Array.isArray(knowledge) || !Array.isArray(tasks) || !briefing) {
+    res.status(400).json({ error: "Onboarding payload is incomplete." });
+    return;
+  }
+
+  const existing = db
+    .prepare(
+      `SELECT status
+       FROM office_onboarding_sessions
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .get(req.user.id, workerSlug);
+
+  const timestamp = nowIso();
+
+  db.prepare(
+    `INSERT INTO office_onboarding_sessions
+     (id, user_id, worker_slug, status, answers_json, generated_summary_json, completed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+       status = excluded.status,
+       answers_json = excluded.answers_json,
+       generated_summary_json = excluded.generated_summary_json,
+       completed_at = excluded.completed_at,
+       updated_at = excluded.updated_at`
+  ).run(
+    randomUUID(),
+    req.user.id,
+    workerSlug,
+    "completed",
+    JSON.stringify(answers),
+    JSON.stringify(Array.isArray(generatedSummary) ? generatedSummary : []),
+    timestamp,
+    timestamp,
+    timestamp
+  );
+
+  const normalizedKnowledge = knowledge
+    .map((section) => ({
+      items: normalizeTextList(section?.items),
+      title: String(section?.title ?? "").trim()
+    }))
+    .filter((section) => section.title && section.items.length > 0);
+
+  db.prepare(
+    `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+       knowledge_json = excluded.knowledge_json,
+       updated_at = excluded.updated_at`
+  ).run(randomUUID(), req.user.id, workerSlug, JSON.stringify(normalizedKnowledge), timestamp);
+
+  if (existing?.status !== "completed") {
+    for (const task of tasks) {
+      db.prepare(
+        `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        randomUUID(),
+        req.user.id,
+        workerSlug,
+        String(task.title ?? "First task"),
+        String(task.module ?? "Onboarding"),
+        task.owner === "You" ? "You" : "Worker",
+        task.priority === "Low" || task.priority === "Medium" || task.priority === "High" ? task.priority : "Medium",
+        ["To Do", "In Progress", "Needs Review", "Completed"].includes(String(task.status)) ? String(task.status) : "To Do",
+        String(task.dueDate ?? "Today"),
+        timestamp
+      );
+    }
+
+    db.prepare(
+      `INSERT INTO office_custom_briefings
+       (id, user_id, worker_slug, title, date_label, summary, agenda_json, decisions_json, actions_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      req.user.id,
+      workerSlug,
+      String(briefing.title ?? "First Briefing"),
+      String(briefing.dateLabel ?? "Tomorrow"),
+      String(briefing.summary ?? ""),
+      JSON.stringify(normalizeTextList(briefing.agenda)),
+      JSON.stringify(normalizeTextList(briefing.decisionsNeeded)),
+      JSON.stringify(normalizeTextList(briefing.recommendedActions)),
+      timestamp
+    );
+  }
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    req.user.id,
+    workerSlug,
+    "Completed new hire onboarding.",
+    "Onboarding",
+    String(worklogEntry?.result ?? "Worker prepared first-day setup"),
+    timestamp
+  );
 
   res.json({ ok: true });
 });
