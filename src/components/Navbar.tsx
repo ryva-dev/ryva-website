@@ -2,6 +2,7 @@ type NavbarProps = {
   currentView: string;
   items: Array<{ label: string; href: string }>;
   onAuthClick: () => void;
+  officeHref: string | null;
   onLogout: () => Promise<void>;
   onSearchChange: (value: string) => void;
   searchQuery: string;
@@ -13,6 +14,7 @@ export function Navbar({
   currentView,
   items,
   onAuthClick,
+  officeHref,
   onLogout,
   onSearchChange,
   searchQuery,
@@ -54,6 +56,11 @@ export function Navbar({
       <div className="nav-actions">
         {userName ? (
           <>
+            {officeHref ? (
+              <a className="button button-secondary" href={officeHref}>
+                Office
+              </a>
+            ) : null}
             <span className="nav-user">Hi, {userName}</span>
             <button className="nav-signin nav-button" onClick={() => void onLogout()} type="button">
               Sign out

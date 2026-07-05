@@ -1055,6 +1055,429 @@ a:focus-visible {
   line-height: 1.55;
 }
 
+.office-shell {
+  display: grid;
+  grid-template-columns: 280px 240px minmax(0, 1fr);
+  min-height: 100vh;
+  background: #f7f9fc;
+}
+
+.office-sidebar,
+.worker-sidebar {
+  padding: 28px 22px;
+  border-right: 1px solid var(--line);
+  background: #fff;
+}
+
+.office-sidebar-brand {
+  margin-bottom: 24px;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.office-sidebar-label {
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.office-primary-nav,
+.worker-module-nav,
+.worker-subnav,
+.office-worker-list {
+  display: grid;
+  gap: 8px;
+}
+
+.office-worker-switcher {
+  margin-top: 28px;
+}
+
+.office-nav-link,
+.worker-subnav-link,
+.office-worker-link {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #334155;
+  text-align: left;
+  cursor: pointer;
+}
+
+.office-nav-link:hover,
+.worker-subnav-link:hover,
+.office-worker-link:hover {
+  background: #f8fafc;
+}
+
+.office-nav-link-active,
+.worker-subnav-link-active,
+.office-worker-link-active {
+  border-color: var(--line);
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.office-worker-link span {
+  display: block;
+  font-weight: 700;
+}
+
+.office-worker-link small {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.worker-sidebar-card {
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.worker-sidebar-card h2 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.worker-sidebar-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.86rem;
+}
+
+.worker-module-nav {
+  margin-top: 20px;
+}
+
+.office-main {
+  padding: 28px 30px 40px;
+}
+
+.office-page {
+  display: grid;
+  gap: 20px;
+}
+
+.office-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.office-topbar h1,
+.worker-header h2 {
+  margin: 0 0 6px;
+  font-size: 1.55rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.office-topbar p,
+.worker-header p,
+.office-note,
+.briefing-summary {
+  margin: 0;
+  color: #64748b;
+}
+
+.office-topbar-meta {
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.worker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.worker-header-summary {
+  max-width: 360px;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.office-content-grid,
+.office-overview-grid,
+.chat-layout,
+.settings-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.office-content-grid {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+}
+
+.office-overview-grid,
+.settings-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chat-layout {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+}
+
+.office-main-column,
+.office-side-column,
+.chat-sidebar {
+  display: grid;
+  gap: 18px;
+}
+
+.overview-stats,
+.snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.snapshot-card,
+.office-panel,
+.knowledge-card,
+.worker-directory-card,
+.task-card,
+.briefing-card,
+.review-queue-item,
+.chat-message {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.snapshot-card {
+  padding: 16px 18px;
+}
+
+.snapshot-card span {
+  display: block;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.snapshot-card strong {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.office-panel,
+.knowledge-card,
+.worker-directory-card {
+  padding: 18px 20px;
+}
+
+.office-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.office-panel-head h3,
+.knowledge-card h4,
+.briefing-card h4,
+.task-column-head h4 {
+  margin: 0;
+  font-size: 0.96rem;
+  font-weight: 700;
+}
+
+.office-panel-head span,
+.knowledge-card p,
+.task-card p,
+.task-card small,
+.review-queue-item p,
+.worklog-item p,
+.chat-message small {
+  color: #64748b;
+}
+
+.office-simple-list,
+.knowledge-card ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #334155;
+}
+
+.office-simple-list li + li {
+  margin-top: 8px;
+}
+
+.review-queue,
+.briefing-list,
+.worklog-list,
+.task-column-list {
+  display: grid;
+  gap: 14px;
+}
+
+.review-queue-item,
+.chat-message {
+  padding: 14px 16px;
+}
+
+.review-queue-item strong,
+.task-card strong,
+.worklog-item strong,
+.chat-message strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.briefing-card {
+  padding: 20px;
+}
+
+.briefing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.briefing-grid h5 {
+  margin: 0 0 10px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.briefing-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.task-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.task-column {
+  min-height: 220px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.task-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.task-column-head span {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.task-card {
+  padding: 14px;
+}
+
+.task-card small {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
+.worklog-item {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.worklog-time {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.office-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.office-table th,
+.office-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #edf2f7;
+  text-align: left;
+  vertical-align: top;
+}
+
+.office-table th {
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #f8fafc;
+}
+
+.office-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.knowledge-grid,
+.worker-directory {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.chat-thread {
+  display: grid;
+  gap: 14px;
+}
+
+.chat-message-user {
+  background: #f8fafc;
+}
+
+.quick-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.worker-directory-card h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.worker-directory-card p {
+  margin: 0 0 10px;
+}
+
 @media (max-width: 1200px) {
   .navbar {
     grid-template-columns: 1fr;
@@ -1082,6 +1505,33 @@ a:focus-visible {
     min-height: auto;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .office-shell {
+    grid-template-columns: 250px minmax(0, 1fr);
+  }
+
+  .worker-sidebar {
+    grid-column: 1 / 2;
+    border-top: 1px solid var(--line);
+  }
+
+  .office-main {
+    grid-column: 2 / 3;
+    grid-row: 1 / 3;
+  }
+
+  .office-content-grid,
+  .chat-layout,
+  .task-board,
+  .briefing-grid,
+  .overview-stats,
+  .snapshot-grid,
+  .office-overview-grid,
+  .settings-grid,
+  .knowledge-grid,
+  .worker-directory {
+    grid-template-columns: 1fr 1fr;
   }
 
   .brand-hero {
@@ -1138,7 +1588,9 @@ a:focus-visible {
   .worker-row-actions,
   .worker-hero-summary,
   .worker-hero-actions,
-  .review-head {
+  .review-head,
+  .worker-header,
+  .office-topbar {
     flex-direction: column;
     align-items: stretch;
   }
@@ -1192,6 +1644,45 @@ a:focus-visible {
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 10px;
     padding-top: 22px;
+  }
+
+  .office-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .office-sidebar,
+  .worker-sidebar,
+  .office-main {
+    grid-column: auto;
+    grid-row: auto;
+    border-right: 0;
+  }
+
+  .office-sidebar,
+  .worker-sidebar {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .office-main {
+    padding: 18px;
+  }
+
+  .office-content-grid,
+  .chat-layout,
+  .task-board,
+  .briefing-grid,
+  .overview-stats,
+  .snapshot-grid,
+  .office-overview-grid,
+  .settings-grid,
+  .knowledge-grid,
+  .worker-directory {
+    grid-template-columns: 1fr;
+  }
+
+  .worklog-item {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 }
 

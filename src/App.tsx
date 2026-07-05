@@ -4,6 +4,7 @@ import { AuthModal } from "./components/AuthModal";
 import { FilterSidebar } from "./components/FilterSidebar";
 import { HomePage } from "./components/HomePage";
 import { Navbar } from "./components/Navbar";
+import { OfficeApp } from "./components/OfficeApp";
 import { WorkerCard } from "./components/WorkerCard";
 import { WorkerProfilePage } from "./components/WorkerProfilePage";
 import type { Worker } from "./types";
@@ -25,6 +26,9 @@ const allowedViews = new Set(["home", "workers", "about"]);
 
 function getViewFromHash() {
   const hash = window.location.hash.replace("#", "");
+  if (hash.startsWith("app/office")) {
+    return hash;
+  }
   if (hash.startsWith("worker-")) {
     return hash;
   }
@@ -238,6 +242,7 @@ export default function App() {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [resetToken, setResetToken] = useState<string | null>(null);
 
+  const isOfficeRoute = view.startsWith("app/office");
   const activeWorker = view.startsWith("worker-")
     ? workers.find((worker) => `worker-${worker.slug}` === view)
     : undefined;
@@ -289,6 +294,15 @@ export default function App() {
       window.location.hash = "workers";
     }
   }, [activeWorker, view, workers.length]);
+
+  useEffect(() => {
+    if (isOfficeRoute && !user) {
+      setAuthError("");
+      setIsAuthModalOpen(true);
+      window.location.hash = "home";
+      setGlobalNotice("Sign in to access Ryva Office.");
+    }
+  }, [isOfficeRoute, user]);
 
   useEffect(() => {
     async function loadWorkers() {
@@ -445,19 +459,22 @@ export default function App() {
   return (
     <div className="app-frame">
       <div className="app-shell">
-        <Navbar
-          currentView={activeWorker ? "workers" : view}
-          items={navItems}
-          onAuthClick={() => {
-            setAuthError("");
-            setIsAuthModalOpen(true);
-          }}
-          onLogout={handleLogout}
-          onSearchChange={handleSearchChange}
-          searchQuery={searchQuery}
-          showSearch={view !== "home"}
-          userName={user?.name ?? null}
-        />
+        {!isOfficeRoute ? (
+          <Navbar
+            currentView={activeWorker ? "workers" : view}
+            items={navItems}
+            onAuthClick={() => {
+              setAuthError("");
+              setIsAuthModalOpen(true);
+            }}
+            officeHref={user ? "#app/office" : null}
+            onLogout={handleLogout}
+            onSearchChange={handleSearchChange}
+            searchQuery={searchQuery}
+            showSearch={view !== "home" && !isOfficeRoute}
+            userName={user?.name ?? null}
+          />
+        ) : null}
 
         {globalNotice ? (
           <div className="notice-banner">
@@ -475,7 +492,7 @@ export default function App() {
           </div>
         ) : null}
 
-        {!isWorkersLoading && view === "home" && (
+        {!isWorkersLoading && !isOfficeRoute && view === "home" && (
           <HomePage
             onBrowseWorkers={() => {
               window.location.hash = "workers";
@@ -488,7 +505,7 @@ export default function App() {
           />
         )}
 
-        {!isWorkersLoading && view === "workers" && (
+        {!isWorkersLoading && !isOfficeRoute && view === "workers" && (
           <WorkersPage
             onDepartmentToggle={(value) => toggleValue(selectedDepartments, value, setSelectedDepartments)}
             onExperienceToggle={(value) => toggleValue(selectedExperience, value, setSelectedExperience)}
@@ -504,8 +521,16 @@ export default function App() {
           />
         )}
 
-        {!isWorkersLoading && view === "about" && <AboutPage />}
-        {!isWorkersLoading && activeWorker && <WorkerProfilePage onHire={handleCheckout} worker={activeWorker} />}
+        {!isWorkersLoading && !isOfficeRoute && view === "about" && <AboutPage />}
+        {!isWorkersLoading && !isOfficeRoute && activeWorker && <WorkerProfilePage onHire={handleCheckout} worker={activeWorker} />}
+        {!isWorkersLoading && isOfficeRoute && user && (
+          <OfficeApp
+            onNavigate={(hash) => {
+              window.location.hash = hash.replace(/^#/, "");
+            }}
+            userName={user.name}
+          />
+        )}
       </div>
 
       {isAuthModalOpen ? (
