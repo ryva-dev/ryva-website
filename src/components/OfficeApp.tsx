@@ -10,9 +10,11 @@ import type {
   WorkerFile,
   WorkerModule
 } from "../officeData";
-import { officeHomeData, officeWorkers } from "../officeData";
+import { buildOfficeWorkersFromMarketplaceWorkers } from "../officeData";
+import type { Worker } from "../types";
 
 type OfficeAppProps = {
+  hiredWorkers: Worker[];
   onNavigate: (hash: string) => void;
   userName: string;
 };
@@ -80,6 +82,23 @@ function allActivity(workers: OfficeWorker[]) {
   );
 }
 
+function buildOfficeOverview(workers: OfficeWorker[]) {
+  return {
+    activity: allActivity(workers)
+      .slice(0, 4)
+      .map((entry) => `${entry.workerName} ${entry.action.charAt(0).toLowerCase()}${entry.action.slice(1)}`),
+    briefings: allBriefings(workers)
+      .slice(0, 4)
+      .map((briefing) => `${briefing.dateLabel} · ${briefing.title} with ${briefing.workerName}`),
+    review: workers.flatMap((worker) => worker.reviewQueue.map((item) => `${item.item} from ${worker.name}`)).slice(0, 4),
+    tasks: workers
+      .flatMap((worker) =>
+        worker.tasks.filter((task) => task.status !== "Completed").map((task) => `${task.title} · ${worker.name}`)
+      )
+      .slice(0, 4)
+  };
+}
+
 function parseOfficePath(hash: string) {
   const clean = hash.replace(/^#/, "").replace(/^\/+/, "");
   const parts = clean.split("/").filter(Boolean);
@@ -124,11 +143,13 @@ function parseOfficePath(hash: string) {
 function OfficeSidebar({
   currentHash,
   onNavigate,
-  selectedWorker
+  selectedWorker,
+  workers
 }: {
   currentHash: string;
   onNavigate: (hash: string) => void;
   selectedWorker: OfficeWorker | null;
+  workers: OfficeWorker[];
 }) {
   return (
     <aside className="office-sidebar">
@@ -157,7 +178,7 @@ function OfficeSidebar({
       <section className="office-worker-switcher">
         <div className="office-sidebar-label">Hired workers</div>
         <div className="office-worker-list">
-          {officeWorkers.map((worker) => {
+          {workers.map((worker) => {
             const isActive = selectedWorker?.id === worker.id;
 
             return (
@@ -557,11 +578,13 @@ function WorkerDesk({ worker }: { worker: OfficeWorker }) {
   );
 }
 
-function OfficeHome({ userName }: { userName: string }) {
+function OfficeHome({ userName, workers }: { userName: string; workers: OfficeWorker[] }) {
+  const overview = buildOfficeOverview(workers);
+
   return (
     <div className="office-page">
       <TopBar
-        rightLabel={`${officeWorkers.length} hired workers · ${totalOpenTasks(officeWorkers)} open tasks`}
+        rightLabel={`${workers.length} hired workers · ${totalOpenTasks(workers)} open tasks`}
         subtitle="Good morning. Your office overview is organized by worker, review queue, and recent work."
         title={`Welcome back, ${userName}.`}
       />
@@ -569,38 +592,38 @@ function OfficeHome({ userName }: { userName: string }) {
       <div className="overview-stats">
         <article className="snapshot-card">
           <span>Hired workers</span>
-          <strong>{officeWorkers.length}</strong>
+          <strong>{workers.length}</strong>
         </article>
         <article className="snapshot-card">
           <span>Work needing review</span>
-          <strong>{totalReviewItems(officeWorkers)}</strong>
+          <strong>{totalReviewItems(workers)}</strong>
         </article>
         <article className="snapshot-card">
           <span>Open tasks</span>
-          <strong>{totalOpenTasks(officeWorkers)}</strong>
+          <strong>{totalOpenTasks(workers)}</strong>
         </article>
       </div>
 
       <div className="office-overview-grid">
         <Panel title="Work needing review">
-          <SimpleList items={officeHomeData.review} />
+          <SimpleList items={overview.review} />
         </Panel>
         <Panel title="Today's briefings">
-          <SimpleList items={officeHomeData.briefings} />
+          <SimpleList items={overview.briefings} />
         </Panel>
         <Panel title="Upcoming tasks">
-          <SimpleList items={officeHomeData.tasks} />
+          <SimpleList items={overview.tasks} />
         </Panel>
         <Panel title="Recent activity across all workers">
-          <SimpleList items={officeHomeData.activity} />
+          <SimpleList items={overview.activity} />
         </Panel>
       </div>
     </div>
   );
 }
 
-function OfficeMeetingsPage() {
-  const briefings = allBriefings(officeWorkers);
+function OfficeMeetingsPage({ workers }: { workers: OfficeWorker[] }) {
+  const briefings = allBriefings(workers);
 
   return (
     <div className="office-page">
@@ -621,16 +644,16 @@ function OfficeMeetingsPage() {
   );
 }
 
-function OfficeTasksPage() {
+function OfficeTasksPage({ workers }: { workers: OfficeWorker[] }) {
   return (
     <div className="office-page">
       <TopBar subtitle="Task queues across all hired workers and office work." title="Tasks" />
-      <TaskBoard tasks={officeWorkers.flatMap((worker) => worker.tasks)} />
+      <TaskBoard tasks={workers.flatMap((worker) => worker.tasks)} />
     </div>
   );
 }
 
-function OfficeFilesPage() {
+function OfficeFilesPage({ workers }: { workers: OfficeWorker[] }) {
   return (
     <div className="office-page">
       <TopBar subtitle="Documents and working files used across the office." title="Files" />
@@ -644,7 +667,7 @@ function OfficeFilesPage() {
           </tr>
         </thead>
         <tbody>
-          {allFiles(officeWorkers).map((file) => (
+          {allFiles(workers).map((file) => (
             <tr key={`${file.workerName}-${file.name}`}>
               <td>{file.name}</td>
               <td>{file.workerName}</td>
@@ -689,7 +712,8 @@ function OfficeSettingsPage() {
   );
 }
 
-export function OfficeApp({ onNavigate, userName }: OfficeAppProps) {
+export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps) {
+  const officeWorkers = buildOfficeWorkersFromMarketplaceWorkers(hiredWorkers);
   const currentHash = window.location.hash || "#app/office";
   const route = parseOfficePath(currentHash);
   const selectedWorker =
@@ -698,33 +722,40 @@ export function OfficeApp({ onNavigate, userName }: OfficeAppProps) {
   let content: ReactNode;
 
   if (route.kind === "office-home") {
-    content = <OfficeHome userName={userName} />;
+    content = <OfficeHome userName={userName} workers={officeWorkers} />;
   } else if (route.kind === "office-workers" && !selectedWorker) {
     content = (
       <div className="office-page">
         <TopBar subtitle="Select a hired worker to open their private workspace." title="Workers" />
-        <div className="worker-directory">
-          {officeWorkers.map((worker) => (
-            <article className="worker-directory-card" key={worker.id}>
-              <h3>{worker.name}</h3>
-              <p>
-                {worker.title} · {worker.department}
-              </p>
-              <p className="office-note">{worker.roleSummary}</p>
-              <button className="button button-secondary" onClick={() => onNavigate(`#app/office/workers/${worker.id}/desk`)} type="button">
-                Open desk
-              </button>
-            </article>
-          ))}
-        </div>
+        {officeWorkers.length === 0 ? (
+          <div className="empty-state">
+            <h2>No hired workers yet</h2>
+            <p>Complete checkout in the marketplace to add workers to Ryva Office.</p>
+          </div>
+        ) : (
+          <div className="worker-directory">
+            {officeWorkers.map((worker) => (
+              <article className="worker-directory-card" key={worker.id}>
+                <h3>{worker.name}</h3>
+                <p>
+                  {worker.title} · {worker.department}
+                </p>
+                <p className="office-note">{worker.roleSummary}</p>
+                <button className="button button-secondary" onClick={() => onNavigate(`#app/office/workers/${worker.id}/desk`)} type="button">
+                  Open desk
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
     );
   } else if (route.kind === "office-meetings") {
-    content = <OfficeMeetingsPage />;
+    content = <OfficeMeetingsPage workers={officeWorkers} />;
   } else if (route.kind === "office-tasks") {
-    content = <OfficeTasksPage />;
+    content = <OfficeTasksPage workers={officeWorkers} />;
   } else if (route.kind === "office-files") {
-    content = <OfficeFilesPage />;
+    content = <OfficeFilesPage workers={officeWorkers} />;
   } else if (route.kind === "office-settings") {
     content = <OfficeSettingsPage />;
   } else if (selectedWorker) {
@@ -814,12 +845,12 @@ export function OfficeApp({ onNavigate, userName }: OfficeAppProps) {
 
     content = workerContent;
   } else {
-    content = <OfficeHome userName={userName} />;
+    content = <OfficeHome userName={userName} workers={officeWorkers} />;
   }
 
   return (
     <main className="office-shell">
-      <OfficeSidebar currentHash={currentHash} onNavigate={onNavigate} selectedWorker={selectedWorker} />
+      <OfficeSidebar currentHash={currentHash} onNavigate={onNavigate} selectedWorker={selectedWorker} workers={officeWorkers} />
       {selectedWorker && (route.kind === "worker-desk" || route.kind === "worker-section" || route.kind === "worker-module") ? (
         <WorkerSidebar currentHash={currentHash} onNavigate={onNavigate} worker={selectedWorker} />
       ) : null}

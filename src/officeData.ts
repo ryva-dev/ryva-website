@@ -1,3 +1,5 @@
+import type { Worker } from "./types";
+
 export type OfficeTaskStatus = "To Do" | "In Progress" | "Needs Review" | "Completed";
 
 export type OfficeTask = {
@@ -607,3 +609,240 @@ export const officeWorkers: OfficeWorker[] = [
     todayWork: ["Prepare vendor invoice batch", "Resolve expense category approvals", "Update month-end report draft"]
   }
 ];
+
+const officePresetById = new Map(officeWorkers.map((worker) => [worker.id, worker]));
+const officePresetSlugMap = new Map<string, string>([
+  ["lena-carter", "lena-carter"],
+  ["david-chen", "miles-reed"]
+]);
+
+function titleSlug(title: string) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function fallbackModules(worker: Worker): WorkerModule[] {
+  const baseId = titleSlug(worker.title);
+  return [
+    {
+      columns: ["Queue", "Status", "Owner", "Next step"],
+      id: `${baseId}-queue`,
+      name: "Work Queue",
+      rows: [
+        ["Primary assignments", "Active", "Worker", "Continue current work"],
+        ["Review items", "Needs review", "You", "Approve latest output"],
+        ["Backlog", "Queued", "Worker", "Prepare next batch"]
+      ],
+      summary: "Current work queue and status for this worker."
+    },
+    {
+      columns: ["Focus area", "Priority", "Status", "Note"],
+      id: `${baseId}-planning`,
+      name: "Planning",
+      rows: [
+        [worker.department, "High", "Active", "Aligned to current role goals"],
+        [worker.profile.category, "Medium", "Watching", "Maintain documentation and process"],
+        [worker.profile.industry, "Medium", "Queued", "Review with next briefing"]
+      ],
+      summary: "Role planning and execution priorities."
+    }
+  ];
+}
+
+function fallbackSnapshot(worker: Worker): SnapshotMetric[] {
+  return [
+    { label: "Open work", value: "4" },
+    { label: "Needs review", value: "2" },
+    { label: "Files in use", value: String(Math.max(worker.skills.length, 3)) },
+    { label: "Briefings this week", value: "2" }
+  ];
+}
+
+function fallbackTasks(worker: Worker): OfficeTask[] {
+  return [
+    {
+      dueDate: "Today",
+      id: `${worker.slug}-task-1`,
+      module: "Work Queue",
+      owner: "Worker",
+      priority: "High",
+      status: "In Progress",
+      title: `Continue ${worker.title.toLowerCase()} work`
+    },
+    {
+      dueDate: "Today",
+      id: `${worker.slug}-task-2`,
+      module: "Planning",
+      owner: "You",
+      priority: "High",
+      status: "Needs Review",
+      title: `Review latest ${worker.department.toLowerCase()} output`
+    },
+    {
+      dueDate: "Tomorrow",
+      id: `${worker.slug}-task-3`,
+      module: "Work Queue",
+      owner: "Worker",
+      priority: "Medium",
+      status: "To Do",
+      title: "Prepare next work batch"
+    },
+    {
+      dueDate: "Yesterday",
+      id: `${worker.slug}-task-4`,
+      module: "Planning",
+      owner: "Worker",
+      priority: "Low",
+      status: "Completed",
+      title: "Update work notes"
+    }
+  ];
+}
+
+function fallbackBriefings(worker: Worker): Briefing[] {
+  return [
+    {
+      agenda: ["Review current focus", "Check work in progress", "Confirm next priorities"],
+      dateLabel: "Today · 10:00 AM",
+      decisionsNeeded: [`Approve next ${worker.department.toLowerCase()} priorities`, "Confirm review timing"],
+      id: `${worker.slug}-briefing-1`,
+      recommendedActions: ["Approve work queue", "Create follow-up task"],
+      summary: `${worker.name} has current work underway and needs direction on the next review cycle.`,
+      title: "Morning Brief"
+    }
+  ];
+}
+
+function fallbackKnowledge(worker: Worker): KnowledgeSection[] {
+  return [
+    { title: "Goals", items: [`Maintain strong ${worker.department.toLowerCase()} execution`, `Support ${worker.title.toLowerCase()} responsibilities clearly`] },
+    { title: "Preferences", items: ["Keep updates concise", "Surface blockers early"] },
+    { title: "Rules", items: ["Review major changes before final delivery", "Keep documentation current"] },
+    { title: "Important context", items: [worker.profile.experienceSummary, worker.description] },
+    { title: "Files", items: worker.skills.slice(0, 4).map((skill) => `${skill} reference`) },
+    { title: "Connected tools placeholder", items: ["Docs", "Drive", "Mail"] }
+  ];
+}
+
+function fallbackFiles(worker: Worker): WorkerFile[] {
+  return [
+    { name: `${worker.name} Work Notes.docx`, type: "Doc", updatedAt: "Today" },
+    { name: `${worker.department} Review Queue.xlsx`, type: "Spreadsheet", updatedAt: "Yesterday" },
+    { name: `${worker.name} Reference Materials.pdf`, type: "PDF", updatedAt: "This week" }
+  ];
+}
+
+function fallbackChat(worker: Worker): ChatMessage[] {
+  return [
+    {
+      author: "Worker",
+      id: `${worker.slug}-chat-1`,
+      text: `I updated today's ${worker.department.toLowerCase()} work and flagged the latest review items.`,
+      timestamp: "9:10 AM"
+    },
+    {
+      author: "You",
+      id: `${worker.slug}-chat-2`,
+      text: "Good. Keep the queue moving and escalate anything blocked.",
+      timestamp: "9:18 AM"
+    }
+  ];
+}
+
+function fallbackWorkLog(worker: Worker): WorkLogEntry[] {
+  return [
+    {
+      action: `Updated current ${worker.department.toLowerCase()} work queue.`,
+      id: `${worker.slug}-log-1`,
+      module: "Work Queue",
+      result: "Latest items organized for review",
+      timestamp: "Today · 8:45 AM"
+    },
+    {
+      action: "Prepared next task batch.",
+      id: `${worker.slug}-log-2`,
+      module: "Planning",
+      result: "Priorities arranged for next briefing",
+      timestamp: "Yesterday · 4:12 PM"
+    }
+  ];
+}
+
+function fallbackReviewQueue(worker: Worker): ReviewItem[] {
+  return [
+    { id: `${worker.slug}-review-1`, item: `${worker.title} draft`, note: "Review latest completed work" },
+    { id: `${worker.slug}-review-2`, item: `${worker.department} notes`, note: "Confirm next priorities" }
+  ];
+}
+
+function fallbackSettings(worker: Worker): WorkerSetting[] {
+  return [
+    { label: "Worker name", value: worker.name },
+    { label: "Role", value: worker.title },
+    { label: "Department", value: worker.department },
+    { label: "Goals", value: `${worker.profile.category}, review quality, and steady output` },
+    { label: "Communication style", value: "Clear updates with blockers and completed work called out" },
+    { label: "Briefing frequency", value: "Daily brief + weekly planning review" },
+    { label: "Approval rules", value: "Review major output before final handoff" },
+    { label: "Notification preferences", value: "Immediate on blockers, digest on completed work" },
+    { label: "Connected accounts placeholder", value: "Docs, Drive, Mail" }
+  ];
+}
+
+export function buildOfficeWorkerFromMarketplaceWorker(worker: Worker): OfficeWorker {
+  const presetId = officePresetSlugMap.get(worker.slug);
+  const preset = presetId ? officePresetById.get(presetId) : undefined;
+
+  if (preset) {
+    return {
+      ...preset,
+      department: worker.department,
+      id: worker.slug,
+      name: worker.name,
+      roleSummary: worker.description,
+      settings: preset.settings.map((setting) => {
+        if (setting.label === "Worker name") return { ...setting, value: worker.name };
+        if (setting.label === "Role") return { ...setting, value: worker.title };
+        if (setting.label === "Department") return { ...setting, value: worker.department };
+        return setting;
+      }),
+      title: worker.title
+    };
+  }
+
+  return {
+    blockedBy: ["Waiting on your review for current work items.", "Need confirmation on next priorities."],
+    briefings: fallbackBriefings(worker),
+    chat: fallbackChat(worker),
+    currentFocus: [
+      worker.description,
+      `Operating inside ${worker.department.toLowerCase()} priorities for this week.`,
+      `Applying ${worker.skills.slice(0, 3).join(", ")} to active work.`
+    ],
+    department: worker.department,
+    files: fallbackFiles(worker),
+    id: worker.slug,
+    knowledge: fallbackKnowledge(worker),
+    modules: fallbackModules(worker),
+    name: worker.name,
+    nextBriefing: "Today at 10:00 AM · Morning Brief",
+    recentWorkLog: fallbackWorkLog(worker),
+    reviewQueue: fallbackReviewQueue(worker),
+    roleSummary: worker.description,
+    settings: fallbackSettings(worker),
+    snapshot: fallbackSnapshot(worker),
+    tasks: fallbackTasks(worker),
+    title: worker.title,
+    todayWork: [
+      `Continue ${worker.department.toLowerCase()} work already in progress`,
+      "Prepare latest items for review",
+      "Document next priorities before end of day"
+    ]
+  };
+}
+
+export function buildOfficeWorkersFromMarketplaceWorkers(workers: Worker[]) {
+  return workers.map(buildOfficeWorkerFromMarketplaceWorker);
+}

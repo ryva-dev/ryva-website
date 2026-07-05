@@ -114,6 +114,28 @@ async function readWorkers() {
   return JSON.parse(file);
 }
 
+async function readHiredWorkersForUser(userId) {
+  const hiredRows = db
+    .prepare(
+      `SELECT worker_slug
+       FROM hired_workers
+       WHERE user_id = ? AND status = ?
+       ORDER BY hired_at DESC`
+    )
+    .all(userId, "active");
+
+  if (hiredRows.length === 0) {
+    return [];
+  }
+
+  const workers = await readWorkers();
+  const workerMap = new Map(workers.map((worker) => [worker.slug, worker]));
+
+  return hiredRows
+    .map((row) => workerMap.get(row.worker_slug))
+    .filter(Boolean);
+}
+
 function cleanupExpiredRecords() {
   const now = nowIso();
   db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(now);
@@ -255,6 +277,11 @@ app.get("/api/workers/:slug", async (req, res) => {
   }
 
   res.json({ worker });
+});
+
+app.get("/api/office/workers", requireAuth, async (req, res) => {
+  const workers = await readHiredWorkersForUser(req.user.id);
+  res.json({ workers });
 });
 
 app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
@@ -440,7 +467,7 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
-    success_url: `${appUrl}/?checkout=success#workers`,
+    success_url: `${appUrl}/?checkout=success#app/office`,
     cancel_url: `${appUrl}/?checkout=cancelled#worker-${worker.slug}`,
     line_items: [
       {
@@ -492,6 +519,8 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       const checkoutId = session.metadata?.checkoutId;
+      const userId = session.metadata?.userId;
+      const workerSlug = session.metadata?.workerSlug;
 
       if (checkoutId) {
         db.prepare(
@@ -499,6 +528,17 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
            SET status = ?, completed_at = ?
            WHERE id = ?`
         ).run("completed", nowIso(), checkoutId);
+      }
+
+      if (checkoutId && userId && workerSlug) {
+        db.prepare(
+          `INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+             checkout_session_id = excluded.checkout_session_id,
+             status = excluded.status,
+             hired_at = excluded.hired_at`
+        ).run(randomUUID(), userId, workerSlug, checkoutId, "active", nowIso());
       }
     }
 

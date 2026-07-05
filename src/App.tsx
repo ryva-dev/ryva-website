@@ -237,6 +237,7 @@ export default function App() {
   const [selectedExperience, setSelectedExperience] = useState<string[]>([]);
   const [selectedSalary, setSelectedSalary] = useState<string[]>([]);
   const [selectedSort, setSelectedSort] = useState("Relevance");
+  const [hiredWorkers, setHiredWorkers] = useState<Worker[]>([]);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [view, setView] = useState(() => getViewFromHash());
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -305,6 +306,24 @@ export default function App() {
   }, [isOfficeRoute, user]);
 
   useEffect(() => {
+    async function loadOfficeWorkers() {
+      if (!user) {
+        setHiredWorkers([]);
+        return;
+      }
+
+      try {
+        const response = await apiJson<{ workers: Worker[] }>("/api/office/workers", { method: "GET" });
+        setHiredWorkers(response.workers);
+      } catch {
+        setHiredWorkers([]);
+      }
+    }
+
+    void loadOfficeWorkers();
+  }, [user]);
+
+  useEffect(() => {
     async function loadWorkers() {
       try {
         const response = await apiJson<{ workers: Worker[] }>("/api/workers", { method: "GET" });
@@ -327,6 +346,25 @@ export default function App() {
     void loadSession();
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success" || !user) {
+      return;
+    }
+
+    async function refreshOfficeWorkers() {
+      try {
+        const response = await apiJson<{ workers: Worker[] }>("/api/office/workers", { method: "GET" });
+        setHiredWorkers(response.workers);
+        setGlobalNotice("Checkout complete. Your hired worker is now available in Ryva Office.");
+      } catch {
+        // Ignore refresh errors here; the office can retry on navigation.
+      }
+    }
+
+    void refreshOfficeWorkers();
+  }, [user]);
+
   function handleSearchChange(value: string) {
     setSearchQuery(value);
     if (view !== "workers") {
@@ -347,6 +385,12 @@ export default function App() {
         body: JSON.stringify(input)
       });
       setUser(response.user);
+      try {
+        const officeResponse = await apiJson<{ workers: Worker[] }>("/api/office/workers", { method: "GET" });
+        setHiredWorkers(officeResponse.workers);
+      } catch {
+        setHiredWorkers([]);
+      }
       setIsAuthModalOpen(false);
       setGlobalNotice(response.user.emailVerified ? "" : "Signed in. Your email is not verified yet.");
     } catch (error) {
@@ -369,6 +413,7 @@ export default function App() {
         body: JSON.stringify(input)
       });
       setUser(response.user);
+      setHiredWorkers([]);
       setIsAuthModalOpen(false);
       setGlobalNotice(
         response.emailVerificationPreview
@@ -385,6 +430,7 @@ export default function App() {
   async function handleLogout() {
     await apiJson("/api/auth/logout", { method: "POST" });
     setUser(null);
+    setHiredWorkers([]);
     setGlobalNotice("Signed out.");
   }
 
@@ -525,6 +571,7 @@ export default function App() {
         {!isWorkersLoading && !isOfficeRoute && activeWorker && <WorkerProfilePage onHire={handleCheckout} worker={activeWorker} />}
         {!isWorkersLoading && isOfficeRoute && user && (
           <OfficeApp
+            hiredWorkers={hiredWorkers}
             onNavigate={(hash) => {
               window.location.hash = hash.replace(/^#/, "");
             }}

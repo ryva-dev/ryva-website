@@ -59,4 +59,25 @@ db.exec(`
     completed_at TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS hired_workers (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    checkout_session_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    hired_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_slug),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (checkout_session_id) REFERENCES checkout_sessions(id) ON DELETE CASCADE
+  );
+`);
+
+db.exec(`
+  INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
+  SELECT lower(hex(randomblob(16))), cs.user_id, cs.worker_slug, cs.id, 'active', coalesce(cs.completed_at, cs.created_at)
+  FROM checkout_sessions cs
+  LEFT JOIN hired_workers hw
+    ON hw.user_id = cs.user_id AND hw.worker_slug = cs.worker_slug
+  WHERE cs.status = 'completed' AND hw.id IS NULL;
 `);
