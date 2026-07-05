@@ -63,32 +63,6 @@ export function AuthModal({
   return (
     <div aria-labelledby="auth-title" aria-modal="true" className="modal-backdrop" role="dialog">
       <div className="auth-modal">
-        <div className="auth-modal-side">
-          <p className="auth-kicker">Ryva account</p>
-          <h2 id="auth-title">
-            {isLogin ? "Sign in to continue" : isRegister ? "Create your account" : isResetComplete ? "Choose a new password" : "Reset your password"}
-          </h2>
-          <p className="auth-copy">
-            {isLogin
-              ? "Access saved profiles, hiring activity, and worker checkout."
-              : isRegister
-                ? "Use one account to compare workers, save candidates, and complete hiring once your email is verified."
-                : isResetComplete
-                  ? "Set a new password for your Ryva account."
-                  : "Enter your email and we will send a secure password reset link."}
-          </p>
-          <dl className="auth-trust-list">
-            <div>
-              <dt>Verification</dt>
-              <dd>Email verification is required before checkout.</dd>
-            </div>
-            <div>
-              <dt>Security</dt>
-              <dd>Sessions are protected and handled directly by Ryva.</dd>
-            </div>
-          </dl>
-        </div>
-
         <div className="auth-modal-main">
           <div className="auth-modal-head">
             <div>
@@ -97,15 +71,6 @@ export function AuthModal({
             </div>
             <button aria-label="Close auth dialog" className="icon-button" onClick={onClose} type="button">
               ×
-            </button>
-          </div>
-
-          <div className="auth-switch">
-            <button className={isLogin ? "auth-switch-active" : ""} onClick={() => setMode("login")} type="button">
-              Sign in
-            </button>
-            <button className={isRegister ? "auth-switch-active" : ""} onClick={() => setMode("register")} type="button">
-              Create account
             </button>
           </div>
 

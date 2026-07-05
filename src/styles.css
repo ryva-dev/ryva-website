@@ -681,9 +681,7 @@ a:focus-visible {
 }
 
 .auth-modal {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  width: min(760px, 100%);
+  width: min(620px, 100%);
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--surface);
@@ -691,13 +689,6 @@ a:focus-visible {
   overflow: hidden;
 }
 
-.auth-modal-side {
-  padding: 30px 28px;
-  border-right: 1px solid #e9eef5;
-  background: #f8fafc;
-}
-
-.auth-kicker,
 .auth-section-label {
   margin: 0 0 10px;
   color: #64748b;
@@ -707,45 +698,8 @@ a:focus-visible {
   text-transform: uppercase;
 }
 
-.auth-modal-side h2 {
-  margin: 0;
-  font-size: 1.45rem;
-  line-height: 1.25;
-}
-
-.auth-copy {
-  margin: 14px 0 0;
-  color: #475569;
-  font-size: 0.93rem;
-  line-height: 1.6;
-}
-
-.auth-trust-list {
-  display: grid;
-  gap: 18px;
-  margin: 28px 0 0;
-}
-
-.auth-trust-list div {
-  padding-top: 18px;
-  border-top: 1px solid #e2e8f0;
-}
-
-.auth-trust-list dt {
-  margin-bottom: 4px;
-  font-size: 0.88rem;
-  font-weight: 700;
-}
-
-.auth-trust-list dd {
-  margin: 0;
-  color: #64748b;
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-
 .auth-modal-main {
-  padding: 28px;
+  padding: 28px 32px 30px;
 }
 
 .auth-modal-head {
@@ -769,35 +723,6 @@ a:focus-visible {
   color: #64748b;
   font-size: 1.4rem;
   line-height: 1;
-}
-
-.auth-switch {
-  display: flex;
-  gap: 0;
-  margin-bottom: 22px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #f8fafc;
-}
-
-.auth-switch button {
-  flex: 1;
-  min-height: 38px;
-  padding: 8px 14px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: #475569;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.auth-switch-active {
-  color: var(--text);
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
 .auth-form {
@@ -864,15 +789,6 @@ a:focus-visible {
 }
 
 @media (max-width: 720px) {
-  .auth-modal {
-    grid-template-columns: 1fr;
-  }
-
-  .auth-modal-side {
-    border-right: 0;
-    border-bottom: 1px solid #e9eef5;
-  }
-
   .auth-modal-main {
     padding: 24px 22px;
   }
