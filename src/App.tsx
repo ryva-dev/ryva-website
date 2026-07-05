@@ -274,6 +274,7 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const notice = params.get("notice");
     const resetTokenFromUrl = params.get("reset_token");
+    const checkoutState = params.get("checkout");
 
     if (notice === "email-verified") {
       setGlobalNotice("Email verified successfully.");
@@ -287,6 +288,17 @@ export default function App() {
       setResetToken(resetTokenFromUrl);
       setIsAuthModalOpen(true);
       setGlobalNotice("Set a new password to complete your password reset.");
+    }
+
+    if (checkoutState === "cancelled") {
+      setGlobalNotice("Checkout was cancelled. No charge was made.");
+    }
+
+    if (notice || checkoutState) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("notice");
+      url.searchParams.delete("checkout");
+      window.history.replaceState({}, "", url.toString());
     }
   }, []);
 
@@ -465,6 +477,8 @@ export default function App() {
       });
       setResetToken(null);
       setIsAuthModalOpen(false);
+      setUser(null);
+      setHiredWorkers([]);
       setGlobalNotice("Password updated successfully. You can now sign in.");
       const url = new URL(window.location.href);
       url.searchParams.delete("reset_token");
@@ -498,7 +512,27 @@ export default function App() {
         window.location.href = response.url;
       }
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Unable to start checkout.");
+      setGlobalNotice(error instanceof Error ? error.message : "Unable to start checkout.");
+    }
+  }
+
+  async function handleResendVerification() {
+    if (!user || user.emailVerified) return;
+
+    try {
+      const response = await apiJson<{ alreadyVerified: boolean; ok: true; preview: string | null }>(
+        "/api/auth/resend-verification",
+        { method: "POST" }
+      );
+      setGlobalNotice(
+        response.alreadyVerified
+          ? "This account is already verified."
+          : response.preview
+            ? `Verification email written to ${response.preview}.`
+            : "Verification email sent."
+      );
+    } catch (error) {
+      setGlobalNotice(error instanceof Error ? error.message : "Unable to resend verification email.");
     }
   }
 
@@ -515,9 +549,11 @@ export default function App() {
             }}
             officeHref={user ? "#app/office" : null}
             onLogout={handleLogout}
+            onResendVerification={handleResendVerification}
             onSearchChange={handleSearchChange}
             searchQuery={searchQuery}
             showSearch={view !== "home" && !isOfficeRoute}
+            userEmailVerified={Boolean(user?.emailVerified)}
             userName={user?.name ?? null}
           />
         ) : null}

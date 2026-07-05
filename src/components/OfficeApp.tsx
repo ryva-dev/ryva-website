@@ -703,7 +703,7 @@ function KnowledgeProfile({
       ))}
       <div className="form-actions-row">
         <button className="button button-primary" type="submit">
-          Save knowledge
+          Save memory
         </button>
       </div>
     </form>

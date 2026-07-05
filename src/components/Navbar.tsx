@@ -4,9 +4,11 @@ type NavbarProps = {
   onAuthClick: () => void;
   officeHref: string | null;
   onLogout: () => Promise<void>;
+  onResendVerification: () => Promise<void>;
   onSearchChange: (value: string) => void;
   searchQuery: string;
   showSearch: boolean;
+  userEmailVerified: boolean;
   userName: string | null;
 };
 
@@ -16,9 +18,11 @@ export function Navbar({
   onAuthClick,
   officeHref,
   onLogout,
+  onResendVerification,
   onSearchChange,
   searchQuery,
   showSearch,
+  userEmailVerified,
   userName
 }: NavbarProps) {
   return (
@@ -60,6 +64,11 @@ export function Navbar({
               <a className="button button-secondary" href={officeHref}>
                 Office
               </a>
+            ) : null}
+            {!userEmailVerified ? (
+              <button className="button button-secondary" onClick={() => void onResendVerification()} type="button">
+                Resend verification
+              </button>
             ) : null}
             <span className="nav-user">Hi, {userName}</span>
             <button className="nav-signin nav-button" onClick={() => void onLogout()} type="button">

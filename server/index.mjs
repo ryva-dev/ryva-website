@@ -223,6 +223,58 @@ function makeWorkerReply(name) {
   return `${name ? name.split(" ")[0] : "I"} received that update and will reflect it in the work queue before the next briefing.`;
 }
 
+function normalizeTextList(value, limit = 12) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => String(entry).trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function upsertWorkerKnowledge(userId, workerSlug, recipe) {
+  const record = db
+    .prepare(
+      `SELECT knowledge_json AS knowledgeJson
+       FROM office_worker_knowledge
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .get(userId, workerSlug);
+
+  const currentKnowledge =
+    record?.knowledgeJson && typeof record.knowledgeJson === "string" ? JSON.parse(record.knowledgeJson) : [];
+
+  const nextKnowledge = recipe(Array.isArray(currentKnowledge) ? currentKnowledge : []);
+
+  db.prepare(
+    `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+       knowledge_json = excluded.knowledge_json,
+       updated_at = excluded.updated_at`
+  ).run(randomUUID(), userId, workerSlug, JSON.stringify(nextKnowledge), nowIso());
+}
+
+function rememberWorkerDirection(userId, workerSlug, text) {
+  const cleaned = String(text ?? "").trim();
+  if (!cleaned) return;
+
+  upsertWorkerKnowledge(userId, workerSlug, (knowledge) => {
+    const next = [...knowledge];
+    const sectionIndex = next.findIndex((section) => section?.title === "Recent direction");
+    const directionItems = sectionIndex >= 0 && Array.isArray(next[sectionIndex]?.items) ? next[sectionIndex].items : [];
+    const updatedItems = [cleaned, ...directionItems.filter((entry) => entry !== cleaned)].slice(0, 8);
+    const section = { items: updatedItems, title: "Recent direction" };
+
+    if (sectionIndex >= 0) {
+      next[sectionIndex] = section;
+    } else {
+      next.unshift(section);
+    }
+
+    return next;
+  });
+}
+
 function cleanupExpiredRecords() {
   const now = nowIso();
   db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(now);
@@ -412,6 +464,12 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
     return;
   }
 
+  const trimmedName = String(name).trim();
+  if (trimmedName.length < 2) {
+    res.status(400).json({ error: "Enter your full name." });
+    return;
+  }
+
   const normalizedEmail = normalizeEmail(email);
   const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(normalizedEmail);
   if (existing) {
@@ -423,7 +481,7 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
     created_at: nowIso(),
     email: normalizedEmail,
     id: randomUUID(),
-    name: String(name).trim(),
+    name: trimmedName,
     password_hash: hashPassword(String(password))
   };
 
@@ -435,9 +493,14 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
   const sessionToken = createSession(user.id);
   setSessionCookie(res, sessionToken);
 
-  const mailResult = await issueEmailVerification(user);
+  let mailResult = { preview: null };
+  try {
+    mailResult = await issueEmailVerification(user);
+  } catch {
+    mailResult = { preview: null };
+  }
   res.status(201).json({
-    emailVerificationSent: true,
+    emailVerificationSent: Boolean(mailResult.preview),
     emailVerificationPreview: mailResult.preview,
     user: {
       createdAt: user.created_at,
@@ -462,6 +525,7 @@ app.post("/api/auth/login", authLimiter, assertOrigin, async (req, res) => {
     return;
   }
 
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
   const sessionToken = createSession(user.id);
   setSessionCookie(res, sessionToken);
   res.json({ user: toSafeUser(user) });
@@ -484,8 +548,12 @@ app.get("/api/auth/me", (req, res) => {
 });
 
 app.post("/api/auth/resend-verification", authLimiter, assertOrigin, requireAuth, async (req, res) => {
+  if (req.user.email_verified_at) {
+    res.json({ ok: true, preview: null, alreadyVerified: true });
+    return;
+  }
   const mailResult = await issueEmailVerification(req.user);
-  res.json({ ok: true, preview: mailResult.preview });
+  res.json({ ok: true, preview: mailResult.preview, alreadyVerified: false });
 });
 
 app.get("/api/auth/verify-email", async (req, res) => {
@@ -552,6 +620,7 @@ app.post("/api/auth/reset-password", authLimiter, assertOrigin, async (req, res)
 
   db.prepare("UPDATE password_reset_tokens SET consumed_at = ? WHERE id = ?").run(nowIso(), record.id);
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(String(password)), record.user_id);
+  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(record.user_id);
   res.json({ ok: true });
 });
 
@@ -567,6 +636,11 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
 
   if (!worker) {
     res.status(404).json({ error: "Worker not found." });
+    return;
+  }
+
+  if (hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(409).json({ error: "You have already hired this worker." });
     return;
   }
 
@@ -685,6 +759,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
     `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(randomUUID(), req.user.id, workerSlug, "You", text, createdAt);
+  rememberWorkerDirection(req.user.id, workerSlug, text);
 
   db.prepare(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
@@ -798,6 +873,7 @@ app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin,
   }
 
   if (action === "followup") {
+    const followupText = "Please prepare follow-up notes and update the queue before the next review.";
     db.prepare(
       `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`
@@ -806,9 +882,10 @@ app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin,
       req.user.id,
       workerSlug,
       "You",
-      "Please prepare follow-up notes and update the queue before the next review.",
+      followupText,
       createdAt
     );
+    rememberWorkerDirection(req.user.id, workerSlug, followupText);
     db.prepare(
       `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -888,18 +965,25 @@ app.post("/api/office/workers/:slug/knowledge", assertOrigin, requireAuth, async
     return;
   }
 
+  const normalizedKnowledge = knowledge
+    .map((section) => ({
+      items: normalizeTextList(section?.items),
+      title: String(section?.title ?? "").trim()
+    }))
+    .filter((section) => section.title && section.items.length > 0);
+
   db.prepare(
     `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(user_id, worker_slug) DO UPDATE SET
        knowledge_json = excluded.knowledge_json,
        updated_at = excluded.updated_at`
-  ).run(randomUUID(), req.user.id, workerSlug, JSON.stringify(knowledge), nowIso());
+  ).run(randomUUID(), req.user.id, workerSlug, JSON.stringify(normalizedKnowledge), nowIso());
 
   db.prepare(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Updated worker knowledge.", "Knowledge", "Operating context saved", nowIso());
+  ).run(randomUUID(), req.user.id, workerSlug, "Updated worker knowledge.", "Memory", "Operating context saved", nowIso());
 
   res.json({ ok: true });
 });
@@ -1024,13 +1108,33 @@ app.post("/api/office/settings", assertOrigin, requireAuth, async (req, res) => 
     return;
   }
 
+  const normalizedSettings = {
+    autoBriefingPrep: String(settings.autoBriefingPrep ?? "Enabled"),
+    briefingDigestTime: String(settings.briefingDigestTime ?? "08:30"),
+    brandContext: String(settings.brandContext ?? "").trim(),
+    defaultTaskPriority: String(settings.defaultTaskPriority ?? "Medium"),
+    decisionStyle: String(settings.decisionStyle ?? "").trim(),
+    digestDelivery: String(settings.digestDelivery ?? "Email and in-office"),
+    dislikes: String(settings.dislikes ?? "").trim(),
+    likes: String(settings.likes ?? "").trim(),
+    meetingBuffer: String(settings.meetingBuffer ?? "15 minutes"),
+    managerSummaryFrequency: String(settings.managerSummaryFrequency ?? "Daily"),
+    nonNegotiables: String(settings.nonNegotiables ?? "").trim(),
+    notificationWindow: String(settings.notificationWindow ?? "").trim(),
+    officeHours: String(settings.officeHours ?? "").trim(),
+    quietHours: String(settings.quietHours ?? "").trim(),
+    reviewCadence: String(settings.reviewCadence ?? "Weekly"),
+    reviewReminderLead: String(settings.reviewReminderLead ?? "2 hours before"),
+    timezone: String(settings.timezone ?? "America/New_York")
+  };
+
   db.prepare(
     `INSERT INTO office_global_settings (user_id, settings_json, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        settings_json = excluded.settings_json,
        updated_at = excluded.updated_at`
-  ).run(req.user.id, JSON.stringify(settings), nowIso());
+  ).run(req.user.id, JSON.stringify(normalizedSettings), nowIso());
 
   res.json({ ok: true });
 });
