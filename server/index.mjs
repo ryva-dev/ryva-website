@@ -644,6 +644,8 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
     return;
   }
 
+  const unitAmount = Number.parseInt(worker.salary.replace(/[^0-9]/g, ""), 10) * 100;
+  const checkoutId = randomUUID();
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (unitAmount === 0) {
     db.prepare(
@@ -670,8 +672,6 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
   }
 
   const stripe = new Stripe(stripeKey);
-  const unitAmount = Number.parseInt(worker.salary.replace(/[^0-9]/g, ""), 10) * 100;
-  const checkoutId = randomUUID();
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
