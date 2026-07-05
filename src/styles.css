@@ -1553,6 +1553,42 @@ a:focus-visible {
   gap: 18px;
 }
 
+.settings-shell {
+  display: grid;
+  gap: 22px;
+}
+
+.settings-section {
+  padding: 22px 0 24px;
+  border-top: 1px solid #e7edf4;
+}
+
+.settings-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.settings-section-head h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.settings-section-head p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .settings-form-grid label {
   display: grid;
   gap: 8px;
@@ -1573,6 +1609,27 @@ a:focus-visible {
   justify-content: flex-start;
   align-items: center;
   gap: 12px;
+}
+
+.settings-savebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 22px;
+  border-top: 1px solid #e7edf4;
+}
+
+.settings-savebar strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.95rem;
+}
+
+.settings-savebar p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.9rem;
 }
 
 .chat-thread {
@@ -1708,6 +1765,11 @@ a:focus-visible {
 
   .settings-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-savebar {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .brand-hero {

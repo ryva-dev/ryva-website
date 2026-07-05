@@ -1,10 +1,19 @@
 import Database from "better-sqlite3";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
-const dbPath = path.join(rootDir, "data", "app.db");
+const defaultStorageRoot = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(rootDir, "data");
+const configuredDatabasePath = process.env.DATABASE_PATH;
+const dbPath = configuredDatabasePath
+  ? path.isAbsolute(configuredDatabasePath)
+    ? configuredDatabasePath
+    : path.resolve(rootDir, configuredDatabasePath)
+  : path.join(defaultStorageRoot, "app.db");
+
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 export const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");

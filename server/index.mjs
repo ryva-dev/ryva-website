@@ -14,7 +14,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 const workersPath = path.join(rootDir, "data", "workers.json");
-const uploadsDir = path.join(rootDir, "data", "office-uploads");
+const storageRoot =
+  process.env.STORAGE_ROOT ||
+  process.env.RAILWAY_VOLUME_MOUNT_PATH ||
+  path.join(rootDir, "data");
+const uploadsDir = path.join(storageRoot, "office-uploads");
 const sessionCookieName = "ryva_session";
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 7;
 const emailTokenDurationMs = 1000 * 60 * 60 * 24;
@@ -28,6 +32,8 @@ const host = process.env.HOST ?? "0.0.0.0";
 if (isProduction && !process.env.APP_URL) {
   throw new Error("APP_URL must be set in production.");
 }
+
+await fs.mkdir(uploadsDir, { recursive: true });
 
 if (
   (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_WEBHOOK_SECRET) ||

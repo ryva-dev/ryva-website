@@ -63,10 +63,15 @@ type OfficeOverlayBriefing = {
 type OfficeGlobalSettings = {
   autoBriefingPrep: string;
   briefingDigestTime: string;
+  brandContext: string;
   defaultTaskPriority: string;
+  decisionStyle: string;
   digestDelivery: string;
+  dislikes: string;
+  likes: string;
   meetingBuffer: string;
   managerSummaryFrequency: string;
+  nonNegotiables: string;
   notificationWindow: string;
   officeHours: string;
   quietHours: string;
@@ -109,7 +114,7 @@ const workerNav = [
   { key: "briefings", label: "Briefings" },
   { key: "tasks", label: "Tasks" },
   { key: "worklog", label: "Work Log" },
-  { key: "knowledge", label: "Knowledge" },
+  { key: "knowledge", label: "Memory" },
   { key: "files", label: "Files" },
   { key: "chat", label: "Chat" },
   { key: "settings", label: "Settings" }
@@ -200,16 +205,28 @@ function buildDefaultOfficeSettings(): OfficeGlobalSettings {
   return {
     autoBriefingPrep: "Enabled",
     briefingDigestTime: "08:30",
+    brandContext: "Document brand positioning, active priorities, and what excellent output looks like.",
     defaultTaskPriority: "Medium",
+    decisionStyle: "Escalate brand-sensitive work before publishing. Move independently on routine execution.",
     digestDelivery: "Email and in-office",
+    dislikes: "Fluffy copy, vague reporting, off-brand tone, unnecessary back-and-forth.",
+    likes: "Clear recommendations, polished execution, concise reporting, strong judgment.",
     meetingBuffer: "15 minutes",
     managerSummaryFrequency: "Daily",
+    nonNegotiables: "Protect brand quality, maintain client-ready work, surface blockers early.",
     notificationWindow: "9:00 AM - 6:00 PM",
     officeHours: "9:00 AM - 5:00 PM",
     quietHours: "7:00 PM - 8:00 AM",
     reviewCadence: "Weekly",
     reviewReminderLead: "2 hours before",
     timezone: "America/New_York"
+  };
+}
+
+function mergeOfficeSettings(settings?: Partial<OfficeGlobalSettings> | null): OfficeGlobalSettings {
+  return {
+    ...buildDefaultOfficeSettings(),
+    ...(settings ?? {})
   };
 }
 
@@ -1403,98 +1420,155 @@ function OfficeSettingsPage({
 
   return (
     <div className="office-page">
-      <TopBar subtitle="General office settings and operating preferences." title="Settings" />
+      <TopBar subtitle="Brand memory, operating rules, cadence, and notification controls." title="Settings" />
       <form
-        className="settings-form-grid"
+        className="settings-shell"
         onSubmit={(event) => {
           event.preventDefault();
           void onSave(form);
         }}
       >
-        <label>
-          <span>Manager summary frequency</span>
-          <select onChange={(event) => setForm({ ...form, managerSummaryFrequency: event.target.value })} value={form.managerSummaryFrequency}>
-            <option>Daily</option>
-            <option>Twice weekly</option>
-            <option>Weekly</option>
-          </select>
-        </label>
-        <label>
-          <span>Briefing digest time</span>
-          <input onChange={(event) => setForm({ ...form, briefingDigestTime: event.target.value })} type="time" value={form.briefingDigestTime} />
-        </label>
-        <label>
-          <span>Review cadence</span>
-          <select onChange={(event) => setForm({ ...form, reviewCadence: event.target.value })} value={form.reviewCadence}>
-            <option>Daily</option>
-            <option>Weekly</option>
-            <option>Biweekly</option>
-          </select>
-        </label>
-        <label>
-          <span>Review reminder lead time</span>
-          <select onChange={(event) => setForm({ ...form, reviewReminderLead: event.target.value })} value={form.reviewReminderLead}>
-            <option>30 minutes before</option>
-            <option>1 hour before</option>
-            <option>2 hours before</option>
-            <option>1 day before</option>
-          </select>
-        </label>
-        <label>
-          <span>Auto briefing prep</span>
-          <select onChange={(event) => setForm({ ...form, autoBriefingPrep: event.target.value })} value={form.autoBriefingPrep}>
-            <option>Enabled</option>
-            <option>Disabled</option>
-          </select>
-        </label>
-        <label>
-          <span>Digest delivery</span>
-          <select onChange={(event) => setForm({ ...form, digestDelivery: event.target.value })} value={form.digestDelivery}>
-            <option>Email and in-office</option>
-            <option>Email only</option>
-            <option>In-office only</option>
-          </select>
-        </label>
-        <label>
-          <span>Default task priority</span>
-          <select onChange={(event) => setForm({ ...form, defaultTaskPriority: event.target.value })} value={form.defaultTaskPriority}>
-            <option>Low</option>
-            <option>Medium</option>
-            <option>High</option>
-          </select>
-        </label>
-        <label className="settings-form-full">
-          <span>Office hours</span>
-          <input onChange={(event) => setForm({ ...form, officeHours: event.target.value })} value={form.officeHours} />
-        </label>
-        <label>
-          <span>Timezone</span>
-          <select onChange={(event) => setForm({ ...form, timezone: event.target.value })} value={form.timezone}>
-            <option>America/New_York</option>
-            <option>America/Chicago</option>
-            <option>America/Denver</option>
-            <option>America/Los_Angeles</option>
-            <option>UTC</option>
-          </select>
-        </label>
-        <label>
-          <span>Meeting buffer</span>
-          <select onChange={(event) => setForm({ ...form, meetingBuffer: event.target.value })} value={form.meetingBuffer}>
-            <option>0 minutes</option>
-            <option>15 minutes</option>
-            <option>30 minutes</option>
-            <option>1 hour</option>
-          </select>
-        </label>
-        <label className="settings-form-full">
-          <span>Notification window</span>
-          <input onChange={(event) => setForm({ ...form, notificationWindow: event.target.value })} value={form.notificationWindow} />
-        </label>
-        <label className="settings-form-full">
-          <span>Quiet hours</span>
-          <input onChange={(event) => setForm({ ...form, quietHours: event.target.value })} value={form.quietHours} />
-        </label>
-        <div className="form-actions-row settings-form-full">
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <div>
+              <h3>Brand memory</h3>
+              <p>Persistent context every worker should operate against.</p>
+            </div>
+          </div>
+          <div className="settings-form-grid">
+            <label className="settings-form-full">
+              <span>Brand context</span>
+              <textarea onChange={(event) => setForm({ ...form, brandContext: event.target.value })} rows={4} value={form.brandContext} />
+            </label>
+            <label className="settings-form-full">
+              <span>What Ryva should lean into</span>
+              <textarea onChange={(event) => setForm({ ...form, likes: event.target.value })} rows={3} value={form.likes} />
+            </label>
+            <label className="settings-form-full">
+              <span>What to avoid</span>
+              <textarea onChange={(event) => setForm({ ...form, dislikes: event.target.value })} rows={3} value={form.dislikes} />
+            </label>
+            <label className="settings-form-full">
+              <span>Non-negotiables</span>
+              <textarea onChange={(event) => setForm({ ...form, nonNegotiables: event.target.value })} rows={3} value={form.nonNegotiables} />
+            </label>
+            <label className="settings-form-full">
+              <span>Decision style</span>
+              <textarea onChange={(event) => setForm({ ...form, decisionStyle: event.target.value })} rows={3} value={form.decisionStyle} />
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <div>
+              <h3>Operating cadence</h3>
+              <p>How the office runs day to day.</p>
+            </div>
+          </div>
+          <div className="settings-form-grid">
+            <label>
+              <span>Manager summary frequency</span>
+              <select onChange={(event) => setForm({ ...form, managerSummaryFrequency: event.target.value })} value={form.managerSummaryFrequency}>
+                <option>Daily</option>
+                <option>Twice weekly</option>
+                <option>Weekly</option>
+              </select>
+            </label>
+            <label>
+              <span>Briefing digest time</span>
+              <input onChange={(event) => setForm({ ...form, briefingDigestTime: event.target.value })} type="time" value={form.briefingDigestTime} />
+            </label>
+            <label>
+              <span>Review cadence</span>
+              <select onChange={(event) => setForm({ ...form, reviewCadence: event.target.value })} value={form.reviewCadence}>
+                <option>Daily</option>
+                <option>Weekly</option>
+                <option>Biweekly</option>
+              </select>
+            </label>
+            <label>
+              <span>Review reminder lead time</span>
+              <select onChange={(event) => setForm({ ...form, reviewReminderLead: event.target.value })} value={form.reviewReminderLead}>
+                <option>30 minutes before</option>
+                <option>1 hour before</option>
+                <option>2 hours before</option>
+                <option>1 day before</option>
+              </select>
+            </label>
+            <label>
+              <span>Auto briefing prep</span>
+              <select onChange={(event) => setForm({ ...form, autoBriefingPrep: event.target.value })} value={form.autoBriefingPrep}>
+                <option>Enabled</option>
+                <option>Disabled</option>
+              </select>
+            </label>
+            <label>
+              <span>Default task priority</span>
+              <select onChange={(event) => setForm({ ...form, defaultTaskPriority: event.target.value })} value={form.defaultTaskPriority}>
+                <option>Low</option>
+                <option>Medium</option>
+                <option>High</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <div>
+              <h3>Availability and notifications</h3>
+              <p>Timing rules for digests, meetings, alerts, and quiet periods.</p>
+            </div>
+          </div>
+          <div className="settings-form-grid">
+            <label>
+              <span>Digest delivery</span>
+              <select onChange={(event) => setForm({ ...form, digestDelivery: event.target.value })} value={form.digestDelivery}>
+                <option>Email and in-office</option>
+                <option>Email only</option>
+                <option>In-office only</option>
+              </select>
+            </label>
+            <label>
+              <span>Timezone</span>
+              <select onChange={(event) => setForm({ ...form, timezone: event.target.value })} value={form.timezone}>
+                <option>America/New_York</option>
+                <option>America/Chicago</option>
+                <option>America/Denver</option>
+                <option>America/Los_Angeles</option>
+                <option>UTC</option>
+              </select>
+            </label>
+            <label>
+              <span>Meeting buffer</span>
+              <select onChange={(event) => setForm({ ...form, meetingBuffer: event.target.value })} value={form.meetingBuffer}>
+                <option>0 minutes</option>
+                <option>15 minutes</option>
+                <option>30 minutes</option>
+                <option>1 hour</option>
+              </select>
+            </label>
+            <label className="settings-form-full">
+              <span>Office hours</span>
+              <input onChange={(event) => setForm({ ...form, officeHours: event.target.value })} value={form.officeHours} />
+            </label>
+            <label className="settings-form-full">
+              <span>Notification window</span>
+              <input onChange={(event) => setForm({ ...form, notificationWindow: event.target.value })} value={form.notificationWindow} />
+            </label>
+            <label className="settings-form-full">
+              <span>Quiet hours</span>
+              <input onChange={(event) => setForm({ ...form, quietHours: event.target.value })} value={form.quietHours} />
+            </label>
+          </div>
+        </section>
+
+        <div className="settings-savebar">
+          <div>
+            <strong>Office preferences</strong>
+            <p>These settings persist to your account and reload inside the office.</p>
+          </div>
           <button className="button button-primary" type="submit">
             Save office settings
           </button>
@@ -1566,7 +1640,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         setOverlayFiles(response.files);
         setOverlayGlobalSettings(
           response.globalSettings?.settingsJson
-            ? (JSON.parse(response.globalSettings.settingsJson) as OfficeGlobalSettings)
+            ? mergeOfficeSettings(JSON.parse(response.globalSettings.settingsJson) as Partial<OfficeGlobalSettings>)
             : buildDefaultOfficeSettings()
         );
         setOverlayKnowledge(response.knowledge);
@@ -1582,6 +1656,12 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
 
     void loadOverlays();
   }, [hiredWorkers]);
+
+  useEffect(() => {
+    if (!officeNotice) return;
+    const timeout = window.setTimeout(() => setOfficeNotice(""), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [officeNotice]);
 
   async function refreshOverlays() {
     const response = await officeJson<{
@@ -1599,7 +1679,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
     setOverlayFiles(response.files);
     setOverlayGlobalSettings(
       response.globalSettings?.settingsJson
-        ? (JSON.parse(response.globalSettings.settingsJson) as OfficeGlobalSettings)
+        ? mergeOfficeSettings(JSON.parse(response.globalSettings.settingsJson) as Partial<OfficeGlobalSettings>)
         : buildDefaultOfficeSettings()
     );
     setOverlayKnowledge(response.knowledge);
