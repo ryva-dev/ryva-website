@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
 import type {
   Briefing,
@@ -18,6 +18,42 @@ type OfficeAppProps = {
   onNavigate: (hash: string) => void;
   userName: string;
 };
+
+type OfficeOverlayChat = {
+  author: "Worker" | "You";
+  id: string;
+  text: string;
+  timestamp: string;
+  workerSlug: string;
+};
+
+type OfficeOverlayTask = OfficeTask & {
+  workerSlug: string;
+};
+
+type OfficeOverlayWorklog = WorkLogEntry & {
+  workerSlug: string;
+};
+
+async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const response = await fetch(input, {
+    credentials: "include",
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {})
+    }
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload ? String(payload.error) : "Office request failed.";
+    throw new Error(message);
+  }
+
+  return payload as T;
+}
 
 const officePrimaryNav = [
   { label: "Office Home", href: "#app/office" },
@@ -97,6 +133,26 @@ function buildOfficeOverview(workers: OfficeWorker[]) {
       )
       .slice(0, 4)
   };
+}
+
+function mergeOfficeWorkers(
+  workers: OfficeWorker[],
+  chats: OfficeOverlayChat[],
+  tasks: OfficeOverlayTask[],
+  worklog: OfficeOverlayWorklog[]
+) {
+  return workers.map((worker) => ({
+    ...worker,
+    chat: [...worker.chat, ...chats.filter((entry) => entry.workerSlug === worker.id)],
+    recentWorkLog: [...worklog.filter((entry) => entry.workerSlug === worker.id), ...worker.recentWorkLog],
+    reviewQueue: [
+      ...worker.reviewQueue,
+      ...tasks
+        .filter((task) => task.workerSlug === worker.id && task.status === "Needs Review")
+        .map((task) => ({ id: `${task.id}-review`, item: task.title, note: `${task.module} · requires review` }))
+    ],
+    tasks: [...tasks.filter((task) => task.workerSlug === worker.id), ...worker.tasks]
+  }));
 }
 
 function parseOfficePath(hash: string) {
@@ -351,7 +407,13 @@ function WorkLog({ entries }: { entries: WorkLogEntry[] }) {
   );
 }
 
-function BriefingCard({ briefing }: { briefing: Briefing }) {
+function BriefingCard({
+  briefing,
+  onAction
+}: {
+  briefing: Briefing;
+  onAction: (action: "approve" | "followup" | "task", briefingId: string) => Promise<void>;
+}) {
   return (
     <article className="briefing-card">
       <div className="briefing-card-head">
@@ -378,13 +440,13 @@ function BriefingCard({ briefing }: { briefing: Briefing }) {
       </div>
 
       <div className="briefing-actions">
-        <button className="button button-primary" type="button">
+        <button className="button button-primary" onClick={() => void onAction("approve", briefing.id)} type="button">
           Approve
         </button>
-        <button className="button button-secondary" type="button">
+        <button className="button button-secondary" onClick={() => void onAction("followup", briefing.id)} type="button">
           Ask follow-up
         </button>
-        <button className="button button-secondary" type="button">
+        <button className="button button-secondary" onClick={() => void onAction("task", briefing.id)} type="button">
           Create task
         </button>
       </div>
@@ -392,11 +454,17 @@ function BriefingCard({ briefing }: { briefing: Briefing }) {
   );
 }
 
-function BriefingList({ briefings }: { briefings: Briefing[] }) {
+function BriefingList({
+  briefings,
+  onAction
+}: {
+  briefings: Briefing[];
+  onAction: (action: "approve" | "followup" | "task", briefingId: string) => Promise<void>;
+}) {
   return (
     <div className="briefing-list">
       {briefings.map((briefing) => (
-        <BriefingCard briefing={briefing} key={briefing.id} />
+        <BriefingCard briefing={briefing} key={briefing.id} onAction={onAction} />
       ))}
     </div>
   );
@@ -466,7 +534,27 @@ function FilesPanel({ files }: { files: WorkerFile[] }) {
   );
 }
 
-function ChatPanel({ worker }: { worker: OfficeWorker }) {
+function ChatPanel({
+  onNavigate,
+  worker,
+  onCreateTask,
+  onSendMessage
+}: {
+  onNavigate: (hash: string) => void;
+  onCreateTask: (worker: OfficeWorker, seed?: string) => Promise<void>;
+  onSendMessage: (workerSlug: string, text: string) => Promise<void>;
+  worker: OfficeWorker;
+}) {
+  const [message, setMessage] = useState("");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    await onSendMessage(worker.id, trimmed);
+    setMessage("");
+  }
+
   return (
     <div className="chat-layout">
       <div className="chat-thread">
@@ -477,6 +565,19 @@ function ChatPanel({ worker }: { worker: OfficeWorker }) {
             <small>{message.timestamp}</small>
           </article>
         ))}
+        <form className="chat-composer" onSubmit={handleSubmit}>
+          <textarea
+            onChange={(event) => setMessage(event.target.value)}
+            placeholder={`Message ${worker.name} about current work, tasks, or briefing changes...`}
+            rows={4}
+            value={message}
+          />
+          <div className="chat-composer-actions">
+            <button className="button button-primary" type="submit">
+              Send message
+            </button>
+          </div>
+        </form>
       </div>
 
       <aside className="chat-sidebar">
@@ -488,16 +589,16 @@ function ChatPanel({ worker }: { worker: OfficeWorker }) {
         </Panel>
         <Panel title="Quick actions">
           <div className="quick-actions">
-            <button className="button button-secondary" type="button">
+            <button className="button button-secondary" onClick={() => void onCreateTask(worker, "Review latest work output")} type="button">
               Create task
             </button>
-            <button className="button button-secondary" type="button">
+            <button className="button button-secondary" onClick={() => onNavigate(`#app/office/workers/${worker.id}/briefings`)} type="button">
               Schedule briefing
             </button>
-            <button className="button button-secondary" type="button">
+            <button className="button button-secondary" onClick={() => onNavigate(`#app/office/workers/${worker.id}/tasks`)} type="button">
               Review work
             </button>
-            <button className="button button-secondary" type="button">
+            <button className="button button-secondary" onClick={() => onNavigate(`#app/office/workers/${worker.id}/settings`)} type="button">
               Update preferences
             </button>
           </div>
@@ -713,11 +814,89 @@ function OfficeSettingsPage() {
 }
 
 export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps) {
-  const officeWorkers = buildOfficeWorkersFromMarketplaceWorkers(hiredWorkers);
+  const [overlayChats, setOverlayChats] = useState<OfficeOverlayChat[]>([]);
+  const [overlayTasks, setOverlayTasks] = useState<OfficeOverlayTask[]>([]);
+  const [overlayWorklog, setOverlayWorklog] = useState<OfficeOverlayWorklog[]>([]);
+  const [officeError, setOfficeError] = useState("");
+
+  const baseWorkers = useMemo(() => buildOfficeWorkersFromMarketplaceWorkers(hiredWorkers), [hiredWorkers]);
+  const officeWorkers = useMemo(
+    () => mergeOfficeWorkers(baseWorkers, overlayChats, overlayTasks, overlayWorklog),
+    [baseWorkers, overlayChats, overlayTasks, overlayWorklog]
+  );
   const currentHash = window.location.hash || "#app/office";
   const route = parseOfficePath(currentHash);
   const selectedWorker =
     "workerId" in route ? officeWorkers.find((worker) => worker.id === route.workerId) ?? null : null;
+
+  useEffect(() => {
+    async function loadOverlays() {
+      if (hiredWorkers.length === 0) {
+        setOverlayChats([]);
+        setOverlayTasks([]);
+        setOverlayWorklog([]);
+        return;
+      }
+
+      try {
+        const response = await officeJson<{
+          chats: OfficeOverlayChat[];
+          tasks: OfficeOverlayTask[];
+          worklog: OfficeOverlayWorklog[];
+        }>("/api/office/overlays", { method: "GET" });
+        setOverlayChats(response.chats);
+        setOverlayTasks(response.tasks);
+        setOverlayWorklog(response.worklog);
+        setOfficeError("");
+      } catch (error) {
+        setOfficeError(error instanceof Error ? error.message : "Unable to load office updates.");
+      }
+    }
+
+    void loadOverlays();
+  }, [hiredWorkers]);
+
+  async function refreshOverlays() {
+    const response = await officeJson<{
+      chats: OfficeOverlayChat[];
+      tasks: OfficeOverlayTask[];
+      worklog: OfficeOverlayWorklog[];
+    }>("/api/office/overlays", { method: "GET" });
+    setOverlayChats(response.chats);
+    setOverlayTasks(response.tasks);
+    setOverlayWorklog(response.worklog);
+    setOfficeError("");
+  }
+
+  async function handleSendMessage(workerSlug: string, text: string) {
+    await officeJson(`/api/office/workers/${workerSlug}/chat`, {
+      method: "POST",
+      body: JSON.stringify({ text })
+    });
+    await refreshOverlays();
+  }
+
+  async function handleCreateTask(worker: OfficeWorker, seed?: string) {
+    await officeJson(`/api/office/workers/${worker.id}/tasks`, {
+      method: "POST",
+      body: JSON.stringify({
+        dueDate: "Tomorrow",
+        module: worker.modules[0]?.name ?? "Work Queue",
+        owner: "Worker",
+        priority: "High",
+        title: seed ?? `Follow up on ${worker.name}'s current work`
+      })
+    });
+    await refreshOverlays();
+  }
+
+  async function handleBriefingAction(workerSlug: string, action: "approve" | "followup" | "task", briefingId: string) {
+    await officeJson(`/api/office/workers/${workerSlug}/briefings/${briefingId}/action`, {
+      method: "POST",
+      body: JSON.stringify({ action })
+    });
+    await refreshOverlays();
+  }
 
   let content: ReactNode;
 
@@ -766,7 +945,10 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <BriefingList briefings={selectedWorker.briefings} />
+            <BriefingList
+              briefings={selectedWorker.briefings}
+              onAction={(action, briefingId) => handleBriefingAction(selectedWorker.id, action, briefingId)}
+            />
           </div>
         );
       } else if (route.section === "tasks") {
@@ -805,7 +987,12 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <ChatPanel worker={selectedWorker} />
+            <ChatPanel
+              onCreateTask={handleCreateTask}
+              onNavigate={onNavigate}
+              onSendMessage={handleSendMessage}
+              worker={selectedWorker}
+            />
           </div>
         );
       } else if (route.section === "settings") {
@@ -849,12 +1036,19 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
   }
 
   return (
-    <main className="office-shell">
+    <main className={selectedWorker ? "office-shell office-shell-worker" : "office-shell office-shell-home"}>
       <OfficeSidebar currentHash={currentHash} onNavigate={onNavigate} selectedWorker={selectedWorker} workers={officeWorkers} />
       {selectedWorker && (route.kind === "worker-desk" || route.kind === "worker-section" || route.kind === "worker-module") ? (
         <WorkerSidebar currentHash={currentHash} onNavigate={onNavigate} worker={selectedWorker} />
       ) : null}
-      <section className="office-main">{content}</section>
+      <section className="office-main">
+        {officeError ? (
+          <div className="notice-banner">
+            <span>{officeError}</span>
+          </div>
+        ) : null}
+        {content}
+      </section>
     </main>
   );
 }

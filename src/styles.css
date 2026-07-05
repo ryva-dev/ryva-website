@@ -1057,9 +1057,16 @@ a:focus-visible {
 
 .office-shell {
   display: grid;
-  grid-template-columns: 280px 240px minmax(0, 1fr);
   min-height: 100vh;
   background: #f7f9fc;
+}
+
+.office-shell-home {
+  grid-template-columns: 280px minmax(0, 1fr);
+}
+
+.office-shell-worker {
+  grid-template-columns: 280px 228px minmax(0, 1fr);
 }
 
 .office-sidebar,
@@ -1094,6 +1101,12 @@ a:focus-visible {
 
 .office-worker-switcher {
   margin-top: 28px;
+}
+
+.office-worker-list {
+  max-height: calc(100vh - 300px);
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .office-nav-link,
@@ -1160,25 +1173,29 @@ a:focus-visible {
 }
 
 .office-main {
-  padding: 28px 30px 40px;
+  min-width: 0;
+  padding: 30px 34px 44px;
 }
 
 .office-page {
   display: grid;
-  gap: 20px;
+  gap: 24px;
+  width: min(1240px, 100%);
 }
 
 .office-topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: end;
   justify-content: space-between;
-  gap: 20px;
+  gap: 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e7edf4;
 }
 
 .office-topbar h1,
 .worker-header h2 {
   margin: 0 0 6px;
-  font-size: 1.55rem;
+  font-size: 2rem;
   line-height: 1.15;
   letter-spacing: -0.02em;
   font-weight: 700;
@@ -1194,8 +1211,9 @@ a:focus-visible {
 
 .office-topbar-meta {
   color: #475569;
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .worker-header {
@@ -1203,6 +1221,8 @@ a:focus-visible {
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e7edf4;
 }
 
 .worker-header-summary {
@@ -1221,7 +1241,7 @@ a:focus-visible {
 }
 
 .office-content-grid {
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   align-items: start;
 }
 
@@ -1231,7 +1251,7 @@ a:focus-visible {
 }
 
 .chat-layout {
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   align-items: start;
 }
 
@@ -1257,13 +1277,14 @@ a:focus-visible {
 .briefing-card,
 .review-queue-item,
 .chat-message {
-  border: 1px solid var(--line);
-  border-radius: 12px;
   background: #fff;
 }
 
 .snapshot-card {
-  padding: 16px 18px;
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid #e4ebf3;
+  border-radius: 0;
 }
 
 .snapshot-card span {
@@ -1282,7 +1303,10 @@ a:focus-visible {
 .office-panel,
 .knowledge-card,
 .worker-directory-card {
-  padding: 18px 20px;
+  padding: 0 0 18px;
+  border: 0;
+  border-bottom: 1px solid #e4ebf3;
+  border-radius: 0;
 }
 
 .office-panel-head {
@@ -1298,7 +1322,7 @@ a:focus-visible {
 .briefing-card h4,
 .task-column-head h4 {
   margin: 0;
-  font-size: 0.96rem;
+  font-size: 1rem;
   font-weight: 700;
 }
 
@@ -1334,6 +1358,8 @@ a:focus-visible {
 .review-queue-item,
 .chat-message {
   padding: 14px 16px;
+  border: 1px solid #e4ebf3;
+  border-radius: 12px;
 }
 
 .review-queue-item strong,
@@ -1345,7 +1371,10 @@ a:focus-visible {
 }
 
 .briefing-card {
-  padding: 20px;
+  padding: 0 0 20px;
+  border: 0;
+  border-bottom: 1px solid #e4ebf3;
+  border-radius: 0;
 }
 
 .briefing-grid {
@@ -1371,14 +1400,14 @@ a:focus-visible {
 .task-board {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  gap: 18px;
 }
 
 .task-column {
-  min-height: 220px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  min-height: 240px;
+  padding: 16px 16px 6px;
+  border: 1px solid #e4ebf3;
+  border-radius: 14px;
   background: #fff;
 }
 
@@ -1397,6 +1426,8 @@ a:focus-visible {
 
 .task-card {
   padding: 14px;
+  border: 1px solid #e9eef4;
+  border-radius: 10px;
 }
 
 .task-card small {
@@ -1421,7 +1452,7 @@ a:focus-visible {
 .office-table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid var(--line);
+  border: 1px solid #e4ebf3;
   border-radius: 12px;
   overflow: hidden;
   background: #fff;
@@ -1458,10 +1489,33 @@ a:focus-visible {
 .chat-thread {
   display: grid;
   gap: 14px;
+  align-content: start;
 }
 
 .chat-message-user {
   background: #f8fafc;
+}
+
+.chat-composer {
+  display: grid;
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.chat-composer textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 112px;
+  padding: 14px 16px;
+  border: 1px solid #d7e1ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.chat-composer-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .quick-actions {
@@ -1507,7 +1561,8 @@ a:focus-visible {
     border-bottom: 1px solid var(--line);
   }
 
-  .office-shell {
+  .office-shell-home,
+  .office-shell-worker {
     grid-template-columns: 250px minmax(0, 1fr);
   }
 
@@ -1523,15 +1578,21 @@ a:focus-visible {
 
   .office-content-grid,
   .chat-layout,
-  .task-board,
   .briefing-grid,
-  .overview-stats,
-  .snapshot-grid,
   .office-overview-grid,
   .settings-grid,
   .knowledge-grid,
   .worker-directory {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .overview-stats,
+  .snapshot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .brand-hero {
@@ -1646,7 +1707,8 @@ a:focus-visible {
     padding-top: 22px;
   }
 
-  .office-shell {
+  .office-shell-home,
+  .office-shell-worker {
     grid-template-columns: 1fr;
   }
 
@@ -1678,6 +1740,15 @@ a:focus-visible {
   .knowledge-grid,
   .worker-directory {
     grid-template-columns: 1fr;
+  }
+
+  .office-page {
+    width: 100%;
+  }
+
+  .office-topbar h1,
+  .worker-header h2 {
+    font-size: 1.6rem;
   }
 
   .worklog-item {

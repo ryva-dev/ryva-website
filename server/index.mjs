@@ -136,6 +136,47 @@ async function readHiredWorkersForUser(userId) {
     .filter(Boolean);
 }
 
+function hasHiredWorker(userId, workerSlug) {
+  return Boolean(
+    db
+      .prepare("SELECT id FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = ?")
+      .get(userId, workerSlug, "active")
+  );
+}
+
+function readOfficeOverlaysForUser(userId) {
+  return {
+    chats: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, id, author, text, created_at AS timestamp
+         FROM office_chat_messages
+         WHERE user_id = ?
+         ORDER BY created_at ASC`
+      )
+      .all(userId),
+    tasks: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, id, due_date AS dueDate, module_name AS module, owner, priority, status, title
+         FROM office_custom_tasks
+         WHERE user_id = ?
+         ORDER BY created_at DESC`
+      )
+      .all(userId),
+    worklog: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, id, action, module_name AS module, result, created_at AS timestamp
+         FROM office_activity_logs
+         WHERE user_id = ?
+         ORDER BY created_at DESC`
+      )
+      .all(userId)
+  };
+}
+
+function makeWorkerReply(name) {
+  return `${name ? name.split(" ")[0] : "I"} received that update and will reflect it in the work queue before the next briefing.`;
+}
+
 function cleanupExpiredRecords() {
   const now = nowIso();
   db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(now);
@@ -282,6 +323,10 @@ app.get("/api/workers/:slug", async (req, res) => {
 app.get("/api/office/workers", requireAuth, async (req, res) => {
   const workers = await readHiredWorkersForUser(req.user.id);
   res.json({ workers });
+});
+
+app.get("/api/office/overlays", requireAuth, (req, res) => {
+  res.json(readOfficeOverlaysForUser(req.user.id));
 });
 
 app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
@@ -546,6 +591,151 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
   } catch (error) {
     res.status(400).send(error instanceof Error ? error.message : "Webhook verification failed.");
   }
+});
+
+app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const text = String(req.body?.text ?? "").trim();
+
+  if (!text) {
+    res.status(400).json({ error: "Message text is required." });
+    return;
+  }
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  const workers = await readWorkers();
+  const worker = workers.find((entry) => entry.slug === workerSlug);
+  const createdAt = nowIso();
+
+  db.prepare(
+    `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "You", text, createdAt);
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Sent a chat message.", "Chat", "Worker notified of new direction", createdAt);
+
+  const replyText = makeWorkerReply(worker?.name);
+  const replyCreatedAt = new Date(Date.now() + 1000).toISOString();
+  db.prepare(
+    `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Worker", replyText, replyCreatedAt);
+
+  res.status(201).json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/tasks", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const { dueDate, module, owner, priority, title } = req.body ?? {};
+
+  if (!title || !module) {
+    res.status(400).json({ error: "Task title and module are required." });
+    return;
+  }
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  const createdAt = nowIso();
+  db.prepare(
+    `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    req.user.id,
+    workerSlug,
+    String(title),
+    String(module),
+    owner === "You" ? "You" : "Worker",
+    priority === "Low" || priority === "Medium" || priority === "High" ? priority : "Medium",
+    "To Do",
+    String(dueDate || "This week"),
+    createdAt
+  );
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Created a task.", String(module), String(title), createdAt);
+
+  res.status(201).json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+  const briefingId = req.params.briefingId;
+  const action = String(req.body?.action ?? "");
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  const createdAt = nowIso();
+
+  if (action === "approve") {
+    db.prepare(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), req.user.id, workerSlug, "Approved a briefing.", "Briefings", briefingId, createdAt);
+    res.json({ ok: true });
+    return;
+  }
+
+  if (action === "followup") {
+    db.prepare(
+      `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      req.user.id,
+      workerSlug,
+      "You",
+      "Please prepare follow-up notes and update the queue before the next review.",
+      createdAt
+    );
+    db.prepare(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), req.user.id, workerSlug, "Requested briefing follow-up.", "Briefings", briefingId, createdAt);
+    res.json({ ok: true });
+    return;
+  }
+
+  if (action === "task") {
+    db.prepare(
+      `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      req.user.id,
+      workerSlug,
+      "Follow up on briefing decisions",
+      "Briefings",
+      "Worker",
+      "High",
+      "To Do",
+      "Tomorrow",
+      createdAt
+    );
+    db.prepare(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), req.user.id, workerSlug, "Created a task from briefing.", "Briefings", briefingId, createdAt);
+    res.json({ ok: true });
+    return;
+  }
+
+  res.status(400).json({ error: "Unsupported briefing action." });
 });
 
 app.use(express.static(distDir));
