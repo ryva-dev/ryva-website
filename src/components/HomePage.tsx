@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type { Worker } from "../types";
 
 type HomePageProps = {
@@ -6,88 +8,84 @@ type HomePageProps = {
   workers: Worker[];
 };
 
-function departmentList(workers: Worker[]) {
-  return [...new Set(workers.map((worker) => worker.department))].sort((a, b) => a.localeCompare(b));
-}
-
-export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps) {
-  const departments = departmentList(workers);
+export function HomePage({ onBrowseWorkers, onOpenAuth, workers: _workers }: HomePageProps) {
+  const [activeScene, setActiveScene] = useState<"browse" | "signin" | "hire" | null>(null);
 
   return (
     <main className="home-page">
-      <section className="editorial-hero">
-        <div className="editorial-hero-copy">
-          <p className="section-kicker">Ryva</p>
-          <h1>Professional hiring for digital workers.</h1>
-          <p className="editorial-hero-text">
-            A more refined marketplace for modern talent discovery, built to feel credible from the first screen.
-          </p>
-
-          <div className="editorial-hero-actions">
-            <button className="button button-primary" onClick={onBrowseWorkers} type="button">
-              Browse marketplace
-            </button>
-            <button className="button button-secondary" onClick={onOpenAuth} type="button">
-              Sign in
-            </button>
-          </div>
-
-          <div className="editorial-hero-meta">
-            <span>Clear profiles</span>
-            <span>Visible rates</span>
-            <span>Verified access</span>
-          </div>
+      <section
+        className="brand-canvas"
+        data-scene={activeScene ?? "idle"}
+        onMouseLeave={() => setActiveScene(null)}
+      >
+        <div className="brand-canvas-wordmark">
+          <p className="brand-kicker">Ryva</p>
+          <h1>Ryva</h1>
         </div>
 
-        <div className="editorial-stage" aria-hidden="true">
-          <div className="editorial-stage-frame">
-            <div className="editorial-grid" />
-            <div className="editorial-grid-glow" />
-
-            <div className="editorial-card editorial-card-large">
-              <div className="editorial-card-lines">
-                <span className="line w-22" />
-                <span className="line w-58" />
-                <span className="line w-44" />
-              </div>
-            </div>
-
-            <div className="editorial-card editorial-card-top">
-              <strong>Engineering</strong>
-              <div className="editorial-card-lines">
-                <span className="line w-40" />
-                <span className="line w-24" />
-              </div>
-            </div>
-
-            <div className="editorial-card editorial-card-middle">
-              <strong>Legal</strong>
-              <div className="editorial-card-lines">
-                <span className="line w-34" />
-                <span className="line w-52" />
-              </div>
-            </div>
-
-            <div className="editorial-card editorial-card-bottom">
-              <strong>Sales</strong>
-              <div className="editorial-card-lines">
-                <span className="line w-46" />
-                <span className="line w-28" />
-              </div>
-            </div>
-
-            <div className="editorial-track editorial-track-one" />
-            <div className="editorial-track editorial-track-two" />
-            <div className="editorial-track editorial-track-three" />
-          </div>
+        <div className="brand-canvas-actions" aria-label="Primary actions">
+          <button
+            className="brand-action"
+            onClick={onBrowseWorkers}
+            onFocus={() => setActiveScene("browse")}
+            onMouseEnter={() => setActiveScene("browse")}
+            type="button"
+          >
+            Browse
+          </button>
+          <button
+            className="brand-action"
+            onClick={onOpenAuth}
+            onFocus={() => setActiveScene("signin")}
+            onMouseEnter={() => setActiveScene("signin")}
+            type="button"
+          >
+            Sign in
+          </button>
+          <button
+            className="brand-action"
+            onClick={onBrowseWorkers}
+            onFocus={() => setActiveScene("hire")}
+            onMouseEnter={() => setActiveScene("hire")}
+            type="button"
+          >
+            Hire
+          </button>
         </div>
-      </section>
 
-      <section className="editorial-band" aria-label="Departments">
-        <div className="editorial-band-track">
-          {[...departments, ...departments].map((department, index) => (
-            <span key={`${department}-${index}`}>{department}</span>
-          ))}
+        <div className="brand-motion" aria-hidden="true">
+          <div className="motion-field">
+            <div className="motion-grid" />
+            <div className="motion-slab motion-slab-a" />
+            <div className="motion-slab motion-slab-b" />
+            <div className="motion-slab motion-slab-c" />
+            <div className="motion-window motion-window-a">
+              <div className="motion-window-lines">
+                <span className="w-30" />
+                <span className="w-70" />
+                <span className="w-46" />
+              </div>
+            </div>
+            <div className="motion-window motion-window-b">
+              <div className="motion-window-lines">
+                <span className="w-54" />
+                <span className="w-34" />
+              </div>
+            </div>
+            <div className="motion-window motion-window-c">
+              <div className="motion-window-lines">
+                <span className="w-24" />
+                <span className="w-58" />
+              </div>
+            </div>
+            <svg className="motion-draw" viewBox="0 0 520 320" fill="none">
+              <path d="M30 214C82 164 136 132 196 132C258 132 293 168 293 207C293 242 271 268 245 268C220 268 201 250 201 225C201 191 236 169 282 169C343 169 394 205 444 245" />
+              <path d="M412 219L447 247L404 249" />
+            </svg>
+            <div className="motion-selector motion-selector-a" />
+            <div className="motion-selector motion-selector-b" />
+            <div className="motion-selector motion-selector-c" />
+          </div>
         </div>
       </section>
     </main>
