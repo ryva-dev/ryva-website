@@ -1920,11 +1920,16 @@ a:focus-visible {
   color: #334155;
 }
 
-.knowledge-grid,
-.worker-directory {
+.knowledge-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+}
+
+.worker-directory {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
 }
 
 .settings-form-grid {
@@ -2069,6 +2074,13 @@ a:focus-visible {
   background: transparent;
   text-align: left;
   cursor: pointer;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.office-roster-item:hover,
+.calendar-task-row:hover {
+  color: #0f172a;
+  transform: translateX(4px);
 }
 
 .office-roster-item:last-child {
@@ -2084,6 +2096,74 @@ a:focus-visible {
 .office-roster-item span {
   color: #64748b;
   font-size: 0.84rem;
+}
+
+.calendar-agenda {
+  display: grid;
+  gap: 24px;
+}
+
+.calendar-day-group {
+  display: grid;
+  gap: 12px;
+}
+
+.calendar-day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #dfe8f1;
+}
+
+.calendar-day-head h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.calendar-day-head span,
+.calendar-task-copy span,
+.calendar-task-date {
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
+.calendar-task-list {
+  display: grid;
+  gap: 0;
+}
+
+.calendar-task-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid #e7edf4;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.calendar-task-row:last-child {
+  border-bottom: 0;
+}
+
+.calendar-task-copy strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #0f172a;
+  font-size: 0.96rem;
+}
+
+.calendar-task-status {
+  color: #0f172a;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .files-panel {
@@ -2115,10 +2195,6 @@ a:focus-visible {
 
 .worker-directory-card p {
   margin: 0 0 10px;
-}
-
-.worker-directory {
-  gap: 0;
 }
 
 .worker-directory-card {
@@ -2179,7 +2255,6 @@ a:focus-visible {
   .office-overview-grid,
   .settings-grid,
   .knowledge-grid,
-  .worker-directory,
   .onboarding-conversation-layout,
   .office-two-column-flow {
     grid-template-columns: 1fr 1fr;
@@ -2358,6 +2433,15 @@ a:focus-visible {
   .office-two-column-flow,
   .office-studio-layout {
     grid-template-columns: 1fr;
+  }
+
+  .calendar-task-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .calendar-task-status {
+    color: #64748b;
   }
 
   .office-page {

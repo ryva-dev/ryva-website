@@ -114,7 +114,7 @@ async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T>
 const officePrimaryNav = [
   { label: "Office Home", href: "#app/office" },
   { label: "Workers", href: "#app/office/workers" },
-  { label: "Meetings", href: "#app/office/meetings" },
+  { label: "Calendar", href: "#app/office/calendar" },
   { label: "Tasks", href: "#app/office/tasks" },
   { label: "Files", href: "#app/office/files" },
   { label: "Settings", href: "#app/office/settings" }
@@ -157,15 +157,6 @@ function allFiles(workers: OfficeWorker[]) {
   );
 }
 
-function allBriefings(workers: OfficeWorker[]) {
-  return workers.flatMap((worker) =>
-    worker.briefings.map((briefing) => ({
-      ...briefing,
-      workerName: worker.name
-    }))
-  );
-}
-
 function allActivity(workers: OfficeWorker[]) {
   return workers.flatMap((worker) =>
     worker.recentWorkLog.map((entry) => ({
@@ -175,14 +166,61 @@ function allActivity(workers: OfficeWorker[]) {
   );
 }
 
+function dueDateRank(dueDate: string) {
+  const value = dueDate.trim().toLowerCase();
+  if (value === "yesterday" || value.includes("overdue")) return 0;
+  if (value === "today") return 1;
+  if (value === "tomorrow") return 2;
+  if (value.includes("monday")) return 3;
+  if (value.includes("tuesday")) return 4;
+  if (value.includes("wednesday")) return 5;
+  if (value.includes("thursday")) return 6;
+  if (value.includes("friday")) return 7;
+  if (value.includes("saturday")) return 8;
+  if (value.includes("sunday")) return 9;
+  return 10;
+}
+
+function deadlineBucket(dueDate: string) {
+  const value = dueDate.trim().toLowerCase();
+  if (value === "yesterday" || value.includes("overdue")) return "Overdue";
+  if (value === "today") return "Today";
+  if (value === "tomorrow") return "Tomorrow";
+  if (
+    value.includes("monday") ||
+    value.includes("tuesday") ||
+    value.includes("wednesday") ||
+    value.includes("thursday") ||
+    value.includes("friday")
+  ) {
+    return "This week";
+  }
+  return "Upcoming";
+}
+
+function officeDeadlineRows(workers: OfficeWorker[]) {
+  return workers
+    .flatMap((worker) =>
+      worker.tasks
+        .filter((task) => task.status !== "Completed")
+        .map((task) => ({
+          ...task,
+          bucket: deadlineBucket(task.dueDate),
+          workerName: worker.name,
+          workerSlug: worker.id
+        }))
+    )
+    .sort((left, right) => dueDateRank(left.dueDate) - dueDateRank(right.dueDate));
+}
+
 function buildOfficeOverview(workers: OfficeWorker[]) {
+  const deadlines = officeDeadlineRows(workers);
+
   return {
     activity: allActivity(workers)
       .slice(0, 4)
       .map((entry) => `${entry.workerName} ${entry.action.charAt(0).toLowerCase()}${entry.action.slice(1)}`),
-    briefings: allBriefings(workers)
-      .slice(0, 4)
-      .map((briefing) => `${briefing.dateLabel} · ${briefing.title} with ${briefing.workerName}`),
+    deadlines: deadlines.slice(0, 5).map((task) => `${task.dueDate} · ${task.title} · ${task.workerName}`),
     review: workers.flatMap((worker) => worker.reviewQueue.map((item) => `${item.item} from ${worker.name}`)).slice(0, 4),
     tasks: workers
       .flatMap((worker) =>
@@ -333,7 +371,7 @@ function parseOfficePath(hash: string) {
     return { kind: "worker-section" as const, workerId, section: parts[4] };
   }
 
-  if (parts[2] === "meetings") return { kind: "office-meetings" as const };
+  if (parts[2] === "calendar") return { kind: "office-calendar" as const };
   if (parts[2] === "tasks") return { kind: "office-tasks" as const };
   if (parts[2] === "files") return { kind: "office-files" as const };
   if (parts[2] === "settings") return { kind: "office-settings" as const };
@@ -882,98 +920,6 @@ function OfficeTaskComposer({
   );
 }
 
-function OfficeMeetingScheduler({
-  workers,
-  onCreate
-}: {
-  onCreate: (payload: {
-    agenda: string[];
-    dateLabel: string;
-    decisionsNeeded: string[];
-    recommendedActions: string[];
-    summary: string;
-    title: string;
-    workerSlug: string;
-  }) => Promise<void>;
-  workers: OfficeWorker[];
-}) {
-  const [form, setForm] = useState({
-    agenda: "Review active work\nConfirm next approvals",
-    dateLabel: "Tomorrow · 11:00 AM",
-    decisionsNeeded: "Approve next batch",
-    recommendedActions: "Create follow-up task",
-    summary: "Scheduled office review to align on output, blockers, and next approvals.",
-    title: "Office Review",
-    workerSlug: workers[0]?.id ?? ""
-  });
-
-  useEffect(() => {
-    setForm((current) => ({
-      ...current,
-      workerSlug: current.workerSlug || workers[0]?.id || ""
-    }));
-  }, [workers]);
-
-  return (
-    <form
-      className="settings-form-grid"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!form.workerSlug || !form.title.trim()) return;
-        void onCreate({
-          agenda: form.agenda.split("\n").map((item) => item.trim()).filter(Boolean),
-          dateLabel: form.dateLabel,
-          decisionsNeeded: form.decisionsNeeded.split("\n").map((item) => item.trim()).filter(Boolean),
-          recommendedActions: form.recommendedActions.split("\n").map((item) => item.trim()).filter(Boolean),
-          summary: form.summary,
-          title: form.title.trim(),
-          workerSlug: form.workerSlug
-        });
-      }}
-    >
-      <label>
-        <span>Worker</span>
-        <select onChange={(event) => setForm({ ...form, workerSlug: event.target.value })} value={form.workerSlug}>
-          {workers.map((worker) => (
-            <option key={worker.id} value={worker.id}>
-              {worker.name} · {worker.title}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>Date and time</span>
-        <input onChange={(event) => setForm({ ...form, dateLabel: event.target.value })} value={form.dateLabel} />
-      </label>
-      <label className="settings-form-full">
-        <span>Meeting title</span>
-        <input onChange={(event) => setForm({ ...form, title: event.target.value })} value={form.title} />
-      </label>
-      <label className="settings-form-full">
-        <span>Summary</span>
-        <textarea onChange={(event) => setForm({ ...form, summary: event.target.value })} rows={3} value={form.summary} />
-      </label>
-      <label className="settings-form-full">
-        <span>Agenda</span>
-        <textarea onChange={(event) => setForm({ ...form, agenda: event.target.value })} rows={4} value={form.agenda} />
-      </label>
-      <label className="settings-form-full">
-        <span>Decisions needed</span>
-        <textarea onChange={(event) => setForm({ ...form, decisionsNeeded: event.target.value })} rows={3} value={form.decisionsNeeded} />
-      </label>
-      <label className="settings-form-full">
-        <span>Recommended actions</span>
-        <textarea onChange={(event) => setForm({ ...form, recommendedActions: event.target.value })} rows={3} value={form.recommendedActions} />
-      </label>
-      <div className="form-actions-row settings-form-full">
-        <button className="button button-primary" disabled={!form.workerSlug || !form.title.trim()} type="submit">
-          Schedule meeting
-        </button>
-      </div>
-    </form>
-  );
-}
-
 function ChatPanel({
   onNavigate,
   worker,
@@ -1255,16 +1201,16 @@ function OfficeHome({
           <WorkspaceSection eyebrow="Review queue" title="Attention now">
             <SimpleList items={overview.review} />
           </WorkspaceSection>
-          <WorkspaceSection eyebrow="Workload" title="Upcoming tasks">
-            <SimpleList items={overview.tasks} />
-          </WorkspaceSection>
           <WorkspaceSection eyebrow="Movement" title="Recent activity across the office">
             <SimpleList items={overview.activity} />
           </WorkspaceSection>
+          <WorkspaceSection eyebrow="Workload" title="Upcoming tasks">
+            <SimpleList items={overview.tasks} />
+          </WorkspaceSection>
         </div>
         <div className="office-studio-rail">
-          <WorkspaceSection eyebrow="Calendar" title="Today's briefings">
-            <SimpleList items={overview.briefings} />
+          <WorkspaceSection eyebrow="Calendar" title="Deadline horizon">
+            <SimpleList items={overview.deadlines} />
           </WorkspaceSection>
           <WorkspaceSection eyebrow="Roster" title="Active workers">
             <div className="office-roster-list">
@@ -1282,49 +1228,87 @@ function OfficeHome({
   );
 }
 
-function OfficeMeetingsPage({
-  onCreateMeeting,
+function OfficeCalendarPage({
+  onNavigate,
   workers
 }: {
-  onCreateMeeting: (payload: {
-    agenda: string[];
-    dateLabel: string;
-    decisionsNeeded: string[];
-    recommendedActions: string[];
-    summary: string;
-    title: string;
-    workerSlug: string;
-  }) => Promise<void>;
+  onNavigate: (hash: string) => void;
   workers: OfficeWorker[];
 }) {
-  const briefings = allBriefings(workers);
+  const tasks = officeDeadlineRows(workers);
+  const groups = ["Overdue", "Today", "Tomorrow", "This week", "Upcoming"]
+    .map((label) => ({
+      label,
+      items: tasks.filter((task) => task.bucket === label)
+    }))
+    .filter((group) => group.items.length > 0);
+  const pressurePoints = tasks.filter((task) => task.priority === "High").slice(0, 5);
 
   return (
     <div className="office-page">
-      <TopBar subtitle="Prepare reviews, approvals, and standing briefs across the entire office." title="Meetings" />
+      <TopBar
+        rightLabel={`${tasks.length} active deadlines`}
+        subtitle="A live agenda for delivery dates, review handoffs, and the work that is about to reach your desk."
+        title="Calendar"
+      />
       <div className="office-studio-layout">
         <div className="office-studio-main">
-          <WorkspaceSection eyebrow="Planner" title="Schedule meeting">
-            <OfficeMeetingScheduler onCreate={onCreateMeeting} workers={workers} />
-          </WorkspaceSection>
-          <WorkspaceSection eyebrow="Timeline" title="Briefing line">
-            <div className="briefing-list">
-              {briefings.map((briefing) => (
-                <article className="briefing-card" key={`${briefing.workerName}-${briefing.id}`}>
-                  <div className="office-panel-head">
-                    <h3>{briefing.title}</h3>
-                    <span>{briefing.workerName}</span>
+          <WorkspaceSection eyebrow="Agenda" title="Deadline line">
+            <div className="calendar-agenda">
+              {groups.map((group) => (
+                <section className="calendar-day-group" key={group.label}>
+                  <header className="calendar-day-head">
+                    <h4>{group.label}</h4>
+                    <span>{group.items.length}</span>
+                  </header>
+                  <div className="calendar-task-list">
+                    {group.items.map((task) => (
+                      <button
+                        className="calendar-task-row"
+                        key={task.id}
+                        onClick={() => onNavigate(`#app/office/workers/${task.workerSlug}/tasks`)}
+                        type="button"
+                      >
+                        <div className="calendar-task-date">{task.dueDate}</div>
+                        <div className="calendar-task-copy">
+                          <strong>{task.title}</strong>
+                          <span>
+                            {task.workerName} · {task.module} · {task.priority} priority
+                          </span>
+                        </div>
+                        <div className="calendar-task-status">{task.status}</div>
+                      </button>
+                    ))}
                   </div>
-                  <p className="briefing-summary">{briefing.dateLabel}</p>
-                  <p className="office-note">{briefing.summary}</p>
-                </article>
+                </section>
               ))}
             </div>
           </WorkspaceSection>
         </div>
         <div className="office-studio-rail">
-          <WorkspaceSection eyebrow="Coverage" title="Workers in review cadence">
-            <SimpleList items={workers.map((worker) => `${worker.name} · ${worker.nextBriefing}`)} />
+          <WorkspaceSection eyebrow="Pressure points" title="High-priority deadlines">
+            <SimpleList items={pressurePoints.map((task) => `${task.dueDate} · ${task.title} · ${task.workerName}`)} />
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Load" title="Open work by worker">
+            <div className="office-roster-list">
+              {workers.map((worker) => (
+                <button className="office-roster-item" key={worker.id} onClick={() => onNavigate(`#app/office/workers/${worker.id}/desk`)} type="button">
+                  <strong>{worker.name}</strong>
+                  <span>
+                    {worker.tasks.filter((task) => task.status !== "Completed").length} open · next{" "}
+                    {worker.tasks.find((task) => task.status !== "Completed")?.dueDate ?? "No deadline"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Review" title="Awaiting decisions">
+            <SimpleList
+              items={workers.flatMap((worker) => worker.reviewQueue.map((item) => `${item.item} · ${worker.name}`)).slice(0, 6)}
+            />
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Flow" title="Workstreams in motion">
+            <SimpleList items={workers.map((worker) => `${worker.name} · ${worker.currentFocus[0] ?? worker.roleSummary}`)} />
           </WorkspaceSection>
         </div>
       </div>
@@ -1988,18 +1972,6 @@ export function OfficeApp({ hiredWorkers, onNavigate, onRefreshWorkers, userName
     await handleCreateTask(worker, undefined, payload);
   }
 
-  async function handleCreateOfficeMeeting(payload: {
-    agenda: string[];
-    dateLabel: string;
-    decisionsNeeded: string[];
-    recommendedActions: string[];
-    summary: string;
-    title: string;
-    workerSlug: string;
-  }) {
-    await handleCreateBriefing(payload.workerSlug, payload);
-  }
-
   let content: ReactNode;
 
   if (route.kind === "office-home") {
@@ -2031,8 +2003,8 @@ export function OfficeApp({ hiredWorkers, onNavigate, onRefreshWorkers, userName
         )}
       </div>
     );
-  } else if (route.kind === "office-meetings") {
-    content = <OfficeMeetingsPage onCreateMeeting={handleCreateOfficeMeeting} workers={officeWorkers} />;
+  } else if (route.kind === "office-calendar") {
+    content = <OfficeCalendarPage onNavigate={onNavigate} workers={officeWorkers} />;
   } else if (route.kind === "office-tasks") {
     content = <OfficeTasksPage onCreateTask={handleCreateOfficeTask} workers={officeWorkers} />;
   } else if (route.kind === "office-files") {
