@@ -181,6 +181,20 @@ db.exec(`
     UNIQUE(user_id, worker_slug),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS office_calendar_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT,
+    title TEXT NOT NULL,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    notes TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 db.exec(`

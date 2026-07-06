@@ -2472,3 +2472,752 @@ a:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+.office-v2-shell {
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(221, 235, 248, 0.9), transparent 32%),
+    linear-gradient(180deg, #f7fafc 0%, #fbfdff 100%);
+}
+
+.office-v2-shell-worker {
+  grid-template-columns: 272px 224px minmax(0, 1fr);
+}
+
+.office-v2-sidebar,
+.office-v2-worker-rail {
+  padding: 28px 22px 26px;
+  border-right: 1px solid #e1e8f0;
+  background: rgba(252, 253, 255, 0.84);
+  backdrop-filter: blur(16px);
+}
+
+.office-v2-brand {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  cursor: pointer;
+}
+
+.office-v2-nav,
+.office-v2-worker-nav,
+.office-v2-roster {
+  display: grid;
+  gap: 8px;
+}
+
+.office-v2-divider {
+  height: 1px;
+  margin: 20px 0;
+  background: #e6edf5;
+}
+
+.office-v2-kicker {
+  margin: 0 0 10px;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.office-v2-nav-link,
+.office-v2-roster-link,
+.office-v2-role-line,
+.office-v2-inline-link,
+.office-v2-review-link,
+.office-v2-select-row {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #334155;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.office-v2-nav-link,
+.office-v2-roster-link,
+.office-v2-review-link,
+.office-v2-select-row {
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.office-v2-nav-link-active,
+.office-v2-roster-link-active,
+.office-v2-review-link-active,
+.office-v2-select-row-active {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.office-v2-roster-link strong,
+.office-v2-review-link strong,
+.office-v2-select-row strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.office-v2-roster-link span,
+.office-v2-review-link span,
+.office-v2-select-row span,
+.office-v2-worker-heading p,
+.office-v2-faint-copy,
+.office-v2-header p,
+.office-v2-message small,
+.office-v2-thread-row p,
+.office-v2-ledger-row span,
+.office-v2-meta-note,
+.office-v2-agenda-row span,
+.office-v2-agenda-row p,
+.office-v2-document-line span,
+.office-v2-document-row span,
+.office-v2-workstream-stage p {
+  color: #64748b;
+}
+
+.office-v2-worker-heading h2,
+.office-v2-zone-head h2,
+.office-v2-notebook h2,
+.office-v2-calendar-agenda h2,
+.office-v2-conference-lanes h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.office-v2-main {
+  min-width: 0;
+  padding: 30px 34px 42px;
+}
+
+.office-v2-page {
+  display: grid;
+  gap: 28px;
+  width: min(1360px, 100%);
+}
+
+.office-v2-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e5ecf4;
+}
+
+.office-v2-header h1 {
+  margin: 0 0 6px;
+  color: #0f172a;
+  font-size: clamp(2rem, 3vw, 3.3rem);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+}
+
+.office-v2-header p {
+  max-width: 760px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.office-v2-header-tag {
+  color: #334155;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.office-v2-floor-canvas {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(260px, 1fr));
+  gap: 28px;
+  padding: 8px 0 18px;
+  overflow-x: auto;
+}
+
+.office-v2-zone {
+  display: grid;
+  gap: 14px;
+  min-height: 280px;
+  padding: 22px 0;
+  border-top: 1px solid #dde6f0;
+}
+
+.office-v2-zone-wide {
+  grid-column: span 2;
+}
+
+.office-v2-zone-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.office-v2-inline-link,
+.office-v2-whisper-link {
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.office-v2-inline-link:hover,
+.office-v2-whisper-link:hover {
+  color: #0f172a;
+}
+
+.office-v2-thread-list {
+  display: grid;
+  gap: 0;
+}
+
+.office-v2-thread-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #edf2f7;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.office-v2-thread-row:last-child {
+  border-bottom: 0;
+}
+
+.office-v2-thread-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: #0f172a;
+  opacity: 0.55;
+}
+
+.office-v2-thread-row strong,
+.office-v2-role-detail strong,
+.office-v2-message strong,
+.office-v2-note-block strong,
+.office-v2-ledger-row strong,
+.office-v2-document-line strong,
+.office-v2-document-row strong,
+.office-v2-agenda-row strong,
+.office-v2-lane strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #0f172a;
+}
+
+.office-v2-reception,
+.office-v2-project {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 44px;
+  align-items: start;
+}
+
+.office-v2-flow,
+.office-v2-document,
+.office-v2-memory-editor,
+.office-v2-project-main {
+  display: grid;
+  gap: 18px;
+}
+
+.office-v2-sentence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0;
+  border-bottom: 1px solid #e8eef5;
+  color: #0f172a;
+  line-height: 1.6;
+}
+
+.office-v2-sentence input,
+.office-v2-interview-composer textarea,
+.office-v2-calendar-editor input,
+.office-v2-calendar-editor select,
+.office-v2-calendar-editor textarea,
+.office-v2-document textarea,
+.office-v2-document input,
+.office-v2-reception textarea,
+.office-v2-project textarea,
+.office-v2-memory-block textarea,
+.office-v2-notebook textarea,
+.office-v2-conference textarea {
+  width: 100%;
+  border: 1px solid #d9e3ed;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.office-v2-sentence input {
+  flex: 1 1 240px;
+  min-height: 46px;
+  padding: 0 14px;
+}
+
+.office-v2-memo,
+.office-v2-project-side,
+.office-v2-notebook,
+.office-v2-calendar-agenda,
+.office-v2-review-context,
+.office-v2-worker-side,
+.office-v2-conference-summary {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
+.office-v2-memo {
+  padding-top: 4px;
+}
+
+.office-v2-memo h2 {
+  margin: 0;
+  font-size: 1.65rem;
+  letter-spacing: -0.04em;
+}
+
+.office-v2-memo p,
+.office-v2-note-block p,
+.office-v2-body-copy,
+.office-v2-document-row,
+.office-v2-workstream-stage p,
+.office-v2-lane li,
+.office-v2-ledger-row {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.office-v2-hiring-groups,
+.office-v2-ledger {
+  display: grid;
+  gap: 34px;
+}
+
+.office-v2-hiring-department h2,
+.office-v2-ledger-section h2 {
+  margin: 0 0 14px;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+.office-v2-role-list,
+.office-v2-agenda-list {
+  display: grid;
+  gap: 0;
+}
+
+.office-v2-role-row,
+.office-v2-ledger-section {
+  padding: 4px 0 12px;
+  border-top: 1px solid #e5ecf4;
+}
+
+.office-v2-role-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid #eef3f8;
+}
+
+.office-v2-role-line span {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.office-v2-role-line small {
+  color: #64748b;
+  font-size: 0.86rem;
+}
+
+.office-v2-role-detail {
+  display: grid;
+  gap: 12px;
+  padding: 14px 0 6px;
+}
+
+.office-v2-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.office-v2-interview {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 320px;
+  gap: 34px;
+}
+
+.office-v2-presence,
+.office-v2-conversation,
+.office-v2-thread-room,
+.office-v2-review-main,
+.office-v2-conference-lanes {
+  display: grid;
+  gap: 18px;
+}
+
+.office-v2-thread {
+  display: grid;
+  gap: 0;
+}
+
+.office-v2-message {
+  padding: 18px 0;
+  border-bottom: 1px solid #ebf0f6;
+}
+
+.office-v2-message-user strong {
+  color: #334155;
+}
+
+.office-v2-message p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.office-v2-prompt-row {
+  display: grid;
+  gap: 8px;
+}
+
+.office-v2-whisper-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.office-v2-interview-composer textarea,
+.office-v2-calendar-editor textarea,
+.office-v2-document textarea,
+.office-v2-project textarea,
+.office-v2-memory-block textarea,
+.office-v2-notebook textarea,
+.office-v2-conference textarea {
+  min-height: 108px;
+  padding: 14px 16px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.office-v2-note-block,
+.office-v2-memory-block,
+.office-v2-calendar-editor label,
+.office-v2-conference-setup label,
+.office-v2-project-main label,
+.office-v2-document label {
+  display: grid;
+  gap: 8px;
+}
+
+.office-v2-note-block ul,
+.office-v2-lane ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.office-v2-calendar-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 32px;
+  align-items: start;
+}
+
+.office-v2-calendar-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.office-v2-calendar-month {
+  color: #0f172a;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.office-v2-calendar-weekdays,
+.office-v2-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.office-v2-calendar-weekdays span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.office-v2-calendar-day {
+  min-height: 142px;
+  padding: 12px;
+  border: 1px solid #e3ebf3;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  text-align: left;
+  cursor: pointer;
+}
+
+.office-v2-calendar-day-selected {
+  border-color: #c9d8e8;
+  box-shadow: inset 0 0 0 1px #c9d8e8;
+}
+
+.office-v2-calendar-day-muted {
+  opacity: 0.52;
+}
+
+.office-v2-calendar-date {
+  margin-bottom: 10px;
+  color: #0f172a;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.office-v2-calendar-stacks {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.office-v2-calendar-chip {
+  display: block;
+  overflow: hidden;
+  padding: 6px 8px;
+  border-radius: 10px;
+  color: #0f172a;
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.office-v2-calendar-chip-custom {
+  background: #dfeaf6;
+}
+
+.office-v2-calendar-chip-task {
+  background: #f8e8ce;
+}
+
+.office-v2-calendar-chip-briefing {
+  background: #e3f2e7;
+}
+
+.office-v2-agenda-row {
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid #eef3f8;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.office-v2-calendar-editor {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #e7edf4;
+}
+
+.office-v2-calendar-editor input,
+.office-v2-calendar-editor select,
+.office-v2-document input {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.office-v2-review-shell,
+.office-v2-conference {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr) 300px;
+  gap: 28px;
+}
+
+.office-v2-review-document,
+.office-v2-review-actions {
+  display: grid;
+  gap: 16px;
+}
+
+.office-v2-review-body,
+.office-v2-worker-desk,
+.office-v2-workstream {
+  display: grid;
+  gap: 18px;
+}
+
+.office-v2-document-line,
+.office-v2-ledger-row,
+.office-v2-document-row,
+.office-v2-workstream-stage {
+  padding: 14px 0;
+  border-top: 1px solid #e8eef5;
+}
+
+.office-v2-worker-desk {
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+}
+
+.office-v2-worker-main {
+  display: grid;
+  gap: 22px;
+}
+
+.office-v2-desk-section {
+  display: grid;
+  gap: 12px;
+}
+
+.office-v2-workstream-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 0;
+  border: 0;
+  border-top: 1px solid #e8eef5;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.office-v2-workstream-line span {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.office-v2-document {
+  padding-top: 4px;
+}
+
+.office-v2-document-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.office-v2-memory-editor,
+.office-v2-thread-room {
+  padding-top: 4px;
+}
+
+.office-v2-memory-block span,
+.office-v2-document label span,
+.office-v2-calendar-editor span,
+.office-v2-project-main span,
+.office-v2-conference-setup span {
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.office-v2-workstream-marker {
+  display: grid;
+  grid-template-columns: 20px auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.office-v2-workstream-marker span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #0f172a;
+}
+
+.office-v2-lane {
+  padding: 16px 0;
+  border-top: 1px solid #e8eef5;
+}
+
+.office-v2-select-list {
+  display: grid;
+  gap: 0;
+}
+
+.office-v2-error {
+  margin: 0;
+  color: #991b1b;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 1280px) {
+  .office-v2-shell-worker {
+    grid-template-columns: 250px 210px minmax(0, 1fr);
+  }
+
+  .office-v2-interview,
+  .office-v2-calendar-shell,
+  .office-v2-reception,
+  .office-v2-project,
+  .office-v2-review-shell,
+  .office-v2-conference,
+  .office-v2-worker-desk {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 980px) {
+  .office-v2-shell,
+  .office-v2-shell-worker {
+    grid-template-columns: 1fr;
+  }
+
+  .office-v2-sidebar,
+  .office-v2-worker-rail {
+    border-right: 0;
+    border-bottom: 1px solid #e1e8f0;
+  }
+
+  .office-v2-main {
+    padding: 22px 18px 32px;
+  }
+
+  .office-v2-floor-canvas {
+    grid-template-columns: 1fr;
+  }
+
+  .office-v2-zone-wide {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .office-v2-header,
+  .office-v2-zone-head,
+  .office-v2-document-row,
+  .office-v2-workstream-line {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .office-v2-calendar-weekdays,
+  .office-v2-calendar-grid {
+    gap: 6px;
+  }
+
+  .office-v2-calendar-day {
+    min-height: 120px;
+    padding: 10px;
+  }
+}

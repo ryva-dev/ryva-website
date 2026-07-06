@@ -204,14 +204,14 @@ function readOfficeOverlaysForUser(userId) {
       .all(userId),
     settings: db
       .prepare(
-        `SELECT worker_slug AS workerSlug, settings_json AS settingsJson
+        `SELECT worker_slug AS workerSlug, settings_json AS settingsJson, updated_at AS updatedAt
          FROM office_worker_settings
          WHERE user_id = ?`
       )
       .all(userId),
     knowledge: db
       .prepare(
-        `SELECT worker_slug AS workerSlug, knowledge_json AS knowledgeJson
+        `SELECT worker_slug AS workerSlug, knowledge_json AS knowledgeJson, updated_at AS updatedAt
          FROM office_worker_knowledge
          WHERE user_id = ?`
       )
@@ -224,10 +224,19 @@ function readOfficeOverlaysForUser(userId) {
          ORDER BY uploaded_at DESC`
       )
       .all(userId),
+    calendarEvents: db
+      .prepare(
+        `SELECT id, worker_slug AS workerSlug, title, starts_at AS startsAt, ends_at AS endsAt,
+                event_type AS eventType, notes, updated_at AS updatedAt
+         FROM office_calendar_events
+         WHERE user_id = ?
+         ORDER BY starts_at ASC`
+      )
+      .all(userId),
     globalSettings:
       db
         .prepare(
-          `SELECT settings_json AS settingsJson
+          `SELECT settings_json AS settingsJson, updated_at AS updatedAt
            FROM office_global_settings
            WHERE user_id = ?`
         )
@@ -776,6 +785,76 @@ app.get("/api/office/workers", requireAuth, async (req, res) => {
 
 app.get("/api/office/overlays", requireAuth, (req, res) => {
   res.json(readOfficeOverlaysForUser(req.user.id));
+});
+
+app.post("/api/office/calendar/events", assertOrigin, requireAuth, (req, res) => {
+  const title = String(req.body?.title ?? "").trim();
+  const startsAt = String(req.body?.startsAt ?? "").trim();
+  const endsAt = String(req.body?.endsAt ?? "").trim();
+  const eventType = String(req.body?.eventType ?? "Office").trim() || "Office";
+  const notes = String(req.body?.notes ?? "").trim();
+  const workerSlug = String(req.body?.workerSlug ?? "").trim() || null;
+
+  if (!title || !startsAt || !endsAt) {
+    res.status(400).json({ error: "Title, start time, and end time are required." });
+    return;
+  }
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO office_calendar_events
+      (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, req.user.id, workerSlug, title, startsAt, endsAt, eventType, notes, nowIso(), nowIso());
+
+  res.status(201).json({ ok: true, id });
+});
+
+app.post("/api/office/calendar/events/:eventId", assertOrigin, requireAuth, (req, res) => {
+  const eventId = String(req.params.eventId ?? "").trim();
+  const existing = db
+    .prepare(`SELECT id FROM office_calendar_events WHERE id = ? AND user_id = ?`)
+    .get(eventId, req.user.id);
+
+  if (!existing) {
+    res.status(404).json({ error: "Calendar event not found." });
+    return;
+  }
+
+  const title = String(req.body?.title ?? "").trim();
+  const startsAt = String(req.body?.startsAt ?? "").trim();
+  const endsAt = String(req.body?.endsAt ?? "").trim();
+  const eventType = String(req.body?.eventType ?? "Office").trim() || "Office";
+  const notes = String(req.body?.notes ?? "").trim();
+  const workerSlug = String(req.body?.workerSlug ?? "").trim() || null;
+
+  if (!title || !startsAt || !endsAt) {
+    res.status(400).json({ error: "Title, start time, and end time are required." });
+    return;
+  }
+
+  db.prepare(
+    `UPDATE office_calendar_events
+     SET worker_slug = ?, title = ?, starts_at = ?, ends_at = ?, event_type = ?, notes = ?, updated_at = ?
+     WHERE id = ? AND user_id = ?`
+  ).run(workerSlug, title, startsAt, endsAt, eventType, notes, nowIso(), eventId, req.user.id);
+
+  res.json({ ok: true });
+});
+
+app.post("/api/office/calendar/events/:eventId/delete", assertOrigin, requireAuth, (req, res) => {
+  const eventId = String(req.params.eventId ?? "").trim();
+  const existing = db
+    .prepare(`SELECT id FROM office_calendar_events WHERE id = ? AND user_id = ?`)
+    .get(eventId, req.user.id);
+
+  if (!existing) {
+    res.status(404).json({ error: "Calendar event not found." });
+    return;
+  }
+
+  db.prepare(`DELETE FROM office_calendar_events WHERE id = ? AND user_id = ?`).run(eventId, req.user.id);
+  res.json({ ok: true });
 });
 
 app.get("/api/office/files/:fileId/download", requireAuth, async (req, res) => {

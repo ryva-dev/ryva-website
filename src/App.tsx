@@ -6,7 +6,7 @@ import { HireWorkerPage } from "./components/HireWorkerPage";
 import { HomePage } from "./components/HomePage";
 import { InterviewPage } from "./components/InterviewPage";
 import { Navbar } from "./components/Navbar";
-import { OfficeApp } from "./components/OfficeApp";
+import { OfficeExperienceApp } from "./components/OfficeExperienceApp";
 import { WorkerCard } from "./components/WorkerCard";
 import { WorkerProfilePage } from "./components/WorkerProfilePage";
 import type { Worker } from "./types";
@@ -639,8 +639,10 @@ export default function App() {
           <HireWorkerPage onBack={() => { window.location.hash = `worker-${hireWorker.slug}`; }} onConfirmHire={handleCheckout} worker={hireWorker} />
         )}
         {!isWorkersLoading && isOfficeRoute && user && (
-          <OfficeApp
+          <OfficeExperienceApp
+            allWorkers={workers}
             hiredWorkers={hiredWorkers}
+            onCheckoutWorker={handleCheckout}
             onNavigate={(hash) => {
               window.location.hash = hash.replace(/^#/, "");
             }}
