@@ -7,6 +7,7 @@ type AuthModalProps = {
   loading: boolean;
   onClose: () => void;
   onCompletePasswordReset: (input: { password: string; token: string }) => Promise<void>;
+  onGoogleAuth: () => void;
   onLogin: (input: { email: string; password: string }) => Promise<void>;
   onRegister: (input: { email: string; name: string; password: string }) => Promise<void>;
   onRequestPasswordReset: (input: { email: string }) => Promise<void>;
@@ -18,6 +19,7 @@ export function AuthModal({
   loading,
   onClose,
   onCompletePasswordReset,
+  onGoogleAuth,
   onLogin,
   onRegister,
   onRequestPasswordReset,
@@ -113,8 +115,14 @@ export function AuthModal({
                     ? "Create account"
                     : isResetComplete
                       ? "Set password"
-                      : "Send reset link"}
+                    : "Send reset link"}
             </button>
+
+            {!isResetRequest && !isResetComplete ? (
+              <button className="button button-secondary auth-google-button" onClick={onGoogleAuth} type="button">
+                Continue with Google
+              </button>
+            ) : null}
           </form>
 
           <div className="auth-footer-links">

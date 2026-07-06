@@ -168,6 +168,14 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS user_onboarding (
+    user_id TEXT PRIMARY KEY,
+    brand_name TEXT NOT NULL,
+    what_you_do TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS office_onboarding_sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,

@@ -274,6 +274,10 @@ a:focus-visible {
   min-width: 176px;
 }
 
+.hero-google-button {
+  min-width: 210px;
+}
+
 .hero-link {
   padding: 0;
   border: 0;
@@ -1233,10 +1237,167 @@ a:focus-visible {
   min-height: 44px;
 }
 
+.auth-google-button {
+  min-height: 44px;
+}
+
 .form-error {
   margin: 0;
   color: #b42318;
   font-size: 0.88rem;
+}
+
+.user-onboarding-page {
+  min-height: calc(100vh - 78px);
+  padding: 44px 34px 64px;
+  background:
+    radial-gradient(circle at top left, rgba(217, 231, 245, 0.9), transparent 28%),
+    linear-gradient(180deg, #fcfdff 0%, #f5f7fa 100%);
+}
+
+.user-onboarding-shell {
+  max-width: 980px;
+  margin: 0 auto;
+  display: grid;
+  gap: 26px;
+}
+
+.user-onboarding-intro {
+  max-width: 40rem;
+}
+
+.user-onboarding-intro h1 {
+  margin: 0;
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+}
+
+.user-onboarding-intro p:last-child {
+  margin: 16px 0 0;
+  color: #475569;
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.user-onboarding-card {
+  display: grid;
+  gap: 18px;
+  padding: 30px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(10px);
+}
+
+.user-onboarding-step {
+  display: grid;
+  gap: 16px;
+}
+
+.user-onboarding-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.user-onboarding-suggestions {
+  flex-wrap: wrap;
+}
+
+.r-btn {
+  min-width: 180px;
+}
+
+.ro-field {
+  display: grid;
+  gap: 9px;
+}
+
+.ro-field span {
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ro-field small {
+  color: #64748b;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.ro-field input,
+.ro-field textarea {
+  width: 100%;
+  min-height: 50px;
+  padding: 13px 14px;
+  border: 1px solid #d7e1ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.ro-field textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.ro-field input:focus,
+.ro-field textarea:focus {
+  outline: none;
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.14);
+}
+
+.r-seg {
+  display: flex;
+  gap: 10px;
+}
+
+.r-seg-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 11px 14px;
+  border: 1px solid #d7e1ec;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #334155;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.r-seg-option span {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #e8eef5;
+  color: #475569;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.r-seg-option.is-active {
+  border-color: #111827;
+  background: #111827;
+  color: #fff;
+}
+
+.r-seg-option.is-active span {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 
 .auth-footer-links {
@@ -2306,6 +2467,10 @@ a:focus-visible {
   .brand-grid {
     padding: 34px 0 0;
   }
+
+  .user-onboarding-steps {
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 760px) {
@@ -2381,6 +2546,8 @@ a:focus-visible {
   }
 
   .brand-hero-actions {
+    flex-direction: column;
+    align-items: stretch;
     gap: 18px;
     margin-top: 30px;
   }
@@ -2446,6 +2613,21 @@ a:focus-visible {
 
   .office-page {
     width: 100%;
+  }
+
+  .user-onboarding-page {
+    padding: 28px 18px 42px;
+  }
+
+  .user-onboarding-card {
+    padding: 22px;
+  }
+
+  .user-onboarding-actions,
+  .user-onboarding-steps,
+  .r-seg {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .office-topbar h1,

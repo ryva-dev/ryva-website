@@ -7,6 +7,7 @@ import { HomePage } from "./components/HomePage";
 import { InterviewPage } from "./components/InterviewPage";
 import { Navbar } from "./components/Navbar";
 import { OfficeExperienceApp } from "./components/OfficeExperienceApp";
+import { UserOnboardingPage } from "./components/UserOnboardingPage";
 import { WorkerCard } from "./components/WorkerCard";
 import { WorkerProfilePage } from "./components/WorkerProfilePage";
 import type { Worker } from "./types";
@@ -17,6 +18,7 @@ type AuthUser = {
   emailVerified: boolean;
   id: string;
   name: string;
+  onboarded: boolean;
 };
 
 const navItems = [
@@ -24,10 +26,13 @@ const navItems = [
   { label: "About", href: "#about" }
 ];
 
-const allowedViews = new Set(["home", "workers", "about"]);
+const allowedViews = new Set(["home", "workers", "about", "onboarding"]);
 
 function getViewFromHash() {
   const hash = window.location.hash.replace("#", "");
+  if (hash === "onboarding") {
+    return hash;
+  }
   if (hash.startsWith("app/office")) {
     return hash;
   }
@@ -238,6 +243,8 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSessionReady, setIsSessionReady] = useState(false);
   const [isWorkersLoading, setIsWorkersLoading] = useState(true);
+  const [onboardingError, setOnboardingError] = useState("");
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [pendingCheckoutWorker, setPendingCheckoutWorker] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>([]);
@@ -251,6 +258,7 @@ export default function App() {
   const [resetToken, setResetToken] = useState<string | null>(null);
 
   const isOfficeRoute = view.startsWith("app/office");
+  const isOnboardingRoute = view === "onboarding";
   const activeWorker = view.startsWith("worker-")
     ? workers.find((worker) => `worker-${worker.slug}` === view)
     : undefined;
@@ -297,6 +305,16 @@ export default function App() {
       setGlobalNotice("Verification link is invalid or expired.");
     }
 
+    if (notice === "google-auth-failed") {
+      setGlobalNotice("Google sign-in could not be completed. Please try again.");
+      setIsAuthModalOpen(true);
+    }
+
+    if (notice === "google-email-unverified") {
+      setGlobalNotice("Google did not return a verified email for this account.");
+      setIsAuthModalOpen(true);
+    }
+
     if (resetTokenFromUrl) {
       setResetToken(resetTokenFromUrl);
       setIsAuthModalOpen(true);
@@ -326,6 +344,22 @@ export default function App() {
   }, [activeWorker, view, workers.length]);
 
   useEffect(() => {
+    if (!isSessionReady || !user) {
+      return;
+    }
+
+    if (!user.onboarded && view !== "onboarding") {
+      window.location.hash = "onboarding";
+      setGlobalNotice("Complete your setup before entering the marketplace.");
+      return;
+    }
+
+    if (user.onboarded && view === "onboarding") {
+      window.location.hash = "workers";
+    }
+  }, [isSessionReady, user, view]);
+
+  useEffect(() => {
     if (isOfficeRoute && isSessionReady && !user) {
       setAuthError("");
       setIsAuthModalOpen(true);
@@ -333,6 +367,15 @@ export default function App() {
       setGlobalNotice("Sign in to access Ryva Office.");
     }
   }, [isOfficeRoute, isSessionReady, user]);
+
+  useEffect(() => {
+    if (isOnboardingRoute && isSessionReady && !user) {
+      setAuthError("");
+      setIsAuthModalOpen(true);
+      window.location.hash = "home";
+      setGlobalNotice("Sign in to finish setting up your account.");
+    }
+  }, [isOnboardingRoute, isSessionReady, user]);
 
   async function refreshOfficeWorkers(nextUser: AuthUser | null = user) {
     if (!nextUser) {
@@ -421,6 +464,9 @@ export default function App() {
       setUser(response.user);
       await refreshOfficeWorkers(response.user);
       setIsAuthModalOpen(false);
+      if (!response.user.onboarded) {
+        window.location.hash = "onboarding";
+      }
       setGlobalNotice(response.user.emailVerified ? "" : "Signed in. Your email is not verified yet.");
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Login failed.");
@@ -444,6 +490,7 @@ export default function App() {
       setUser(response.user);
       setHiredWorkers([]);
       setIsAuthModalOpen(false);
+      window.location.hash = response.user.onboarded ? "workers" : "onboarding";
       setGlobalNotice(
         response.emailVerificationPreview
           ? `Account created. Verification email written to ${response.emailVerificationPreview}.`
@@ -460,7 +507,26 @@ export default function App() {
     await apiJson("/api/auth/logout", { method: "POST" });
     setUser(null);
     setHiredWorkers([]);
+    setOnboardingError("");
     setGlobalNotice("Signed out.");
+  }
+
+  async function handleCompleteUserOnboarding(input: { brandName: string; name: string; whatYouDo: string }) {
+    setOnboardingLoading(true);
+    setOnboardingError("");
+    try {
+      const response = await apiJson<{ ok: true; user: AuthUser }>("/api/onboarding/complete", {
+        method: "POST",
+        body: JSON.stringify(input)
+      });
+      setUser(response.user);
+      setGlobalNotice("Setup complete. Your office context is ready.");
+      window.location.hash = "workers";
+    } catch (error) {
+      setOnboardingError(error instanceof Error ? error.message : "Unable to complete onboarding.");
+    } finally {
+      setOnboardingLoading(false);
+    }
   }
 
   async function handlePasswordResetRequest(input: { email: string }) {
@@ -564,7 +630,7 @@ export default function App() {
   return (
     <div className="app-frame">
       <div className="app-shell">
-        {!isOfficeRoute ? (
+        {!isOfficeRoute && !isOnboardingRoute ? (
           <Navbar
             currentView={activeWorker ? "workers" : view}
             items={navItems}
@@ -608,6 +674,9 @@ export default function App() {
               setAuthError("");
               setIsAuthModalOpen(true);
             }}
+            onOpenGoogleAuth={() => {
+              window.location.href = "/api/auth/google";
+            }}
             workers={workers}
           />
         )}
@@ -629,6 +698,14 @@ export default function App() {
         )}
 
         {!isWorkersLoading && !isOfficeRoute && view === "about" && <AboutPage />}
+        {!isWorkersLoading && !isOfficeRoute && isOnboardingRoute && user && (
+          <UserOnboardingPage
+            error={onboardingError}
+            initialName={user.name}
+            loading={onboardingLoading}
+            onSubmit={handleCompleteUserOnboarding}
+          />
+        )}
         {!isWorkersLoading && !isOfficeRoute && activeWorker && (
           <WorkerProfilePage onHire={openWorkerHire} onInterview={openWorkerInterview} worker={activeWorker} />
         )}
@@ -658,6 +735,9 @@ export default function App() {
           loading={authLoading}
           onClose={() => setIsAuthModalOpen(false)}
           onCompletePasswordReset={handlePasswordResetComplete}
+          onGoogleAuth={() => {
+            window.location.href = "/api/auth/google";
+          }}
           onLogin={handleLogin}
           onRequestPasswordReset={handlePasswordResetRequest}
           onRegister={handleRegister}

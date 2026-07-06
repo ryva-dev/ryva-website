@@ -5,6 +5,7 @@ import type { Worker } from "../types";
 type HomePageProps = {
   onBrowseWorkers: () => void;
   onOpenAuth: () => void;
+  onOpenGoogleAuth: () => void;
   workers: Worker[];
 };
 
@@ -29,7 +30,7 @@ function buildRoleMoments(workers: Worker[]): RoleMoment[] {
   return moments.slice(0, 8);
 }
 
-export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps) {
+export function HomePage({ onBrowseWorkers, onOpenAuth, onOpenGoogleAuth, workers }: HomePageProps) {
   const roleMoments = useMemo(() => buildRoleMoments(workers), [workers]);
   const [roleIndex, setRoleIndex] = useState(0);
 
@@ -68,6 +69,9 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
             </button>
             <button className="hero-link" onClick={onOpenAuth} type="button">
               Sign in
+            </button>
+            <button className="button button-secondary hero-google-button" onClick={onOpenGoogleAuth} type="button">
+              Continue with Google
             </button>
           </div>
         </div>

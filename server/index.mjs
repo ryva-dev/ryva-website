@@ -20,7 +20,9 @@ const storageRoot =
   path.join(rootDir, "data");
 const uploadsDir = path.join(storageRoot, "office-uploads");
 const sessionCookieName = "ryva_session";
+const googleStateCookieName = "ryva_google_oauth_state";
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 7;
+const googleStateDurationMs = 1000 * 60 * 10;
 const emailTokenDurationMs = 1000 * 60 * 60 * 24;
 const resetTokenDurationMs = 1000 * 60 * 30;
 const isProduction = process.env.NODE_ENV === "production";
@@ -128,8 +130,89 @@ function toSafeUser(user) {
     email: user.email,
     emailVerified: Boolean(user.email_verified_at),
     id: user.id,
-    name: user.name
+    name: user.name,
+    onboarded: isUserOnboarded(user.id)
   };
+}
+
+function isUserOnboarded(userId) {
+  return Boolean(
+    db
+      .prepare(
+        `SELECT user_id
+         FROM user_onboarding
+         WHERE user_id = ? AND completed_at IS NOT NULL`
+      )
+      .get(userId)
+  );
+}
+
+function getUserOnboardingRecord(userId) {
+  return (
+    db
+      .prepare(
+        `SELECT user_id, brand_name AS brandName, what_you_do AS whatYouDo, completed_at AS completedAt
+         FROM user_onboarding
+         WHERE user_id = ?`
+      )
+      .get(userId) ?? null
+  );
+}
+
+function buildOfficeSettingsSeed(user, onboardingRecord) {
+  const existing = db
+    .prepare(
+      `SELECT settings_json AS settingsJson
+       FROM office_global_settings
+       WHERE user_id = ?`
+    )
+    .get(user.id);
+
+  const parsedExisting =
+    existing?.settingsJson && typeof existing.settingsJson === "string" ? JSON.parse(existing.settingsJson) : {};
+
+  return {
+    autoBriefingPrep: String(parsedExisting.autoBriefingPrep ?? "Enabled"),
+    briefingDigestTime: String(parsedExisting.briefingDigestTime ?? "08:30"),
+    brandContext: String(onboardingRecord.whatYouDo ?? parsedExisting.brandContext ?? "").trim(),
+    companyCustomer: String(parsedExisting.companyCustomer ?? ""),
+    companyIdentity: String(parsedExisting.companyIdentity ?? ""),
+    companyName: String(parsedExisting.companyName ?? onboardingRecord.brandName ?? user.name ?? "").trim(),
+    companyNever: String(parsedExisting.companyNever ?? ""),
+    companyOffer: String(parsedExisting.companyOffer ?? ""),
+    companyOfferOutcome: String(parsedExisting.companyOfferOutcome ?? ""),
+    companyVoice: String(parsedExisting.companyVoice ?? ""),
+    decisionStyle: String(parsedExisting.decisionStyle ?? ""),
+    defaultTaskPriority: String(parsedExisting.defaultTaskPriority ?? "Medium"),
+    digestDelivery: String(parsedExisting.digestDelivery ?? "Email and in-office"),
+    dislikes: String(parsedExisting.dislikes ?? ""),
+    likes: String(parsedExisting.likes ?? ""),
+    managerSummaryFrequency: String(parsedExisting.managerSummaryFrequency ?? "Daily"),
+    meetingBuffer: String(parsedExisting.meetingBuffer ?? "15 minutes"),
+    nonNegotiables: String(parsedExisting.nonNegotiables ?? ""),
+    notificationWindow: String(parsedExisting.notificationWindow ?? ""),
+    officeHours: String(parsedExisting.officeHours ?? ""),
+    projectName: String(parsedExisting.projectName ?? ""),
+    projectObjective: String(parsedExisting.projectObjective ?? ""),
+    projectOpenQuestions: String(parsedExisting.projectOpenQuestions ?? ""),
+    projectStrategy: String(parsedExisting.projectStrategy ?? ""),
+    quietHours: String(parsedExisting.quietHours ?? ""),
+    reviewCadence: String(parsedExisting.reviewCadence ?? "Weekly"),
+    reviewReminderLead: String(parsedExisting.reviewReminderLead ?? "2 hours before"),
+    rightNowGoal: String(parsedExisting.rightNowGoal ?? ""),
+    timezone: String(parsedExisting.timezone ?? "America/New_York")
+  };
+}
+
+function seedOfficeSettingsFromOnboarding(user, onboardingRecord) {
+  const settings = buildOfficeSettingsSeed(user, onboardingRecord);
+  db.prepare(
+    `INSERT INTO office_global_settings (user_id, settings_json, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       settings_json = excluded.settings_json,
+       updated_at = excluded.updated_at`
+  ).run(user.id, JSON.stringify(settings), nowIso());
 }
 
 async function readWorkers() {
@@ -583,10 +666,36 @@ function cleanupExpiredRecords() {
   db.prepare("DELETE FROM password_reset_tokens WHERE expires_at < ? OR consumed_at IS NOT NULL").run(now);
 }
 
+function safeEqualStrings(left, right) {
+  if (!left || !right) return false;
+  const leftBuffer = Buffer.from(String(left));
+  const rightBuffer = Buffer.from(String(right));
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
 function setSessionCookie(res, rawToken) {
   res.cookie(sessionCookieName, rawToken, {
     httpOnly: true,
     maxAge: sessionDurationMs,
+    path: "/",
+    sameSite: "lax",
+    secure: isProduction
+  });
+}
+
+function setGoogleStateCookie(res, rawState) {
+  res.cookie(googleStateCookieName, rawState, {
+    httpOnly: true,
+    maxAge: googleStateDurationMs,
+    path: "/",
+    sameSite: "lax",
+    secure: isProduction
+  });
+}
+
+function clearGoogleStateCookie(res) {
+  res.clearCookie(googleStateCookieName, {
+    httpOnly: true,
     path: "/",
     sameSite: "lax",
     secure: isProduction
@@ -697,6 +806,53 @@ function createSession(userId) {
      VALUES (?, ?, ?, ?, ?)`
   ).run(randomUUID(), hash, userId, new Date(Date.now() + sessionDurationMs).toISOString(), nowIso());
   return raw;
+}
+
+function getGoogleRedirectUri() {
+  return `${appUrl}/api/auth/google/callback`;
+}
+
+async function exchangeGoogleCodeForTokens(code) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    throw new Error("Google auth is not configured.");
+  }
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: getGoogleRedirectUri()
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google token exchange failed with status ${response.status}.`);
+  }
+
+  return response.json();
+}
+
+async function fetchGoogleProfile(accessToken) {
+  const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google profile request failed with status ${response.status}.`);
+  }
+
+  return response.json();
 }
 
 app.get("/api/health", (_req, res) => {
@@ -881,6 +1037,85 @@ app.get("/api/office/files/:fileId/download", requireAuth, async (req, res) => {
   }
 });
 
+app.get("/api/auth/google", (_req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    res.status(501).json({ error: "Google auth is not configured." });
+    return;
+  }
+
+  const state = randomBytes(24).toString("hex");
+  setGoogleStateCookie(res, state);
+
+  const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authorizationUrl.searchParams.set("client_id", clientId);
+  authorizationUrl.searchParams.set("redirect_uri", getGoogleRedirectUri());
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("scope", "openid email profile");
+  authorizationUrl.searchParams.set("state", state);
+  authorizationUrl.searchParams.set("prompt", "select_account");
+
+  res.redirect(authorizationUrl.toString());
+});
+
+app.get("/api/auth/google/callback", async (req, res) => {
+  const code = String(req.query.code ?? "").trim();
+  const state = String(req.query.state ?? "").trim();
+  const cookieState = String(req.cookies[googleStateCookieName] ?? "").trim();
+
+  clearGoogleStateCookie(res);
+
+  if (!code || !state || !safeEqualStrings(state, cookieState)) {
+    res.redirect(`${appUrl}/?notice=google-auth-failed#home`);
+    return;
+  }
+
+  try {
+    const tokens = await exchangeGoogleCodeForTokens(code);
+    const profile = await fetchGoogleProfile(String(tokens.access_token ?? ""));
+    const normalizedEmail = normalizeEmail(profile.email);
+
+    if (!normalizedEmail || !profile.email_verified) {
+      res.redirect(`${appUrl}/?notice=google-email-unverified#home`);
+      return;
+    }
+
+    let user = db.prepare("SELECT * FROM users WHERE email = ?").get(normalizedEmail);
+    if (!user) {
+      const createdAt = nowIso();
+      const newUser = {
+        created_at: createdAt,
+        email: normalizedEmail,
+        email_verified_at: createdAt,
+        id: randomUUID(),
+        name: String(profile.name ?? profile.given_name ?? normalizedEmail.split("@")[0]).trim(),
+        password_hash: hashPassword(randomUUID())
+      };
+
+      db.prepare(
+        `INSERT INTO users (id, email, name, password_hash, email_verified_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        newUser.id,
+        newUser.email,
+        newUser.name,
+        newUser.password_hash,
+        newUser.email_verified_at,
+        newUser.created_at
+      );
+
+      user = newUser;
+    }
+
+    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
+    const sessionToken = createSession(user.id);
+    setSessionCookie(res, sessionToken);
+    res.redirect(`${appUrl}/#app/office`);
+  } catch {
+    res.redirect(`${appUrl}/?notice=google-auth-failed#home`);
+  }
+});
+
 app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
   const { email, name, password } = req.body ?? {};
 
@@ -932,13 +1167,7 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
   res.status(201).json({
     emailVerificationSent: Boolean(mailResult.preview),
     emailVerificationPreview: mailResult.preview,
-    user: {
-      createdAt: user.created_at,
-      email: user.email,
-      emailVerified: false,
-      id: user.id,
-      name: user.name
-    }
+    user: toSafeUser(user)
   });
 });
 
@@ -975,6 +1204,57 @@ app.post("/api/auth/logout", assertOrigin, (req, res) => {
 app.get("/api/auth/me", (req, res) => {
   const user = getUserBySessionToken(req.cookies[sessionCookieName]);
   res.json({ user: user ? toSafeUser(user) : null });
+});
+
+app.get("/api/onboarding", requireAuth, (req, res) => {
+  const onboarding = getUserOnboardingRecord(req.user.id);
+  res.json({
+    onboarding,
+    user: {
+      name: req.user.name,
+      onboarded: Boolean(onboarding?.completedAt)
+    }
+  });
+});
+
+app.post("/api/onboarding/complete", assertOrigin, requireAuth, (req, res) => {
+  const name = String(req.body?.name ?? "").trim();
+  const brandName = String(req.body?.brandName ?? "").trim();
+  const whatYouDo = String(req.body?.whatYouDo ?? "").trim();
+
+  if (name.length < 2) {
+    res.status(400).json({ error: "Enter your name." });
+    return;
+  }
+
+  if (brandName.length < 2) {
+    res.status(400).json({ error: "Enter your business or brand name." });
+    return;
+  }
+
+  if (whatYouDo.length < 8) {
+    res.status(400).json({ error: "Add one clear line about what you do." });
+    return;
+  }
+
+  db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name, req.user.id);
+  db.prepare(
+    `INSERT INTO user_onboarding (user_id, brand_name, what_you_do, completed_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       brand_name = excluded.brand_name,
+       what_you_do = excluded.what_you_do,
+       completed_at = excluded.completed_at`
+  ).run(req.user.id, brandName, whatYouDo, nowIso());
+
+  const refreshedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  const onboarding = getUserOnboardingRecord(req.user.id);
+  seedOfficeSettingsFromOnboarding(refreshedUser, onboarding);
+
+  res.json({
+    ok: true,
+    user: toSafeUser(refreshedUser)
+  });
 });
 
 app.post("/api/auth/resend-verification", authLimiter, assertOrigin, requireAuth, async (req, res) => {
@@ -1104,7 +1384,7 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
   const stripe = new Stripe(stripeKey);
 
   const session = await stripe.checkout.sessions.create({
-    mode: "payment",
+    mode: "subscription",
     success_url: `${appUrl}/?checkout=success&worker=${worker.slug}#app/office/workers/${worker.slug}/onboarding`,
     cancel_url: `${appUrl}/?checkout=cancelled#worker-${worker.slug}`,
     line_items: [
@@ -1114,6 +1394,9 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
           product_data: {
             description: `Monthly salary for ${worker.department}`,
             name: `${worker.name} - ${worker.title}`
+          },
+          recurring: {
+            interval: "month"
           },
           unit_amount: unitAmount
         },
