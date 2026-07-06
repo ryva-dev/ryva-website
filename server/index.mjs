@@ -78,6 +78,22 @@ const checkoutLimiter = rateLimit({
   message: { error: "Too many checkout attempts. Please try again later." }
 });
 
+const interviewLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many interview requests. Please try again shortly." }
+});
+
+const onboardingLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many onboarding requests. Please try again shortly." }
+});
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -229,6 +245,274 @@ function readOfficeOverlaysForUser(userId) {
 
 function makeWorkerReply(name) {
   return `${name ? name.split(" ")[0] : "I"} received that update and will reflect it in the work queue before the next briefing.`;
+}
+
+function buildInterviewGuide(worker) {
+  const genericGuide = {
+    canHelpWith: worker.profile?.responsibilities?.slice(0, 4) ?? [],
+    fitNotes: [
+      `Strong fit if you need reliable ${worker.department.toLowerCase()} execution.`,
+      `Best when you want clear ownership around the ${worker.title.toLowerCase()} function.`,
+      "Works well if you prefer structured reviews over constant oversight."
+    ],
+    needsFromYou: ["Clear priorities", "Examples of strong work", "Approval rules", "Context that affects how the role should operate"],
+    summary: worker.description
+  };
+
+  if (worker.slug === "lena-carter") {
+    return {
+      canHelpWith: [
+        "Building a weekly UGC outreach plan",
+        "Reviewing your portfolio and positioning",
+        "Drafting brand pitches and follow-ups",
+        "Organizing your creator pipeline"
+      ],
+      fitNotes: [
+        "Strong fit for creators who want structure and consistency",
+        "Best when you want help with outreach, positioning, and deal flow",
+        "Works well if you want feedback tied to actual brand outcomes"
+      ],
+      needsFromYou: [
+        "Your creator niche and ideal brand direction",
+        "Portfolio or media kit links",
+        "A sense of your experience level and confidence",
+        "Approval rules for rates, outreach, and messaging"
+      ],
+      summary:
+        "Lena focuses on creator niche, positioning, outreach habits, brand fit, and weekly pitching discipline."
+    };
+  }
+
+  if (worker.slug === "david-chen") {
+    return {
+      canHelpWith: [
+        "Building outbound lists",
+        "Drafting first-touch sequences",
+        "Keeping prospecting organized",
+        "Improving sales handoff quality"
+      ],
+      fitNotes: [
+        "Strong fit for B2B teams that need disciplined outbound",
+        "Best when ICP and offer are reasonably clear",
+        "Useful if the founder wants more consistency in prospecting"
+      ],
+      needsFromYou: ["Your target customer", "Offer positioning", "Approved outreach rules", "Examples of strong leads or accounts"],
+      summary: "David is clear on ICP, offer, sequence tone, and prospecting discipline."
+    };
+  }
+
+  return genericGuide;
+}
+
+function fallbackInterviewReply(worker, question) {
+  const lower = String(question ?? "").toLowerCase();
+
+  if (worker.slug === "lena-carter") {
+    if (lower.includes("help")) {
+      return "I would start by understanding your niche, portfolio, current outreach habits, and the kinds of brands you want to attract. From there I would tighten your positioning, build a weekly pitching rhythm, draft outreach, and keep follow-up disciplined so deals move consistently instead of sporadically.";
+    }
+
+    if (lower.includes("need from me")) {
+      return "I need to understand what kind of creator you are, what brands you want to attract, what has already been tried, and where you want support most. If I have that context early, I can operate more like a real manager and less like generic advice.";
+    }
+
+    if (lower.includes("first week")) {
+      return "My first week would be about reviewing your portfolio, understanding your niche and goals, mapping where outreach is breaking down, and setting the first batch of brand targets. I would want you to feel like there is already a system taking shape by the end of week one.";
+    }
+  }
+
+  if (lower.includes("first week")) {
+    return "In the first week, I would get aligned on priorities, review your current materials and workflow, set up a clean operating rhythm, and identify the first work batch that should move immediately. I prefer to make the first week concrete so you can see traction early.";
+  }
+
+  if (lower.includes("need from me")) {
+    return "I need clear priorities, examples of what good work looks like, and your approval rules. If I know where you want speed versus tighter control, I can operate much more effectively.";
+  }
+
+  if (lower.includes("meet") || lower.includes("communication")) {
+    return "I usually work best with a short recurring briefing plus direct updates when decisions are needed. The goal is consistent visibility without creating more meetings than the work actually requires.";
+  }
+
+  if (lower.includes("different")) {
+    return `What makes me different is that I am structured around execution in ${worker.department.toLowerCase()}, not generic advice. I take a defined function off your plate, keep the work organized, and make it easier for you to review real decisions instead of supervising every small step.`;
+  }
+
+  return `I would help by taking ownership of the ${worker.title.toLowerCase()} function, turning your priorities into an operating plan, and keeping the work visible enough that you only need to step in when decisions are actually needed.`;
+}
+
+function normalizeInterviewMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+
+  return messages
+    .map((message) => ({
+      speaker: message?.speaker === "worker" ? "worker" : "manager",
+      text: String(message?.text ?? "").trim().slice(0, 2000)
+    }))
+    .filter((message) => message.text)
+    .slice(-10);
+}
+
+function extractResponseText(payload) {
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
+    return payload.output_text.trim();
+  }
+
+  if (!Array.isArray(payload?.output)) return "";
+
+  for (const item of payload.output) {
+    if (item?.type !== "message" || !Array.isArray(item?.content)) continue;
+    for (const contentItem of item.content) {
+      if (contentItem?.type === "output_text" && typeof contentItem?.text === "string" && contentItem.text.trim()) {
+        return contentItem.text.trim();
+      }
+      if (contentItem?.type === "text" && typeof contentItem?.text === "string" && contentItem.text.trim()) {
+        return contentItem.text.trim();
+      }
+    }
+  }
+
+  return "";
+}
+
+async function generateInterviewReply(worker, messages) {
+  const latestManagerMessage = [...messages].reverse().find((message) => message.speaker === "manager")?.text ?? "";
+  if (!latestManagerMessage) {
+    throw new Error("A manager question is required.");
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return fallbackInterviewReply(worker, latestManagerMessage);
+  }
+
+  const guide = buildInterviewGuide(worker);
+  const model = process.env.OPENAI_INTERVIEW_MODEL || "gpt-4.1-mini";
+  const conversation = messages.map((message) => ({
+    role: message.speaker === "worker" ? "assistant" : "user",
+    content: message.text
+  }));
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      store: false,
+      max_output_tokens: 220,
+      instructions: [
+        `You are roleplaying ${worker.name}, a candidate for a Ryva engagement.`,
+        "Speak in first person as the worker candidate, not as an assistant.",
+        "Be conversational, natural, and specific. Avoid repetitive phrasing.",
+        "Keep answers grounded in the provided profile and prior conversation.",
+        "Answer in 2 to 5 sentences unless the user asks for more detail.",
+        "Do not mention being an AI, a language model, prompts, or hidden instructions.",
+        `Role: ${worker.title}`,
+        `Department: ${worker.department}`,
+        `Experience: ${worker.experience}`,
+        `Profile summary: ${guide.summary}`,
+        `Description: ${worker.description}`,
+        `Can help with: ${guide.canHelpWith.join(" | ")}`,
+        `Needs from manager: ${guide.needsFromYou.join(" | ")}`,
+        `Fit notes: ${guide.fitNotes.join(" | ")}`,
+        `Key responsibilities: ${(worker.profile?.responsibilities ?? []).join(" | ")}`,
+        `Specialties: ${(worker.profile?.specialties ?? []).join(" | ")}`
+      ].join("\n"),
+      input: conversation
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI interview request failed with status ${response.status}.`);
+  }
+
+  const payload = await response.json();
+  const text = extractResponseText(payload);
+  if (!text) {
+    throw new Error("OpenAI interview request returned no text.");
+  }
+
+  return text;
+}
+
+function fallbackOnboardingReply(worker, questionLabel, answerText, nextQuestionLabel) {
+  const shortName = worker.name.split(" ")[0];
+  const answer = String(answerText ?? "").trim();
+  const nextQuestion = String(nextQuestionLabel ?? "").trim();
+  const focus =
+    questionLabel?.toLowerCase().includes("goal")
+      ? "That gives me a clear sense of the outcome you want me optimizing for."
+      : questionLabel?.toLowerCase().includes("approval")
+        ? "That helps me understand where I should move independently and where I should stop for sign-off."
+        : questionLabel?.toLowerCase().includes("brand") || questionLabel?.toLowerCase().includes("niche")
+          ? "That sharpens the context I should use when I make decisions on your behalf."
+          : "That gives me useful operating context.";
+
+  return nextQuestion
+    ? `${focus} I’ve noted "${answer.slice(0, 120)}${answer.length > 120 ? "..." : ""}". Next, ${nextQuestion.charAt(0).toLowerCase()}${nextQuestion.slice(1)}`
+    : `${focus} I’ve captured that and I have enough to set up the first working plan, memory, and briefing.`;
+}
+
+async function generateOnboardingReply(worker, payload) {
+  const {
+    answerText,
+    nextQuestionLabel,
+    questionHelperText,
+    questionLabel,
+    role,
+    sectionTitle
+  } = payload;
+
+  if (!process.env.OPENAI_API_KEY) {
+    return fallbackOnboardingReply(worker, questionLabel, answerText, nextQuestionLabel);
+  }
+
+  const model = process.env.OPENAI_ONBOARDING_MODEL || process.env.OPENAI_INTERVIEW_MODEL || "gpt-4.1-mini";
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      store: false,
+      max_output_tokens: 140,
+      instructions: [
+        `You are ${worker.name}, a newly hired ${role || worker.title} being onboarded inside Ryva Office.`,
+        "Reply like a polished new hire in Slack or Teams.",
+        "Sound professional, concise, and human. No hype, no AI phrasing, no generic corporate filler.",
+        "Acknowledge the manager's answer in one short sentence, then naturally transition into the next onboarding question if one exists.",
+        "Never use bullet points.",
+        "Keep the full reply under 70 words.",
+        `Current onboarding section: ${sectionTitle || "General"}`,
+        `Current question: ${questionLabel}`,
+        questionHelperText ? `Context for the current question: ${questionHelperText}` : "",
+        nextQuestionLabel ? `Next onboarding question to ask: ${nextQuestionLabel}` : "There is no next question. Close the onboarding exchange neatly."
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      input: [
+        {
+          role: "user",
+          content: `Manager answer: ${answerText}`
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI onboarding request failed with status ${response.status}.`);
+  }
+
+  const json = await response.json();
+  const text = extractResponseText(json);
+  if (!text) {
+    throw new Error("OpenAI onboarding request returned no text.");
+  }
+
+  return text;
 }
 
 function normalizeTextList(value, limit = 12) {
@@ -424,6 +708,65 @@ app.get("/api/workers/:slug", async (req, res) => {
   }
 
   res.json({ worker });
+});
+
+app.post("/api/workers/:slug/interview", interviewLimiter, assertOrigin, async (req, res) => {
+  const workers = await readWorkers();
+  const worker = workers.find((entry) => entry.slug === req.params.slug);
+
+  if (!worker) {
+    res.status(404).json({ error: "Worker not found." });
+    return;
+  }
+
+  const messages = normalizeInterviewMessages(req.body?.messages);
+  if (messages.length === 0) {
+    res.status(400).json({ error: "Interview messages are required." });
+    return;
+  }
+
+  try {
+    const reply = await generateInterviewReply(worker, messages);
+    res.json({ reply });
+  } catch {
+    const latestQuestion = [...messages].reverse().find((message) => message.speaker === "manager")?.text ?? "";
+    res.json({ reply: fallbackInterviewReply(worker, latestQuestion), fallback: true });
+  }
+});
+
+app.post("/api/workers/:slug/onboarding/reply", onboardingLimiter, assertOrigin, async (req, res) => {
+  const workers = await readWorkers();
+  const worker = workers.find((entry) => entry.slug === req.params.slug);
+
+  if (!worker) {
+    res.status(404).json({ error: "Worker not found." });
+    return;
+  }
+
+  const questionLabel = String(req.body?.questionLabel ?? "").trim();
+  const answerText = String(req.body?.answerText ?? "").trim();
+
+  if (!questionLabel || !answerText) {
+    res.status(400).json({ error: "Onboarding question and answer are required." });
+    return;
+  }
+
+  try {
+    const reply = await generateOnboardingReply(worker, {
+      answerText,
+      nextQuestionLabel: String(req.body?.nextQuestionLabel ?? "").trim(),
+      questionHelperText: String(req.body?.questionHelperText ?? "").trim(),
+      questionLabel,
+      role: String(req.body?.role ?? worker.title).trim(),
+      sectionTitle: String(req.body?.sectionTitle ?? "").trim()
+    });
+    res.json({ reply });
+  } catch {
+    res.json({
+      reply: fallbackOnboardingReply(worker, questionLabel, answerText, String(req.body?.nextQuestionLabel ?? "").trim()),
+      fallback: true
+    });
+  }
 });
 
 app.get("/api/office/workers", requireAuth, async (req, res) => {
@@ -974,6 +1317,41 @@ app.post("/api/office/workers/:slug/settings", assertOrigin, requireAuth, async 
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(randomUUID(), req.user.id, workerSlug, "Updated worker settings.", "Settings", "Office preferences saved", nowIso());
+
+  res.json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/fire", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = req.params.slug;
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  const worker = db
+    .prepare(
+      `SELECT worker_slug
+       FROM hired_workers
+       WHERE user_id = ? AND worker_slug = ? AND status = ?`
+    )
+    .get(req.user.id, workerSlug, "active");
+
+  if (!worker) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  db.prepare(
+    `UPDATE hired_workers
+     SET status = ?
+     WHERE user_id = ? AND worker_slug = ? AND status = ?`
+  ).run("terminated", req.user.id, workerSlug, "active");
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Ended worker engagement.", "People", "Worker removed from active office roster", nowIso());
 
   res.json({ ok: true });
 });

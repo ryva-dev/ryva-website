@@ -334,19 +334,23 @@ export default function App() {
     }
   }, [isOfficeRoute, isSessionReady, user]);
 
+  async function refreshOfficeWorkers(nextUser: AuthUser | null = user) {
+    if (!nextUser) {
+      setHiredWorkers([]);
+      return;
+    }
+
+    try {
+      const response = await apiJson<{ workers: Worker[] }>("/api/office/workers", { method: "GET" });
+      setHiredWorkers(response.workers);
+    } catch {
+      setHiredWorkers([]);
+    }
+  }
+
   useEffect(() => {
     async function loadOfficeWorkers() {
-      if (!user) {
-        setHiredWorkers([]);
-        return;
-      }
-
-      try {
-        const response = await apiJson<{ workers: Worker[] }>("/api/office/workers", { method: "GET" });
-        setHiredWorkers(response.workers);
-      } catch {
-        setHiredWorkers([]);
-      }
+      await refreshOfficeWorkers();
     }
 
     void loadOfficeWorkers();
@@ -382,10 +386,9 @@ export default function App() {
       return;
     }
 
-    async function refreshOfficeWorkers() {
+    async function syncCheckedOutWorkers() {
       try {
-        const response = await apiJson<{ workers: Worker[] }>("/api/office/workers", { method: "GET" });
-        setHiredWorkers(response.workers);
+        await refreshOfficeWorkers();
         setGlobalNotice("Checkout complete. Your hired worker is now available in Ryva Office.");
         setPendingCheckoutWorker(null);
       } catch {
@@ -393,7 +396,7 @@ export default function App() {
       }
     }
 
-    void refreshOfficeWorkers();
+    void syncCheckedOutWorkers();
   }, [pendingCheckoutWorker, user]);
 
   function handleSearchChange(value: string) {
@@ -416,12 +419,7 @@ export default function App() {
         body: JSON.stringify(input)
       });
       setUser(response.user);
-      try {
-        const officeResponse = await apiJson<{ workers: Worker[] }>("/api/office/workers", { method: "GET" });
-        setHiredWorkers(officeResponse.workers);
-      } catch {
-        setHiredWorkers([]);
-      }
+      await refreshOfficeWorkers(response.user);
       setIsAuthModalOpen(false);
       setGlobalNotice(response.user.emailVerified ? "" : "Signed in. Your email is not verified yet.");
     } catch (error) {
@@ -646,6 +644,7 @@ export default function App() {
             onNavigate={(hash) => {
               window.location.hash = hash.replace(/^#/, "");
             }}
+            onRefreshWorkers={refreshOfficeWorkers}
             userName={user.name}
           />
         )}

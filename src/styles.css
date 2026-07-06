@@ -192,6 +192,16 @@ a:focus-visible {
   border-color: var(--line);
 }
 
+.button-danger {
+  color: #9f1239;
+  background: #fff;
+  border-color: #f3c6d3;
+}
+
+.button-danger:hover {
+  background: #fff7fa;
+}
+
 .home-page {
   min-height: calc(100vh - 78px);
   background: linear-gradient(180deg, #fcfdff 0%, #f5f7fa 100%);
@@ -774,8 +784,7 @@ a:focus-visible {
 }
 
 .interview-shell,
-.hire-page-grid,
-.onboarding-layout {
+.hire-page-grid {
   display: grid;
   gap: 24px;
 }
@@ -789,15 +798,13 @@ a:focus-visible {
 }
 
 .interview-sidebar,
-.interview-sidebar-right,
-.onboarding-sidebar {
+.interview-sidebar-right {
   display: grid;
   gap: 18px;
 }
 
 .interview-worker-card,
 .interview-panel,
-.onboarding-section,
 .hire-page-shell {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -805,8 +812,7 @@ a:focus-visible {
 }
 
 .interview-worker-card,
-.interview-panel,
-.onboarding-section {
+.interview-panel {
   padding: 22px 24px;
 }
 
@@ -863,6 +869,11 @@ a:focus-visible {
   background: #fff;
 }
 
+.interview-message-pending {
+  border-style: dashed;
+  color: #64748b;
+}
+
 .interview-message strong {
   display: block;
   margin-bottom: 6px;
@@ -896,10 +907,7 @@ a:focus-visible {
 }
 
 .interview-composer textarea,
-.interview-panel textarea,
-.onboarding-question-card textarea,
-.onboarding-question-card input,
-.onboarding-question-card select {
+.interview-panel textarea {
   width: 100%;
   border: 1px solid #d7e1ec;
   border-radius: 10px;
@@ -917,11 +925,17 @@ a:focus-visible {
 }
 
 .interview-composer textarea,
-.interview-panel textarea,
-.onboarding-question-card textarea {
+.interview-panel textarea {
   min-height: 112px;
   padding: 12px 14px;
   resize: vertical;
+}
+
+.interview-thread-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.88rem;
+  font-weight: 600;
 }
 
 .hire-page-shell {
@@ -943,48 +957,125 @@ a:focus-visible {
   margin-top: 22px;
 }
 
-.onboarding-layout {
-  grid-template-columns: minmax(0, 1fr) 320px;
+.onboarding-conversation-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 32px;
   align-items: start;
 }
 
-.onboarding-main {
+.onboarding-thread-shell,
+.onboarding-summary-shell {
   min-width: 0;
 }
 
-.onboarding-question-list,
-.onboarding-summary-list {
+.onboarding-thread {
   display: grid;
-  gap: 14px;
+  gap: 0;
 }
 
-.onboarding-question-card {
-  padding: 18px 20px;
-  border: 1px solid #e8eef5;
-  border-radius: 12px;
-  background: #fff;
+.onboarding-thread-message {
+  padding: 18px 0;
+  border-bottom: 1px solid #e7edf4;
 }
 
-.onboarding-question-card label {
-  display: grid;
-  gap: 8px;
-}
-
-.onboarding-question-card span {
-  color: #0f172a;
-  font-size: 0.9rem;
+.onboarding-thread-message strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.84rem;
   font-weight: 700;
+  color: #0f172a;
 }
 
-.onboarding-question-card small {
+.onboarding-thread-message p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.62;
+}
+
+.onboarding-thread-message-user strong {
+  color: #475569;
+}
+
+.onboarding-thread-message-system p,
+.onboarding-thread-message-system strong,
+.onboarding-thread-message-pending p {
   color: #64748b;
-  font-size: 0.82rem;
 }
 
-.onboarding-question-card input,
-.onboarding-question-card select {
-  min-height: 42px;
-  padding: 0 12px;
+.onboarding-composer-shell {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #dfe8f1;
+}
+
+.onboarding-composer {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.onboarding-quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.onboarding-composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding-summary-shell {
+  padding-top: 6px;
+}
+
+.onboarding-summary-lines {
+  display: grid;
+  gap: 0;
+  margin-top: 8px;
+}
+
+.onboarding-summary-line {
+  padding: 14px 0;
+  border-bottom: 1px solid #e7edf4;
+  color: #334155;
+  line-height: 1.55;
+}
+
+.onboarding-rail {
+  display: grid;
+  gap: 24px;
+}
+
+.onboarding-rail-section {
+  padding-top: 0;
+}
+
+.onboarding-progress-list {
+  display: grid;
+  gap: 12px;
+}
+
+.onboarding-progress-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.onboarding-progress-row strong {
+  font-size: 0.92rem;
+}
+
+.onboarding-progress-row span {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 600;
 }
 
 .sidebar-card {
@@ -1276,7 +1367,7 @@ a:focus-visible {
 .office-shell {
   display: grid;
   min-height: 100vh;
-  background: #f7f9fc;
+  background: #fbfcfe;
 }
 
 .office-shell-home {
@@ -1291,7 +1382,7 @@ a:focus-visible {
 .worker-sidebar {
   padding: 28px 22px;
   border-right: 1px solid var(--line);
-  background: #fff;
+  background: #fcfdff;
 }
 
 .office-sidebar-brand {
@@ -1343,14 +1434,14 @@ a:focus-visible {
 .office-nav-link:hover,
 .worker-subnav-link:hover,
 .office-worker-link:hover {
-  background: #f8fafc;
+  background: #f4f7fb;
 }
 
 .office-nav-link-active,
 .worker-subnav-link-active,
 .office-worker-link-active {
-  border-color: var(--line);
-  background: #f8fafc;
+  border-color: #dde6ef;
+  background: #f4f7fb;
   color: #0f172a;
   font-weight: 700;
 }
@@ -1369,10 +1460,8 @@ a:focus-visible {
 
 .worker-sidebar-card {
   margin-bottom: 18px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #f8fafc;
+  padding: 0 0 14px;
+  border-bottom: 1px solid #e6edf4;
 }
 
 .worker-sidebar-card h2 {
@@ -1392,12 +1481,12 @@ a:focus-visible {
 
 .office-main {
   min-width: 0;
-  padding: 30px 34px 44px;
+  padding: 30px 38px 48px;
 }
 
 .office-page {
   display: grid;
-  gap: 24px;
+  gap: 22px;
   width: min(1240px, 100%);
 }
 
@@ -1450,6 +1539,54 @@ a:focus-visible {
   line-height: 1.6;
 }
 
+.office-studio-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 36px;
+  align-items: start;
+}
+
+.office-studio-main,
+.office-studio-rail,
+.office-two-column-flow {
+  display: grid;
+  gap: 22px;
+}
+
+.office-two-column-flow {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.office-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+  padding-bottom: 8px;
+}
+
+.office-metric-item {
+  padding-bottom: 16px;
+  border-bottom: 1px solid #dfe8f1;
+}
+
+.office-metric-item span {
+  display: block;
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.office-metric-item strong {
+  color: #0f172a;
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.workspace-section,
 .office-content-grid,
 .office-overview-grid,
 .chat-layout,
@@ -1458,8 +1595,52 @@ a:focus-visible {
   gap: 20px;
 }
 
+.workspace-section {
+  padding-bottom: 20px;
+  border-bottom: 1px solid #dfe8f1;
+}
+
+.workspace-section-head,
+.office-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.workspace-section-head h3,
+.office-panel-head h3,
+.knowledge-card h4,
+.briefing-card h4,
+.task-column-head h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.workspace-section-head span,
+.office-panel-head span,
+.knowledge-card p,
+.task-card p,
+.task-card small,
+.review-queue-item p,
+.worklog-item p,
+.chat-message small {
+  color: #64748b;
+}
+
+.workspace-eyebrow {
+  margin: 0 0 6px;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .office-content-grid {
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   align-items: start;
 }
 
@@ -1469,7 +1650,7 @@ a:focus-visible {
 }
 
 .chat-layout {
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   align-items: start;
 }
 
@@ -1484,25 +1665,15 @@ a:focus-visible {
 .snapshot-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.snapshot-card,
-.office-panel,
-.knowledge-card,
-.worker-directory-card,
-.task-card,
-.briefing-card,
-.review-queue-item,
-.chat-message {
-  background: #fff;
+  gap: 22px;
 }
 
 .snapshot-card {
-  padding: 0 0 16px;
+  padding: 0 0 18px;
   border: 0;
-  border-bottom: 1px solid #e4ebf3;
+  border-bottom: 1px solid #dfe8f1;
   border-radius: 0;
+  background: transparent;
 }
 
 .snapshot-card span {
@@ -1523,35 +1694,9 @@ a:focus-visible {
 .worker-directory-card {
   padding: 0 0 18px;
   border: 0;
-  border-bottom: 1px solid #e4ebf3;
+  border-bottom: 1px solid #dfe8f1;
   border-radius: 0;
-}
-
-.office-panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
-.office-panel-head h3,
-.knowledge-card h4,
-.briefing-card h4,
-.task-column-head h4 {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 700;
-}
-
-.office-panel-head span,
-.knowledge-card p,
-.task-card p,
-.task-card small,
-.review-queue-item p,
-.worklog-item p,
-.chat-message small {
-  color: #64748b;
+  background: transparent;
 }
 
 .office-simple-list,
@@ -1570,14 +1715,20 @@ a:focus-visible {
 .worklog-list,
 .task-column-list {
   display: grid;
-  gap: 14px;
+  gap: 0;
 }
 
 .review-queue-item,
 .chat-message {
-  padding: 14px 16px;
-  border: 1px solid #e4ebf3;
-  border-radius: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid #e7edf4;
+  border-radius: 0;
+  background: transparent;
+}
+
+.review-queue-item:last-child,
+.chat-message:last-child {
+  border-bottom: 0;
 }
 
 .review-queue-item strong,
@@ -1589,10 +1740,15 @@ a:focus-visible {
 }
 
 .briefing-card {
-  padding: 0 0 20px;
+  padding: 0 0 22px;
   border: 0;
-  border-bottom: 1px solid #e4ebf3;
+  border-bottom: 1px solid #dfe8f1;
   border-radius: 0;
+  background: transparent;
+}
+
+.briefing-list .briefing-card + .briefing-card {
+  padding-top: 22px;
 }
 
 .briefing-grid {
@@ -1618,22 +1774,24 @@ a:focus-visible {
 .task-board {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 18px;
+  gap: 22px;
 }
 
 .task-column {
   min-height: 240px;
-  padding: 16px 16px 6px;
-  border: 1px solid #e4ebf3;
-  border-radius: 14px;
-  background: #fff;
+  padding: 0 0 6px;
+  border: 0;
+  border-top: 2px solid #dfe8f1;
+  border-radius: 0;
+  background: transparent;
 }
 
 .task-column-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+  padding-top: 12px;
 }
 
 .task-column-head span {
@@ -1643,9 +1801,14 @@ a:focus-visible {
 }
 
 .task-card {
-  padding: 14px;
-  border: 1px solid #e9eef4;
-  border-radius: 10px;
+  padding: 14px 0 16px;
+  border-bottom: 1px solid #e7edf4;
+  border-radius: 0;
+  background: transparent;
+}
+
+.task-column-list .task-card:last-child {
+  border-bottom: 0;
 }
 
 .task-card small {
@@ -1712,10 +1875,9 @@ a:focus-visible {
 .office-table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid #e4ebf3;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #fff;
+  border: 0;
+  border-top: 1px solid #dfe8f1;
+  background: transparent;
 }
 
 .office-table th,
@@ -1732,7 +1894,7 @@ a:focus-visible {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: #f8fafc;
+  background: #f9fbfd;
 }
 
 .office-table tr:last-child td {
@@ -1777,11 +1939,12 @@ a:focus-visible {
 }
 
 .settings-section {
-  padding: 22px 24px 24px;
-  border: 1px solid #e7edf4;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+  padding: 0 0 24px;
+  border: 0;
+  border-bottom: 1px solid #dfe8f1;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .settings-section:first-child {
@@ -1836,11 +1999,12 @@ a:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 20px 24px;
-  border: 1px solid #e7edf4;
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+  padding: 18px 0 0;
+  border: 0;
+  border-top: 1px solid #dfe8f1;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .settings-savebar strong {
@@ -1857,18 +2021,19 @@ a:focus-visible {
 
 .chat-thread {
   display: grid;
-  gap: 14px;
+  gap: 0;
   align-content: start;
 }
 
 .chat-message-user {
-  background: #f8fafc;
+  background: transparent;
 }
 
 .chat-composer {
   display: grid;
   gap: 12px;
-  padding-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid #e7edf4;
 }
 
 .chat-composer textarea {
@@ -1890,6 +2055,35 @@ a:focus-visible {
 .quick-actions {
   display: grid;
   gap: 10px;
+}
+
+.office-roster-list {
+  display: grid;
+  gap: 0;
+}
+
+.office-roster-item {
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid #e7edf4;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.office-roster-item:last-child {
+  border-bottom: 0;
+}
+
+.office-roster-item strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.95rem;
+}
+
+.office-roster-item span {
+  color: #64748b;
+  font-size: 0.84rem;
 }
 
 .files-panel {
@@ -1921,6 +2115,18 @@ a:focus-visible {
 
 .worker-directory-card p {
   margin: 0 0 10px;
+}
+
+.worker-directory {
+  gap: 0;
+}
+
+.worker-directory-card {
+  padding-top: 18px;
+}
+
+.worker-directory-card:first-child {
+  padding-top: 0;
 }
 
 @media (max-width: 1200px) {
@@ -1973,12 +2179,20 @@ a:focus-visible {
   .office-overview-grid,
   .settings-grid,
   .knowledge-grid,
-  .worker-directory {
+  .worker-directory,
+  .onboarding-conversation-layout,
+  .office-two-column-flow {
     grid-template-columns: 1fr 1fr;
   }
 
+  .office-studio-layout {
+    grid-template-columns: 1fr;
+    gap: 26px;
+  }
+
   .overview-stats,
-  .snapshot-grid {
+  .snapshot-grid,
+  .office-metric-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2135,10 +2349,14 @@ a:focus-visible {
   .briefing-grid,
   .overview-stats,
   .snapshot-grid,
+  .office-metric-strip,
   .office-overview-grid,
   .settings-grid,
   .knowledge-grid,
-  .worker-directory {
+  .worker-directory,
+  .onboarding-conversation-layout,
+  .office-two-column-flow,
+  .office-studio-layout {
     grid-template-columns: 1fr;
   }
 

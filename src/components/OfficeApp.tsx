@@ -18,6 +18,7 @@ import type { Worker } from "../types";
 type OfficeAppProps = {
   hiredWorkers: Worker[];
   onNavigate: (hash: string) => void;
+  onRefreshWorkers: () => Promise<void>;
   userName: string;
 };
 
@@ -476,6 +477,48 @@ function TopBar({
   );
 }
 
+function MetricStrip({
+  items
+}: {
+  items: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <div className="office-metric-strip">
+      {items.map((item) => (
+        <article className="office-metric-item" key={item.label}>
+          <span>{item.label}</span>
+          <strong>{item.value}</strong>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function WorkspaceSection({
+  title,
+  children,
+  aside,
+  eyebrow
+}: {
+  aside?: string;
+  children: ReactNode;
+  eyebrow?: string;
+  title: string;
+}) {
+  return (
+    <section className="workspace-section">
+      <div className="workspace-section-head">
+        <div>
+          {eyebrow ? <p className="workspace-eyebrow">{eyebrow}</p> : null}
+          <h3>{title}</h3>
+        </div>
+        {aside ? <span>{aside}</span> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 function WorkerHeader({ worker }: { worker: OfficeWorker }) {
   return (
     <header className="worker-header">
@@ -487,26 +530,6 @@ function WorkerHeader({ worker }: { worker: OfficeWorker }) {
       </div>
       <div className="worker-header-summary">{worker.roleSummary}</div>
     </header>
-  );
-}
-
-function Panel({
-  title,
-  children,
-  aside
-}: {
-  aside?: string;
-  children: ReactNode;
-  title: string;
-}) {
-  return (
-    <section className="office-panel">
-      <div className="office-panel-head">
-        <h3>{title}</h3>
-        {aside ? <span>{aside}</span> : null}
-      </div>
-      {children}
-    </section>
   );
 }
 
@@ -998,13 +1021,13 @@ function ChatPanel({
       </div>
 
       <aside className="chat-sidebar">
-        <Panel title="Current focus">
+        <WorkspaceSection eyebrow="Active" title="Current focus">
           <SimpleList items={worker.currentFocus} />
-        </Panel>
-        <Panel title="Open tasks">
+        </WorkspaceSection>
+        <WorkspaceSection eyebrow="Queue" title="Open tasks">
           <SimpleList items={worker.tasks.filter((task) => task.status !== "Completed").slice(0, 4).map((task) => task.title)} />
-        </Panel>
-        <Panel title="Quick actions">
+        </WorkspaceSection>
+        <WorkspaceSection eyebrow="Actions" title="Quick actions">
           <div className="quick-actions">
             <button className="button button-secondary" onClick={() => void onCreateTask(worker, "Review latest work output")} type="button">
               Create task
@@ -1019,7 +1042,7 @@ function ChatPanel({
               Update preferences
             </button>
           </div>
-        </Panel>
+        </WorkspaceSection>
       </aside>
     </div>
   );
@@ -1027,8 +1050,8 @@ function ChatPanel({
 
 function GenericTableModule({ module }: { module: WorkerModule }) {
   return (
-    <section className="office-panel">
-      <div className="office-panel-head">
+    <section className="workspace-section">
+      <div className="workspace-section-head">
         <h3>{module.name}</h3>
         <span>{module.summary}</span>
       </div>
@@ -1056,50 +1079,49 @@ function GenericTableModule({ module }: { module: WorkerModule }) {
 
 function WorkerDesk({ worker }: { worker: OfficeWorker }) {
   return (
-    <div className="office-content-grid">
-      <div className="office-main-column">
+    <div className="office-studio-layout">
+      <div className="office-studio-main">
         <WorkerHeader worker={worker} />
-        <div className="snapshot-grid">
-          {worker.snapshot.map((metric) => (
-            <article className="snapshot-card" key={metric.label}>
-              <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
-            </article>
-          ))}
+        <MetricStrip items={worker.snapshot} />
+        <div className="office-two-column-flow">
+          <WorkspaceSection eyebrow="Current" title="Focus line">
+            <SimpleList items={worker.currentFocus} />
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Today" title="Work in motion">
+            <SimpleList items={worker.todayWork} />
+          </WorkspaceSection>
         </div>
-        <Panel title="Current focus">
-          <SimpleList items={worker.currentFocus} />
-        </Panel>
-        <Panel title="Today's work">
-          <SimpleList items={worker.todayWork} />
-        </Panel>
-        <Panel title="Needs your review" aside={`${worker.reviewQueue.length} items`}>
+        <WorkspaceSection eyebrow="Manager queue" title="Needs your review" aside={`${worker.reviewQueue.length} items`}>
           <ReviewQueue items={worker.reviewQueue} />
-        </Panel>
-        <Panel title="Recent work log">
+        </WorkspaceSection>
+        <WorkspaceSection eyebrow="Movement" title="Recent work log">
           <WorkLog entries={worker.recentWorkLog} />
-        </Panel>
+        </WorkspaceSection>
       </div>
 
-      <div className="office-side-column">
-        <Panel title="Blocked by">
+      <div className="office-studio-rail">
+        <WorkspaceSection eyebrow="Dependencies" title="Blocked by">
           <SimpleList items={worker.blockedBy} />
-        </Panel>
-        <Panel title="Next briefing">
+        </WorkspaceSection>
+        <WorkspaceSection eyebrow="Calendar" title="Next briefing">
           <p className="office-note">{worker.nextBriefing}</p>
-        </Panel>
-        <Panel title="Role-specific snapshot">
+        </WorkspaceSection>
+        <WorkspaceSection eyebrow="Readout" title="Role snapshot">
           <SimpleList items={worker.snapshot.map((metric) => `${metric.label}: ${metric.value}`)} />
-        </Panel>
+        </WorkspaceSection>
       </div>
     </div>
   );
 }
 
 function WorkerSettingsForm({
+  isEndingEngagement,
+  onEndEngagement,
   onSave,
   worker
 }: {
+  isEndingEngagement: boolean;
+  onEndEngagement: () => Promise<void>;
   onSave: (settings: OfficeWorker["settings"]) => Promise<void>;
   worker: OfficeWorker;
 }) {
@@ -1193,50 +1215,68 @@ function WorkerSettingsForm({
         <button className="button button-primary" type="submit">
           Save settings
         </button>
+        <button className="button button-danger" disabled={isEndingEngagement} onClick={() => void onEndEngagement()} type="button">
+          {isEndingEngagement ? "Ending engagement..." : "End engagement"}
+        </button>
       </div>
     </form>
   );
 }
 
-function OfficeHome({ userName, workers }: { userName: string; workers: OfficeWorker[] }) {
+function OfficeHome({
+  onNavigate,
+  userName,
+  workers
+}: {
+  onNavigate: (hash: string) => void;
+  userName: string;
+  workers: OfficeWorker[];
+}) {
   const overview = buildOfficeOverview(workers);
 
   return (
     <div className="office-page">
       <TopBar
         rightLabel={`${workers.length} hired workers · ${totalOpenTasks(workers)} open tasks`}
-        subtitle="Good morning. Your office overview is organized by worker, review queue, and recent work."
+        subtitle="A live operating surface for your workers, active reviews, and the decisions still waiting on you."
         title={`Welcome back, ${userName}.`}
       />
 
-      <div className="overview-stats">
-        <article className="snapshot-card">
-          <span>Hired workers</span>
-          <strong>{workers.length}</strong>
-        </article>
-        <article className="snapshot-card">
-          <span>Work needing review</span>
-          <strong>{totalReviewItems(workers)}</strong>
-        </article>
-        <article className="snapshot-card">
-          <span>Open tasks</span>
-          <strong>{totalOpenTasks(workers)}</strong>
-        </article>
-      </div>
+      <MetricStrip
+        items={[
+          { label: "Hired workers", value: String(workers.length) },
+          { label: "Needs review", value: String(totalReviewItems(workers)) },
+          { label: "Open tasks", value: String(totalOpenTasks(workers)) }
+        ]}
+      />
 
-      <div className="office-overview-grid">
-        <Panel title="Work needing review">
-          <SimpleList items={overview.review} />
-        </Panel>
-        <Panel title="Today's briefings">
-          <SimpleList items={overview.briefings} />
-        </Panel>
-        <Panel title="Upcoming tasks">
-          <SimpleList items={overview.tasks} />
-        </Panel>
-        <Panel title="Recent activity across all workers">
-          <SimpleList items={overview.activity} />
-        </Panel>
+      <div className="office-studio-layout">
+        <div className="office-studio-main">
+          <WorkspaceSection eyebrow="Review queue" title="Attention now">
+            <SimpleList items={overview.review} />
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Workload" title="Upcoming tasks">
+            <SimpleList items={overview.tasks} />
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Movement" title="Recent activity across the office">
+            <SimpleList items={overview.activity} />
+          </WorkspaceSection>
+        </div>
+        <div className="office-studio-rail">
+          <WorkspaceSection eyebrow="Calendar" title="Today's briefings">
+            <SimpleList items={overview.briefings} />
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Roster" title="Active workers">
+            <div className="office-roster-list">
+              {workers.map((worker) => (
+                <button className="office-roster-item" key={worker.id} onClick={() => onNavigate(`#app/office/workers/${worker.id}/desk`)} type="button">
+                  <strong>{worker.name}</strong>
+                  <span>{worker.title}</span>
+                </button>
+              ))}
+            </div>
+          </WorkspaceSection>
+        </div>
       </div>
     </div>
   );
@@ -1261,21 +1301,32 @@ function OfficeMeetingsPage({
 
   return (
     <div className="office-page">
-      <TopBar subtitle="Briefings and review meetings across every hired worker." title="Meetings" />
-      <Panel title="Schedule meeting" aside="Create a new briefing for any worker.">
-        <OfficeMeetingScheduler onCreate={onCreateMeeting} workers={workers} />
-      </Panel>
-      <div className="briefing-list">
-        {briefings.map((briefing) => (
-          <article className="briefing-card" key={`${briefing.workerName}-${briefing.id}`}>
-            <div className="office-panel-head">
-              <h3>{briefing.title}</h3>
-              <span>{briefing.workerName}</span>
+      <TopBar subtitle="Prepare reviews, approvals, and standing briefs across the entire office." title="Meetings" />
+      <div className="office-studio-layout">
+        <div className="office-studio-main">
+          <WorkspaceSection eyebrow="Planner" title="Schedule meeting">
+            <OfficeMeetingScheduler onCreate={onCreateMeeting} workers={workers} />
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Timeline" title="Briefing line">
+            <div className="briefing-list">
+              {briefings.map((briefing) => (
+                <article className="briefing-card" key={`${briefing.workerName}-${briefing.id}`}>
+                  <div className="office-panel-head">
+                    <h3>{briefing.title}</h3>
+                    <span>{briefing.workerName}</span>
+                  </div>
+                  <p className="briefing-summary">{briefing.dateLabel}</p>
+                  <p className="office-note">{briefing.summary}</p>
+                </article>
+              ))}
             </div>
-            <p className="briefing-summary">{briefing.dateLabel}</p>
-            <p className="office-note">{briefing.summary}</p>
-          </article>
-        ))}
+          </WorkspaceSection>
+        </div>
+        <div className="office-studio-rail">
+          <WorkspaceSection eyebrow="Coverage" title="Workers in review cadence">
+            <SimpleList items={workers.map((worker) => `${worker.name} · ${worker.nextBriefing}`)} />
+          </WorkspaceSection>
+        </div>
       </div>
     </div>
   );
@@ -1295,11 +1346,26 @@ function OfficeTasksPage({
 }) {
   return (
     <div className="office-page">
-      <TopBar subtitle="Task queues across all hired workers and office work." title="Tasks" />
-      <Panel title="Create office task" aside="Assign new work directly into a worker queue.">
-        <OfficeTaskComposer onCreate={onCreateTask} workers={workers} />
-      </Panel>
-      <TaskBoard tasks={workers.flatMap((worker) => worker.tasks)} />
+      <TopBar subtitle="Task queues, review handoffs, and open work across every worker." title="Tasks" />
+      <div className="office-studio-layout">
+        <div className="office-studio-main">
+          <WorkspaceSection eyebrow="Assignment" title="Create office task">
+            <OfficeTaskComposer onCreate={onCreateTask} workers={workers} />
+          </WorkspaceSection>
+          <WorkspaceSection eyebrow="Queues" title="Task board">
+            <TaskBoard tasks={workers.flatMap((worker) => worker.tasks)} />
+          </WorkspaceSection>
+        </div>
+        <div className="office-studio-rail">
+          <WorkspaceSection eyebrow="Load" title="Open work by worker">
+            <SimpleList
+              items={workers.map(
+                (worker) => `${worker.name} · ${worker.tasks.filter((task) => task.status !== "Completed").length} open`
+              )}
+            />
+          </WorkspaceSection>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1307,29 +1373,31 @@ function OfficeTasksPage({
 function OfficeFilesPage({ workers }: { workers: OfficeWorker[] }) {
   return (
     <div className="office-page">
-      <TopBar subtitle="Documents and working files used across the office." title="Files" />
-      <table className="office-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Worker</th>
-            <th>Type</th>
-            <th>Updated</th>
-            <th>Open</th>
-          </tr>
-        </thead>
-        <tbody>
-          {allFiles(workers).map((file) => (
-            <tr key={`${file.workerName}-${file.name}`}>
-              <td>{file.downloadUrl ? <a href={file.downloadUrl}>{file.name}</a> : file.name}</td>
-              <td>{file.workerName}</td>
-              <td>{file.type}</td>
-              <td>{file.updatedAt}</td>
-              <td>{file.downloadUrl ? <a className="table-link-button" href={file.downloadUrl}>Download</a> : "Unavailable"}</td>
+      <TopBar subtitle="Documents and working files available across the office." title="Files" />
+      <WorkspaceSection eyebrow="Archive" title="Shared office files">
+        <table className="office-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Worker</th>
+              <th>Type</th>
+              <th>Updated</th>
+              <th>Open</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {allFiles(workers).map((file) => (
+              <tr key={`${file.workerName}-${file.name}`}>
+                <td>{file.downloadUrl ? <a href={file.downloadUrl}>{file.name}</a> : file.name}</td>
+                <td>{file.workerName}</td>
+                <td>{file.type}</td>
+                <td>{file.updatedAt}</td>
+                <td>{file.downloadUrl ? <a className="table-link-button" href={file.downloadUrl}>Download</a> : "Unavailable"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </WorkspaceSection>
     </div>
   );
 }
@@ -1431,7 +1499,7 @@ function OfficeSettingsPage({
 
   return (
     <div className="office-page">
-      <TopBar subtitle="Brand memory, operating rules, cadence, and notification controls." title="Settings" />
+      <TopBar subtitle="Memory, operating rules, timing, and office controls that shape every worker." title="Settings" />
       <form
         className="settings-shell"
         onSubmit={(event) => {
@@ -1589,7 +1657,7 @@ function OfficeSettingsPage({
   );
 }
 
-export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps) {
+export function OfficeApp({ hiredWorkers, onNavigate, onRefreshWorkers, userName }: OfficeAppProps) {
   const [overlayBriefings, setOverlayBriefings] = useState<OfficeOverlayBriefing[]>([]);
   const [overlayChats, setOverlayChats] = useState<OfficeOverlayChat[]>([]);
   const [overlayFiles, setOverlayFiles] = useState<OfficeOverlayFile[]>([]);
@@ -1601,6 +1669,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
   const [overlayTasks, setOverlayTasks] = useState<OfficeOverlayTask[]>([]);
   const [overlayWorklog, setOverlayWorklog] = useState<OfficeOverlayWorklog[]>([]);
   const [officeError, setOfficeError] = useState("");
+  const [isEndingEngagement, setIsEndingEngagement] = useState(false);
 
   const baseWorkers = useMemo(() => buildOfficeWorkersFromMarketplaceWorkers(hiredWorkers), [hiredWorkers]);
   const officeWorkers = useMemo(
@@ -1780,6 +1849,29 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
     setOfficeNotice("Worker settings saved.");
   }
 
+  async function handleEndEngagement(worker: OfficeWorker) {
+    if (!window.confirm(`End ${worker.name}'s engagement and remove them from the active office roster?`)) {
+      return;
+    }
+
+    setIsEndingEngagement(true);
+    setOfficeError("");
+
+    try {
+      await officeJson(`/api/office/workers/${worker.id}/fire`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      await onRefreshWorkers();
+      onNavigate("#app/office/workers");
+      setOfficeNotice(`${worker.name} was removed from the active office roster.`);
+    } catch (error) {
+      setOfficeError(error instanceof Error ? error.message : "Unable to end this engagement.");
+    } finally {
+      setIsEndingEngagement(false);
+    }
+  }
+
   async function handleUploadFile(workerSlug: string, file: File) {
     const contentBase64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -1911,7 +2003,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
   let content: ReactNode;
 
   if (route.kind === "office-home") {
-    content = <OfficeHome userName={userName} workers={officeWorkers} />;
+    content = <OfficeHome onNavigate={onNavigate} userName={userName} workers={officeWorkers} />;
   } else if (route.kind === "office-workers" && !selectedWorker) {
     content = (
       <div className="office-page">
@@ -2000,9 +2092,9 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <Panel title="Schedule briefing">
+            <WorkspaceSection eyebrow="Planner" title="Schedule briefing">
               <BriefingComposer onCreate={(payload) => handleCreateBriefing(selectedWorker.id, payload)} worker={selectedWorker} />
-            </Panel>
+            </WorkspaceSection>
             <BriefingList
               briefings={selectedWorker.briefings}
               onAction={(action, briefingId) => handleBriefingAction(selectedWorker.id, action, briefingId)}
@@ -2024,9 +2116,9 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <Panel title="Work log">
+            <WorkspaceSection eyebrow="Movement" title="Work log">
               <WorkLog entries={selectedWorker.recentWorkLog} />
-            </Panel>
+            </WorkspaceSection>
           </div>
         );
       } else if (route.section === "knowledge") {
@@ -2040,13 +2132,13 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <Panel title="Files">
+            <WorkspaceSection eyebrow="Archive" title="Files">
               <FilesPanel
                 files={selectedWorker.files}
                 onDelete={(fileId) => handleDeleteFile(selectedWorker.id, fileId)}
                 onUpload={(file) => handleUploadFile(selectedWorker.id, file)}
               />
-            </Panel>
+            </WorkspaceSection>
           </div>
         );
       } else if (route.section === "chat") {
@@ -2065,7 +2157,12 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
         workerContent = (
           <div className="office-page">
             <WorkerHeader worker={selectedWorker} />
-            <WorkerSettingsForm onSave={(settings) => handleSaveSettings(selectedWorker.id, settings)} worker={selectedWorker} />
+            <WorkerSettingsForm
+              isEndingEngagement={isEndingEngagement}
+              onEndEngagement={() => handleEndEngagement(selectedWorker)}
+              onSave={(settings) => handleSaveSettings(selectedWorker.id, settings)}
+              worker={selectedWorker}
+            />
           </div>
         );
       }
@@ -2083,7 +2180,7 @@ export function OfficeApp({ hiredWorkers, onNavigate, userName }: OfficeAppProps
 
     content = workerContent;
   } else {
-    content = <OfficeHome userName={userName} workers={officeWorkers} />;
+    content = <OfficeHome onNavigate={onNavigate} userName={userName} workers={officeWorkers} />;
   }
 
   return (

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
-import { generateInterviewReply, getInterviewGuide, type InterviewMessage } from "../interviewPrompts";
+import { getInterviewGuide, type InterviewMessage } from "../interviewPrompts";
 import type { Worker } from "../types";
 
 type InterviewPageProps = {
@@ -23,8 +23,10 @@ export function InterviewPage({ onBack, onHire, worker }: InterviewPageProps) {
   const guide = useMemo(() => getInterviewGuide(worker), [worker]);
   const storageKey = `ryva-interview-${worker.slug}`;
   const [input, setInput] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<InterviewMessage[]>(() => buildIntro(worker));
   const [fitNotes, setFitNotes] = useState("");
+  const [threadError, setThreadError] = useState("");
 
   useEffect(() => {
     try {
@@ -46,20 +48,53 @@ export function InterviewPage({ onBack, onHire, worker }: InterviewPageProps) {
     window.sessionStorage.setItem(storageKey, JSON.stringify({ fitNotes, messages }));
   }, [fitNotes, messages, storageKey]);
 
-  function askQuestion(question: string) {
+  async function askQuestion(question: string) {
     const trimmed = question.trim();
-    if (!trimmed) return;
-    setMessages((current) => [
-      ...current,
-      { id: `${Date.now()}-manager`, speaker: "manager", text: trimmed },
-      { id: `${Date.now()}-worker`, speaker: "worker", text: generateInterviewReply(worker, trimmed) }
-    ]);
+    if (!trimmed || isSending) return;
+
+    const managerMessage: InterviewMessage = {
+      id: `${Date.now()}-manager`,
+      speaker: "manager",
+      text: trimmed
+    };
+
+    const nextMessages = [...messages, managerMessage];
+    setMessages(nextMessages);
     setInput("");
+    setThreadError("");
+    setIsSending(true);
+
+    try {
+      const response = await fetch(`/api/workers/${worker.slug}/interview`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          messages: nextMessages
+        })
+      });
+
+      const payload = (await response.json().catch(() => null)) as { error?: string; reply?: string } | null;
+      if (!response.ok || !payload?.reply) {
+        throw new Error(payload?.error ?? "Interview reply failed.");
+      }
+
+      setMessages((current) => [
+        ...current,
+        { id: `${Date.now()}-worker`, speaker: "worker", text: payload.reply! }
+      ]);
+    } catch (error) {
+      setThreadError(error instanceof Error ? error.message : "Unable to continue the interview right now.");
+    } finally {
+      setIsSending(false);
+    }
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    askQuestion(input);
+    void askQuestion(input);
   }
 
   return (
@@ -106,11 +141,17 @@ export function InterviewPage({ onBack, onHire, worker }: InterviewPageProps) {
                 <p>{message.text}</p>
               </article>
             ))}
+            {isSending ? (
+              <article className="interview-message interview-message-pending">
+                <strong>{worker.name}</strong>
+                <p>Responding...</p>
+              </article>
+            ) : null}
           </div>
 
           <div className="interview-suggestions">
             {guide.suggestedQuestions.map((question) => (
-              <button className="interview-question-link" key={question} onClick={() => askQuestion(question)} type="button">
+              <button className="interview-question-link" disabled={isSending} key={question} onClick={() => void askQuestion(question)} type="button">
                 {question}
               </button>
             ))}
@@ -123,9 +164,10 @@ export function InterviewPage({ onBack, onHire, worker }: InterviewPageProps) {
               rows={4}
               value={input}
             />
+            {threadError ? <p className="interview-thread-error">{threadError}</p> : null}
             <div className="chat-composer-actions">
-              <button className="button button-primary" disabled={!input.trim()} type="submit">
-                Ask question
+              <button className="button button-primary" disabled={!input.trim() || isSending} type="submit">
+                {isSending ? "Working..." : "Ask question"}
               </button>
             </div>
           </form>
