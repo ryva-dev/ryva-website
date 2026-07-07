@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Worker } from "../types";
-import { MaraDashboardView } from "./MaraDashboardView";
 import { WorkerMark } from "./WorkerMark";
 
 /* ============================================================
@@ -58,8 +57,6 @@ const EMPTY_OVERLAYS: Overlays = {
 
 type Tab = "today" | "chat" | "approvals" | "calendar" | "team" | "files" | "settings";
 const WORKER_DEPENDENT: Tab[] = ["today", "chat", "approvals", "team", "files"];
-const MARA_SLUG = "mara-vale";
-
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -607,7 +604,7 @@ function TeamView({ workers, overlays, onNavigate }: { workers: Worker[]; overla
             </div>
             <div className="ro-team-activity">{lastActivityFor(w.slug, overlays.worklog)}</div>
             <div className="ro-team-actions">
-              <button className="r-btn r-btn-ghost" type="button" style={{ fontSize: 13, padding: "8px 16px", flex: 1, justifyContent: "center" }} onClick={() => onNavigate(`#app/office/chat/${w.slug}`)}>{w.slug === MARA_SLUG ? "Open dashboard" : "Message"}</button>
+              <button className="r-btn r-btn-ghost" type="button" style={{ fontSize: 13, padding: "8px 16px", flex: 1, justifyContent: "center" }} onClick={() => onNavigate(`#app/office/chat/${w.slug}`)}>Message</button>
               <span className="ro-team-salary">{w.salary}</span>
             </div>
           </div>
@@ -760,13 +757,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, userName }: Offi
   } else {
     switch (tab) {
       case "chat": {
-        const selected = hiredWorkers.find((entry) => entry.slug === workerSlug) ?? hiredWorkers[0] ?? null;
-        main =
-          selected?.slug === MARA_SLUG ? (
-            <MaraDashboardView onOfficeReload={reload} worker={selected} />
-          ) : (
-            <ChatView workers={hiredWorkers} overlays={overlays} selectedSlug={workerSlug} onNavigate={go} onReload={reload} />
-          );
+        main = <ChatView workers={hiredWorkers} overlays={overlays} selectedSlug={workerSlug} onNavigate={go} onReload={reload} />;
         break;
       }
       case "approvals": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} onNavigate={go} onReload={reload} />; break;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { getInterviewGuide, type InterviewMessage } from "../interviewPrompts";
 import type { Worker } from "../types";
@@ -29,6 +29,7 @@ export function InterviewPage({ onBack, onHire, worker }: InterviewPageProps) {
   const [fitNotes, setFitNotes] = useState("");
   const [threadError, setThreadError] = useState("");
   const first = worker.name.split(" ")[0];
+  const threadRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -45,6 +46,15 @@ export function InterviewPage({ onBack, onHire, worker }: InterviewPageProps) {
   useEffect(() => {
     window.sessionStorage.setItem(storageKey, JSON.stringify({ fitNotes, messages }));
   }, [fitNotes, messages, storageKey]);
+
+  useEffect(() => {
+    const thread = threadRef.current;
+    if (!thread) {
+      return;
+    }
+
+    thread.scrollTop = thread.scrollHeight;
+  }, [isSending, messages]);
 
   async function askQuestion(question: string) {
     const trimmed = question.trim();
@@ -109,7 +119,7 @@ export function InterviewPage({ onBack, onHire, worker }: InterviewPageProps) {
           </button>
         </header>
 
-        <div className="iv-thread">
+        <div className="iv-thread" ref={threadRef}>
           {messages.map((message) => (
             <div className={`iv-msg${message.speaker === "manager" ? " you" : ""}`} key={message.id}>
               {message.speaker === "worker" && <WorkerMark seed={worker.slug} size={28} />}
