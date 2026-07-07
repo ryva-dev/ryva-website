@@ -582,14 +582,30 @@ function fallbackOnboardingReply(worker, questionLabel, answerText, nextQuestion
     : `${focus} I’ve captured that and I have enough to set up the first working plan, memory, and briefing.`;
 }
 
+function formatKnownOnboardingAnswers(knownAnswers) {
+  if (!knownAnswers || typeof knownAnswers !== "object") {
+    return "";
+  }
+
+  const lines = Object.entries(knownAnswers)
+    .map(([key, value]) => [String(key).trim(), String(value ?? "").trim()])
+    .filter(([key, value]) => key && value)
+    .slice(-8)
+    .map(([key, value]) => `${key}: ${value}`);
+
+  return lines.join("\n");
+}
+
 async function generateOnboardingReply(worker, payload) {
   const {
     answerText,
+    knownAnswers,
     nextQuestionLabel,
     questionHelperText,
     questionLabel,
     role,
-    sectionTitle
+    sectionTitle,
+    summarySoFar
   } = payload;
 
   if (!process.env.OPENAI_API_KEY) {
@@ -612,11 +628,15 @@ async function generateOnboardingReply(worker, payload) {
         "Reply like a polished new hire in Slack or Teams.",
         "Sound professional, concise, and human. No hype, no AI phrasing, no generic corporate filler.",
         "Acknowledge the manager's answer in one short sentence, then naturally transition into the next onboarding question if one exists.",
+        "Your acknowledgment should sound specific to the manager's situation, not reusable across different users.",
+        "Use the running context you have learned so far to make the reply feel tailored.",
         "Never use bullet points.",
         "Keep the full reply under 70 words.",
         `Current onboarding section: ${sectionTitle || "General"}`,
         `Current question: ${questionLabel}`,
         questionHelperText ? `Context for the current question: ${questionHelperText}` : "",
+        summarySoFar?.length ? `Working memory so far:\n${summarySoFar.join("\n")}` : "",
+        formatKnownOnboardingAnswers(knownAnswers) ? `Known answers so far:\n${formatKnownOnboardingAnswers(knownAnswers)}` : "",
         nextQuestionLabel ? `Next onboarding question to ask: ${nextQuestionLabel}` : "There is no next question. Close the onboarding exchange neatly."
       ]
         .filter(Boolean)
@@ -1966,11 +1986,13 @@ app.post("/api/workers/:slug/onboarding/reply", onboardingLimiter, assertOrigin,
   try {
     const reply = await generateOnboardingReply(worker, {
       answerText,
+      knownAnswers: req.body?.knownAnswers ?? {},
       nextQuestionLabel: String(req.body?.nextQuestionLabel ?? "").trim(),
       questionHelperText: String(req.body?.questionHelperText ?? "").trim(),
       questionLabel,
       role: String(req.body?.role ?? worker.title).trim(),
-      sectionTitle: String(req.body?.sectionTitle ?? "").trim()
+      sectionTitle: String(req.body?.sectionTitle ?? "").trim(),
+      summarySoFar: Array.isArray(req.body?.summarySoFar) ? req.body.summarySoFar.map((entry) => String(entry)) : []
     });
     res.json({ reply });
   } catch {

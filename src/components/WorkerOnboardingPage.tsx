@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildOnboardingCompletionPayload, getOnboardingSchema, type OnboardingQuestion, type OnboardingSessionState } from "../onboardingSchemas";
 import type { Worker } from "../types";
@@ -130,6 +130,7 @@ export function WorkerOnboardingPage({
   const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>(() =>
     buildThread(worker, questions, session?.answers ?? {}, 0, session?.status === "completed")
   );
+  const threadRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const nextAnswers = session?.answers ?? {};
@@ -143,6 +144,15 @@ export function WorkerOnboardingPage({
     setIsSummary(nextSummary || nextIndex === -1);
     setThreadMessages(buildThread(worker, questions, nextAnswers, normalizedIndex, nextSummary || nextIndex === -1));
   }, [questions, session, worker]);
+
+  useEffect(() => {
+    const thread = threadRef.current;
+    if (!thread) {
+      return;
+    }
+
+    thread.scrollTop = thread.scrollHeight;
+  }, [isReplying, threadMessages]);
 
   const currentQuestion = currentIndex < questions.length ? questions[currentIndex] : null;
   const generated = buildOnboardingCompletionPayload(worker, answers);
@@ -181,6 +191,8 @@ export function WorkerOnboardingPage({
         },
         body: JSON.stringify({
           answerText: answer,
+          knownAnswers: nextAnswers,
+          summarySoFar: buildOnboardingCompletionPayload(worker, nextAnswers).summary,
           nextQuestionLabel: nextQuestion?.label ?? "",
           questionHelperText: current.helperText ?? "",
           questionLabel: current.label,
@@ -292,107 +304,116 @@ export function WorkerOnboardingPage({
 
       <div className="onboarding-conversation-layout">
         <section className="onboarding-thread-shell">
-          <div className="onboarding-thread">
-            {threadMessages.map((message) => (
-              <article
-                className={
-                  message.role === "user"
-                    ? "onboarding-thread-message onboarding-thread-message-user"
-                    : message.role === "system"
-                      ? "onboarding-thread-message onboarding-thread-message-system"
-                      : "onboarding-thread-message"
-                }
-                key={message.id}
-              >
-                <strong>{message.role === "user" ? "You" : message.role === "system" ? "Ryva Office" : worker.name}</strong>
-                <p>{message.text}</p>
-              </article>
-            ))}
-            {isReplying ? (
-              <article className="onboarding-thread-message onboarding-thread-message-pending">
+          <div className="onboarding-chat-shell">
+            <div className="onboarding-thread-head">
+              <div>
                 <strong>{worker.name}</strong>
-                <p>Thinking through that...</p>
-              </article>
-            ) : null}
-          </div>
-
-          {!isSummary ? (
-            <div className="onboarding-composer-shell">
-              {currentQuestion?.options?.length ? (
-                <div className="onboarding-quick-replies">
-                  {currentQuestion.options.map((option) => (
-                    <button
-                      className="interview-question-link"
-                      disabled={isReplying || isCompleting}
-                      key={option}
-                      onClick={() => setComposerValue(option)}
-                      type="button"
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-
-              <div className="interview-composer onboarding-composer">
-                <textarea
-                  onChange={(event) => setComposerValue(event.target.value)}
-                  placeholder={currentQuestion ? `Reply to ${worker.name.split(" ")[0]} here...` : "Reply here..."}
-                  rows={4}
-                  value={composerValue}
-                />
-                {threadError ? <p className="interview-thread-error">{threadError}</p> : null}
-                <div className="onboarding-composer-actions">
-                  {!currentQuestion?.required ? (
-                    <button className="button button-secondary" disabled={isReplying || isCompleting} onClick={() => void handleSkip()} type="button">
-                      Skip
-                    </button>
-                  ) : null}
-                  <button className="button button-primary" disabled={!composerValue.trim() || isReplying || isCompleting} onClick={() => void handleSend()} type="button">
-                    {isReplying ? "Working..." : "Send"}
-                  </button>
-                </div>
+                <span>{worker.title}</span>
               </div>
             </div>
-          ) : (
-            <section className="onboarding-summary-shell">
-              <div className="office-panel-head">
-                <h3>What was captured</h3>
-                <span>{allAnswered ? "Complete" : "Draft"}</span>
-              </div>
-              <div className="onboarding-summary-lines">
-                {generated.summary.map((item) => (
-                  <div className="onboarding-summary-line" key={item}>
-                    {item}
+
+            <div className="onboarding-thread" ref={threadRef}>
+              {threadMessages.map((message) => (
+                <article
+                  className={
+                    message.role === "user"
+                      ? "onboarding-thread-message onboarding-thread-message-user"
+                      : message.role === "system"
+                        ? "onboarding-thread-message onboarding-thread-message-system"
+                        : "onboarding-thread-message"
+                  }
+                  key={message.id}
+                >
+                  <strong>{message.role === "user" ? "You" : message.role === "system" ? "Ryva Office" : worker.name}</strong>
+                  <p>{message.text}</p>
+                </article>
+              ))}
+              {isReplying ? (
+                <article className="onboarding-thread-message onboarding-thread-message-pending">
+                  <strong>{worker.name}</strong>
+                  <p>Thinking through that...</p>
+                </article>
+              ) : null}
+            </div>
+
+            {!isSummary ? (
+              <div className="onboarding-composer-shell">
+                {currentQuestion?.options?.length ? (
+                  <div className="onboarding-quick-replies">
+                    {currentQuestion.options.map((option) => (
+                      <button
+                        className="interview-question-link"
+                        disabled={isReplying || isCompleting}
+                        key={option}
+                        onClick={() => setComposerValue(option)}
+                        type="button"
+                      >
+                        {option}
+                      </button>
+                    ))}
                   </div>
-                ))}
+                ) : null}
+
+                <div className="interview-composer onboarding-composer">
+                  <textarea
+                    onChange={(event) => setComposerValue(event.target.value)}
+                    placeholder={currentQuestion ? `Reply to ${worker.name.split(" ")[0]} here...` : "Reply here..."}
+                    rows={4}
+                    value={composerValue}
+                  />
+                  {threadError ? <p className="interview-thread-error">{threadError}</p> : null}
+                  <div className="onboarding-composer-actions">
+                    {!currentQuestion?.required ? (
+                      <button className="button button-secondary" disabled={isReplying || isCompleting} onClick={() => void handleSkip()} type="button">
+                        Skip
+                      </button>
+                    ) : null}
+                    <button className="button button-primary" disabled={!composerValue.trim() || isReplying || isCompleting} onClick={() => void handleSend()} type="button">
+                      {isReplying ? "Working..." : "Send"}
+                    </button>
+                  </div>
+                </div>
               </div>
-              {session?.status === "completed" ? (
-                <div className="onboarding-actions">
-                  <button className="button button-primary" onClick={() => onStartFirstDay(generated.firstDayNotice)} type="button">
-                    Start first day
-                  </button>
+            ) : (
+              <section className="onboarding-summary-shell">
+                <div className="office-panel-head">
+                  <h3>What was captured</h3>
+                  <span>{allAnswered ? "Complete" : "Draft"}</span>
                 </div>
-              ) : (
-                <div className="onboarding-actions">
-                  <button
-                    className="button button-secondary"
-                    onClick={() => {
-                      setCurrentIndex(Math.max(questions.length - 1, 0));
-                      setThreadMessages(buildThread(worker, questions, answers, Math.max(questions.length - 1, 0), false));
-                      setIsSummary(false);
-                    }}
-                    type="button"
-                  >
-                    Keep editing
-                  </button>
-                  <button className="button button-primary" disabled={isCompleting} onClick={() => void handleConfirmSummary()} type="button">
-                    {isCompleting ? "Finalizing..." : "Launch onboarding"}
-                  </button>
+                <div className="onboarding-summary-lines">
+                  {generated.summary.map((item) => (
+                    <div className="onboarding-summary-line" key={item}>
+                      {item}
+                    </div>
+                  ))}
                 </div>
-              )}
-            </section>
-          )}
+                {session?.status === "completed" ? (
+                  <div className="onboarding-actions">
+                    <button className="button button-primary" onClick={() => onStartFirstDay(generated.firstDayNotice)} type="button">
+                      Start first day
+                    </button>
+                  </div>
+                ) : (
+                  <div className="onboarding-actions">
+                    <button
+                      className="button button-secondary"
+                      onClick={() => {
+                        setCurrentIndex(Math.max(questions.length - 1, 0));
+                        setThreadMessages(buildThread(worker, questions, answers, Math.max(questions.length - 1, 0), false));
+                        setIsSummary(false);
+                      }}
+                      type="button"
+                    >
+                      Keep editing
+                    </button>
+                    <button className="button button-primary" disabled={isCompleting} onClick={() => void handleConfirmSummary()} type="button">
+                      {isCompleting ? "Finalizing..." : "Launch onboarding"}
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
+          </div>
         </section>
 
         <aside className="onboarding-rail">
