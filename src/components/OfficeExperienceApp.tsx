@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Worker } from "../types";
+import { MaraDashboardView } from "./MaraDashboardView";
 import { WorkerMark } from "./WorkerMark";
 
 /* ============================================================
@@ -23,11 +24,27 @@ type OverlayWorklog = { workerSlug: string; id: string; action: string; module: 
 type OverlayFile = { workerSlug: string; id: string; name: string; type: string; updatedAt: string };
 type OverlayBriefing = { workerSlug: string; id: string; title: string; dateLabel: string; summary: string; agendaJson: string; decisionsJson: string; actionsJson: string };
 type OverlayCalendarEvent = { id: string; workerSlug: string | null; title: string; startsAt: string; endsAt: string; eventType: string; notes: string; updatedAt: string };
+type OverlaySuggestedAction = {
+  workerSlug: string;
+  id: string;
+  actionType: string;
+  title: string;
+  description: string;
+  reason: string;
+  relatedThreadId: string | null;
+  relatedCampaignId: string | null;
+  relatedBrandId: string | null;
+  payloadJson: string;
+  status: string;
+  requiresApproval: number;
+  createdAt: string;
+};
 type OverlayGlobalSettings = { settingsJson: string; updatedAt?: string } | null;
 
 type Overlays = {
   chats: OverlayChat[];
   tasks: OverlayTask[];
+  suggestedActions: OverlaySuggestedAction[];
   worklog: OverlayWorklog[];
   files: OverlayFile[];
   briefings: OverlayBriefing[];
@@ -36,11 +53,12 @@ type Overlays = {
 };
 
 const EMPTY_OVERLAYS: Overlays = {
-  chats: [], tasks: [], worklog: [], files: [], briefings: [], calendarEvents: [], globalSettings: null,
+  chats: [], tasks: [], suggestedActions: [], worklog: [], files: [], briefings: [], calendarEvents: [], globalSettings: null,
 };
 
 type Tab = "today" | "chat" | "approvals" | "calendar" | "team" | "files" | "settings";
 const WORKER_DEPENDENT: Tab[] = ["today", "chat", "approvals", "team", "files"];
+const MARA_SLUG = "mara-vale";
 
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -123,7 +141,8 @@ function TodayView({
   onNavigate: (h: string) => void; onApprovalsClick: () => void;
 }) {
   const pendingTasks = overlays.tasks.filter((t) => t.status === "Needs Review");
-  const approvalsCount = pendingTasks.length + overlays.briefings.length;
+  const suggestedApprovals = overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval);
+  const approvalsCount = pendingTasks.length + overlays.briefings.length + suggestedApprovals.length;
   const today = new Date();
   const todaysEvents = overlays.calendarEvents
     .filter((e) => new Date(e.startsAt).toDateString() === today.toDateString())
@@ -297,6 +316,7 @@ function ApprovalsView({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const pending = overlays.tasks.filter((t) => t.status === "Needs Review");
+  const suggestedApprovals = overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval);
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
 
   const approveTask = async (t: OverlayTask) => {
@@ -314,7 +334,7 @@ function ApprovalsView({
     } finally { setBusy(null); }
   };
 
-  const total = pending.length + overlays.briefings.length;
+  const total = pending.length + overlays.briefings.length + suggestedApprovals.length;
   if (total === 0) {
     return (
       <div className="ro-main-scroll">
@@ -327,6 +347,26 @@ function ApprovalsView({
   return (
     <div className="ro-main-scroll">
       <div className="ro-day-head"><h1>Approvals <em>({total})</em></h1></div>
+
+      {suggestedApprovals.map((action) => (
+        <div className="ro-approval" key={action.id}>
+          <div className="ro-appr-head">
+            <WorkerMark seed={action.workerSlug} size={22} />
+            <b>{nameFor(action.workerSlug)}</b><span>{action.actionType.replace(/_/g, " ")}</span>
+            <time>{timeAgo(action.createdAt)}</time>
+          </div>
+          <div className="ro-artifact">
+            <span className="ro-alabel">{action.title}</span>
+            {action.description}
+            <div className="ro-decisions"><span>• {action.reason}</span></div>
+          </div>
+          <div className="ro-appr-actions">
+            <button className="r-btn r-btn-accent" type="button" style={{ fontSize: 13, padding: "8px 18px" }} onClick={() => onNavigate(`#app/office/chat/${action.workerSlug}`)}>
+              Open worker
+            </button>
+          </div>
+        </div>
+      ))}
 
       {pending.map((t) => (
         <div className="ro-approval" key={t.id}>
@@ -567,7 +607,7 @@ function TeamView({ workers, overlays, onNavigate }: { workers: Worker[]; overla
             </div>
             <div className="ro-team-activity">{lastActivityFor(w.slug, overlays.worklog)}</div>
             <div className="ro-team-actions">
-              <button className="r-btn r-btn-ghost" type="button" style={{ fontSize: 13, padding: "8px 16px", flex: 1, justifyContent: "center" }} onClick={() => onNavigate(`#app/office/chat/${w.slug}`)}>Message</button>
+              <button className="r-btn r-btn-ghost" type="button" style={{ fontSize: 13, padding: "8px 16px", flex: 1, justifyContent: "center" }} onClick={() => onNavigate(`#app/office/chat/${w.slug}`)}>{w.slug === MARA_SLUG ? "Open dashboard" : "Message"}</button>
               <span className="ro-team-salary">{w.salary}</span>
             </div>
           </div>
@@ -719,7 +759,16 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, userName }: Offi
     main = <EmptyOffice label={emptyLabels[tab] ?? "your office"} onNavigate={go} />;
   } else {
     switch (tab) {
-      case "chat": main = <ChatView workers={hiredWorkers} overlays={overlays} selectedSlug={workerSlug} onNavigate={go} onReload={reload} />; break;
+      case "chat": {
+        const selected = hiredWorkers.find((entry) => entry.slug === workerSlug) ?? hiredWorkers[0] ?? null;
+        main =
+          selected?.slug === MARA_SLUG ? (
+            <MaraDashboardView onOfficeReload={reload} worker={selected} />
+          ) : (
+            <ChatView workers={hiredWorkers} overlays={overlays} selectedSlug={workerSlug} onNavigate={go} onReload={reload} />
+          );
+        break;
+      }
       case "approvals": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} onNavigate={go} onReload={reload} />; break;
       case "calendar": main = <CalendarView workers={hiredWorkers} overlays={overlays} onReload={reload} />; break;
       case "team": main = <TeamView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
@@ -729,7 +778,10 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, userName }: Offi
     }
   }
 
-  const pendingCount = overlays.tasks.filter((t) => t.status === "Needs Review").length + overlays.briefings.length;
+  const pendingCount =
+    overlays.tasks.filter((t) => t.status === "Needs Review").length +
+    overlays.briefings.length +
+    overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval).length;
 
   return (
     <div className="ro-shell">

@@ -30,6 +30,7 @@ const appUrl = process.env.APP_URL ?? "http://localhost:5173";
 const allowedOrigin = new URL(appUrl).origin;
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const host = process.env.HOST ?? "0.0.0.0";
+const MARA_SLUG = "mara-vale";
 
 if (isProduction && !process.env.APP_URL) {
   throw new Error("APP_URL must be set in production.");
@@ -273,6 +274,16 @@ function readOfficeOverlaysForUser(userId) {
       .prepare(
         `SELECT worker_slug AS workerSlug, id, due_date AS dueDate, module_name AS module, owner, priority, status, title
          FROM office_custom_tasks
+         WHERE user_id = ?
+         ORDER BY created_at DESC`
+      )
+      .all(userId),
+    suggestedActions: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, id, action_type AS actionType, title, description, reason,
+                related_thread_id AS relatedThreadId, related_campaign_id AS relatedCampaignId, related_brand_id AS relatedBrandId,
+                payload_json AS payloadJson, status, requires_approval AS requiresApproval, created_at AS createdAt
+         FROM office_suggested_actions
          WHERE user_id = ?
          ORDER BY created_at DESC`
       )
@@ -615,6 +626,1007 @@ function normalizeTextList(value, limit = 12) {
     .slice(0, limit);
 }
 
+function isMaraWorker(workerSlug) {
+  return workerSlug === MARA_SLUG;
+}
+
+function parseJson(value, fallback) {
+  if (typeof value !== "string") return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function serializeJson(value) {
+  return JSON.stringify(value ?? {});
+}
+
+function getUserBrandContext(userId) {
+  const onboarding = getUserOnboardingRecord(userId);
+  const globalSettings = db
+    .prepare(
+      `SELECT settings_json AS settingsJson
+       FROM office_global_settings
+       WHERE user_id = ?`
+    )
+    .get(userId);
+  const parsedSettings = parseJson(globalSettings?.settingsJson, {});
+
+  return {
+    brandName: onboarding?.brandName || String(parsedSettings.companyName ?? "").trim() || "Your brand",
+    nicheSummary:
+      onboarding?.whatYouDo ||
+      String(parsedSettings.brandContext ?? "").trim() ||
+      "A creator business focused on organized UGC work, clear follow-up, and better brand operations."
+  };
+}
+
+function buildMaraWorkerMemory(userId) {
+  const { brandName, nicheSummary } = getUserBrandContext(userId);
+  const lowerContext = nicheSummary.toLowerCase();
+  const preferredNiches = [
+    lowerContext.includes("fitness") ? "fitness" : null,
+    lowerContext.includes("wellness") ? "wellness" : null,
+    lowerContext.includes("beauty") || lowerContext.includes("skincare") ? "skincare" : null,
+    "creator tools"
+  ].filter(Boolean);
+
+  return {
+    brand_name: brandName,
+    business_summary: nicheSummary,
+    minimum_rate: 350,
+    accepts_gifted: false,
+    accepts_affiliate_only: false,
+    tone: "friendly_professional",
+    filming_days: ["Monday", "Wednesday"],
+    preferred_niches: preferredNiches.length > 0 ? preferredNiches : ["wellness", "fitness", "skincare"],
+    excluded_categories: ["diet teas", "fast fashion"],
+    daily_brand_discovery_limit: 5
+  };
+}
+
+function ensureMaraKnowledge(userId) {
+  if (!hasHiredWorker(userId, MARA_SLUG)) return;
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_worker_knowledge
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .get(userId, MARA_SLUG);
+
+  if (existing) return;
+
+  const memory = buildMaraWorkerMemory(userId);
+  const sections = [
+    {
+      title: "Creator preferences",
+      items: [
+        `Minimum rate: $${memory.minimum_rate}`,
+        `Accepts gifted only: ${memory.accepts_gifted ? "Yes" : "No"}`,
+        `Accepts affiliate only: ${memory.accepts_affiliate_only ? "Yes" : "No"}`,
+        `Tone: ${memory.tone.replace(/_/g, " ")}`
+      ]
+    },
+    {
+      title: "Preferred niches",
+      items: memory.preferred_niches
+    },
+    {
+      title: "Excluded categories",
+      items: memory.excluded_categories
+    }
+  ];
+
+  db.prepare(
+    `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(randomUUID(), userId, MARA_SLUG, JSON.stringify(sections), nowIso());
+}
+
+function ensureMaraIntegrationRecord(userId, provider) {
+  const accountLabel = provider === "gmail" ? "Gmail inbox" : "Outlook inbox";
+  db.prepare(
+    `INSERT INTO office_worker_integrations
+      (id, user_id, worker_slug, provider, status, account_label, metadata_json, connected_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_slug, provider) DO UPDATE SET
+       status = excluded.status,
+       account_label = excluded.account_label,
+       metadata_json = excluded.metadata_json,
+       connected_at = excluded.connected_at,
+       updated_at = excluded.updated_at`
+  ).run(
+    randomUUID(),
+    userId,
+    MARA_SLUG,
+    provider,
+    "connected",
+    accountLabel,
+    serializeJson({ simulated: true }),
+    nowIso(),
+    nowIso()
+  );
+}
+
+function insertMaraSyncJob(userId, provider, jobName, summary, status = "completed") {
+  db.prepare(
+    `INSERT INTO office_sync_jobs (id, user_id, worker_slug, job_name, provider, status, summary, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), userId, MARA_SLUG, jobName, provider, status, summary, nowIso(), nowIso());
+}
+
+function seedMaraThreads(userId, provider = "gmail") {
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_email_threads
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  if (existing.length > 0) return;
+
+  const timestamp = nowIso();
+  const threads = [
+    {
+      subject: "Glow Theory UGC brief for August routine campaign",
+      snippet: "Sharing the brief, draft deadline, and required skincare talking points for next month's launch.",
+      receivedAt: new Date(Date.now() - 1000 * 60 * 42).toISOString(),
+      brandRelated: 1,
+      category: "campaign_brief",
+      urgency: "high",
+      confidence: 0.96,
+      reason: "Includes deliverables, timelines, and required talking points.",
+      brandName: "Glow Theory",
+      contactName: "Nina Patel",
+      contactEmail: "nina@glowtheory.co",
+      sourceMessageCount: 4,
+      threadStatus: "open",
+      participants: ["Nina Patel <nina@glowtheory.co>", "You"],
+      raw: { suggested_worker: MARA_SLUG, brand_related: true }
+    },
+    {
+      subject: "Can you send rates for three short-form wellness videos?",
+      snippet: "Brand asked for pricing but did not mention usage rights or payment timing.",
+      receivedAt: new Date(Date.now() - 1000 * 60 * 95).toISOString(),
+      brandRelated: 1,
+      category: "rate_request",
+      urgency: "medium",
+      confidence: 0.92,
+      reason: "Clear pricing request with missing usage details.",
+      brandName: "Forme Labs",
+      contactName: "Eli Brooks",
+      contactEmail: "eli@formelabs.com",
+      sourceMessageCount: 2,
+      threadStatus: "waiting_on_reply",
+      participants: ["Eli Brooks <eli@formelabs.com>", "You"],
+      raw: { suggested_worker: MARA_SLUG, brand_related: true }
+    },
+    {
+      subject: "A few edits before final approval",
+      snippet: "Brand wants one hook change and a cleaner product close before signing off.",
+      receivedAt: new Date(Date.now() - 1000 * 60 * 145).toISOString(),
+      brandRelated: 1,
+      category: "revision_request",
+      urgency: "high",
+      confidence: 0.94,
+      reason: "Explicit request for content revisions.",
+      brandName: "Kinfield",
+      contactName: "Mara Chen",
+      contactEmail: "mara@kinfield.com",
+      sourceMessageCount: 6,
+      threadStatus: "revision_open",
+      participants: ["Mara Chen <mara@kinfield.com>", "You"],
+      raw: { suggested_worker: MARA_SLUG, brand_related: true }
+    },
+    {
+      subject: "Checking in on invoice 1048",
+      snippet: "Payment team asked for a resend and did not confirm when funds will go out.",
+      receivedAt: new Date(Date.now() - 1000 * 60 * 210).toISOString(),
+      brandRelated: 1,
+      category: "payment_question",
+      urgency: "medium",
+      confidence: 0.9,
+      reason: "Payment conversation with unclear timing.",
+      brandName: "SageHaus",
+      contactName: "Ari Gomez",
+      contactEmail: "finance@sagehaus.com",
+      sourceMessageCount: 3,
+      threadStatus: "follow_up_needed",
+      participants: ["Ari Gomez <finance@sagehaus.com>", "You"],
+      raw: { suggested_worker: MARA_SLUG, brand_related: true }
+    }
+  ];
+
+  for (const thread of threads) {
+    db.prepare(
+      `INSERT INTO office_email_threads
+        (id, user_id, worker_slug, provider, subject, participants_json, snippet, received_at, brand_related, category,
+         urgency, confidence, reason, brand_name, contact_name, contact_email, source_message_count, thread_status,
+         raw_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      userId,
+      MARA_SLUG,
+      provider,
+      thread.subject,
+      JSON.stringify(thread.participants),
+      thread.snippet,
+      thread.receivedAt,
+      thread.brandRelated,
+      thread.category,
+      thread.urgency,
+      thread.confidence,
+      thread.reason,
+      thread.brandName,
+      thread.contactName,
+      thread.contactEmail,
+      thread.sourceMessageCount,
+      thread.threadStatus,
+      JSON.stringify(thread.raw),
+      timestamp,
+      timestamp
+    );
+  }
+}
+
+function seedMaraCampaigns(userId) {
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_campaigns
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  if (existing.length > 0) return;
+
+  const threads = db
+    .prepare(
+      `SELECT id, brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, subject, category
+       FROM office_email_threads
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  const threadMap = new Map(threads.map((thread) => [thread.brandName, thread]));
+  const now = nowIso();
+  const campaigns = [
+    {
+      brandName: "Glow Theory",
+      brandWebsite: "https://glowtheory.co",
+      contactName: threadMap.get("Glow Theory")?.contactName ?? "Nina Patel",
+      contactEmail: threadMap.get("Glow Theory")?.contactEmail ?? "nina@glowtheory.co",
+      productName: "Barrier Repair Serum",
+      campaignName: "August Routine Launch",
+      campaignStatus: "brief_received",
+      sourceThreadId: threadMap.get("Glow Theory")?.id ?? null,
+      deliverables: ["2 TikTok videos", "1 Instagram Reel", "Story frame with link"],
+      briefText: "Brief includes talking points, draft timing, and disclosure requirements.",
+      draftDueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 2).toISOString(),
+      finalDueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5).toISOString(),
+      paymentAmount: "",
+      paymentStatus: "pending_terms",
+      usageRights: "",
+      usageRightsStatus: "unclear",
+      revisionLimit: "",
+      rawFootageRequired: 1,
+      missingFields: ["payment_amount_missing", "usage_rights_unclear", "revision_limit_missing"],
+      riskFlags: ["raw_footage_requested", "usage_rights_unclear"],
+      notes: "Draft clarification email prepared before filming starts."
+    },
+    {
+      brandName: "Kinfield",
+      brandWebsite: "https://kinfield.com",
+      contactName: threadMap.get("Kinfield")?.contactName ?? "Mara Chen",
+      contactEmail: threadMap.get("Kinfield")?.contactEmail ?? "mara@kinfield.com",
+      productName: "Trail Mist",
+      campaignName: "Summer Reset UGC",
+      campaignStatus: "revision_requested",
+      sourceThreadId: threadMap.get("Kinfield")?.id ?? null,
+      deliverables: ["1 short-form video", "1 revised CTA ending"],
+      briefText: "Revision requested on the existing draft. Brand wants hook and product close updated.",
+      draftDueDate: new Date(Date.now() + 1000 * 60 * 60 * 20).toISOString(),
+      finalDueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 3).toISOString(),
+      paymentAmount: "$1,200",
+      paymentStatus: "approved_pending_final",
+      usageRights: "90-day paid social",
+      usageRightsStatus: "confirmed",
+      revisionLimit: "2 rounds",
+      rawFootageRequired: 0,
+      missingFields: [],
+      riskFlags: ["deadline_missing"],
+      notes: "Needs revised hook and cleaner final CTA before approval."
+    }
+  ];
+
+  for (const campaign of campaigns) {
+    db.prepare(
+      `INSERT INTO office_campaigns
+        (id, user_id, worker_slug, brand_name, brand_website, contact_name, contact_email, product_name, campaign_name,
+         campaign_status, source_thread_id, deliverables_json, brief_text, draft_due_date, final_due_date, payment_amount,
+         payment_status, usage_rights, usage_rights_status, revision_limit, raw_footage_required, missing_fields_json,
+         risk_flags_json, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      userId,
+      MARA_SLUG,
+      campaign.brandName,
+      campaign.brandWebsite,
+      campaign.contactName,
+      campaign.contactEmail,
+      campaign.productName,
+      campaign.campaignName,
+      campaign.campaignStatus,
+      campaign.sourceThreadId,
+      JSON.stringify(campaign.deliverables),
+      campaign.briefText,
+      campaign.draftDueDate,
+      campaign.finalDueDate,
+      campaign.paymentAmount,
+      campaign.paymentStatus,
+      campaign.usageRights,
+      campaign.usageRightsStatus,
+      campaign.revisionLimit,
+      campaign.rawFootageRequired,
+      JSON.stringify(campaign.missingFields),
+      JSON.stringify(campaign.riskFlags),
+      campaign.notes,
+      now,
+      now
+    );
+  }
+}
+
+function seedMaraTasks(userId) {
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_custom_tasks
+       WHERE user_id = ? AND worker_slug = ? AND module_name = ?`
+    )
+    .all(userId, MARA_SLUG, "Mara");
+
+  if (existing.length > 0) return;
+
+  const campaigns = db
+    .prepare(
+      `SELECT id, campaign_name AS campaignName, brand_name AS brandName
+       FROM office_campaigns
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  const glow = campaigns.find((campaign) => campaign.brandName === "Glow Theory");
+  const kinfield = campaigns.find((campaign) => campaign.brandName === "Kinfield");
+  const tasks = [
+    {
+      title: "Clarify payment and usage rights with Glow Theory",
+      module: "Mara",
+      owner: "Worker",
+      priority: "High",
+      status: "Needs Review",
+      dueDate: "Today"
+    },
+    {
+      title: "Block filming time for August Routine Launch",
+      module: "Mara",
+      owner: "Worker",
+      priority: "Medium",
+      status: "To Do",
+      dueDate: "Tomorrow"
+    },
+    {
+      title: "Revise Kinfield draft hook and CTA",
+      module: "Mara",
+      owner: "Worker",
+      priority: "High",
+      status: "In Progress",
+      dueDate: "Today"
+    },
+    {
+      title: "Follow up on SageHaus invoice timing",
+      module: "Mara",
+      owner: "Worker",
+      priority: "Medium",
+      status: "To Do",
+      dueDate: "This week"
+    }
+  ];
+
+  for (const task of tasks) {
+    db.prepare(
+      `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), userId, MARA_SLUG, task.title, task.module, task.owner, task.priority, task.status, task.dueDate, nowIso());
+  }
+}
+
+function seedMaraCalendar(userId) {
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_calendar_events
+       WHERE user_id = ? AND worker_slug = ? AND event_type = ?`
+    )
+    .all(userId, MARA_SLUG, "Focus");
+
+  if (existing.length > 0) return;
+
+  const today = new Date();
+  const draftStart = new Date(today);
+  draftStart.setHours(11, 0, 0, 0);
+  const draftEnd = new Date(today);
+  draftEnd.setHours(12, 0, 0, 0);
+  const followupStart = new Date(today);
+  followupStart.setHours(15, 30, 0, 0);
+  const followupEnd = new Date(today);
+  followupEnd.setHours(16, 0, 0, 0);
+
+  const events = [
+    {
+      title: "Film block — Glow Theory draft",
+      startsAt: draftStart.toISOString(),
+      endsAt: draftEnd.toISOString(),
+      eventType: "Focus",
+      notes: "Reserved by Mara from the campaign draft timeline."
+    },
+    {
+      title: "Follow up — SageHaus invoice",
+      startsAt: followupStart.toISOString(),
+      endsAt: followupEnd.toISOString(),
+      eventType: "Review",
+      notes: "Suggested payment reminder window."
+    }
+  ];
+
+  for (const event of events) {
+    db.prepare(
+      `INSERT INTO office_calendar_events
+        (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), userId, MARA_SLUG, event.title, event.startsAt, event.endsAt, event.eventType, event.notes, nowIso(), nowIso());
+  }
+}
+
+function seedMaraSuggestedActions(userId) {
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_suggested_actions
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  if (existing.length > 0) return;
+
+  const campaigns = db
+    .prepare(
+      `SELECT id, brand_name AS brandName, campaign_name AS campaignName
+       FROM office_campaigns
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  const threads = db
+    .prepare(
+      `SELECT id, brand_name AS brandName
+       FROM office_email_threads
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  const glowCampaign = campaigns.find((campaign) => campaign.brandName === "Glow Theory");
+  const glowThread = threads.find((thread) => thread.brandName === "Glow Theory");
+  const sageThread = threads.find((thread) => thread.brandName === "SageHaus");
+
+  const actions = [
+    {
+      actionType: "draft_email",
+      title: "Approve clarification reply to Glow Theory",
+      description: "I drafted a concise note asking for payment amount, usage duration, and revision limits before filming starts.",
+      reason: "The brief includes deadlines and deliverables, but compensation and rights are still unclear.",
+      relatedThreadId: glowThread?.id ?? null,
+      relatedCampaignId: glowCampaign?.id ?? null,
+      relatedBrandId: "Glow Theory",
+      payload: {
+        draftText:
+          "Thanks for sending this over. Before we block filming, could you confirm compensation, usage rights duration, and how many revision rounds are included?"
+      }
+    },
+    {
+      actionType: "create_calendar_event",
+      title: "Approve Mara's filming block for Glow Theory",
+      description: "I reserved a one-hour filming block on the internal Ryva calendar so the draft deadline does not sneak up.",
+      reason: "The draft due date is close enough that it should already be protected on the calendar.",
+      relatedThreadId: glowThread?.id ?? null,
+      relatedCampaignId: glowCampaign?.id ?? null,
+      relatedBrandId: "Glow Theory",
+      payload: {
+        event: {
+          title: "Filming block — Glow Theory",
+          eventType: "Focus"
+        }
+      }
+    },
+    {
+      actionType: "draft_email",
+      title: "Approve SageHaus payment follow-up",
+      description: "I drafted a polite invoice reminder asking when payment will be released.",
+      reason: "The finance thread requested a resend but still did not confirm a payment date.",
+      relatedThreadId: sageThread?.id ?? null,
+      relatedCampaignId: null,
+      relatedBrandId: "SageHaus",
+      payload: {
+        draftText:
+          "Just checking in on invoice 1048. I resent the requested copy here and wanted to confirm the expected payment timing on your side."
+      }
+    }
+  ];
+
+  for (const action of actions) {
+    db.prepare(
+      `INSERT INTO office_suggested_actions
+        (id, user_id, worker_slug, action_type, title, description, reason, related_thread_id, related_campaign_id,
+         related_brand_id, payload_json, status, requires_approval, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      userId,
+      MARA_SLUG,
+      action.actionType,
+      action.title,
+      action.description,
+      action.reason,
+      action.relatedThreadId,
+      action.relatedCampaignId,
+      action.relatedBrandId,
+      JSON.stringify(action.payload),
+      "suggested",
+      1,
+      nowIso(),
+      nowIso()
+    );
+  }
+}
+
+function seedMaraOpportunities(userId) {
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_brand_opportunities
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  if (existing.length > 0) return;
+
+  const opportunities = [
+    {
+      brandName: "Glow Habit",
+      website: "https://glowhabit.com",
+      category: "Skincare",
+      source: "Ryva market intelligence",
+      fitScore: 91,
+      ugcPotentialScore: 88,
+      riskScore: 23,
+      priority: "High",
+      contentGap: "Their paid social feels polished, but public creator content is still light on realistic routine demos.",
+      suggestedAngle: "Pitch a simple morning routine built around visible before-and-after texture shots.",
+      sourceNotes: "Brand site and public ad creative both point toward routine-first messaging.",
+      status: "new"
+    },
+    {
+      brandName: "Forme Labs",
+      website: "https://formelabs.com",
+      category: "Wellness",
+      source: "Brand research snapshot",
+      fitScore: 84,
+      ugcPotentialScore: 86,
+      riskScore: 31,
+      priority: "Medium",
+      contentGap: "Limited founder-facing testimonial content compared with product explainer creative.",
+      suggestedAngle: "Offer a testimonial-style workflow video tied to creator productivity.",
+      sourceNotes: "Brand posts often highlight product features more than day-in-the-life usage.",
+      status: "new"
+    },
+    {
+      brandName: "Twill Active",
+      website: "https://twillactive.com",
+      category: "Fitness",
+      source: "Opportunity monitoring",
+      fitScore: 79,
+      ugcPotentialScore: 83,
+      riskScore: 28,
+      priority: "Medium",
+      contentGap: "Strong product pages, but almost no creator-led gym locker room content.",
+      suggestedAngle: "Pitch a short changing-room to training-floor sequence with natural voiceover.",
+      sourceNotes: "Recent product launch suggests they are increasing content volume.",
+      status: "new"
+    },
+    {
+      brandName: "SageHaus",
+      website: "https://sagehaus.co",
+      category: "Home & Wellness",
+      source: "Creator chatter signal",
+      fitScore: 74,
+      ugcPotentialScore: 76,
+      riskScore: 57,
+      priority: "Low",
+      contentGap: "Lifestyle content is clean, but creator demos rarely show practical product setup.",
+      suggestedAngle: "Pitch a setup-to-use walkthrough with emphasis on calm daily routines.",
+      sourceNotes: "Public creator chatter suggests possible delayed payment concerns. Treat as caution, not confirmed proof.",
+      status: "new"
+    },
+    {
+      brandName: "Kinfield",
+      website: "https://kinfield.com",
+      category: "Outdoor skincare",
+      source: "Renewal signal",
+      fitScore: 88,
+      ugcPotentialScore: 82,
+      riskScore: 19,
+      priority: "High",
+      contentGap: "Their outdoor content is strong, but creator edit styles still skew polished over candid.",
+      suggestedAngle: "Propose a more candid routine format once the current revision cycle closes.",
+      sourceNotes: "Existing relationship makes this more of a renewal-ready opportunity than cold outreach.",
+      status: "new"
+    }
+  ];
+
+  for (const opportunity of opportunities) {
+    db.prepare(
+      `INSERT INTO office_brand_opportunities
+        (id, user_id, worker_slug, brand_name, website, category, source, fit_score, ugc_potential_score,
+         risk_score, priority, content_gap, suggested_angle, source_notes, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      userId,
+      MARA_SLUG,
+      opportunity.brandName,
+      opportunity.website,
+      opportunity.category,
+      opportunity.source,
+      opportunity.fitScore,
+      opportunity.ugcPotentialScore,
+      opportunity.riskScore,
+      opportunity.priority,
+      opportunity.contentGap,
+      opportunity.suggestedAngle,
+      opportunity.sourceNotes,
+      opportunity.status,
+      nowIso(),
+      nowIso()
+    );
+  }
+}
+
+function seedMaraTrendSignals(userId) {
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_trend_signals
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  if (existing.length > 0) return;
+
+  const signals = [
+    {
+      niche: "wellness",
+      platform: "TikTok",
+      signalType: "hook_format",
+      title: "Routine-first hooks are still outperforming polished intros",
+      summary: "Creator-facing wellness content is leaning toward casual first lines before product explanation.",
+      hashtags: ["#morningsetup", "#realroutine"],
+      examples: ["Start on the mess before the product", "Lead with one line of friction before the result"],
+      confidence: "medium",
+      source: "Ryva market intelligence"
+    },
+    {
+      niche: "ugc",
+      platform: "Reddit-derived",
+      signalType: "brand_warning",
+      title: "Creators are asking harder questions about usage duration",
+      summary: "Public creator discussions are increasingly flagging vague paid-usage language as a source of scope creep.",
+      hashtags: [],
+      examples: ["Ask for duration before filming", "Treat raw footage requests as a separate scope conversation"],
+      confidence: "medium",
+      source: "Ryva creator chatter layer"
+    }
+  ];
+
+  for (const signal of signals) {
+    db.prepare(
+      `INSERT INTO office_trend_signals
+        (id, user_id, worker_slug, niche, platform, signal_type, title, summary, hashtags_json, examples_json,
+         confidence, source, detected_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      userId,
+      MARA_SLUG,
+      signal.niche,
+      signal.platform,
+      signal.signalType,
+      signal.title,
+      signal.summary,
+      JSON.stringify(signal.hashtags),
+      JSON.stringify(signal.examples),
+      signal.confidence,
+      signal.source,
+      nowIso()
+    );
+  }
+}
+
+function seedMaraRecentWork(userId, provider = "gmail") {
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM office_activity_logs
+       WHERE user_id = ? AND worker_slug = ? AND module_name = ?`
+    )
+    .all(userId, MARA_SLUG, "Mara");
+
+  if (existing.length > 0) return;
+
+  const worklog = [
+    ["Connected inbox.", "Mara", `${provider === "gmail" ? "Gmail" : "Outlook"} integration ready`],
+    ["Classified email threads.", "Mara", "4 brand-related conversations tagged"],
+    ["Created campaign drafts.", "Mara", "Glow Theory and Kinfield campaigns organized"],
+    ["Prepared approval queue.", "Mara", "3 suggested actions waiting on you"],
+    ["Found brand opportunities.", "Mara", "5 aligned brands added to today's list"]
+  ];
+
+  worklog.forEach(([action, module, result], index) => {
+    db.prepare(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      userId,
+      MARA_SLUG,
+      action,
+      module,
+      result,
+      new Date(Date.now() - index * 1000 * 60 * 18).toISOString()
+    );
+  });
+}
+
+function ensureMaraWorkspaceData(userId, provider = "gmail") {
+  if (!hasHiredWorker(userId, MARA_SLUG)) return;
+  ensureMaraKnowledge(userId);
+  ensureMaraIntegrationRecord(userId, provider);
+  seedMaraThreads(userId, provider);
+  seedMaraCampaigns(userId);
+  seedMaraTasks(userId);
+  seedMaraCalendar(userId);
+  seedMaraSuggestedActions(userId);
+  seedMaraOpportunities(userId);
+  seedMaraTrendSignals(userId);
+  seedMaraRecentWork(userId, provider);
+  insertMaraSyncJob(userId, provider, "generate_daily_mara_brief", "Prepared Mara's daily brief from email, campaigns, and brand signals.");
+}
+
+function maraIntegrations(userId) {
+  return db
+    .prepare(
+      `SELECT provider, status, account_label AS accountLabel, connected_at AS connectedAt, metadata_json AS metadataJson
+       FROM office_worker_integrations
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY provider ASC`
+    )
+    .all(userId, MARA_SLUG)
+    .map((integration) => ({
+      ...integration,
+      metadata: parseJson(integration.metadataJson, {})
+    }));
+}
+
+function buildMaraDailyBrief(userId) {
+  const threads = db
+    .prepare(
+      `SELECT category
+       FROM office_email_threads
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+  const campaigns = db
+    .prepare(
+      `SELECT id
+       FROM office_campaigns
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+  const actions = db
+    .prepare(
+      `SELECT id
+       FROM office_suggested_actions
+       WHERE user_id = ? AND worker_slug = ? AND status = ?`
+    )
+    .all(userId, MARA_SLUG, "suggested");
+  const opportunities = db
+    .prepare(
+      `SELECT id
+       FROM office_brand_opportunities
+       WHERE user_id = ? AND worker_slug = ? AND status = ?`
+    )
+    .all(userId, MARA_SLUG, "new");
+  const risks = db
+    .prepare(
+      `SELECT risk_flags_json AS riskFlagsJson, missing_fields_json AS missingFieldsJson
+       FROM office_campaigns
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .all(userId, MARA_SLUG);
+
+  const countCategory = (category) => threads.filter((thread) => thread.category === category).length;
+  const riskCount = risks.reduce((sum, entry) => sum + parseJson(entry.riskFlagsJson, []).length + parseJson(entry.missingFieldsJson, []).length, 0);
+
+  return {
+    intro: "I checked your inbox, campaigns, calendar, and Ryva's built-in market signals before you got here.",
+    found: [
+      `${countCategory("campaign_brief")} campaign brief${countCategory("campaign_brief") === 1 ? "" : "s"}`,
+      `${countCategory("revision_request")} revision request${countCategory("revision_request") === 1 ? "" : "s"}`,
+      `${countCategory("payment_question")} payment follow-up${countCategory("payment_question") === 1 ? "" : "s"}`,
+      `${opportunities.length} aligned brand opportunit${opportunities.length === 1 ? "y" : "ies"}`
+    ],
+    prepared: [
+      `${actions.length} approval item${actions.length === 1 ? "" : "s"}`,
+      `${campaigns.length} campaign draft${campaigns.length === 1 ? "" : "s"} in motion`,
+      `${riskCount} risk or missing-info flag${riskCount === 1 ? "" : "s"}`
+    ]
+  };
+}
+
+function getMaraDashboard(userId) {
+  const threads = db
+    .prepare(
+      `SELECT id, provider, subject, snippet, received_at AS receivedAt, brand_related AS brandRelated, category, urgency,
+              confidence, reason, brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail,
+              source_message_count AS sourceMessageCount, thread_status AS threadStatus
+       FROM office_email_threads
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY received_at DESC`
+    )
+    .all(userId, MARA_SLUG);
+
+  const campaigns = db
+    .prepare(
+      `SELECT id, brand_name AS brandName, brand_website AS brandWebsite, contact_name AS contactName, contact_email AS contactEmail,
+              product_name AS productName, campaign_name AS campaignName, campaign_status AS campaignStatus, source_thread_id AS sourceThreadId,
+              deliverables_json AS deliverablesJson, brief_text AS briefText, draft_due_date AS draftDueDate, final_due_date AS finalDueDate,
+              payment_amount AS paymentAmount, payment_status AS paymentStatus, usage_rights AS usageRights,
+              usage_rights_status AS usageRightsStatus, revision_limit AS revisionLimit, raw_footage_required AS rawFootageRequired,
+              missing_fields_json AS missingFieldsJson, risk_flags_json AS riskFlagsJson, notes, created_at AS createdAt, updated_at AS updatedAt
+       FROM office_campaigns
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY updated_at DESC`
+    )
+    .all(userId, MARA_SLUG)
+    .map((campaign) => ({
+      ...campaign,
+      deliverables: parseJson(campaign.deliverablesJson, []),
+      missingFields: parseJson(campaign.missingFieldsJson, []),
+      riskFlags: parseJson(campaign.riskFlagsJson, [])
+    }));
+
+  const suggestedActions = db
+    .prepare(
+      `SELECT id, action_type AS actionType, title, description, reason, related_thread_id AS relatedThreadId,
+              related_campaign_id AS relatedCampaignId, related_brand_id AS relatedBrandId, payload_json AS payloadJson,
+              status, requires_approval AS requiresApproval, created_at AS createdAt, updated_at AS updatedAt
+       FROM office_suggested_actions
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC`
+    )
+    .all(userId, MARA_SLUG)
+    .map((action) => ({
+      ...action,
+      payload: parseJson(action.payloadJson, {})
+    }));
+
+  const opportunities = db
+    .prepare(
+      `SELECT id, brand_name AS brandName, website, category, source, fit_score AS fitScore,
+              ugc_potential_score AS ugcPotentialScore, risk_score AS riskScore, priority, content_gap AS contentGap,
+              suggested_angle AS suggestedAngle, source_notes AS sourceNotes, status, created_at AS createdAt, updated_at AS updatedAt
+       FROM office_brand_opportunities
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC`
+    )
+    .all(userId, MARA_SLUG)
+    .slice(0, 5);
+
+  const tasks = db
+    .prepare(
+      `SELECT id, title, module_name AS module, owner, priority, status, due_date AS dueDate
+       FROM office_custom_tasks
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC`
+    )
+    .all(userId, MARA_SLUG);
+
+  const trendSignals = db
+    .prepare(
+      `SELECT id, niche, platform, signal_type AS signalType, title, summary, hashtags_json AS hashtagsJson,
+              examples_json AS examplesJson, confidence, source, detected_at AS detectedAt
+       FROM office_trend_signals
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY detected_at DESC`
+    )
+    .all(userId, MARA_SLUG)
+    .map((signal) => ({
+      ...signal,
+      hashtags: parseJson(signal.hashtagsJson, []),
+      examples: parseJson(signal.examplesJson, [])
+    }));
+
+  const recentWork = db
+    .prepare(
+      `SELECT id, action, module_name AS module, result, created_at AS timestamp
+       FROM office_activity_logs
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC`
+    )
+    .all(userId, MARA_SLUG);
+
+  const risks = campaigns.flatMap((campaign) => [
+    ...campaign.missingFields.map((flag) => ({
+      id: `${campaign.id}-${flag}`,
+      type: "missing_info",
+      flag,
+      campaignId: campaign.id,
+      campaignName: campaign.campaignName,
+      plainLanguage:
+        flag === "payment_amount_missing"
+          ? "This campaign has deliverables and timing, but I could not find the payment amount."
+          : flag === "usage_rights_unclear"
+            ? "The brief does not clearly say how the brand wants to use the content after delivery."
+            : flag === "revision_limit_missing"
+              ? "There is no clear revision limit yet, so scope could expand later."
+              : "Some important campaign information is still missing."
+    })),
+    ...campaign.riskFlags.map((flag) => ({
+      id: `${campaign.id}-${flag}`,
+      type: "risk",
+      flag,
+      campaignId: campaign.id,
+      campaignName: campaign.campaignName,
+      plainLanguage:
+        flag === "raw_footage_requested"
+          ? "Raw footage is being requested. That usually needs explicit confirmation before delivery."
+          : flag === "deadline_missing"
+            ? "Timing is still fuzzy here, so I would not let this sit without a date lock."
+            : flag === "usage_rights_unclear"
+              ? "Usage language is still unclear enough that it could create downstream scope confusion."
+              : "I found an operational risk worth checking before this moves forward."
+    }))
+  ]);
+
+  return {
+    integrations: maraIntegrations(userId),
+    dailyBrief: buildMaraDailyBrief(userId),
+    threads,
+    campaigns,
+    suggestedActions,
+    opportunities,
+    tasks,
+    trendSignals,
+    risks,
+    recentWork
+  };
+}
+
 function upsertWorkerKnowledge(userId, workerSlug, recipe) {
   const record = db
     .prepare(
@@ -937,6 +1949,235 @@ app.post("/api/workers/:slug/onboarding/reply", onboardingLimiter, assertOrigin,
 app.get("/api/office/workers", requireAuth, async (req, res) => {
   const workers = await readHiredWorkersForUser(req.user.id);
   res.json({ workers });
+});
+
+app.get("/api/office/workers/:slug/dashboard", requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "This worker does not have a structured dashboard." });
+    return;
+  }
+
+  ensureMaraKnowledge(req.user.id);
+  res.json(getMaraDashboard(req.user.id));
+});
+
+app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const provider = String(req.body?.provider ?? "gmail").trim().toLowerCase();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Email connection is not available for this worker." });
+    return;
+  }
+
+  if (!["gmail", "outlook"].includes(provider)) {
+    res.status(400).json({ error: "Unsupported provider." });
+    return;
+  }
+
+  ensureMaraWorkspaceData(req.user.id, provider);
+  insertMaraSyncJob(req.user.id, provider, "sync_email_messages", `Connected ${provider === "gmail" ? "Gmail" : "Outlook"} and synced recent threads.`);
+
+  res.json({
+    ok: true,
+    dashboard: getMaraDashboard(req.user.id)
+  });
+});
+
+app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Structured scans are not available for this worker." });
+    return;
+  }
+
+  ensureMaraKnowledge(req.user.id);
+  insertMaraSyncJob(req.user.id, "gmail", "generate_daily_mara_brief", "Mara rescanned threads, campaigns, and brand signals.");
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, MARA_SLUG, "Generated daily brief.", "Mara", "Inbox, campaigns, and opportunities refreshed", nowIso());
+
+  res.json({ ok: true, dashboard: getMaraDashboard(req.user.id) });
+});
+
+app.post("/api/office/workers/:slug/suggested-actions/:actionId", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const actionId = String(req.params.actionId ?? "").trim();
+  const decision = String(req.body?.decision ?? "").trim().toLowerCase();
+  const note = String(req.body?.note ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Suggested actions are not available for this worker." });
+    return;
+  }
+
+  const action = db
+    .prepare(
+      `SELECT *
+       FROM office_suggested_actions
+       WHERE id = ? AND user_id = ? AND worker_slug = ?`
+    )
+    .get(actionId, req.user.id, workerSlug);
+
+  if (!action) {
+    res.status(404).json({ error: "Suggested action not found." });
+    return;
+  }
+
+  if (!["approve", "reject", "revise", "edit"].includes(decision)) {
+    res.status(400).json({ error: "Unsupported decision." });
+    return;
+  }
+
+  const payload = parseJson(action.payload_json, {});
+  const nextStatus = decision === "approve" ? "approved" : decision === "reject" ? "rejected" : "edited";
+  db.prepare(
+    `UPDATE office_suggested_actions
+     SET status = ?, updated_at = ?
+     WHERE id = ? AND user_id = ?`
+  ).run(nextStatus, nowIso(), actionId, req.user.id);
+
+  if (decision === "approve") {
+    if (action.action_type === "create_calendar_event" && payload?.event?.title) {
+      const startsAt = new Date(Date.now() + 1000 * 60 * 60 * 22).toISOString();
+      const endsAt = new Date(Date.now() + 1000 * 60 * 60 * 23).toISOString();
+      db.prepare(
+        `INSERT INTO office_calendar_events
+          (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        randomUUID(),
+        req.user.id,
+        workerSlug,
+        payload.event.title,
+        startsAt,
+        endsAt,
+        String(payload.event.eventType ?? "Focus"),
+        "Approved from Mara's suggested actions.",
+        nowIso(),
+        nowIso()
+      );
+    }
+
+    if (action.action_type === "draft_email") {
+      db.prepare(
+        `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        randomUUID(),
+        req.user.id,
+        workerSlug,
+        "Worker",
+        `Draft approved: ${String(payload?.draftText ?? action.title)}`,
+        nowIso()
+      );
+    }
+  }
+
+  if ((decision === "revise" || decision === "edit") && note) {
+    db.prepare(
+      `UPDATE office_suggested_actions
+       SET description = ?, updated_at = ?
+       WHERE id = ? AND user_id = ?`
+    ).run(
+      `${action.description} ${decision === "edit" ? "Edit requested" : "Revision requested"}: ${note}`,
+      nowIso(),
+      actionId,
+      req.user.id
+    );
+  }
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    req.user.id,
+    workerSlug,
+    decision === "approve"
+      ? "Approved suggested action."
+      : decision === "reject"
+        ? "Rejected suggested action."
+        : decision === "edit"
+          ? "Requested edit."
+          : "Requested revision.",
+    "Mara",
+    action.title,
+    nowIso()
+  );
+
+  res.json({ ok: true, dashboard: getMaraDashboard(req.user.id) });
+});
+
+app.post("/api/office/workers/:slug/opportunities/:opportunityId", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const opportunityId = String(req.params.opportunityId ?? "").trim();
+  const status = String(req.body?.status ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Brand opportunity actions are not available for this worker." });
+    return;
+  }
+
+  if (!["saved_to_crm", "ignored", "not_a_fit", "contacted"].includes(status)) {
+    res.status(400).json({ error: "Unsupported opportunity status." });
+    return;
+  }
+
+  const opportunity = db
+    .prepare(
+      `SELECT brand_name AS brandName
+       FROM office_brand_opportunities
+       WHERE id = ? AND user_id = ? AND worker_slug = ?`
+    )
+    .get(opportunityId, req.user.id, workerSlug);
+
+  if (!opportunity) {
+    res.status(404).json({ error: "Opportunity not found." });
+    return;
+  }
+
+  db.prepare(
+    `UPDATE office_brand_opportunities
+     SET status = ?, updated_at = ?
+     WHERE id = ? AND user_id = ?`
+  ).run(status, nowIso(), opportunityId, req.user.id);
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Updated brand opportunity.", "Mara", `${opportunity.brandName} → ${status}`, nowIso());
+
+  res.json({ ok: true, dashboard: getMaraDashboard(req.user.id) });
 });
 
 app.get("/api/office/overlays", requireAuth, (req, res) => {

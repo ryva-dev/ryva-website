@@ -157,6 +157,61 @@
     }
   },
   {
+    "name": "Mara Vale",
+    "title": "UGC Production Coordinator",
+    "department": "Talent Management",
+    "experience": "2 yrs experience",
+    "salary": "$540/mo",
+    "status": "Available",
+    "description": "Mara keeps your UGC work organized behind the scenes. She checks brand emails, detects campaigns, breaks down briefs, tracks deadlines, creates tasks, flags missing details, prepares simple replies for approval, and finds a small number of aligned brand opportunities each day.",
+    "skills": [
+      "Email intelligence",
+      "Brief parsing",
+      "Campaign tracking",
+      "Deadline management",
+      "Brand opportunities"
+    ],
+    "imageUrl": "",
+    "slug": "mara-vale",
+    "profile": {
+      "availabilityNote": "Available as a first operations hire for creators who need structure around briefs, follow-ups, deadlines, and brand workflow.",
+      "category": "Creator Economy",
+      "experienceSummary": "Two years coordinating UGC campaign operations, creator inboxes, and delivery timelines.",
+      "industry": "UGC & Influencer",
+      "philosophy": "\"The best creators are not always the ones with the most ideas. They are the ones who never lose the thread.\"",
+      "responsibilities": [
+        "Read brand-related emails and classify campaign threads",
+        "Detect UGC opportunities and create campaign drafts",
+        "Parse briefs into deliverables, deadlines, and missing fields",
+        "Create internal tasks and calendar holds",
+        "Draft simple replies for approval",
+        "Flag payment gaps, usage-rights issues, and deadline risk",
+        "Find up to five aligned brand opportunities per day"
+      ],
+      "reviews": [
+        {
+          "company": "Independent creator",
+          "name": "Celine M.",
+          "quote": "Mara makes the business side feel less chaotic. I finally know what needs attention before it turns into a scramble.",
+          "rating": 5
+        }
+      ],
+      "sampleWork": [
+        "Turned four email threads into organized campaign drafts before the creator opened their laptop",
+        "Flagged missing usage rights and drafted the clarification note before filming started",
+        "Built the day's task list, approval queue, and follow-up reminders from one inbox scan"
+      ],
+      "specialties": [
+        "Inbox classification",
+        "Campaign operations",
+        "Task generation",
+        "Approval prep",
+        "Junior-level brand research"
+      ],
+      "summaryTitle": "UGC Production Coordinator"
+    }
+  },
+  {
     "name": "June Okafor",
     "title": "Brand Partnerships Manager",
     "department": "Partnerships",

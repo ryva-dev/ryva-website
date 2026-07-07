@@ -203,6 +203,145 @@ db.exec(`
     updated_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS office_worker_integrations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL,
+    account_label TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    connected_at TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_slug, provider),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_email_threads (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    participants_json TEXT NOT NULL,
+    snippet TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    brand_related INTEGER NOT NULL DEFAULT 0,
+    category TEXT NOT NULL,
+    urgency TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL,
+    brand_name TEXT NOT NULL,
+    contact_name TEXT NOT NULL,
+    contact_email TEXT NOT NULL,
+    source_message_count INTEGER NOT NULL DEFAULT 0,
+    thread_status TEXT NOT NULL,
+    raw_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_campaigns (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    brand_name TEXT NOT NULL,
+    brand_website TEXT NOT NULL,
+    contact_name TEXT NOT NULL,
+    contact_email TEXT NOT NULL,
+    product_name TEXT NOT NULL,
+    campaign_name TEXT NOT NULL,
+    campaign_status TEXT NOT NULL,
+    source_thread_id TEXT,
+    deliverables_json TEXT NOT NULL,
+    brief_text TEXT NOT NULL,
+    draft_due_date TEXT,
+    final_due_date TEXT,
+    payment_amount TEXT NOT NULL,
+    payment_status TEXT NOT NULL,
+    usage_rights TEXT NOT NULL,
+    usage_rights_status TEXT NOT NULL,
+    revision_limit TEXT NOT NULL,
+    raw_footage_required INTEGER NOT NULL DEFAULT 0,
+    missing_fields_json TEXT NOT NULL,
+    risk_flags_json TEXT NOT NULL,
+    notes TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_suggested_actions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    action_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    related_thread_id TEXT,
+    related_campaign_id TEXT,
+    related_brand_id TEXT,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    requires_approval INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_brand_opportunities (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    brand_name TEXT NOT NULL,
+    website TEXT NOT NULL,
+    category TEXT NOT NULL,
+    source TEXT NOT NULL,
+    fit_score INTEGER NOT NULL,
+    ugc_potential_score INTEGER NOT NULL,
+    risk_score INTEGER NOT NULL,
+    priority TEXT NOT NULL,
+    content_gap TEXT NOT NULL,
+    suggested_angle TEXT NOT NULL,
+    source_notes TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_trend_signals (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    niche TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    signal_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    hashtags_json TEXT NOT NULL,
+    examples_json TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    source TEXT NOT NULL,
+    detected_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_sync_jobs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    job_name TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
 
 db.exec(`
