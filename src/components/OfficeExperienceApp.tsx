@@ -383,6 +383,7 @@ function MaraWorkspacePanel({
   onCreateNext,
   onDismissTask,
   onDismissRecommendation,
+  onOpenTask,
   onReject,
   onRunTask,
   onSeedCorrection,
@@ -397,6 +398,7 @@ function MaraWorkspacePanel({
   onCreateNext: (prompt: string) => void;
   onDismissTask: (taskId: string) => Promise<void>;
   onDismissRecommendation: () => void;
+  onOpenTask: (taskTitle: string, nextStep?: string) => void;
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
@@ -477,6 +479,16 @@ function MaraWorkspacePanel({
                       </button>
                       <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
                         {busyId === approval.id ? "Saving..." : "Approve"}
+                      </button>
+                    </div>
+                  ) : item.kind === "blocked_task" ? (
+                    <div className="ro-mara-item-actions">
+                      <button
+                        className="r-btn r-btn-ghost"
+                        type="button"
+                        onClick={() => onOpenTask(item.title, item.nextStep)}
+                      >
+                        Open task
                       </button>
                     </div>
                   ) : null}
@@ -633,7 +645,7 @@ function MaraWorkspacePanel({
                 </div>
                 <div className="ro-mara-item-actions">
                   <button className="r-btn r-btn-ghost" type="button" onClick={() => onSeedCorrection(`Let's work on ${task.title.toLowerCase()}. `)}>
-                    Open in chat
+                    Open task
                   </button>
                   <button className="r-btn r-btn-accent" type="button" onClick={() => void onRunTask(task.id)} disabled={busyId === task.id}>
                     {busyId === task.id ? "Running..." : "Run task"}
@@ -827,6 +839,14 @@ function ChatView({
     }
   };
 
+  const openTask = (taskTitle: string, nextStep?: string) => {
+    const parts = [`Let's work on ${taskTitle.toLowerCase()}.`];
+    if (nextStep) {
+      parts.push(`Next step: ${nextStep}`);
+    }
+    setDraft(parts.join(" "));
+  };
+
   return (
     <div className="ro-chat">
       <div className="ro-chat-list">
@@ -866,6 +886,7 @@ function ChatView({
                   onCreateNext={(prompt) => setDraft(prompt)}
                   onDismissTask={dismissTask}
                   onDismissRecommendation={() => setRecommendationDismissed(true)}
+                  onOpenTask={openTask}
                   onReject={async (approvalId) => updateApproval(approvalId, "rejected")}
                   onRunTask={runTask}
                   onSeedCorrection={(prompt) => setDraft(prompt)}

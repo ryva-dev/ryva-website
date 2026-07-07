@@ -630,6 +630,24 @@ function buildPreviewFromContent(content) {
     .join(" ");
 }
 
+function buildOutputPreview(output) {
+  const structured = output.structuredContent ?? {};
+
+  if (output.outputType === "content_ideas" && Array.isArray(structured.ideas)) {
+    return `${structured.ideas.length} ${output.title.toLowerCase()} ready with hooks, formats, and difficulty notes.`;
+  }
+
+  if (output.outputType === "weekly_plan" && structured.priority) {
+    return `Weekly focus: ${structured.priority}`;
+  }
+
+  if (output.outputType === "pitch_template" && structured.emailPitch) {
+    return String(structured.emailPitch).split("\n").slice(0, 2).join(" ");
+  }
+
+  return buildPreviewFromContent(output.content);
+}
+
 function getMemoryItem(knowledgeSections, title) {
   const section = (Array.isArray(knowledgeSections) ? knowledgeSections : []).find((entry) => String(entry?.title ?? "").trim() === title);
   return Array.isArray(section?.items) ? section.items : [];
@@ -1967,7 +1985,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     .map((output) => ({
       ...output,
       outputPreview: {
-        preview: buildPreviewFromContent(output.content),
+        preview: buildOutputPreview(output),
         title: output.title,
         type: output.outputType
       }
