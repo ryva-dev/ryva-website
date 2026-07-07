@@ -358,6 +358,15 @@ function readOfficeOverlaysForUser(userId) {
          FROM office_onboarding_sessions
          WHERE user_id = ?`
       )
+      .all(userId),
+    integrations: db
+      .prepare(
+        `SELECT worker_slug AS workerSlug, provider, status, account_label AS accountLabel,
+                metadata_json AS metadataJson, connected_at AS connectedAt, updated_at AS updatedAt
+         FROM office_worker_integrations
+         WHERE user_id = ?
+         ORDER BY worker_slug ASC, provider ASC`
+      )
       .all(userId)
   };
 }
@@ -761,7 +770,7 @@ function ensureMaraIntegrationRecord(userId, provider) {
     provider,
     "connected",
     accountLabel,
-    serializeJson({ simulated: true }),
+    serializeJson({ simulated: false }),
     nowIso(),
     nowIso()
   );
@@ -2013,8 +2022,20 @@ app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, a
     return;
   }
 
-  ensureMaraWorkspaceData(req.user.id, provider);
-  insertMaraSyncJob(req.user.id, provider, "sync_email_messages", `Connected ${provider === "gmail" ? "Gmail" : "Outlook"} and synced recent threads.`);
+  ensureMaraIntegrationRecord(req.user.id, provider);
+  insertMaraSyncJob(req.user.id, provider, "connect_integration", `${provider === "gmail" ? "Gmail" : "Outlook"} marked as available for Mara.`);
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    req.user.id,
+    workerSlug,
+    "Connected integration.",
+    "Integrations",
+    `${provider === "gmail" ? "Gmail" : "Outlook"} access enabled`,
+    nowIso()
+  );
 
   res.json({
     ok: true,
@@ -2035,12 +2056,35 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
     return;
   }
 
+  const hasConnectedEmail = db
+    .prepare(
+      `SELECT id
+       FROM office_worker_integrations
+       WHERE user_id = ? AND worker_slug = ? AND provider IN ('gmail', 'outlook') AND status = ?`
+    )
+    .get(req.user.id, workerSlug, "connected");
+
+  if (!hasConnectedEmail) {
+    res.status(400).json({
+      error: "Connect Gmail or Outlook before running an email scan. Mara can still help with briefs, tasks, and operating context without inbox access."
+    });
+    return;
+  }
+
   ensureMaraKnowledge(req.user.id);
-  insertMaraSyncJob(req.user.id, "gmail", "generate_daily_mara_brief", "Mara rescanned threads, campaigns, and brand signals.");
+  insertMaraSyncJob(req.user.id, "gmail", "generate_daily_mara_brief", "Mara started a fresh scan using connected inbox access.");
   db.prepare(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, MARA_SLUG, "Generated daily brief.", "Mara", "Inbox, campaigns, and opportunities refreshed", nowIso());
+  ).run(
+    randomUUID(),
+    req.user.id,
+    MARA_SLUG,
+    "Requested inbox scan.",
+    "Mara",
+    "Connected inbox is ready for real campaign and thread ingestion",
+    nowIso()
+  );
 
   res.json({ ok: true, dashboard: getMaraDashboard(req.user.id) });
 });

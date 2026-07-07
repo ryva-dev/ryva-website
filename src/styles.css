@@ -3837,6 +3837,9 @@ a:focus-visible {
 .ro-chat-scroll { flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; }
 .ro-chat-intro { margin: auto; text-align: center; max-width: 300px; color: var(--muted); }
 .ro-chat-intro p { font-size: 14px; line-height: 1.5; margin-top: 16px; }
+.ro-capability-card { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 15px 16px; color: var(--muted); }
+.ro-capability-card strong { display: block; font-size: 13.5px; color: var(--ink); margin-bottom: 6px; }
+.ro-capability-card p { margin: 0; font-size: 13.5px; line-height: 1.55; }
 .ro-msg { display: flex; gap: 10px; max-width: 74%; }
 .ro-msg.you { align-self: flex-end; flex-direction: row-reverse; }
 .ro-bubble { background: var(--surface); border: 1px solid var(--line-soft); border-radius: 4px 14px 14px 14px; padding: 11px 15px; font-size: 14px; line-height: 1.5; }

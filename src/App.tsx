@@ -760,6 +760,7 @@ export default function App() {
             onNavigate={(hash) => {
               window.location.hash = hash.replace(/^#/, "");
             }}
+            onNotice={setGlobalNotice}
             onRefreshWorkers={refreshOfficeWorkers}
             userName={user.name}
           />

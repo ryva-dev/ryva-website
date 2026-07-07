@@ -217,6 +217,42 @@ const schemas: Record<string, OnboardingSchema> = {
         title: "Finance rules"
       }
     ]
+  },
+  "mara-vale": {
+    id: "mara-vale",
+    role: "UGC Production Coordinator",
+    sections: [
+      {
+        id: "workflow",
+        learningFocus: ["Current workflow", "What falls through the cracks", "Where chaos starts"],
+        questions: [
+          { id: "current_workflow", label: "How are you currently managing brand emails, briefs, deadlines, and follow-ups?", memoryKey: "Current Workflow", required: true, type: "long-text" },
+          { id: "workflow_breakdowns", label: "What usually gets messy or missed right now?", memoryKey: "Workflow Breakdowns", required: true, type: "long-text" },
+          { id: "biggest_admin_drag", label: "What part of the admin side do you most want off your plate?", memoryKey: "Admin Bottlenecks", required: true, type: "long-text" }
+        ],
+        title: "Workflow"
+      },
+      {
+        id: "email",
+        learningFocus: ["Email handling", "Inbox priorities", "Optional integrations"],
+        questions: [
+          { id: "email_volume", label: "What kinds of emails should I pay closest attention to when inbox access is available?", memoryKey: "Inbox Priorities", required: true, type: "long-text" },
+          { id: "reply_boundaries", label: "What should I draft or organize versus always bring back to you first?", memoryKey: "Reply Boundaries", required: true, type: "long-text" },
+          { id: "integration_interest", label: "Do you want to connect Gmail or Outlook later so I can help with email-based campaign work?", memoryKey: "Integration Intent", type: "select", options: ["Yes, later", "Maybe later", "No, keep it manual"] }
+        ],
+        title: "Inbox rules"
+      },
+      {
+        id: "operations",
+        learningFocus: ["Approvals", "Deadlines", "Priority setting"],
+        questions: [
+          { id: "deadline_style", label: "How do you want deadlines and reminders handled?", memoryKey: "Deadline Style", required: true, type: "long-text" },
+          { id: "approval_rules", label: "What should always require your approval?", memoryKey: "Approval Rules", required: true, type: "long-text" },
+          { id: "daily_output", label: "At the end of a normal day, what do you want ready for you?", memoryKey: "Daily Output", type: "long-text" }
+        ],
+        title: "Operating rules"
+      }
+    ]
   }
 };
 
@@ -240,6 +276,12 @@ function defaultSchema(worker: Worker): OnboardingSchema {
 }
 
 export function getOnboardingSchema(worker: Worker) {
+  if (["sloane-pierce", "etta-marsh", "rowan-feld"].includes(worker.slug)) {
+    return schemas["lena-carter"];
+  }
+  if (worker.slug === "june-okafor") {
+    return schemas["june-ellis"];
+  }
   if (worker.slug === "david-chen") {
     return schemas["miles-reed"];
   }
@@ -251,6 +293,55 @@ function answer(answers: Record<string, string>, key: string, fallback = "Not pr
 }
 
 export function buildOnboardingCompletionPayload(worker: Worker, answers: Record<string, string>): OnboardingCompletionPayload {
+  if (worker.slug === "mara-vale") {
+    const summary = [
+      `Current workflow: ${answer(answers, "current_workflow")}`,
+      `Breakdowns to fix: ${answer(answers, "workflow_breakdowns")}`,
+      `Admin bottleneck: ${answer(answers, "biggest_admin_drag")}`,
+      `Inbox priorities: ${answer(answers, "email_volume")}`,
+      `Reply boundaries: ${answer(answers, "reply_boundaries")}`,
+      `Integration intent: ${answer(answers, "integration_interest", "Not decided")}`,
+      `Deadline style: ${answer(answers, "deadline_style")}`,
+      `Approval rules: ${answer(answers, "approval_rules")}`,
+      `Daily output: ${answer(answers, "daily_output")}`
+    ];
+
+    return {
+      briefing: {
+        agenda: ["Review inbox and workflow priorities", "Confirm approval boundaries", "Agree on deadline and reminder handling"],
+        dateLabel: "Tomorrow · 9:30 AM",
+        decisionsNeeded: ["Confirm what should stay manual versus delegated", "Decide whether inbox access should be connected later"],
+        recommendedActions: ["Set first operating checklist", "Build the first campaign-tracking rhythm"],
+        summary: "Mara documented your workflow, inbox priorities, and approval boundaries so she can operate as a real coordinator instead of a generic assistant.",
+        title: "Operations Onboarding Briefing"
+      },
+      firstDayNotice: "Mara has joined your office. She captured how you want campaign ops handled and is ready to work from your rules, with inbox access remaining optional.",
+      knowledge: [
+        { title: "Current Workflow", items: normalizeSummaryItems(answer(answers, "current_workflow")) },
+        { title: "Workflow Breakdowns", items: normalizeSummaryItems(answer(answers, "workflow_breakdowns")) },
+        { title: "Admin Bottlenecks", items: normalizeSummaryItems(answer(answers, "biggest_admin_drag")) },
+        { title: "Inbox Priorities", items: normalizeSummaryItems(answer(answers, "email_volume")) },
+        { title: "Reply Boundaries", items: normalizeSummaryItems(answer(answers, "reply_boundaries")) },
+        { title: "Integration Intent", items: [answer(answers, "integration_interest", "Not decided")] },
+        { title: "Operating Rules", items: [answer(answers, "deadline_style"), answer(answers, "approval_rules"), answer(answers, "daily_output")] }
+      ],
+      summary,
+      tasks: [
+        { dueDate: "Today", module: "Operations", owner: "Worker", priority: "High", status: "To Do", title: "Set up the first campaign operations checklist from onboarding notes" },
+        { dueDate: "Tomorrow", module: "Briefings", owner: "Worker", priority: "High", status: "To Do", title: "Prepare the first daily operations briefing" },
+        { dueDate: "Tomorrow", module: "Approvals", owner: "You", priority: "Medium", status: "Needs Review", title: "Review Mara's approval boundaries and inbox priorities" }
+      ],
+      worklogEntry: {
+        module: "Onboarding",
+        result: "Operations preferences and optional inbox rules recorded"
+      }
+    };
+  }
+
+  if (["sloane-pierce", "etta-marsh", "rowan-feld"].includes(worker.slug)) {
+    worker = { ...worker, slug: "lena-carter" } as Worker;
+  }
+
   if (worker.slug === "david-chen") {
     const summary = [
       `Target customer: ${answer(answers, "target_customer")}`,

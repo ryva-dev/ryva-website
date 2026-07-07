@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { OnboardingSessionState } from "../onboardingSchemas";
 import type { Worker } from "../types";
+import { WorkerOnboardingPage } from "./WorkerOnboardingPage";
 import { WorkerMark } from "./WorkerMark";
 
 /* ============================================================
@@ -13,6 +15,7 @@ type OfficeExperienceAppProps = {
   hiredWorkers: Worker[];
   onCheckoutWorker: (workerSlug: string) => Promise<void>;
   onNavigate: (hash: string) => void;
+  onNotice: (message: string) => void;
   onRefreshWorkers: () => Promise<void>;
   userName: string;
 };
@@ -39,6 +42,22 @@ type OverlaySuggestedAction = {
   createdAt: string;
 };
 type OverlayGlobalSettings = { settingsJson: string; updatedAt?: string } | null;
+type OverlayIntegration = {
+  workerSlug: string;
+  provider: string;
+  status: string;
+  accountLabel: string;
+  metadataJson: string;
+  connectedAt?: string | null;
+  updatedAt?: string;
+};
+type OverlayOnboarding = {
+  workerSlug: string;
+  status: OnboardingSessionState["status"];
+  answersJson: string;
+  generatedSummaryJson: string;
+  completedAt?: string | null;
+};
 
 type Overlays = {
   chats: OverlayChat[];
@@ -49,13 +68,15 @@ type Overlays = {
   briefings: OverlayBriefing[];
   calendarEvents: OverlayCalendarEvent[];
   globalSettings: OverlayGlobalSettings;
+  integrations: OverlayIntegration[];
+  onboarding: OverlayOnboarding[];
 };
 
 const EMPTY_OVERLAYS: Overlays = {
-  chats: [], tasks: [], suggestedActions: [], worklog: [], files: [], briefings: [], calendarEvents: [], globalSettings: null,
+  chats: [], tasks: [], suggestedActions: [], worklog: [], files: [], briefings: [], calendarEvents: [], globalSettings: null, integrations: [], onboarding: [],
 };
 
-type Tab = "today" | "chat" | "approvals" | "calendar" | "team" | "files" | "settings";
+type Tab = "today" | "chat" | "approvals" | "calendar" | "team" | "files" | "settings" | "worker-onboarding";
 const WORKER_DEPENDENT: Tab[] = ["today", "chat", "approvals", "team", "files"];
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -74,6 +95,9 @@ async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T>
 function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null } {
   const parts = hash.replace(/^#/, "").replace(/^\/+/, "").split("/").filter(Boolean);
   if (parts[0] !== "app" || parts[1] !== "office") return { tab: "today", workerSlug: null };
+  if (parts[2] === "workers" && parts[3] && parts[4] === "onboarding") {
+    return { tab: "worker-onboarding", workerSlug: parts[3] };
+  }
   const raw = parts[2] as Tab | undefined;
   const tab: Tab = (["today", "chat", "approvals", "calendar", "team", "files", "settings"] as Tab[]).includes(raw as Tab) ? (raw as Tab) : "today";
   return { tab, workerSlug: parts[3] ?? null };
@@ -94,6 +118,36 @@ function timeAgo(iso: string): string {
 function clock(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function parseOnboardingSession(record: OverlayOnboarding | undefined): OnboardingSessionState | null {
+  if (!record) {
+    return null;
+  }
+
+  let answers: Record<string, string> = {};
+  let generatedSummary: string[] = [];
+
+  try {
+    const parsed = JSON.parse(record.answersJson);
+    answers = parsed && typeof parsed === "object" ? parsed as Record<string, string> : {};
+  } catch {
+    answers = {};
+  }
+
+  try {
+    const parsed = JSON.parse(record.generatedSummaryJson);
+    generatedSummary = Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    generatedSummary = [];
+  }
+
+  return {
+    answers,
+    completedAt: record.completedAt ?? null,
+    generatedSummary,
+    status: record.status
+  };
 }
 
 /* ---------- shared chrome ---------- */
@@ -232,6 +286,13 @@ function ChatView({
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
     [overlays.chats, active?.slug]
   );
+  const activeIntegrations = useMemo(
+    () => overlays.integrations.filter((integration) => integration.workerSlug === active?.slug),
+    [active?.slug, overlays.integrations]
+  );
+  const canUseEmail = activeIntegrations.some(
+    (integration) => integration.status === "connected" && (integration.provider === "gmail" || integration.provider === "outlook")
+  );
 
   const send = async () => {
     if (!active || !draft.trim() || sending) return;
@@ -271,6 +332,16 @@ function ChatView({
             <div><b>{active.name}</b><span>{active.title}</span></div>
           </div>
           <div className="ro-chat-scroll">
+            {active.slug === "mara-vale" ? (
+              <div className="ro-capability-card">
+                <strong>{canUseEmail ? "Inbox access connected" : "Inbox access not connected"}</strong>
+                <p>
+                  {canUseEmail
+                    ? "Mara can use connected inbox access in addition to normal office chat, briefings, tasks, and operating memory."
+                    : "Mara can still help with chat, workflow setup, briefings, task structure, and operating memory. Connect Gmail or Outlook later if you want inbox triage and email-based campaign work."}
+                </p>
+              </div>
+            ) : null}
             {thread.length === 0 ? (
               <div className="ro-chat-intro">
                 <WorkerMark seed={active.slug} size={52} />
@@ -719,7 +790,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
 
 /* ---------- shell ---------- */
 
-export function OfficeExperienceApp({ hiredWorkers, onNavigate, userName }: OfficeExperienceAppProps) {
+export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userName }: OfficeExperienceAppProps) {
   const [route, setRoute] = useState(() => parseOfficeRoute(window.location.hash));
   const [overlays, setOverlays] = useState<Overlays>(EMPTY_OVERLAYS);
   const [loading, setLoading] = useState(true);
@@ -744,6 +815,33 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, userName }: Offi
   const { tab, workerSlug } = route;
   const hasWorkers = hiredWorkers.length > 0;
   const go = (hash: string) => onNavigate(hash);
+  const onboardingByWorker = useMemo(
+    () =>
+      new Map(
+        overlays.onboarding.map((record) => [record.workerSlug, parseOnboardingSession(record)])
+      ),
+    [overlays.onboarding]
+  );
+  const firstIncompleteWorker = useMemo(
+    () => hiredWorkers.find((worker) => onboardingByWorker.get(worker.slug)?.status !== "completed") ?? null,
+    [hiredWorkers, onboardingByWorker]
+  );
+
+  useEffect(() => {
+    if (loading || !firstIncompleteWorker) {
+      return;
+    }
+
+    if (tab === "worker-onboarding" && workerSlug === firstIncompleteWorker.slug) {
+      return;
+    }
+
+    if (tab === "settings") {
+      return;
+    }
+
+    go(`#app/office/workers/${firstIncompleteWorker.slug}/onboarding`);
+  }, [firstIncompleteWorker, go, loading, tab, workerSlug]);
 
   const emptyLabels: Record<string, string> = {
     today: "your day", chat: "your conversations", approvals: "work waiting on you", team: "your team", files: "shared files",
@@ -754,6 +852,37 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, userName }: Offi
     main = <div className="ro-main-scroll"><div className="ro-quiet-card ro-quiet-lg">Loading your office…</div></div>;
   } else if (WORKER_DEPENDENT.includes(tab) && !hasWorkers) {
     main = <EmptyOffice label={emptyLabels[tab] ?? "your office"} onNavigate={go} />;
+  } else if (tab === "worker-onboarding" && workerSlug) {
+    const worker = hiredWorkers.find((entry) => entry.slug === workerSlug) ?? null;
+    const session = worker ? onboardingByWorker.get(worker.slug) ?? null : null;
+
+    main = worker ? (
+      <WorkerOnboardingPage
+        onComplete={async (payload) => {
+          await officeJson(`/api/office/workers/${worker.slug}/onboarding/complete`, {
+            method: "POST",
+            body: JSON.stringify(payload)
+          });
+          await reload();
+          onNotice(payload.generatedSummary.length > 0 ? payload.generatedSummary[0] : payload.worklogEntry.result);
+          go(`#app/office/chat/${worker.slug}`);
+        }}
+        onSaveProgress={async (payload) => {
+          await officeJson(`/api/office/workers/${worker.slug}/onboarding/save`, {
+            method: "POST",
+            body: JSON.stringify(payload)
+          });
+        }}
+        onStartFirstDay={(notice) => {
+          onNotice(notice);
+          go(`#app/office/chat/${worker.slug}`);
+        }}
+        session={session}
+        worker={worker}
+      />
+    ) : (
+      <div className="ro-main-scroll"><div className="ro-quiet-card ro-quiet-lg">This worker could not be found.</div></div>
+    );
   } else {
     switch (tab) {
       case "chat": {
