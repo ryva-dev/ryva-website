@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { initWorkerTables } from "./workerEngine.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -354,6 +355,8 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 `);
+
+initWorkerTables(db);
 
 db.exec(`
   INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
