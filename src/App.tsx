@@ -307,6 +307,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!globalNotice) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setGlobalNotice("");
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [globalNotice]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const notice = params.get("notice");
     const resetTokenFromUrl = params.get("reset_token");
@@ -505,9 +517,7 @@ export default function App() {
     setAuthError("");
     try {
       const response = await apiJson<{
-        emailVerificationFailed: boolean;
-        emailVerificationPreview: string | null;
-        emailVerificationSent: boolean;
+        emailVerificationQueued: boolean;
         user: AuthUser;
       }>("/api/auth/register", {
         method: "POST",
@@ -517,13 +527,7 @@ export default function App() {
       setHiredWorkers([]);
       setIsAuthModalOpen(false);
       window.location.hash = response.user.onboarded ? "workers" : "onboarding";
-      setGlobalNotice(
-        response.emailVerificationFailed
-          ? "Account created, but we couldn't send the verification email. Use resend verification after sign-in."
-          : response.emailVerificationPreview
-          ? `Account created. Verification email written to ${response.emailVerificationPreview}.`
-          : "Account created. Check your email to verify your account."
-      );
+      setGlobalNotice("Account created. Check your email to verify your account.");
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Registration failed.");
     } finally {

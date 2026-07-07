@@ -2424,19 +2424,13 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
 
   const sessionToken = createSession(user.id);
   setSessionCookie(res, sessionToken);
-
-  let mailResult = { preview: null, sent: false };
-  try {
-    mailResult = await issueEmailVerification(user);
-  } catch (error) {
-    console.error("Email verification delivery failed on register:", error);
-    mailResult = { preview: null, sent: false };
-  }
   res.status(201).json({
-    emailVerificationSent: Boolean(mailResult.sent),
-    emailVerificationFailed: !mailResult.sent,
-    emailVerificationPreview: mailResult.preview,
+    emailVerificationQueued: true,
     user: toSafeUser(user)
+  });
+
+  void issueEmailVerification(user).catch((error) => {
+    console.error("Email verification delivery failed on register:", error);
   });
 });
 
