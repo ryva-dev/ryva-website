@@ -565,21 +565,32 @@ async function generateInterviewReply(worker, messages) {
 }
 
 function fallbackOnboardingReply(worker, questionLabel, answerText, nextQuestionLabel) {
-  const shortName = worker.name.split(" ")[0];
   const answer = String(answerText ?? "").trim();
   const nextQuestion = String(nextQuestionLabel ?? "").trim();
-  const focus =
-    questionLabel?.toLowerCase().includes("goal")
-      ? "That gives me a clear sense of the outcome you want me optimizing for."
-      : questionLabel?.toLowerCase().includes("approval")
-        ? "That helps me understand where I should move independently and where I should stop for sign-off."
-        : questionLabel?.toLowerCase().includes("brand") || questionLabel?.toLowerCase().includes("niche")
-          ? "That sharpens the context I should use when I make decisions on your behalf."
-          : "That gives me useful operating context.";
+  const lowerQuestion = String(questionLabel ?? "").toLowerCase();
+  const lowerAnswer = answer.toLowerCase();
 
-  return nextQuestion
-    ? `${focus} I’ve noted "${answer.slice(0, 120)}${answer.length > 120 ? "..." : ""}". Next, ${nextQuestion.charAt(0).toLowerCase()}${nextQuestion.slice(1)}`
-    : `${focus} I’ve captured that and I have enough to set up the first working plan, memory, and briefing.`;
+  let acknowledgment = "That helps me see where I should create structure first.";
+
+  if (lowerQuestion.includes("goal")) {
+    acknowledgment = "That gives me a clearer sense of what success should look like for you.";
+  } else if (lowerQuestion.includes("approval")) {
+    acknowledgment = "That helps me understand where I should move independently and where I should stop for your sign-off.";
+  } else if (lowerQuestion.includes("brand") || lowerQuestion.includes("niche")) {
+    acknowledgment = "That gives me better context for the kinds of decisions and recommendations that will actually fit you.";
+  } else if (lowerAnswer.includes("lose track") || lowerAnswer.includes("losing track")) {
+    acknowledgment = "That tells me visibility and follow-through need to be much tighter.";
+  } else if (lowerAnswer.includes("not doing anything") || lowerAnswer.includes("no system")) {
+    acknowledgment = "That helps. It sounds like I should assume there is not a real system in place yet and build from zero.";
+  } else if (lowerAnswer.includes("follow up") || lowerAnswer.includes("follow-up")) {
+    acknowledgment = "That helps me see where consistency is breaking down.";
+  }
+
+  if (!nextQuestion) {
+    return `${acknowledgment} I have enough to shape the first working plan and operating setup from here.`;
+  }
+
+  return `${acknowledgment} ${nextQuestion}`;
 }
 
 function formatKnownOnboardingAnswers(knownAnswers) {
@@ -1995,7 +2006,8 @@ app.post("/api/workers/:slug/onboarding/reply", onboardingLimiter, assertOrigin,
       summarySoFar: Array.isArray(req.body?.summarySoFar) ? req.body.summarySoFar.map((entry) => String(entry)) : []
     });
     res.json({ reply });
-  } catch {
+  } catch (error) {
+    console.error("Onboarding reply generation failed:", error);
     res.json({
       reply: fallbackOnboardingReply(worker, questionLabel, answerText, String(req.body?.nextQuestionLabel ?? "").trim()),
       fallback: true
