@@ -139,6 +139,50 @@ type MaraWorkspace = {
   whatMaraKnows: MaraWorkspaceKnowledge[];
 };
 
+type WorkerDeskMemory = {
+  id: string;
+  label: string;
+  text: string;
+};
+
+type WorkerDeskApproval = {
+  id: string;
+  type: string;
+  title: string;
+  summary: string;
+  reason: string;
+  status: string;
+};
+
+type WorkerDeskDeliverable = {
+  id: string;
+  title: string;
+  summary: string;
+  sourceLabel: string;
+  updatedAt: string;
+};
+
+type WorkerDeskActivity = {
+  id: string;
+  title: string;
+  summary: string;
+  createdAt: string;
+};
+
+type WorkerDesk = {
+  workerSlug: string;
+  currentFocus: string;
+  currentFocusReason: string;
+  workInMotion: Array<{ id: string; title: string; summary: string; status: string }>;
+  waitingOnUser: Array<{ id: string; title: string; summary: string; actionLabel?: string }>;
+  recentCompleted: WorkerDeskDeliverable[];
+  recentActivity: WorkerDeskActivity[];
+  approvals: WorkerDeskApproval[];
+  memory: WorkerDeskMemory[];
+  connectedTools: Array<{ provider: string; status: string; label: string }>;
+  recommendedNext: string | null;
+};
+
 type Overlays = {
   chats: OverlayChat[];
   tasks: OverlayTask[];
@@ -198,6 +242,204 @@ function timeAgo(iso: string): string {
 function clock(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function isMaraWorker(workerSlug: string | null | undefined) {
+  return workerSlug === "mara-vale";
+}
+
+function usePersistentBoolean(key: string, fallback: boolean) {
+  const [value, setValue] = useState<boolean>(() => {
+    if (typeof window === "undefined") return fallback;
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? fallback : raw === "1";
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem(key, value ? "1" : "0");
+  }, [key, value]);
+
+  return [value, setValue] as const;
+}
+
+function sentenceCase(value: string) {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (!trimmed) return "";
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function normalizeOfficeCopy(value: string, fallback = "") {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (!trimmed) return fallback;
+  const cleaned = trimmed
+    .replace(/\bI run\b/i, "Runs")
+    .replace(/\bI need help\b/i, "Needs help")
+    .replace(/\bI want help\b/i, "Wants help")
+    .replace(/\bI want\b/i, "Wants")
+    .replace(/\bI am\b/i, "Is")
+    .replace(/\bI’m\b/i, "Is")
+    .replace(/\bmy\b/gi, "their");
+  return sentenceCase(cleaned);
+}
+
+function formatWorkerCategory(worker: Worker) {
+  return worker.department || worker.profile.category || "General";
+}
+
+function parseJsonList(json: string): string[] {
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject<T>(json: string, fallback: T): T {
+  try {
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === "object" ? (parsed as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function buildFallbackMemory(record: OverlayOnboarding | undefined): WorkerDeskMemory[] {
+  if (!record) return [];
+  const generated = parseJsonList(record.generatedSummaryJson)
+    .map((item, index) => ({
+      id: `${record.workerSlug}-memory-${index}`,
+      label: index === 0 ? "Context" : "Working note",
+      text: normalizeOfficeCopy(item)
+    }));
+  return generated.slice(0, 5);
+}
+
+function buildWorkerDesk(
+  worker: Worker,
+  overlays: Overlays,
+  onboarding: OverlayOnboarding | undefined,
+  workspace: MaraWorkspace | null
+): WorkerDesk {
+  const workerTasks = overlays.tasks.filter((task) => task.workerSlug === worker.slug);
+  const workerActions = overlays.suggestedActions.filter((action) => action.workerSlug === worker.slug);
+  const workerFiles = overlays.files.filter((file) => file.workerSlug === worker.slug);
+  const workerEvents = overlays.calendarEvents.filter((event) => event.workerSlug === worker.slug);
+  const workerActivity = overlays.worklog.filter((entry) => entry.workerSlug === worker.slug);
+  const integrations = overlays.integrations.filter((integration) => integration.workerSlug === worker.slug);
+  const approvalsFromOverlay: WorkerDeskApproval[] = [
+    ...workerActions
+      .filter((action) => action.status === "suggested" && action.requiresApproval)
+      .map((action) => ({
+        id: action.id,
+        type: action.actionType,
+        title: action.title,
+        summary: normalizeOfficeCopy(action.description),
+        reason: normalizeOfficeCopy(action.reason),
+        status: action.status
+      })),
+    ...workerTasks
+      .filter((task) => task.status === "Needs Review")
+      .map((task) => ({
+        id: task.id,
+        type: "review_task",
+        title: task.title,
+        summary: `${task.module} is ready for review.`,
+        reason: "This work needs your sign-off before it moves forward.",
+        status: task.status
+      }))
+  ];
+  const waitingFromWorkspace =
+    workspace?.waitingOnUser.map((item) => ({
+      id: item.id,
+      title: item.title,
+      summary: normalizeOfficeCopy(item.nextStep || item.description || item.blockerReason || ""),
+      actionLabel: item.kind === "approval" ? "Review" : "Open task"
+    })) ?? [];
+  const waitingFallback = approvalsFromOverlay.map((approval) => ({
+    id: approval.id,
+    title: approval.title,
+    summary: approval.reason,
+    actionLabel: "Review"
+  }));
+  const outputs =
+    workspace?.latestOutputs.map((output) => ({
+      id: output.id,
+      title: output.outputPreview?.title || output.title,
+      summary: output.outputPreview?.preview || normalizeOfficeCopy(output.description || "", "Output ready to review."),
+      sourceLabel: "Deliverable",
+      updatedAt: output.dueAt || new Date().toISOString()
+    })) ??
+    workerFiles.slice(0, 3).map((file) => ({
+      id: file.id,
+      title: file.name,
+      summary: `${file.type} prepared by ${worker.name.split(" ")[0]}.`,
+      sourceLabel: "File",
+      updatedAt: file.updatedAt
+    }));
+  const inMotion =
+    workspace?.runnableTasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      summary: normalizeOfficeCopy(task.description),
+      status: task.status
+    })) ??
+    workerTasks
+      .filter((task) => task.status !== "Completed" && task.status !== "Needs Review")
+      .slice(0, 3)
+      .map((task) => ({
+        id: task.id,
+        title: task.title,
+        summary: `${task.module} · ${task.priority} priority`,
+        status: task.status
+      }));
+  const memory =
+    workspace?.whatMaraKnows.flatMap((section, index) =>
+      section.items.slice(0, 1).map((item) => ({
+        id: `${section.friendlyLabel}-${index}`,
+        label: section.friendlyLabel,
+        text: normalizeOfficeCopy(item)
+      }))
+    ) ?? buildFallbackMemory(onboarding);
+  const connectedTools = integrations.map((integration) => ({
+    provider: integration.provider,
+    status: integration.status,
+    label: integration.accountLabel || integration.provider
+  }));
+  const recentActivity =
+    workspace?.recentActivity.map((entry) => ({
+      id: entry.id,
+      title: entry.title,
+      summary: normalizeOfficeCopy(entry.description),
+      createdAt: entry.createdAt
+    })) ??
+    workerActivity.slice(0, 5).map((entry) => ({
+      id: entry.id,
+      title: entry.action,
+      summary: normalizeOfficeCopy(entry.result),
+      createdAt: entry.timestamp
+    }));
+  const fallbackFocus =
+    inMotion[0]?.title ||
+    approvalsFromOverlay[0]?.title ||
+    workerEvents
+      .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt))[0]
+      ?.title ||
+    "Ready for the next assignment";
+
+  return {
+    workerSlug: worker.slug,
+    approvals: approvalsFromOverlay,
+    connectedTools,
+    currentFocus: workspace?.currentFocus || fallbackFocus,
+    currentFocusReason: workspace?.currentWork?.description || inMotion[0]?.summary || `${worker.name.split(" ")[0]} is available for the next piece of work.`,
+    memory: memory.slice(0, 5),
+    recentActivity: recentActivity.slice(0, 5),
+    recentCompleted: outputs.slice(0, 3),
+    recommendedNext: workspace?.recommendedNext?.label || waitingFromWorkspace[0]?.title || inMotion[0]?.title || null,
+    waitingOnUser: (waitingFromWorkspace.length > 0 ? waitingFromWorkspace : waitingFallback).slice(0, 3),
+    workInMotion: inMotion.slice(0, 3)
+  };
 }
 
 function parseOnboardingSession(record: OverlayOnboarding | undefined): OnboardingSessionState | null {
@@ -288,71 +530,139 @@ function EmptyOffice({ label, onNavigate }: { label: string; onNavigate: (h: str
 /* ---------- Today ---------- */
 
 function TodayView({
-  userName, workers, overlays, onNavigate, onApprovalsClick,
+  desks, userName, workers, overlays, onNavigate, onApprovalsClick,
 }: {
+  desks: WorkerDesk[];
   userName: string; workers: Worker[]; overlays: Overlays;
   onNavigate: (h: string) => void; onApprovalsClick: () => void;
 }) {
-  const pendingTasks = overlays.tasks.filter((t) => t.status === "Needs Review");
-  const suggestedApprovals = overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval);
-  const approvalsCount = pendingTasks.length + overlays.briefings.length + suggestedApprovals.length;
+  const approvalsCount = desks.reduce((count, desk) => count + desk.waitingOnUser.length, 0);
   const today = new Date();
   const todaysEvents = overlays.calendarEvents
     .filter((e) => new Date(e.startsAt).toDateString() === today.toDateString())
     .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
+  const attentionItems = desks
+    .flatMap((desk) =>
+      desk.waitingOnUser.map((item) => ({
+        ...item,
+        workerSlug: desk.workerSlug
+      }))
+    )
+    .slice(0, 5);
+  const workMoving = desks
+    .flatMap((desk) =>
+      desk.workInMotion.map((item) => ({
+        ...item,
+        workerSlug: desk.workerSlug
+      }))
+    )
+    .slice(0, 6);
+  const recentChanges = desks
+    .flatMap((desk) =>
+      desk.recentActivity.map((item) => ({
+        ...item,
+        workerSlug: desk.workerSlug
+      }))
+    )
+    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
+    .slice(0, 6);
 
   return (
     <div className="ro-main-scroll">
       <div className="ro-day-head">
         <h1>Good {today.getHours() < 12 ? "morning" : today.getHours() < 18 ? "afternoon" : "evening"}, <em>{userName.split(" ")[0]}.</em></h1>
         <div className="ro-clockline">
-          <span className="ro-live-dot" />
           <span>{workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock</span>
         </div>
       </div>
 
-      <div className="ro-today-grid">
-        <div>
-          <button className="ro-panel-title ro-linkrow" type="button" onClick={onApprovalsClick}>
-            Waiting on you <span className="n">{approvalsCount === 0 ? "all clear" : `${approvalsCount} ${approvalsCount === 1 ? "item" : "items"}`}</span>
+      <div className="ro-today-grid ro-today-grid-wide">
+        <section className="ro-flow-section">
+          <button className="ro-section-head ro-linkrow" type="button" onClick={onApprovalsClick}>
+            <div>
+              <span className="ro-section-kicker">Attention</span>
+              <h2>What needs you</h2>
+            </div>
+            <span className="ro-section-meta">{approvalsCount === 0 ? "All clear" : `${approvalsCount} item${approvalsCount === 1 ? "" : "s"}`}</span>
           </button>
-          {approvalsCount === 0 ? (
-            <div className="ro-quiet-card">Nothing needs your sign-off right now.</div>
+          {attentionItems.length === 0 ? (
+            <div className="ro-quiet-card">Nothing is waiting on you right now.</div>
           ) : (
-            <>
-              {pendingTasks.slice(0, 3).map((t) => (
-                <button key={t.id} className="ro-appr-mini" type="button" onClick={onApprovalsClick}>
-                  <WorkerMark seed={t.workerSlug} size={22} />
-                  <div><b>{t.title}</b><span>{t.module} · needs review</span></div>
+            <div className="ro-flow-list">
+              {attentionItems.map((item) => (
+                <button key={item.id} className="ro-flow-row" type="button" onClick={onApprovalsClick}>
+                  <div className="ro-flow-row-mark"><WorkerMark seed={item.workerSlug} size={20} /></div>
+                  <div className="ro-flow-row-copy">
+                    <strong>{item.title}</strong>
+                    <p>{item.summary}</p>
+                  </div>
                 </button>
               ))}
-              {overlays.briefings.slice(0, 2).map((b) => (
-                <button key={b.id} className="ro-appr-mini" type="button" onClick={onApprovalsClick}>
-                  <WorkerMark seed={b.workerSlug} size={22} />
-                  <div><b>{b.title}</b><span>{b.dateLabel} · briefing</span></div>
-                </button>
-              ))}
-            </>
+            </div>
           )}
+        </section>
 
-          <div className="ro-panel-title" style={{ marginTop: 30 }}>Happening today</div>
-          {overlays.worklog.length === 0 ? (
-            <div className="ro-quiet-card">No activity logged yet. As your workers act, it shows up here.</div>
+        <section className="ro-flow-section">
+          <div className="ro-section-head">
+            <div>
+              <span className="ro-section-kicker">In motion</span>
+              <h2>Work moving through the office</h2>
+            </div>
+          </div>
+          {workMoving.length === 0 ? (
+            <div className="ro-quiet-card">Your workers are ready for their next assignments.</div>
+          ) : (
+            <div className="ro-flow-list">
+              {workMoving.map((item) => (
+                <button
+                  key={item.id}
+                  className="ro-flow-row"
+                  type="button"
+                  onClick={() => onNavigate(`#app/office/chat/${item.workerSlug}`)}
+                >
+                  <div className="ro-flow-row-mark"><WorkerMark seed={item.workerSlug} size={20} /></div>
+                  <div className="ro-flow-row-copy">
+                    <strong>{item.title}</strong>
+                    <p>{item.summary}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="ro-flow-section">
+          <div className="ro-section-head">
+            <div>
+              <span className="ro-section-kicker">Recent</span>
+              <h2>What changed</h2>
+            </div>
+          </div>
+          {recentChanges.length === 0 ? (
+            <div className="ro-quiet-card">No recent activity yet.</div>
           ) : (
             <div className="ro-feed">
-              {overlays.worklog.slice(0, 8).map((w) => (
-                <div className="ro-event" key={w.id}>
-                  <WorkerMark seed={w.workerSlug} size={26} />
-                  <div className="ro-event-body">{w.action} {w.result && <span className="ro-event-obj">{w.result}</span>}</div>
-                  <time>{timeAgo(w.timestamp)}</time>
+              {recentChanges.map((entry) => (
+                <div className="ro-event" key={entry.id}>
+                  <WorkerMark seed={entry.workerSlug} size={22} />
+                  <div className="ro-event-body">
+                    <strong>{entry.title}</strong>
+                    <p>{entry.summary}</p>
+                  </div>
+                  <time>{timeAgo(entry.createdAt)}</time>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </section>
 
-        <aside className="ro-sched-card">
-          <div className="ro-panel-title">Today's calendar</div>
+        <aside className="ro-flow-section ro-sched-card">
+          <div className="ro-section-head">
+            <div>
+              <span className="ro-section-kicker">Upcoming</span>
+              <h2>Today</h2>
+            </div>
+          </div>
           {todaysEvents.length === 0 ? (
             <div className="ro-quiet-card">Nothing scheduled.
               <button className="ro-inline-link" type="button" onClick={() => onNavigate("#app/office/calendar")}>Open calendar</button>
@@ -375,290 +685,188 @@ function TodayView({
 
 /* ---------- Chat ---------- */
 
-function MaraWorkspacePanel({
+function WorkerDetailDrawer({
+  activeWorker,
   busyId,
   canUseEmail,
+  desk,
   onApprove,
-  onCreateRecommendedTask,
-  onCreateNext,
-  onDismissTask,
-  onDismissRecommendation,
-  onOpenTask,
+  onClose,
+  onOpenChat,
   onReject,
   onRunTask,
-  onSeedCorrection,
-  onViewOutput,
-  recommendationDismissed,
-  workspace,
+  onSeedCorrection
 }: {
+  activeWorker: Worker;
   busyId: string | null;
   canUseEmail: boolean;
+  desk: WorkerDesk;
   onApprove: (approvalId: string) => Promise<void>;
-  onCreateRecommendedTask: (task: { title: string; description: string; priority: string }) => Promise<void>;
-  onCreateNext: (prompt: string) => void;
-  onDismissTask: (taskId: string) => Promise<void>;
-  onDismissRecommendation: () => void;
-  onOpenTask: (taskTitle: string, nextStep?: string) => void;
+  onClose: () => void;
+  onOpenChat: () => void;
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
-  onViewOutput: (task: MaraWorkspaceOutput) => void;
-  recommendationDismissed: boolean;
-  workspace: MaraWorkspace | null;
 }) {
-  const readyLabel = canUseEmail
-    ? "Inbox access is connected. Mara can work from office chat, memory, tasks, and inbox-aware follow-up."
-    : "Inbox access is not connected. Mara can still work from office chat, memory, tasks, and structured outputs. Connect Gmail or Outlook later if you want inbox review.";
-
-  const recommendedNext = recommendationDismissed ? null : workspace?.recommendedNext ?? null;
-  const recommendedAction = recommendedNext?.label ?? "";
-  const topOutput = workspace?.latestOutputs[0] ?? null;
-  const focusLabel = workspace?.currentFocus && !workspace.currentFocus.startsWith("Mara is")
-    ? `Mara is focused on ${workspace.currentFocus}.`
-    : workspace?.currentFocus || "Mara is ready for her first assignment.";
+  const connectedLabel = canUseEmail
+    ? "Connected tools are available."
+    : "No connected tools yet.";
 
   return (
-    <section className="ro-mara-presence" aria-label="Mara's desk">
-      <div className="ro-mara-focus">
-        <div>
-          <span className="ro-mara-eyebrow">Mara's desk</span>
-          <strong>{focusLabel}</strong>
-          <p>
-            {workspace?.currentWork
-              ? `On Mara's plate: ${workspace.currentWork.title}.`
-              : workspace?.waitingOnUser[0]
-                ? `Waiting on you: ${workspace.waitingOnUser[0].title}.`
-                : "Mara is ready for her next assignment."}
-          </p>
-        </div>
-        <div className="ro-mara-focus-actions">
-          {workspace?.recommendedNextTaskToRun ? (
-            <button
-              className="r-btn r-btn-accent"
-              type="button"
-              onClick={() => void onRunTask(workspace.recommendedNextTaskToRun!.id)}
-              disabled={busyId === workspace.recommendedNextTaskToRun.id}
-            >
-              {busyId === workspace.recommendedNextTaskToRun.id ? "Running..." : "Run next task"}
-            </button>
-          ) : null}
-          {topOutput ? (
-            <button className="r-btn r-btn-ghost" type="button" onClick={() => onViewOutput(topOutput)}>
-              View latest output
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="ro-mara-capability">
-        <strong>{canUseEmail ? "Inbox access connected" : "Inbox access not connected"}</strong>
-        <p>{readyLabel}</p>
-      </div>
-
-      <div className="ro-mara-grid">
-        <section className="ro-mara-section">
-          <div className="ro-mara-section-head">
-            <h3>Waiting on you</h3>
-            <span>{workspace?.waitingOnUser.length ? `${Math.min(workspace.waitingOnUser.length, 3)} items` : "All clear"}</span>
+    <div className="ro-drawer-scrim" onClick={onClose}>
+      <aside className="ro-worker-drawer" onClick={(event) => event.stopPropagation()} aria-label={`${activeWorker.name} details`}>
+        <div className="ro-worker-drawer-head">
+          <div className="ro-worker-drawer-id">
+            <WorkerMark seed={activeWorker.slug} size={40} active />
+            <div>
+              <strong>{activeWorker.name}</strong>
+              <span>{activeWorker.title}</span>
+            </div>
           </div>
-          {workspace?.waitingOnUser.length ? (
-            workspace.waitingOnUser.slice(0, 3).map((item) => {
-              const approval = workspace.pendingApprovals.find((request) => request.id === item.id);
-              return (
-                <div className="ro-mara-item" key={item.id}>
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>{item.description}</p>
-                    {item.blockerReason ? <p className="ro-mara-subnote">{item.blockerReason}</p> : null}
-                    {item.nextStep ? <p className="ro-mara-nextstep">Next: {item.nextStep}</p> : null}
+          <button className="ro-drawer-close" type="button" onClick={onClose} aria-label="Close worker details">×</button>
+        </div>
+
+        <div className="ro-worker-drawer-scroll">
+          <section className="ro-worker-drawer-section">
+            <span className="ro-section-kicker">Current focus</span>
+            <h3>{desk.currentFocus}</h3>
+            <p>{desk.currentFocusReason}</p>
+          </section>
+
+          <section className="ro-worker-drawer-section">
+            <div className="ro-worker-drawer-row">
+              <strong>Connected access</strong>
+              <span>{connectedLabel}</span>
+            </div>
+            {desk.connectedTools.length > 0 ? (
+              <div className="ro-plain-list">
+                {desk.connectedTools.map((tool) => (
+                  <div className="ro-plain-row" key={`${tool.provider}-${tool.label}`}>
+                    <strong>{tool.label}</strong>
+                    <p>{sentenceCase(tool.status)}</p>
                   </div>
-                  {approval ? (
-                    <div className="ro-mara-item-actions">
-                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>
-                        Reject
-                      </button>
-                      <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
-                        {busyId === approval.id ? "Saving..." : "Approve"}
-                      </button>
-                    </div>
-                  ) : item.kind === "blocked_task" ? (
-                    <div className="ro-mara-item-actions">
-                      <button
-                        className="r-btn r-btn-ghost"
-                        type="button"
-                        onClick={() => onOpenTask(item.title, item.nextStep)}
-                      >
-                        Open task
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
-          ) : (
-            <div className="ro-mara-empty">No approvals needed right now. Nothing is blocking Mara right now.</div>
-          )}
-        </section>
-
-        <section className="ro-mara-section">
-          <div className="ro-mara-section-head">
-            <h3>Mara just finished</h3>
-            <span>{workspace?.latestOutputs.length ? `${workspace.latestOutputs.length} outputs` : "Nothing yet"}</span>
-          </div>
-          {workspace?.latestOutputs.length ? (
-            workspace.latestOutputs.slice(0, 3).map((task) => (
-              <button className="ro-mara-output" type="button" key={task.id} onClick={() => onViewOutput(task)}>
-                <strong>{task.title}</strong>
-                <p>{task.outputPreview?.preview || "Output ready to review."}</p>
-                <span>View output</span>
-              </button>
-            ))
-          ) : (
-            <div className="ro-mara-empty">Mara has not completed work yet. Start by running her first task.</div>
-          )}
-        </section>
-
-        <section className="ro-mara-section">
-          <div className="ro-mara-section-head">
-            <h3>Mara learned</h3>
-            <span>{workspace?.whatMaraKnows.length ? `${workspace.whatMaraKnows.length} memory items` : "Still learning"}</span>
-          </div>
-          {workspace?.whatMaraKnows.length ? (
-            workspace.whatMaraKnows.slice(0, 5).map((section) => (
-              <div className="ro-mara-memory" key={section.friendlyLabel}>
-                <strong>{section.friendlyLabel}</strong>
-                <p>{section.items[0] || "No saved detail yet."}</p>
-                <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${section.friendlyLabel.toLowerCase()}: `)}>
-                  Correct in chat
-                </button>
+                ))}
               </div>
-            ))
-          ) : (
-            <div className="ro-mara-empty">Mara will learn your preferences as you work together.</div>
-          )}
-        </section>
+            ) : (
+              <p className="ro-worker-note">This worker can still plan, draft, and organize work without connected tools.</p>
+            )}
+          </section>
 
-        <section className="ro-mara-section">
-          <div className="ro-mara-section-head">
-            <h3>Recommended next</h3>
-            <span>{recommendedAction ? "Ready" : "Waiting"}</span>
-          </div>
-          {recommendedAction ? (
-            <div className="ro-mara-item">
-              <div>
-                <strong>{recommendedAction}</strong>
-                <p>
-                  {workspace?.recommendedNextTaskToRun
-                    ? "This is a safe internal task Mara can run right now."
-                    : "This is the clearest next move based on what Mara has learned so far."}
-                </p>
-              </div>
-              <div className="ro-mara-item-actions">
-                <button
-                  className="r-btn r-btn-ghost"
-                  type="button"
-                  onClick={() => {
-                    if (recommendedNext?.taskId) {
-                      void onDismissTask(recommendedNext.taskId);
-                      return;
-                    }
-                    onDismissRecommendation();
-                  }}
-                >
-                  Dismiss
-                </button>
-                {recommendedNext?.approvalId ? (
-                  <button
-                    className="r-btn r-btn-accent"
-                    type="button"
-                    onClick={() => void onApprove(recommendedNext.approvalId!)}
-                    disabled={busyId === recommendedNext.approvalId}
-                  >
-                    {busyId === recommendedNext.approvalId ? "Saving..." : "Approve"}
-                  </button>
-                ) : workspace?.recommendedNextTaskToRun ? (
-                  <button
-                    className="r-btn r-btn-accent"
-                    type="button"
-                    onClick={() => void onRunTask(workspace.recommendedNextTaskToRun!.id)}
-                    disabled={busyId === workspace.recommendedNextTaskToRun.id}
-                  >
-                    {busyId === workspace.recommendedNextTaskToRun.id ? "Running..." : "Run task"}
-                  </button>
-                ) : recommendedNext?.createTask ? (
-                  <button
-                    className="r-btn r-btn-accent"
-                    type="button"
-                    onClick={() => void onCreateRecommendedTask(recommendedNext.createTask!)}
-                  >
-                    {recommendedNext.actionLabel || "Create next task"}
-                  </button>
-                ) : (
-                  <button
-                    className="r-btn r-btn-accent"
-                    type="button"
-                    onClick={() => onCreateNext(recommendedNext?.prompt || `Let's make this the next thing on Mara's plate: ${recommendedAction}.`)}
-                  >
-                    {recommendedNext?.actionLabel || "Create in chat"}
-                  </button>
-                )}
-              </div>
+          <section className="ro-worker-drawer-section">
+            <div className="ro-worker-drawer-row">
+              <strong>Waiting on you</strong>
+              <span>{desk.waitingOnUser.length === 0 ? "All clear" : `${desk.waitingOnUser.length} item${desk.waitingOnUser.length === 1 ? "" : "s"}`}</span>
             </div>
-          ) : (
-            <div className="ro-mara-empty">Mara is ready for her next assignment.</div>
-          )}
-        </section>
-      </div>
-
-      <div className="ro-mara-grid ro-mara-grid-compact">
-        <section className="ro-mara-section">
-          <div className="ro-mara-section-head">
-            <h3>Mara just did</h3>
-            <span>{workspace?.recentActivity.length ? `${workspace.recentActivity.length} events` : "Quiet"}</span>
-          </div>
-          {workspace?.recentActivity.length ? (
-            <div className="ro-mara-feed">
-              {workspace.recentActivity.slice(0, 5).map((entry) => (
-                <div className="ro-mara-feed-item" key={entry.id}>
-                  <strong>{entry.title}</strong>
-                  <p>{entry.description}</p>
-                  <time>{timeAgo(entry.createdAt)}</time>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="ro-mara-empty">No recent worker activity yet.</div>
-          )}
-        </section>
-
-        <section className="ro-mara-section">
-          <div className="ro-mara-section-head">
-            <h3>On Mara's plate</h3>
-            <span>{workspace?.runnableTasks.length ? `${workspace.runnableTasks.length} runnable` : "No open tasks"}</span>
-          </div>
-          {workspace?.runnableTasks.length ? (
-            workspace.runnableTasks.slice(0, 3).map((task) => (
-              <div className="ro-mara-item" key={task.id}>
-                <div>
-                  <strong>{task.title}</strong>
-                  <p>{task.description}</p>
-                </div>
-                <div className="ro-mara-item-actions">
-                  <button className="r-btn r-btn-ghost" type="button" onClick={() => onSeedCorrection(`Let's work on ${task.title.toLowerCase()}. `)}>
-                    Open task
-                  </button>
-                  <button className="r-btn r-btn-accent" type="button" onClick={() => void onRunTask(task.id)} disabled={busyId === task.id}>
-                    {busyId === task.id ? "Running..." : "Run task"}
-                  </button>
-                </div>
+            {desk.waitingOnUser.length > 0 ? (
+              <div className="ro-plain-list">
+                {desk.waitingOnUser.map((item) => {
+                  const approval = desk.approvals.find((entry) => entry.id === item.id);
+                  return (
+                    <div className="ro-plain-row" key={item.id}>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <p>{item.summary}</p>
+                      </div>
+                      {approval && isMaraWorker(activeWorker.slug) ? (
+                        <div className="ro-inline-actions">
+                          <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>Deny</button>
+                          <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
+                            {busyId === approval.id ? "Saving..." : "Approve"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
-            ))
-          ) : (
-            <div className="ro-mara-empty">Mara is ready for her first assignment.</div>
-          )}
-        </section>
-      </div>
-    </section>
+            ) : (
+              <p className="ro-worker-note">Nothing is blocked right now.</p>
+            )}
+          </section>
+
+          <section className="ro-worker-drawer-section">
+            <div className="ro-worker-drawer-row">
+              <strong>On the desk</strong>
+              <span>{desk.workInMotion.length === 0 ? "Quiet" : `${desk.workInMotion.length} active`}</span>
+            </div>
+            {desk.workInMotion.length > 0 ? (
+              <div className="ro-plain-list">
+                {desk.workInMotion.map((item) => (
+                  <div className="ro-plain-row" key={item.id}>
+                    <div>
+                      <strong>{item.title}</strong>
+                      <p>{item.summary}</p>
+                    </div>
+                    {isMaraWorker(activeWorker.slug) ? (
+                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
+                        {busyId === item.id ? "Running..." : "Run"}
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="ro-worker-note">Ready for the next assignment.</p>
+            )}
+          </section>
+
+          <section className="ro-worker-drawer-section">
+            <div className="ro-worker-drawer-row">
+              <strong>Recently completed</strong>
+              <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} item${desk.recentCompleted.length === 1 ? "" : "s"}`}</span>
+            </div>
+            {desk.recentCompleted.length > 0 ? (
+              <div className="ro-plain-list">
+                {desk.recentCompleted.map((item) => (
+                  <div className="ro-plain-row" key={item.id}>
+                    <strong>{item.title}</strong>
+                    <p>{item.summary}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="ro-worker-note">No deliverables have been completed yet.</p>
+            )}
+          </section>
+
+          <section className="ro-worker-drawer-section">
+            <div className="ro-worker-drawer-row">
+              <strong>What {activeWorker.name.split(" ")[0]} knows</strong>
+              <span>{desk.memory.length === 0 ? "Learning" : `${desk.memory.length} notes`}</span>
+            </div>
+            {desk.memory.length > 0 ? (
+              <div className="ro-plain-list">
+                {desk.memory.map((item) => (
+                  <div className="ro-plain-row" key={item.id}>
+                    <div>
+                      <strong>{item.label}</strong>
+                      <p>{item.text}</p>
+                    </div>
+                    <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
+                      Correct in chat
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="ro-worker-note">This worker will learn more as you work together.</p>
+            )}
+          </section>
+
+          <section className="ro-worker-drawer-section">
+            <div className="ro-worker-drawer-row">
+              <strong>Recommended next</strong>
+            </div>
+            <p>{desk.recommendedNext || `${activeWorker.name.split(" ")[0]} is ready for the next assignment.`}</p>
+          </section>
+        </div>
+
+        <div className="ro-worker-drawer-actions">
+          <button className="r-btn r-btn-ghost" type="button" onClick={onClose}>Close</button>
+          <button className="r-btn r-btn-accent" type="button" onClick={onOpenChat}>Open chat</button>
+        </div>
+      </aside>
+    </div>
   );
 }
 
@@ -698,19 +906,19 @@ function MaraOutputModal({
 }
 
 function ChatView({
+  activeDesk,
+  onOpenWorkerDetails,
   workers, overlays, selectedSlug, onNavigate, onReload,
 }: {
+  activeDesk: WorkerDesk | null;
+  onOpenWorkerDetails: () => void;
   workers: Worker[]; overlays: Overlays; selectedSlug: string | null;
   onNavigate: (h: string) => void; onReload: () => Promise<void>;
 }) {
   const active = workers.find((w) => w.slug === selectedSlug) ?? workers[0] ?? null;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [workspace, setWorkspace] = useState<MaraWorkspace | null>(null);
-  const [workspaceLoading, setWorkspaceLoading] = useState(false);
-  const [busyWorkspaceAction, setBusyWorkspaceAction] = useState<string | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<MaraWorkspaceOutput | null>(null);
-  const [recommendationDismissed, setRecommendationDismissed] = useState(false);
   const thread = useMemo(
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
     [overlays.chats, active?.slug]
@@ -724,49 +932,19 @@ function ChatView({
   );
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadWorkspace = async () => {
-      if (active?.slug !== "mara-vale") {
-        setWorkspace(null);
-        setWorkspaceLoading(false);
-        return;
-      }
-
-      setWorkspaceLoading(true);
-      try {
-        const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${active.slug}/workspace`);
-        if (!cancelled) {
-          setWorkspace(payload.workspace);
-        }
-      } catch {
-        if (!cancelled) {
-          setWorkspace(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setWorkspaceLoading(false);
-        }
+    const handler = (event: Event) => {
+      const prompt = (event as CustomEvent<{ prompt?: string }>).detail?.prompt;
+      if (prompt) {
+        setDraft(prompt);
       }
     };
-
-    void loadWorkspace();
-    return () => {
-      cancelled = true;
-    };
-  }, [active?.slug]);
-
-  useEffect(() => {
-    setRecommendationDismissed(false);
-  }, [workspace?.recommendedNextActions?.[0], active?.slug]);
+    window.addEventListener("ryva-office-seed-draft", handler);
+    return () => window.removeEventListener("ryva-office-seed-draft", handler);
+  }, []);
 
   const reloadOffice = useCallback(async () => {
     await onReload();
-    if (active?.slug === "mara-vale") {
-      const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${active.slug}/workspace`);
-      setWorkspace(payload.workspace);
-    }
-  }, [active?.slug, onReload]);
+  }, [onReload]);
 
   const send = async () => {
     if (!active || !draft.trim() || sending) return;
@@ -782,75 +960,10 @@ function ChatView({
     }
   };
 
-  const runTask = async (taskId: string) => {
-    if (!active) return;
-    setBusyWorkspaceAction(taskId);
-    try {
-      await officeJson(`/api/office/workers/${active.slug}/tasks/${taskId}/run`, {
-        method: "POST",
-        body: JSON.stringify({})
-      });
-      await reloadOffice();
-    } finally {
-      setBusyWorkspaceAction(null);
-    }
-  };
-
-  const dismissTask = async (taskId: string) => {
-    if (!active) return;
-    setBusyWorkspaceAction(taskId);
-    try {
-      await officeJson(`/api/office/workers/${active.slug}/tasks/${taskId}/dismiss`, {
-        method: "POST",
-        body: JSON.stringify({})
-      });
-      await reloadOffice();
-      setRecommendationDismissed(true);
-    } finally {
-      setBusyWorkspaceAction(null);
-    }
-  };
-
-  const createRecommendedTask = async (task: { title: string; description: string; priority: string }) => {
-    if (!active) return;
-    setBusyWorkspaceAction(task.title);
-    try {
-      await officeJson(`/api/office/workers/${active.slug}/recommended-next/create`, {
-        method: "POST",
-        body: JSON.stringify(task)
-      });
-      await reloadOffice();
-    } finally {
-      setBusyWorkspaceAction(null);
-    }
-  };
-
-  const updateApproval = async (approvalId: string, status: "approved" | "rejected") => {
-    if (!active) return;
-    setBusyWorkspaceAction(approvalId);
-    try {
-      await officeJson(`/api/office/workers/${active.slug}/approval-requests/${approvalId}/status`, {
-        method: "POST",
-        body: JSON.stringify({ status })
-      });
-      await reloadOffice();
-    } finally {
-      setBusyWorkspaceAction(null);
-    }
-  };
-
-  const openTask = (taskTitle: string, nextStep?: string) => {
-    const parts = [`Let's work on ${taskTitle.toLowerCase()}.`];
-    if (nextStep) {
-      parts.push(`Next step: ${nextStep}`);
-    }
-    setDraft(parts.join(" "));
-  };
-
   return (
     <div className="ro-chat">
       <div className="ro-chat-list">
-        <div className="ro-panel-title" style={{ padding: "0 4px 12px" }}>Threads</div>
+        <div className="ro-panel-title" style={{ padding: "0 4px 12px" }}>Workers</div>
         {workers.map((w) => (
           <button
             key={w.slug}
@@ -869,37 +982,24 @@ function ChatView({
           <div className="ro-chat-head">
             <WorkerMark seed={active.slug} size={36} active />
             <div><b>{active.name}</b><span>{active.title}</span></div>
+            <button className="ro-chat-context" type="button" onClick={onOpenWorkerDetails}>
+              Worker details
+            </button>
           </div>
           <div className="ro-chat-scroll">
-            {active.slug === "mara-vale" ? (
-              workspaceLoading ? (
-                <div className="ro-capability-card">
-                  <strong>Loading Mara's desk</strong>
-                  <p>Pulling Mara's current work, memory, approvals, and latest outputs.</p>
-                </div>
-              ) : (
-                <MaraWorkspacePanel
-                  busyId={busyWorkspaceAction}
-                  canUseEmail={canUseEmail}
-                  onApprove={async (approvalId) => updateApproval(approvalId, "approved")}
-                  onCreateRecommendedTask={createRecommendedTask}
-                  onCreateNext={(prompt) => setDraft(prompt)}
-                  onDismissTask={dismissTask}
-                  onDismissRecommendation={() => setRecommendationDismissed(true)}
-                  onOpenTask={openTask}
-                  onReject={async (approvalId) => updateApproval(approvalId, "rejected")}
-                  onRunTask={runTask}
-                  onSeedCorrection={(prompt) => setDraft(prompt)}
-                  onViewOutput={setSelectedOutput}
-                  recommendationDismissed={recommendationDismissed}
-                  workspace={workspace}
-                />
-              )
-            ) : null}
             {thread.length === 0 ? (
               <div className="ro-chat-intro">
                 <WorkerMark seed={active.slug} size={52} />
-                <p>This is the start of your thread with {active.name.split(" ")[0]}. Give direction, ask for status, or set priorities.</p>
+                <p>
+                  {activeDesk?.recommendedNext
+                    ? `${active.name.split(" ")[0]} is ready. Ask for help, give direction, or clarify how you want the work handled.`
+                    : `${active.name.split(" ")[0]} is ready. Start the conversation when you want work to move.`}
+                </p>
+                {activeDesk?.workInMotion[0] ? (
+                  <button className="ro-inline-link" type="button" onClick={() => setDraft(`Let's work on ${activeDesk.workInMotion[0].title.toLowerCase()}.`)}>
+                    Start with {activeDesk.workInMotion[0].title}
+                  </button>
+                ) : null}
               </div>
             ) : (
               thread.map((m) => (
@@ -911,11 +1011,17 @@ function ChatView({
             )}
           </div>
           <div className="ro-composer">
-            <input
+            <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void send(); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
               placeholder={`Message ${active.name.split(" ")[0]}…`}
+              rows={1}
             />
             <button className="r-btn r-btn-accent" type="button" onClick={() => void send()} disabled={sending || !draft.trim()}>
               Send
@@ -969,23 +1075,27 @@ function ApprovalsView({
 
   return (
     <div className="ro-main-scroll">
-      <div className="ro-day-head"><h1>Approvals <em>({total})</em></h1></div>
+      <div className="ro-day-head"><h1>Approvals</h1></div>
 
       {suggestedApprovals.map((action) => (
         <div className="ro-approval" key={action.id}>
           <div className="ro-appr-head">
             <WorkerMark seed={action.workerSlug} size={22} />
-            <b>{nameFor(action.workerSlug)}</b><span>{action.actionType.replace(/_/g, " ")}</span>
+            <b>{nameFor(action.workerSlug)}</b><span>{sentenceCase(action.actionType.replace(/_/g, " "))}</span>
             <time>{timeAgo(action.createdAt)}</time>
           </div>
           <div className="ro-artifact">
-            <span className="ro-alabel">{action.title}</span>
-            {action.description}
-            <div className="ro-decisions"><span>• {action.reason}</span></div>
+            <span className="ro-alabel">Proposed action</span>
+            <strong>{action.title}</strong>
+            <p>{normalizeOfficeCopy(action.description)}</p>
+            <div className="ro-decisions"><span>{normalizeOfficeCopy(action.reason)}</span></div>
           </div>
           <div className="ro-appr-actions">
-            <button className="r-btn r-btn-accent" type="button" style={{ fontSize: 13, padding: "8px 18px" }} onClick={() => onNavigate(`#app/office/chat/${action.workerSlug}`)}>
+            <button className="r-btn r-btn-ghost" type="button" style={{ fontSize: 13, padding: "8px 18px" }} onClick={() => onNavigate(`#app/office/chat/${action.workerSlug}`)}>
               Open worker
+            </button>
+            <button className="r-btn r-btn-accent" type="button" style={{ fontSize: 13, padding: "8px 18px" }} onClick={() => onNavigate("#app/office/approvals")}>
+              Review
             </button>
           </div>
         </div>
@@ -995,13 +1105,13 @@ function ApprovalsView({
         <div className="ro-approval" key={t.id}>
           <div className="ro-appr-head">
             <WorkerMark seed={t.workerSlug} size={22} />
-            <b>{nameFor(t.workerSlug)}</b><span>needs review</span>
+            <b>{nameFor(t.workerSlug)}</b><span>Review requested</span>
             <time>{t.dueDate}</time>
           </div>
-          <div className="ro-artifact"><span className="ro-alabel">{t.module}</span>{t.title}</div>
+          <div className="ro-artifact"><span className="ro-alabel">{t.module}</span><strong>{t.title}</strong></div>
           <div className="ro-appr-actions">
             <button className="r-btn r-btn-accent" type="button" disabled={busy === t.id} onClick={() => void approveTask(t)} style={{ fontSize: 13, padding: "8px 18px" }}>Approve</button>
-            <button className="r-btn r-btn-ghost" type="button" onClick={() => onNavigate(`#app/office/chat/${t.workerSlug}`)} style={{ fontSize: 13, padding: "8px 18px" }}>Discuss</button>
+            <button className="r-btn r-btn-ghost" type="button" onClick={() => onNavigate(`#app/office/chat/${t.workerSlug}`)} style={{ fontSize: 13, padding: "8px 18px" }}>Request changes</button>
           </div>
         </div>
       ))}
@@ -1016,8 +1126,9 @@ function ApprovalsView({
               <time>{b.dateLabel}</time>
             </div>
             <div className="ro-artifact">
-              <span className="ro-alabel">{b.title}</span>
-              {b.summary || "Ready for your review."}
+              <span className="ro-alabel">Briefing</span>
+              <strong>{b.title}</strong>
+              <p>{normalizeOfficeCopy(b.summary || "Ready for your review.")}</p>
               {decisions.length > 0 && <div className="ro-decisions">{decisions.map((d, i) => <span key={i}>• {d}</span>)}</div>}
             </div>
             <div className="ro-appr-actions">
@@ -1040,6 +1151,7 @@ function safeList(json: string): string[] {
 const WIN_START = 7;
 const WIN_END = 20;
 const HOUR_PX = 54;
+type CalendarMode = "day" | "week";
 
 function toLocalInput(iso: string) {
   const d = new Date(iso);
@@ -1047,6 +1159,22 @@ function toLocalInput(iso: string) {
   return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}` };
 }
 function hourOf(iso: string) { const d = new Date(iso); return d.getHours() + d.getMinutes() / 60; }
+function startOfWeek(value: Date) {
+  const date = new Date(value);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+function addDays(value: Date, days: number) {
+  const next = new Date(value);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+function sameDay(left: Date, right: Date) {
+  return left.toDateString() === right.toDateString();
+}
 
 const EVENT_TYPES = ["Meeting", "Review", "Focus", "Deadline"];
 
@@ -1056,21 +1184,28 @@ function CalendarView({
   workers: Worker[]; overlays: Overlays; onReload: () => Promise<void>;
 }) {
   const [day, setDay] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+  const [mode, setMode] = useState<CalendarMode>("week");
   const [editing, setEditing] = useState<OverlayCalendarEvent | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [now, setNow] = useState(new Date());
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
 
-  const dayEvents = overlays.calendarEvents
-    .filter((e) => new Date(e.startsAt).toDateString() === day.toDateString())
+  const periodStart = mode === "week" ? startOfWeek(day) : day;
+  const displayDays = mode === "week" ? Array.from({ length: 5 }, (_, index) => addDays(periodStart, index)) : [day];
+  const visibleEvents = overlays.calendarEvents
+    .filter((e) => displayDays.some((displayDay) => sameDay(new Date(e.startsAt), displayDay)))
     .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
 
-  const isToday = day.toDateString() === new Date().toDateString();
+  const isToday = displayDays.some((displayDay) => sameDay(displayDay, new Date()));
   const nowHour = now.getHours() + now.getMinutes() / 60;
   const showNow = isToday && nowHour >= WIN_START && nowHour <= WIN_END;
 
-  const shiftDay = (delta: number) => { const d = new Date(day); d.setDate(d.getDate() + delta); setDay(d); };
+  const shiftDay = (delta: number) => {
+    const d = new Date(day);
+    d.setDate(d.getDate() + (mode === "week" ? delta * 7 : delta));
+    setDay(d);
+  };
 
   const hours: number[] = [];
   for (let h = WIN_START; h <= WIN_END; h += 1) hours.push(h);
@@ -1078,8 +1213,16 @@ function CalendarView({
   return (
     <div className="ro-main-scroll">
       <div className="ro-day-head">
-        <h1>{day.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</h1>
+        <h1>
+          {mode === "week"
+            ? `${displayDays[0].toLocaleDateString([], { month: "long", day: "numeric" })} – ${displayDays[displayDays.length - 1].toLocaleDateString([], { month: "long", day: "numeric" })}`
+            : day.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}
+        </h1>
         <div className="ro-cal-nav">
+          <div className="r-seg">
+            <button type="button" className={`r-seg-btn${mode === "day" ? " on" : ""}`} onClick={() => setMode("day")}>Day</button>
+            <button type="button" className={`r-seg-btn${mode === "week" ? " on" : ""}`} onClick={() => setMode("week")}>Week</button>
+          </div>
           <button type="button" onClick={() => shiftDay(-1)} aria-label="Previous day">‹</button>
           <button type="button" className="ro-cal-today" onClick={() => { const d = new Date(); d.setHours(0, 0, 0, 0); setDay(d); }}>Today</button>
           <button type="button" onClick={() => shiftDay(1)} aria-label="Next day">›</button>
@@ -1088,35 +1231,64 @@ function CalendarView({
       </div>
 
       <div className="ro-cal">
-        <div className="ro-cal-grid" style={{ height: (WIN_END - WIN_START) * HOUR_PX }}>
-          {hours.map((h) => (
-            <div className="ro-cal-row" key={h} style={{ height: HOUR_PX }}>
-              <span className="ro-cal-hour">{h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`}</span>
-              <div className="ro-cal-lane" />
+        <div className={`ro-cal-days ro-cal-days-${mode}`}>
+          <div className="ro-cal-sidehead" />
+          {displayDays.map((displayDay) => (
+            <div className="ro-cal-dayhead" key={displayDay.toISOString()}>
+              <strong>{displayDay.toLocaleDateString([], { weekday: "short" })}</strong>
+              <span>{displayDay.toLocaleDateString([], { month: "short", day: "numeric" })}</span>
             </div>
           ))}
+        </div>
+        <div className="ro-cal-scroll">
+          <div className={`ro-cal-grid ro-cal-grid-${mode}`} style={{ height: (WIN_END - WIN_START) * HOUR_PX }}>
+            {hours.map((h) => (
+              <div className="ro-cal-row" key={h} style={{ height: HOUR_PX }}>
+                <span className="ro-cal-hour">{h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`}</span>
+                <div className="ro-cal-row-days">
+                  {displayDays.map((displayDay) => (
+                    <div className="ro-cal-lane" key={`${displayDay.toISOString()}-${h}`} />
+                  ))}
+                </div>
+              </div>
+            ))}
 
-          {dayEvents.map((e) => {
-            const top = (hourOf(e.startsAt) - WIN_START) * HOUR_PX;
-            const height = Math.max(26, (hourOf(e.endsAt) - hourOf(e.startsAt)) * HOUR_PX - 4);
-            return (
-              <button
-                key={e.id}
-                className={`ro-evt type-${e.eventType.toLowerCase()}`}
-                style={{ top, height }}
-                type="button"
-                onClick={() => { setEditing(e); setShowForm(true); }}
-              >
-                {e.workerSlug && <WorkerMark seed={e.workerSlug} size={14} />}
-                <span className="ro-evt-title">{e.title}</span>
-                <small>{clock(e.startsAt)}</small>
-              </button>
-            );
-          })}
+            {visibleEvents.map((e) => {
+              const eventDayIndex = displayDays.findIndex((displayDay) => sameDay(displayDay, new Date(e.startsAt)));
+              if (eventDayIndex < 0) return null;
+              const top = (hourOf(e.startsAt) - WIN_START) * HOUR_PX;
+              const height = Math.max(26, (hourOf(e.endsAt) - hourOf(e.startsAt)) * HOUR_PX - 4);
+              return (
+                <button
+                  key={e.id}
+                  className={`ro-evt type-${e.eventType.toLowerCase()}`}
+                  style={mode === "week" ? { top, height, left: `calc(58px + (${eventDayIndex} * (100% - 58px) / ${displayDays.length}) + 8px)`, width: `calc((100% - 58px) / ${displayDays.length} - 16px)` } : { top, height }}
+                  type="button"
+                  onClick={() => { setEditing(e); setShowForm(true); }}
+                >
+                  {e.workerSlug && <WorkerMark seed={e.workerSlug} size={14} />}
+                  <span className="ro-evt-title">{e.title}</span>
+                  <small>{clock(e.startsAt)}</small>
+                </button>
+              );
+            })}
 
-          {showNow && (
-            <div className="ro-nowline" style={{ top: (nowHour - WIN_START) * HOUR_PX }} data-time={now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} />
-          )}
+            {showNow && (
+              <div
+                className="ro-nowline"
+                style={
+                  mode === "week"
+                    ? {
+                        top: (nowHour - WIN_START) * HOUR_PX,
+                        left: `calc(58px + (${Math.max(0, displayDays.findIndex((displayDay) => sameDay(displayDay, now)))} * (100% - 58px) / ${displayDays.length}))`,
+                        width: `calc((100% - 58px) / ${displayDays.length})`
+                      }
+                    : { top: (nowHour - WIN_START) * HOUR_PX }
+                }
+                data-time={now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -1216,24 +1388,67 @@ function EventForm({
 
 /* ---------- Team ---------- */
 
-function TeamView({ workers, overlays, onNavigate }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void }) {
+function TeamView({
+  desks,
+  onOpenWorkerDetails,
+  workers,
+  overlays,
+  onNavigate
+}: {
+  desks: WorkerDesk[];
+  onOpenWorkerDetails: (workerSlug: string) => void;
+  workers: Worker[];
+  overlays: Overlays;
+  onNavigate: (h: string) => void;
+}) {
   return (
     <div className="ro-main-scroll">
       <div className="ro-day-head"><h1>Your <em>team</em></h1></div>
       <div className="ro-team-grid">
         {workers.map((w) => (
-          <div className="ro-team-card" key={w.slug}>
+          <article className="ro-team-card" key={w.slug} onClick={() => onOpenWorkerDetails(w.slug)} role="button" tabIndex={0} onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onOpenWorkerDetails(w.slug);
+            }
+          }}>
             <div className="ro-team-top">
               <WorkerMark seed={w.slug} size={46} active />
-              <div><b>{w.name}</b><span>{w.title}</span></div>
-              <span className="ro-presence">● Active</span>
+              <div>
+                <b>{w.name}</b>
+                <span>{w.title}</span>
+                <small>{formatWorkerCategory(w)}</small>
+              </div>
             </div>
-            <div className="ro-team-activity">{lastActivityFor(w.slug, overlays.worklog)}</div>
+            <div className="ro-team-activity">
+              {desks.find((desk) => desk.workerSlug === w.slug)?.currentFocus || lastActivityFor(w.slug, overlays.worklog)}
+            </div>
             <div className="ro-team-actions">
-              <button className="r-btn r-btn-ghost" type="button" style={{ fontSize: 13, padding: "8px 16px", flex: 1, justifyContent: "center" }} onClick={() => onNavigate(`#app/office/chat/${w.slug}`)}>Message</button>
+              <button
+                className="r-btn r-btn-ghost"
+                type="button"
+                style={{ fontSize: 13, padding: "8px 16px", flex: 1, justifyContent: "center" }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onNavigate(`#app/office/chat/${w.slug}`);
+                }}
+              >
+                Message
+              </button>
+              <button
+                className="r-btn r-btn-ghost"
+                type="button"
+                style={{ fontSize: 13, padding: "8px 16px", justifyContent: "center" }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenWorkerDetails(w.slug);
+                }}
+              >
+                Details
+              </button>
               <span className="ro-team-salary">{w.salary}</span>
             </div>
-          </div>
+          </article>
         ))}
         <button className="ro-team-hire" type="button" onClick={() => onNavigate("#workers")}>
           <span className="plus">+</span>
@@ -1257,7 +1472,7 @@ function FilesView({ workers, overlays, onNavigate }: { workers: Worker[]; overl
           {workers.length === 0 && <button className="ro-inline-link" type="button" onClick={() => onNavigate("#workers")}>Hire a worker to get started</button>}
         </div>
       ) : (
-        <div className="ro-files">
+        <div className="ro-files ro-files-list">
           {overlays.files.map((f) => (
             <a className="ro-file" key={f.id} href={`/api/office/files/${f.id}/download`}>
               <span className="ro-file-icon">
@@ -1349,6 +1564,11 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
   const [route, setRoute] = useState(() => parseOfficeRoute(window.location.hash));
   const [overlays, setOverlays] = useState<Overlays>(EMPTY_OVERLAYS);
   const [loading, setLoading] = useState(true);
+  const [navCollapsed, setNavCollapsed] = usePersistentBoolean("ryva.office.nav-collapsed", false);
+  const [teamCollapsed, setTeamCollapsed] = usePersistentBoolean("ryva.office.team-collapsed", false);
+  const [workerDetailsSlug, setWorkerDetailsSlug] = useState<string | null>(null);
+  const [maraWorkspaces, setMaraWorkspaces] = useState<Record<string, MaraWorkspace | null>>({});
+  const [workerActionBusy, setWorkerActionBusy] = useState<string | null>(null);
 
   useEffect(() => {
     const onHash = () => setRoute(parseOfficeRoute(window.location.hash));
@@ -1366,6 +1586,38 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
   }, []);
 
   useEffect(() => { void (async () => { setLoading(true); await reload(); setLoading(false); })(); }, [reload]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadWorkspaces = async () => {
+      const maraWorkers = hiredWorkers.filter((worker) => isMaraWorker(worker.slug));
+      if (maraWorkers.length === 0) {
+        if (!cancelled) setMaraWorkspaces({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        maraWorkers.map(async (worker) => {
+          try {
+            const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${worker.slug}/workspace`);
+            return [worker.slug, payload.workspace] as const;
+          } catch {
+            return [worker.slug, null] as const;
+          }
+        })
+      );
+
+      if (!cancelled) {
+        setMaraWorkspaces(Object.fromEntries(entries));
+      }
+    };
+
+    void loadWorkspaces();
+    return () => {
+      cancelled = true;
+    };
+  }, [hiredWorkers, overlays]);
 
   const { tab, workerSlug } = route;
   const hasWorkers = hiredWorkers.length > 0;
@@ -1401,6 +1653,49 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
   const emptyLabels: Record<string, string> = {
     today: "your day", chat: "your conversations", approvals: "work waiting on you", team: "your team", files: "shared files",
   };
+  const desks = useMemo(
+    () =>
+      hiredWorkers.map((worker) =>
+        buildWorkerDesk(
+          worker,
+          overlays,
+          overlays.onboarding.find((record) => record.workerSlug === worker.slug),
+          maraWorkspaces[worker.slug] ?? null
+        )
+      ),
+    [hiredWorkers, overlays, maraWorkspaces]
+  );
+  const selectedWorkerSlug = workerDetailsSlug || workerSlug || hiredWorkers[0]?.slug || null;
+  const selectedWorkerForDetails = hiredWorkers.find((worker) => worker.slug === selectedWorkerSlug) ?? null;
+  const selectedDesk = desks.find((desk) => desk.workerSlug === selectedWorkerSlug) ?? null;
+
+  const runWorkerTask = useCallback(async (workerSlugParam: string, taskId: string) => {
+    if (!isMaraWorker(workerSlugParam)) return;
+    setWorkerActionBusy(taskId);
+    try {
+      await officeJson(`/api/office/workers/${workerSlugParam}/tasks/${taskId}/run`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      await reload();
+    } finally {
+      setWorkerActionBusy(null);
+    }
+  }, [reload]);
+
+  const updateWorkerApproval = useCallback(async (workerSlugParam: string, approvalId: string, status: "approved" | "rejected") => {
+    if (!isMaraWorker(workerSlugParam)) return;
+    setWorkerActionBusy(approvalId);
+    try {
+      await officeJson(`/api/office/workers/${workerSlugParam}/approval-requests/${approvalId}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status })
+      });
+      await reload();
+    } finally {
+      setWorkerActionBusy(null);
+    }
+  }, [reload]);
 
   let main: JSX.Element;
   if (loading) {
@@ -1441,15 +1736,25 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
   } else {
     switch (tab) {
       case "chat": {
-        main = <ChatView workers={hiredWorkers} overlays={overlays} selectedSlug={workerSlug} onNavigate={go} onReload={reload} />;
+        main = (
+          <ChatView
+            activeDesk={selectedDesk}
+            onOpenWorkerDetails={() => setWorkerDetailsSlug(workerSlug || hiredWorkers[0]?.slug || null)}
+            workers={hiredWorkers}
+            overlays={overlays}
+            selectedSlug={workerSlug}
+            onNavigate={go}
+            onReload={reload}
+          />
+        );
         break;
       }
       case "approvals": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} onNavigate={go} onReload={reload} />; break;
       case "calendar": main = <CalendarView workers={hiredWorkers} overlays={overlays} onReload={reload} />; break;
-      case "team": main = <TeamView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
+      case "team": main = <TeamView desks={desks} onOpenWorkerDetails={setWorkerDetailsSlug} workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
       case "files": main = <FilesView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
       case "settings": main = <SettingsView overlays={overlays} onReload={reload} />; break;
-      default: main = <TodayView userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/approvals")} />;
+      default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/approvals")} />;
     }
   }
 
@@ -1459,41 +1764,77 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
     overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval).length;
 
   return (
-    <div className="ro-shell">
+    <div className={`ro-shell${navCollapsed ? " nav-collapsed" : ""}${teamCollapsed ? " team-collapsed" : ""}`}>
       <aside className="ro-nav">
-        <button className="ro-brand" type="button" onClick={() => go("#app/office")}>Ryva<span>.</span></button>
+        <div className="ro-nav-top">
+          <button className="ro-brand" type="button" onClick={() => go("#app/office")}>Ryva<span>.</span></button>
+          <button className="ro-collapse-toggle" type="button" onClick={() => setNavCollapsed((value) => !value)} aria-label={navCollapsed ? "Expand navigation" : "Collapse navigation"} title={navCollapsed ? "Expand navigation" : "Collapse navigation"}>
+            {navCollapsed ? "›" : "‹"}
+          </button>
+        </div>
         {NAV_ITEMS.map((item) => (
-          <button key={item.tab} className={`ro-nav-item${tab === item.tab ? " on" : ""}`} type="button" onClick={() => go(`#app/office/${item.tab}`)}>
+          <button key={item.tab} className={`ro-nav-item${tab === item.tab ? " on" : ""}`} type="button" onClick={() => go(`#app/office/${item.tab}`)} aria-label={item.label} title={item.label}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
-            {item.label}
-            {item.tab === "approvals" && pendingCount > 0 && <span className="ro-pill">{pendingCount}</span>}
+            {!navCollapsed && item.label}
+            {!navCollapsed && item.tab === "approvals" && pendingCount > 0 && <span className="ro-pill">{pendingCount}</span>}
           </button>
         ))}
         <div className="ro-nav-foot">
-          <button className={`ro-nav-item${tab === "settings" ? " on" : ""}`} type="button" onClick={() => go("#app/office/settings")}>
+          <button className={`ro-nav-item${tab === "settings" ? " on" : ""}`} type="button" onClick={() => go("#app/office/settings")} aria-label="Settings" title="Settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 13a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" /></svg>
-            Settings
+            {!navCollapsed && "Settings"}
           </button>
         </div>
       </aside>
 
       <aside className="ro-team-rail">
-        <div className="ro-team-rail-head"><b>Your team</b><button type="button" onClick={() => go("#workers")} title="Hire">+</button></div>
+        <div className="ro-team-rail-head">
+          {!teamCollapsed && <b>Your team</b>}
+          <div className="ro-rail-head-actions">
+            {!teamCollapsed && <button type="button" onClick={() => go("#workers")} title="Hire">+</button>}
+            <button className="ro-collapse-toggle" type="button" onClick={() => setTeamCollapsed((value) => !value)} aria-label={teamCollapsed ? "Expand worker sidebar" : "Collapse worker sidebar"} title={teamCollapsed ? "Expand worker sidebar" : "Collapse worker sidebar"}>
+              {teamCollapsed ? "‹" : "›"}
+            </button>
+          </div>
+        </div>
         {hasWorkers ? (
           hiredWorkers.map((w) => (
-            <button key={w.slug} className="ro-member" type="button" onClick={() => go(`#app/office/chat/${w.slug}`)}>
+            <button key={w.slug} className={`ro-member${selectedWorkerSlug === w.slug ? " on" : ""}`} type="button" onClick={() => go(`#app/office/chat/${w.slug}`)} aria-label={w.name} title={w.name}>
               <WorkerMark seed={w.slug} size={34} active />
-              <div className="ro-member-info"><b>{w.name}</b><span>{lastActivityFor(w.slug, overlays.worklog)}</span></div>
-              <span className="ro-state active" />
+              {!teamCollapsed && <div className="ro-member-info"><b>{w.name}</b><span>{desks.find((desk) => desk.workerSlug === w.slug)?.currentFocus || lastActivityFor(w.slug, overlays.worklog)}</span></div>}
             </button>
           ))
         ) : (
           <div className="ro-team-rail-empty">No one hired yet.</div>
         )}
-        <button className="ro-hire-more" type="button" onClick={() => go("#workers")}>+ Hire from the marketplace</button>
+        {!teamCollapsed && <button className="ro-hire-more" type="button" onClick={() => go("#workers")}>+ Hire from the marketplace</button>}
       </aside>
 
       <main className="ro-main">{main}</main>
+      {selectedWorkerForDetails && selectedDesk ? (
+        <WorkerDetailDrawer
+          activeWorker={selectedWorkerForDetails}
+          busyId={workerActionBusy}
+          canUseEmail={overlays.integrations.some((integration) => integration.workerSlug === selectedWorkerForDetails.slug && integration.status === "connected")}
+          desk={selectedDesk}
+          onApprove={(approvalId) => updateWorkerApproval(selectedWorkerForDetails.slug, approvalId, "approved")}
+          onClose={() => setWorkerDetailsSlug(null)}
+          onOpenChat={() => {
+            setWorkerDetailsSlug(null);
+            go(`#app/office/chat/${selectedWorkerForDetails.slug}`);
+          }}
+          onReject={(approvalId) => updateWorkerApproval(selectedWorkerForDetails.slug, approvalId, "rejected")}
+          onRunTask={(taskId) => runWorkerTask(selectedWorkerForDetails.slug, taskId)}
+          onSeedCorrection={(prompt) => {
+            setWorkerDetailsSlug(null);
+            go(`#app/office/chat/${selectedWorkerForDetails.slug}`);
+            window.setTimeout(() => {
+              const event = new CustomEvent("ryva-office-seed-draft", { detail: { prompt } });
+              window.dispatchEvent(event);
+            }, 0);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
