@@ -530,11 +530,11 @@ function EmptyOffice({ label, onNavigate }: { label: string; onNavigate: (h: str
 /* ---------- Today ---------- */
 
 function TodayView({
-  desks, userName, workers, overlays, onNavigate, onApprovalsClick,
+  desks, userName, workers, overlays, onNavigate, onApprovalsClick, onOpenWorkerDetails,
 }: {
   desks: WorkerDesk[];
   userName: string; workers: Worker[]; overlays: Overlays;
-  onNavigate: (h: string) => void; onApprovalsClick: () => void;
+  onNavigate: (h: string) => void; onApprovalsClick: () => void; onOpenWorkerDetails: (workerSlug: string) => void;
 }) {
   const today = new Date();
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
@@ -544,30 +544,27 @@ function TodayView({
   const attentionItems = desks
     .flatMap((desk) => desk.waitingOnUser.map((item) => ({ ...item, workerSlug: desk.workerSlug })))
     .slice(0, 6);
-  const officeFeed = [
-    ...desks.flatMap((desk) =>
-      desk.workInMotion.map((item) => ({
-        id: `motion-${item.id}`,
-        workerSlug: desk.workerSlug,
-        title: item.title,
-        summary: item.summary,
-        when: "In progress",
-        sort: Number.MAX_SAFE_INTEGER,
-      }))
-    ),
-    ...desks.flatMap((desk) =>
-      desk.recentActivity.map((item) => ({
-        id: `recent-${item.id}`,
-        workerSlug: desk.workerSlug,
-        title: item.title,
-        summary: item.summary,
-        when: timeAgo(item.createdAt),
-        sort: +new Date(item.createdAt),
-      }))
-    ),
-  ]
-    .sort((a, b) => b.sort - a.sort)
-    .slice(0, 8);
+  const workerSnapshots = desks
+    .map((desk) => {
+      const worker = workers.find((entry) => entry.slug === desk.workerSlug);
+      return {
+        desk,
+        worker,
+        recentWin: desk.recentCompleted[0] ?? null,
+        recentMove: desk.recentActivity[0] ?? null,
+        activeTask: desk.workInMotion[0] ?? null
+      };
+    })
+    .filter((entry) => entry.worker)
+    .slice(0, 4);
+  const miniCalendarHours = Array.from({ length: 7 }, (_, index) => 9 + index);
+  const featuredHours = miniCalendarHours.map((hour) => {
+    const event = todaysEvents.find((entry) => {
+      const date = new Date(entry.startsAt);
+      return date.getHours() === hour;
+    });
+    return { event, hour };
+  });
 
   const dateLine = today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
@@ -581,7 +578,12 @@ function TodayView({
       <section className="ro-sec ro-sec-lead">
         <div className="ro-sec-head">
           <h2>Needs your attention</h2>
-          <span className="ro-sec-n">{attentionItems.length === 0 ? "All clear" : attentionItems.length}</span>
+          <div className="ro-sec-head-actions">
+            <span className="ro-sec-n">{attentionItems.length === 0 ? "All clear" : attentionItems.length}</span>
+            {attentionItems.length > 0 ? (
+              <button className="ro-textlink" type="button" onClick={onApprovalsClick}>Review queue</button>
+            ) : null}
+          </div>
         </div>
         {attentionItems.length === 0 ? (
           <p className="ro-blank">Nothing is waiting on you right now.</p>
@@ -593,7 +595,10 @@ function TodayView({
                   <strong>{item.title}</strong>
                   <p>{item.summary}</p>
                 </div>
-                <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
+                <div className="ro-row-end">
+                  <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
+                  <span className="ro-row-cta">Review</span>
+                </div>
               </button>
             ))}
           </div>
@@ -608,14 +613,40 @@ function TodayView({
         {todaysEvents.length === 0 ? (
           <p className="ro-blank">Nothing on the calendar today.</p>
         ) : (
-          <div className="ro-rows">
-            {todaysEvents.map((e) => (
-              <button key={e.id} className="ro-row ro-row-slim" type="button" onClick={() => onNavigate("#app/office/calendar")}>
-                <span className="ro-row-time">{clock(e.startsAt)}</span>
-                <div className="ro-row-copy"><strong>{e.title}</strong></div>
-                {e.workerSlug && <span className="ro-row-aside">{nameFor(e.workerSlug)}</span>}
-              </button>
-            ))}
+          <div className="ro-mini-day">
+            <div className="ro-mini-day-grid">
+              {featuredHours.map(({ event, hour }) => (
+                <button
+                  key={hour}
+                  className={`ro-mini-slot${event ? " has-event" : ""}`}
+                  type="button"
+                  onClick={() => onNavigate("#app/office/calendar")}
+                >
+                  <span className="ro-mini-slot-time">{hour > 12 ? `${hour - 12} PM` : hour === 12 ? "12 PM" : `${hour} AM`}</span>
+                  <div className="ro-mini-slot-body">
+                    {event ? (
+                      <>
+                        <strong>{event.title}</strong>
+                        <p>{event.workerSlug ? nameFor(event.workerSlug) : "Office"}</p>
+                      </>
+                    ) : (
+                      <span className="ro-mini-slot-empty">Open</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="ro-mini-day-list">
+              {todaysEvents.slice(0, 3).map((e) => (
+                <button key={e.id} className="ro-row ro-row-slim" type="button" onClick={() => onNavigate("#app/office/calendar")}>
+                  <span className="ro-row-time">{clock(e.startsAt)}</span>
+                  <div className="ro-row-copy">
+                    <strong>{e.title}</strong>
+                    <p>{e.workerSlug ? nameFor(e.workerSlug) : "Office event"}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </section>
@@ -624,22 +655,30 @@ function TodayView({
         <div className="ro-sec-head">
           <h2>Around the office</h2>
         </div>
-        {officeFeed.length === 0 ? (
+        {workerSnapshots.length === 0 ? (
           <p className="ro-blank">Quiet so far. Work your team does will show up here.</p>
         ) : (
           <div className="ro-rows">
-            {officeFeed.map((entry) => (
+            {workerSnapshots.map((entry) => (
               <button
-                key={entry.id}
-                className="ro-row ro-row-quiet"
+                key={entry.desk.workerSlug}
+                className="ro-row ro-row-worker"
                 type="button"
-                onClick={() => onNavigate(`#app/office/chat/${entry.workerSlug}`)}
+                onClick={() => onOpenWorkerDetails(entry.desk.workerSlug)}
               >
-                <div className="ro-row-copy">
-                  <strong>{entry.title}</strong>
-                  <p>{entry.summary}</p>
+                <div className="ro-worker-snapshot-mark">
+                  <WorkerMark seed={entry.desk.workerSlug} size={40} active />
                 </div>
-                <span className="ro-row-aside">{nameFor(entry.workerSlug)} · {entry.when}</span>
+                <div className="ro-row-copy">
+                  <strong>{entry.worker?.name}</strong>
+                  <p>{entry.desk.currentFocus}</p>
+                  {entry.activeTask ? <p className="ro-worker-snapshot-sub">In progress: {entry.activeTask.title}</p> : null}
+                  {entry.recentWin ? <p className="ro-worker-snapshot-sub">While you were gone: {entry.recentWin.title}</p> : null}
+                </div>
+                <div className="ro-row-end">
+                  <span className="ro-row-aside">{entry.recentMove ? timeAgo(entry.recentMove.createdAt) : "Open desk"}</span>
+                  <span className="ro-row-cta">Open desk</span>
+                </div>
               </button>
             ))}
           </div>
@@ -1712,7 +1751,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
       case "team": main = <TeamView desks={desks} onOpenWorkerDetails={setWorkerDetailsSlug} workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
       case "files": main = <FilesView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
       case "settings": main = <SettingsView overlays={overlays} onReload={reload} />; break;
-      default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/approvals")} />;
+      default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/approvals")} onOpenWorkerDetails={setWorkerDetailsSlug} />;
     }
   }
 
