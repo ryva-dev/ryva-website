@@ -8,7 +8,7 @@ const rootDir = path.resolve(__dirname, "..");
 const outboxPath = path.join(rootDir, "data", "outbox.log");
 
 function getMailerConfig() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, MAIL_DELIVERY_MODE } = process.env;
   const hasAny =
     Boolean(SMTP_HOST) || Boolean(SMTP_PORT) || Boolean(SMTP_USER) || Boolean(SMTP_PASS) || Boolean(SMTP_FROM);
 
@@ -20,7 +20,7 @@ function getMailerConfig() {
     throw new Error("SMTP configuration is incomplete. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM.");
   }
 
-  if (SMTP_HOST === "smtp.resend.com" && SMTP_USER === "resend") {
+  if (MAIL_DELIVERY_MODE === "resend-api") {
     return {
       from: SMTP_FROM,
       mode: "resend-api",
@@ -77,13 +77,47 @@ export async function sendTransactionalEmail({ html, subject, text, to }) {
       throw new Error(`Resend API request failed: ${response.status} ${body}`);
     }
   } else {
-    await config.transporter.sendMail({
-      from: config.from,
-      html,
-      subject,
-      text,
-      to
-    });
+    try {
+      await config.transporter.sendMail({
+        from: config.from,
+        html,
+        subject,
+        text,
+        to
+      });
+    } catch (error) {
+      const canFallbackToResendApi =
+        process.env.SMTP_HOST === "smtp.resend.com" &&
+        process.env.SMTP_USER === "resend" &&
+        Boolean(process.env.SMTP_PASS) &&
+        process.env.SMTP_PASS.startsWith("re_");
+
+      if (!canFallbackToResendApi) {
+        throw error;
+      }
+
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.SMTP_PASS}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: config.from,
+          html,
+          subject,
+          text,
+          to: [to]
+        })
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(
+          `SMTP send failed (${error instanceof Error ? error.message : "unknown error"}) and Resend API fallback failed: ${response.status} ${body}`
+        );
+      }
+    }
   }
 
   return { mode: config.mode, preview: null, sent: true };
