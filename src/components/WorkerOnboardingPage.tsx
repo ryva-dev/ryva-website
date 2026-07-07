@@ -56,10 +56,9 @@ function flattenQuestions(worker: Worker): FlatQuestion[] {
 }
 
 function workerQuestionPrompt(worker: Worker, question: FlatQuestion) {
-  const shortName = worker.name.split(" ")[0];
   const options = question.options?.length ? ` Options: ${question.options.join(" · ")}.` : "";
   const helper = question.helperText ? ` ${question.helperText}` : "";
-  return `${shortName}: ${question.label}${helper}${options}`;
+  return `${question.label}${helper}${options}`;
 }
 
 function introMessage(worker: Worker) {

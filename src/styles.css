@@ -993,7 +993,7 @@ a:focus-visible {
 
 .onboarding-conversation-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
   gap: 32px;
   align-items: start;
   min-height: 0;
@@ -1748,8 +1748,9 @@ a:focus-visible {
 .office-page {
   display: grid;
   gap: 22px;
-  width: min(1320px, 100%);
+  width: 100%;
   min-height: calc(100vh - 48px);
+  min-width: 0;
 }
 
 .office-topbar {
@@ -1782,6 +1783,17 @@ a:focus-visible {
   font-size: 0.92rem;
   font-weight: 600;
   white-space: nowrap;
+}
+
+@media (max-width: 1380px) {
+  .onboarding-conversation-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .onboarding-rail {
+    position: static;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .worker-header {
