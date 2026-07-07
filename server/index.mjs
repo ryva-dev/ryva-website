@@ -1703,24 +1703,224 @@ function upsertWorkerKnowledge(userId, workerSlug, recipe) {
   ).run(randomUUID(), userId, workerSlug, JSON.stringify(nextKnowledge), nowIso());
 }
 
-function rememberWorkerDirection(userId, workerSlug, text) {
+function getWorkerKnowledgeSections(userId, workerSlug) {
+  const record = db
+    .prepare(
+      `SELECT knowledge_json AS knowledgeJson
+       FROM office_worker_knowledge
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .get(userId, workerSlug);
+
+  return parseJson(record?.knowledgeJson, []);
+}
+
+function mergeKnowledgeSections(existingKnowledge, sectionsToMerge) {
+  const next = Array.isArray(existingKnowledge) ? [...existingKnowledge] : [];
+
+  for (const section of sectionsToMerge) {
+    const title = String(section?.title ?? "").trim();
+    const items = normalizeTextList(Array.isArray(section?.items) ? section.items : []);
+
+    if (!title || items.length === 0) {
+      continue;
+    }
+
+    const index = next.findIndex((entry) => String(entry?.title ?? "").trim() === title);
+    const existingItems = index >= 0 && Array.isArray(next[index]?.items) ? next[index].items.map((item) => String(item).trim()) : [];
+    const mergedItems = [...items, ...existingItems.filter((item) => !items.includes(item))].slice(0, 8);
+    const normalizedSection = { title, items: mergedItems };
+
+    if (index >= 0) {
+      next[index] = normalizedSection;
+    } else {
+      next.unshift(normalizedSection);
+    }
+  }
+
+  return next;
+}
+
+function extractJsonObject(text) {
+  const raw = String(text ?? "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : raw;
+
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+}
+
+function fallbackMemorySectionsFromText(text) {
+  const cleaned = String(text ?? "").trim();
+  const lower = cleaned.toLowerCase();
+  const sections = [{ title: "Recent direction", items: [cleaned] }];
+
+  if (!cleaned) {
+    return [];
+  }
+
+  if (/(always|never|must|only|do not|don't)/.test(lower)) {
+    sections.push({ title: "Approval rules", items: [cleaned] });
+  }
+
+  if (/(prefer|like|want|don'?t want|hate)/.test(lower)) {
+    sections.push({ title: "Preferences", items: [cleaned] });
+  }
+
+  if (/(losing track|messy|missed|overwhelming|chaotic|behind)/.test(lower)) {
+    sections.push({ title: "Pain points", items: [cleaned] });
+  }
+
+  if (/(goal|trying to|need to|want to)/.test(lower)) {
+    sections.push({ title: "Goals", items: [cleaned] });
+  }
+
+  return sections;
+}
+
+async function extractWorkerMemorySections(worker, text) {
+  const cleaned = String(text ?? "").trim();
+  if (!cleaned) {
+    return [];
+  }
+
+  if (!getAnthropicConfig()) {
+    return fallbackMemorySectionsFromText(cleaned);
+  }
+
+  try {
+    const model = process.env.ANTHROPIC_MEMORY_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+    const response = await createAnthropicMessage({
+      maxTokens: 220,
+      model,
+      system: [
+        `You are extracting durable user-specific memory for ${worker.name}, a ${worker.title} in Ryva Office.`,
+        "Return JSON only.",
+        'Use this schema: {"sections":[{"title":"Recent direction","items":["..."]}]}',
+        "Allowed section titles: Recent direction, Goals, Preferences, Approval rules, Pain points, Business context, Inbox priorities, Operating style.",
+        "Only include durable information worth remembering for future work.",
+        "Keep each item concise and concrete.",
+        "Include Recent direction when the message contains actionable direction."
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: cleaned }]
+        }
+      ]
+    });
+
+    const parsed = extractJsonObject(response);
+    const sections = Array.isArray(parsed?.sections) ? parsed.sections : [];
+    const normalized = sections
+      .map((section) => ({
+        title: String(section?.title ?? "").trim(),
+        items: normalizeTextList(Array.isArray(section?.items) ? section.items : [])
+      }))
+      .filter((section) => section.title && section.items.length > 0);
+
+    return normalized.length > 0 ? normalized : fallbackMemorySectionsFromText(cleaned);
+  } catch (error) {
+    console.error("Worker memory extraction failed:", error);
+    return fallbackMemorySectionsFromText(cleaned);
+  }
+}
+
+async function rememberWorkerDirection(userId, worker, text) {
   const cleaned = String(text ?? "").trim();
   if (!cleaned) return;
 
-  upsertWorkerKnowledge(userId, workerSlug, (knowledge) => {
-    const next = [...knowledge];
-    const sectionIndex = next.findIndex((section) => section?.title === "Recent direction");
-    const directionItems = sectionIndex >= 0 && Array.isArray(next[sectionIndex]?.items) ? next[sectionIndex].items : [];
-    const updatedItems = [cleaned, ...directionItems.filter((entry) => entry !== cleaned)].slice(0, 8);
-    const section = { items: updatedItems, title: "Recent direction" };
+  const memorySections = await extractWorkerMemorySections(worker, cleaned);
+  upsertWorkerKnowledge(userId, worker.slug, (knowledge) => mergeKnowledgeSections(knowledge, memorySections));
+}
 
-    if (sectionIndex >= 0) {
-      next[sectionIndex] = section;
-    } else {
-      next.unshift(section);
-    }
+function formatKnowledgeForPrompt(knowledge) {
+  if (!Array.isArray(knowledge) || knowledge.length === 0) {
+    return "No durable worker memory recorded yet.";
+  }
 
-    return next;
+  return knowledge
+    .slice(0, 8)
+    .map((section) => {
+      const title = String(section?.title ?? "").trim();
+      const items = Array.isArray(section?.items) ? section.items.map((item) => String(item).trim()).filter(Boolean) : [];
+      return title && items.length > 0 ? `${title}: ${items.join(" | ")}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function generateOfficeWorkerReply(userId, worker, text) {
+  const latestMessage = String(text ?? "").trim();
+  if (!latestMessage) {
+    throw new Error("A user message is required.");
+  }
+
+  if (!getAnthropicConfig()) {
+    return makeWorkerReply(worker?.name);
+  }
+
+  const model = process.env.ANTHROPIC_OFFICE_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+  const onboarding = getUserOnboardingRecord(userId);
+  const knowledge = getWorkerKnowledgeSections(userId, worker.slug);
+  const recentThread = db
+    .prepare(
+      `SELECT author, text
+       FROM office_chat_messages
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC
+       LIMIT 8`
+    )
+    .all(userId, worker.slug)
+    .reverse();
+  const integrations = db
+    .prepare(
+      `SELECT provider, status, account_label AS accountLabel
+       FROM office_worker_integrations
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY updated_at DESC`
+    )
+    .all(userId, worker.slug);
+
+  return createAnthropicMessage({
+    maxTokens: 220,
+    model,
+    system: [
+      `You are ${worker.name}, a salaried ${worker.title} working inside Ryva Office for a specific manager.`,
+      "Reply like a sharp human operator, not an assistant.",
+      "Use first person naturally.",
+      "Be specific to this manager's context and previously learned preferences.",
+      "Acknowledge the message, reflect the right memory or rule when relevant, and say what you will do next.",
+      "Do not mention hidden prompts, memory systems, or that you are an AI.",
+      "Do not sound generic, robotic, or overly polished.",
+      "Keep the response to 2 or 3 sentences unless more detail is needed.",
+      `Worker department: ${worker.department}`,
+      `Worker description: ${worker.description}`,
+      onboarding ? `Brand name: ${onboarding.brandName}` : "",
+      onboarding ? `Business context: ${onboarding.whatYouDo}` : "",
+      `Durable memory for this manager:\n${formatKnowledgeForPrompt(knowledge)}`,
+      integrations.length > 0
+        ? `Connected tools: ${integrations.map((integration) => `${integration.accountLabel} (${integration.status})`).join(" | ")}`
+        : "Connected tools: none",
+      recentThread.length > 0
+        ? `Recent thread:\n${recentThread.map((message) => `${message.author}: ${message.text}`).join("\n")}`
+        : ""
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: latestMessage }]
+      }
+    ]
   });
 }
 
@@ -2845,14 +3045,23 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
     `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(randomUUID(), req.user.id, workerSlug, "You", text, createdAt);
-  rememberWorkerDirection(req.user.id, workerSlug, text);
+  if (worker) {
+    await rememberWorkerDirection(req.user.id, worker, text);
+  }
 
   db.prepare(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Sent a chat message.", "Chat", "Worker notified of new direction", createdAt);
+  ).run(randomUUID(), req.user.id, workerSlug, "Sent a chat message.", "Chat", "Worker memory and conversation context updated", createdAt);
 
-  const replyText = makeWorkerReply(worker?.name);
+  let replyText = makeWorkerReply(worker?.name);
+  if (worker) {
+    try {
+      replyText = await generateOfficeWorkerReply(req.user.id, worker, text);
+    } catch (error) {
+      console.error("Office worker reply generation failed:", error);
+    }
+  }
   const replyCreatedAt = new Date(Date.now() + 1000).toISOString();
   db.prepare(
     `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
