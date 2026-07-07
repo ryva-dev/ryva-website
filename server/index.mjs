@@ -119,6 +119,13 @@ function normalizeEmail(email) {
   return String(email).trim().toLowerCase();
 }
 
+const adminEmails = new Set(
+  String(process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((entry) => normalizeEmail(entry))
+    .filter(Boolean)
+);
+
 function createOpaqueToken() {
   const raw = randomBytes(32).toString("hex");
   const hash = createHash("sha256").update(raw).digest("hex");
@@ -131,9 +138,18 @@ function toSafeUser(user) {
     email: user.email,
     emailVerified: Boolean(user.email_verified_at),
     id: user.id,
+    isAdmin: isAdminUser(user),
     name: user.name,
     onboarded: isUserOnboarded(user.id)
   };
+}
+
+function isAdminUser(user) {
+  return Boolean(user?.email && adminEmails.has(normalizeEmail(user.email)));
+}
+
+function isGoogleAuthConfigured() {
+  return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
 
 function isUserOnboarded(userId) {
@@ -1820,6 +1836,12 @@ function createSession(userId) {
   return raw;
 }
 
+function authConfigPayload() {
+  return {
+    googleEnabled: isGoogleAuthConfigured()
+  };
+}
+
 function getGoogleRedirectUri() {
   return `${appUrl}/api/auth/google/callback`;
 }
@@ -1869,6 +1891,10 @@ async function fetchGoogleProfile(accessToken) {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get("/api/auth/config", (_req, res) => {
+  res.json(authConfigPayload());
 });
 
 app.get("/api/workers", async (_req, res) => {
@@ -2280,7 +2306,7 @@ app.get("/api/office/files/:fileId/download", requireAuth, async (req, res) => {
 
 app.get("/api/auth/google", (_req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId) {
+  if (!isGoogleAuthConfigured() || !clientId) {
     res.status(501).json({ error: "Google auth is not configured." });
     return;
   }
@@ -2399,14 +2425,16 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
   const sessionToken = createSession(user.id);
   setSessionCookie(res, sessionToken);
 
-  let mailResult = { preview: null };
+  let mailResult = { preview: null, sent: false };
   try {
     mailResult = await issueEmailVerification(user);
-  } catch {
-    mailResult = { preview: null };
+  } catch (error) {
+    console.error("Email verification delivery failed on register:", error);
+    mailResult = { preview: null, sent: false };
   }
   res.status(201).json({
-    emailVerificationSent: Boolean(mailResult.preview),
+    emailVerificationSent: Boolean(mailResult.sent),
+    emailVerificationFailed: !mailResult.sent,
     emailVerificationPreview: mailResult.preview,
     user: toSafeUser(user)
   });
@@ -2503,8 +2531,13 @@ app.post("/api/auth/resend-verification", authLimiter, assertOrigin, requireAuth
     res.json({ ok: true, preview: null, alreadyVerified: true });
     return;
   }
-  const mailResult = await issueEmailVerification(req.user);
-  res.json({ ok: true, preview: mailResult.preview, alreadyVerified: false });
+  try {
+    const mailResult = await issueEmailVerification(req.user);
+    res.json({ ok: true, preview: mailResult.preview, alreadyVerified: false, sent: Boolean(mailResult.sent) });
+  } catch (error) {
+    console.error("Email verification resend failed:", error);
+    res.status(502).json({ error: "We couldn't send the verification email right now. Please try again shortly." });
+  }
 });
 
 app.get("/api/auth/verify-email", async (req, res) => {
@@ -2536,9 +2569,15 @@ app.post("/api/auth/request-password-reset", authLimiter, assertOrigin, async (r
 
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get(normalizeEmail(email));
   if (user) {
-    const mailResult = await issuePasswordReset(user);
-    res.json({ ok: true, preview: mailResult.preview });
-    return;
+    try {
+      const mailResult = await issuePasswordReset(user);
+      res.json({ ok: true, preview: mailResult.preview, sent: Boolean(mailResult.sent) });
+      return;
+    } catch (error) {
+      console.error("Password reset delivery failed:", error);
+      res.status(502).json({ error: "We couldn't send the reset email right now. Please try again shortly." });
+      return;
+    }
   }
 
   res.json({ ok: true, preview: null });
@@ -2577,7 +2616,8 @@ app.post("/api/auth/reset-password", authLimiter, assertOrigin, async (req, res)
 
 app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, async (req, res) => {
   const { workerSlug } = req.body ?? {};
-  if (!req.user.email_verified_at) {
+  const isAdmin = isAdminUser(req.user);
+  if (!req.user.email_verified_at && !isAdmin) {
     res.status(403).json({ error: "Verify your email before starting checkout." });
     return;
   }
@@ -2598,7 +2638,7 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
   const unitAmount = Number.parseInt(worker.salary.replace(/[^0-9]/g, ""), 10) * 100;
   const checkoutId = randomUUID();
   const stripeKey = process.env.STRIPE_SECRET_KEY;
-  if (unitAmount === 0) {
+  if (unitAmount === 0 || isAdmin) {
     db.prepare(
       `INSERT INTO checkout_sessions (id, user_id, worker_slug, amount_cents, stripe_session_id, status, created_at, completed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -2613,7 +2653,11 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
          hired_at = excluded.hired_at`
     ).run(randomUUID(), req.user.id, worker.slug, checkoutId, "active", nowIso());
 
-    res.json({ free: true, url: `${appUrl}/?checkout=success&worker=${worker.slug}#app/office/workers/${worker.slug}/onboarding` });
+    res.json({
+      free: true,
+      adminBypass: isAdmin,
+      url: `${appUrl}/?checkout=success&worker=${worker.slug}#app/office/workers/${worker.slug}/onboarding`
+    });
     return;
   }
 

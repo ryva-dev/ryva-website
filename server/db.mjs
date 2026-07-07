@@ -15,6 +15,17 @@ const dbPath = configuredDatabasePath
 
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
+const isProduction = process.env.NODE_ENV === "production";
+const hasRailwayVolume = Boolean(process.env.RAILWAY_VOLUME_MOUNT_PATH);
+const hasAbsoluteDatabasePath = Boolean(configuredDatabasePath && path.isAbsolute(configuredDatabasePath));
+const hasAbsoluteStorageRoot = Boolean(process.env.STORAGE_ROOT && path.isAbsolute(process.env.STORAGE_ROOT));
+
+if (isProduction && !hasRailwayVolume && !hasAbsoluteDatabasePath && !hasAbsoluteStorageRoot) {
+  throw new Error(
+    "Persistent storage is not configured for production. Set RAILWAY_VOLUME_MOUNT_PATH or use an absolute DATABASE_PATH/STORAGE_ROOT."
+  );
+}
+
 export const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 

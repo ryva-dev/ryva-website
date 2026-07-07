@@ -17,8 +17,13 @@ type AuthUser = {
   email: string;
   emailVerified: boolean;
   id: string;
+  isAdmin: boolean;
   name: string;
   onboarded: boolean;
+};
+
+type AuthConfig = {
+  googleEnabled: boolean;
 };
 
 const navItems = [
@@ -252,6 +257,7 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSessionReady, setIsSessionReady] = useState(false);
   const [isWorkersLoading, setIsWorkersLoading] = useState(true);
+  const [authConfig, setAuthConfig] = useState<AuthConfig>({ googleEnabled: false });
   const [onboardingError, setOnboardingError] = useState("");
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [pendingCheckoutWorker, setPendingCheckoutWorker] = useState<string | null>(null);
@@ -420,10 +426,13 @@ export default function App() {
 
     async function loadSession() {
       try {
+        const config = await apiJson<AuthConfig>("/api/auth/config", { method: "GET" });
+        setAuthConfig(config);
         const response = await apiJson<{ user: AuthUser | null }>("/api/auth/me", { method: "GET" });
         setUser(response.user);
       } catch {
         setUser(null);
+        setAuthConfig({ googleEnabled: false });
       } finally {
         setIsSessionReady(true);
       }
@@ -496,6 +505,7 @@ export default function App() {
     setAuthError("");
     try {
       const response = await apiJson<{
+        emailVerificationFailed: boolean;
         emailVerificationPreview: string | null;
         emailVerificationSent: boolean;
         user: AuthUser;
@@ -508,7 +518,9 @@ export default function App() {
       setIsAuthModalOpen(false);
       window.location.hash = response.user.onboarded ? "workers" : "onboarding";
       setGlobalNotice(
-        response.emailVerificationPreview
+        response.emailVerificationFailed
+          ? "Account created, but we couldn't send the verification email. Use resend verification after sign-in."
+          : response.emailVerificationPreview
           ? `Account created. Verification email written to ${response.emailVerificationPreview}.`
           : "Account created. Check your email to verify your account."
       );
@@ -596,7 +608,7 @@ export default function App() {
       return;
     }
 
-    if (!user.emailVerified) {
+    if (!user.emailVerified && !user.isAdmin) {
       setGlobalNotice("Verify your email before checkout. If needed, sign in again after verifying.");
       return;
     }
@@ -690,9 +702,13 @@ export default function App() {
               setAuthError("");
               setIsAuthModalOpen(true);
             }}
-            onOpenGoogleAuth={() => {
-              window.location.href = "/api/auth/google";
-            }}
+            onOpenGoogleAuth={
+              authConfig.googleEnabled
+                ? () => {
+                    window.location.href = "/api/auth/google";
+                  }
+                : undefined
+            }
             workers={workers}
           />
         )}
@@ -752,9 +768,13 @@ export default function App() {
           loading={authLoading}
           onClose={() => setIsAuthModalOpen(false)}
           onCompletePasswordReset={handlePasswordResetComplete}
-          onGoogleAuth={() => {
-            window.location.href = "/api/auth/google";
-          }}
+          onGoogleAuth={
+            authConfig.googleEnabled
+              ? () => {
+                  window.location.href = "/api/auth/google";
+                }
+              : undefined
+          }
           onLogin={handleLogin}
           onRequestPasswordReset={handlePasswordResetRequest}
           onRegister={handleRegister}

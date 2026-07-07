@@ -53,7 +53,7 @@ export async function sendTransactionalEmail({ html, subject, text, to }) {
     const entry =
       `[${new Date().toISOString()}]\nTO: ${to}\nSUBJECT: ${subject}\nTEXT:\n${text}\nHTML:\n${html}\n\n---\n`;
     await fs.appendFile(outboxPath, entry, "utf8");
-    return { mode: "outbox", preview: outboxPath };
+    return { mode: "outbox", preview: outboxPath, sent: true };
   }
 
   if (config.mode === "resend-api") {
@@ -86,5 +86,5 @@ export async function sendTransactionalEmail({ html, subject, text, to }) {
     });
   }
 
-  return { mode: config.mode, preview: null };
+  return { mode: config.mode, preview: null, sent: true };
 }
