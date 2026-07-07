@@ -199,39 +199,40 @@ function WorkersPage({
   workers: Worker[];
 }) {
   return (
-    <main className="marketplace-page">
-      <FilterSidebar
-        onDepartmentToggle={onDepartmentToggle}
-        onExperienceToggle={onExperienceToggle}
-        onSalaryToggle={onSalaryToggle}
-        onSortChange={onSortChange}
-        selectedDepartments={selectedDepartments}
-        selectedExperience={selectedExperience}
-        selectedSalary={selectedSalary}
-        selectedSort={selectedSort}
-      />
+    <main className="r-market">
+      <div className="r-market-head">
+        <h1>The <em>roster.</em></h1>
+        <p className="r-market-sub">Interview any worker before you hire. One salary, no scope creep, on the clock from day one.</p>
+      </div>
 
-      <section className="marketplace-results">
-        <header className="results-header">
-          <h1>Digital workers</h1>
-          <p>
-            {workers.length} of {totalWorkers} workers available
-          </p>
-        </header>
+      <div className="r-market-controls">
+        <div className="r-count">
+          {workers.length} of {totalWorkers} {totalWorkers === 1 ? "worker" : "workers"}
+        </div>
+        <FilterSidebar
+          onDepartmentToggle={onDepartmentToggle}
+          onExperienceToggle={onExperienceToggle}
+          onSalaryToggle={onSalaryToggle}
+          onSortChange={onSortChange}
+          selectedDepartments={selectedDepartments}
+          selectedExperience={selectedExperience}
+          selectedSalary={selectedSalary}
+          selectedSort={selectedSort}
+        />
+      </div>
 
-        {workers.length > 0 ? (
-          <div className="worker-list">
-            {workers.map((worker) => (
-              <WorkerCard key={worker.slug} onHire={onHire} worker={worker} />
-            ))}
-          </div>
-        ) : (
-          <div className="empty-state">
-            <h2>No workers found</h2>
-            <p>Try a different role, skill, or department search.</p>
-          </div>
-        )}
-      </section>
+      {workers.length > 0 ? (
+        <div className="r-market-grid">
+          {workers.map((worker) => (
+            <WorkerCard key={worker.slug} onHire={onHire} worker={worker} />
+          ))}
+        </div>
+      ) : (
+        <div className="r-empty">
+          <h3>No workers match that search</h3>
+          <p>Try a different role, skill, or department.</p>
+        </div>
+      )}
     </main>
   );
 }

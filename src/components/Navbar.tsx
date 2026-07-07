@@ -28,7 +28,7 @@ export function Navbar({
   return (
     <header className="navbar">
       <a className="brand" href="#home" aria-label="Ryva home">
-        <span>Ryva</span>
+        <span>Ryva<span style={{ color: "var(--accent)" }}>.</span></span>
       </a>
       <nav className="nav-links" aria-label="Primary">
         {items.map((item) => (

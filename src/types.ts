@@ -1,4 +1,4 @@
-export type WorkerStatus = "Available" | "Limited availability";
+export type WorkerStatus = "Available" | "Limited availability" | "Not available for hire";
 
 export type Review = {
   company: string;

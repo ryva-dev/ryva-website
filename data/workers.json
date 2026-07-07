@@ -1,171 +1,263 @@
 [
   {
-    "name": "Marcus Reyes",
-    "title": "Full-Stack Engineer",
-    "department": "Engineering",
-    "experience": "8 yrs experience",
-    "salary": "$8,500/mo",
+    "name": "Sloane Pierce",
+    "title": "Senior UGC Talent Manager",
+    "department": "Talent Management",
+    "experience": "11 yrs experience",
+    "salary": "$1,900/mo",
     "status": "Available",
-    "description": "Marcus builds and maintains web applications with a focus on reliability and clean architecture. He works across frontend and backend, writes well-tested code, and ships features that hold up under real production load.",
-    "skills": ["JavaScript", "TypeScript", "React", "Node.js", "PostgreSQL"],
-    "imageUrl": "/avatars/marcus-reyes.jpg",
-    "slug": "marcus-reyes",
+    "description": "Sloane runs a creator roster end to end. She negotiates rates and usage rights, screens briefs for scams, researches competitor pricing, and protects your talent's time and value so you can focus on the work instead of the back-and-forth.",
+    "skills": [
+      "Rate negotiation",
+      "Usage rights",
+      "Scam screening",
+      "Competitive research",
+      "Contract review"
+    ],
+    "imageUrl": "",
+    "slug": "sloane-pierce",
     "profile": {
-      "availabilityNote": "Available for full-time or contract engagements. Comfortable working in existing codebases or greenfield projects.",
-      "category": "Software Development",
-      "experienceSummary": "Eight years building production web applications across fintech, logistics, and developer tools.",
-      "industry": "Technology",
-      "philosophy": "\"Software should be boring to operate. If a system needs constant attention, it was not designed well enough.\"",
+      "availabilityNote": "Available for full roster management. Best fit for creators or agencies with active inbound and real negotiation volume.",
+      "category": "Creator Economy",
+      "experienceSummary": "Eleven years managing UGC and influencer talent across beauty, apparel, and lifestyle brands.",
+      "industry": "UGC & Influencer",
+      "philosophy": "\"A good manager is the difference between a creator who's busy and a creator who's paid. My job is to make the second one happen.\"",
       "responsibilities": [
-        "Design application architecture",
-        "Build and ship features",
-        "Write and maintain tests",
-        "Review pull requests",
-        "Debug production issues",
-        "Document systems",
-        "Collaborate with product"
+        "Negotiate rates and usage rights",
+        "Screen and vet inbound briefs",
+        "Research competitor and market rates",
+        "Manage contracts and renewals",
+        "Protect talent from scams and lowball offers",
+        "Report on roster performance"
       ],
       "reviews": [
         {
-          "company": "Vector Logistics",
-          "name": "Priya Nair",
-          "quote": "Marcus is the kind of engineer who makes the whole team better. His code reviews alone improved our standards.",
+          "company": "Halcyon Studio",
+          "name": "Maya R.",
+          "quote": "Sloane got me paid what I was actually worth. First month back paid for her twice over.",
           "rating": 5
-        },
-        {
-          "company": "Ledger Finance",
-          "name": "Tom Albright",
-          "quote": "Solid engineer. Shipped on time and communicated clearly throughout.",
-          "rating": 4
         }
       ],
       "sampleWork": [
-        "Led migration of a monolith to a modular service architecture with zero downtime",
-        "Reduced API p95 latency by 63% through query optimization and caching",
-        "Built an internal feature-flag system adopted by 6 teams"
+        "Closed a skincare campaign at $850/post with 90-day usage after a $1,100 ask",
+        "Renegotiated a lapsed license at +20% before it expired",
+        "Built a Q3 competitor pricing memo across 14 brands"
       ],
-      "specialties": ["React", "Node.js", "PostgreSQL", "System design", "API design", "CI/CD"],
-      "summaryTitle": "Professional summary"
+      "specialties": [
+        "Full-cycle deal negotiation",
+        "Usage-rights strategy",
+        "Fraud and scam screening",
+        "Competitive rate benchmarking"
+      ],
+      "summaryTitle": "Senior UGC Talent Manager"
     }
   },
   {
-    "name": "Sofia Marchetti",
-    "title": "Brand Strategist",
-    "department": "Marketing",
-    "experience": "6 yrs experience",
-    "salary": "$6,000/mo",
-    "status": "Limited availability",
-    "description": "Sofia develops brand strategies for consumer companies. She conducts market research, defines positioning, writes brand guidelines, and works with creative teams to bring positioning to life across every channel.",
-    "skills": ["Brand strategy", "Market research", "Positioning", "Messaging", "Workshop facilitation"],
-    "imageUrl": "/avatars/sofia-marchetti.jpg",
-    "slug": "sofia-marchetti",
-    "profile": {
-      "availabilityNote": "Available for strategy projects, audits, and ongoing brand advisory work.",
-      "category": "Brand Strategy",
-      "experienceSummary": "Six years shaping consumer brands through research, positioning, and messaging systems.",
-      "industry": "Marketing",
-      "philosophy": "\"A strong brand reduces decision-making friction for every team.\"",
-      "responsibilities": ["Run market research", "Develop positioning", "Write messaging frameworks", "Guide campaign strategy"],
-      "reviews": [],
-      "sampleWork": ["Repositioned a consumer brand ahead of a multi-market launch"],
-      "specialties": ["Brand strategy", "Research", "Messaging"],
-      "summaryTitle": "Professional summary"
-    }
-  },
-  {
-    "name": "David Chen",
-    "title": "Sales Development Representative",
-    "department": "Sales",
-    "experience": "4 yrs experience",
-    "salary": "$3,800/mo",
-    "status": "Available",
-    "description": "David runs outbound sales pipelines for B2B companies. He researches accounts, writes cold outreach, books qualified meetings, and hands off well-prepared opportunities to account executives.",
-    "skills": ["Outbound sales", "Lead research", "Cold email", "Prospecting", "CRM hygiene"],
-    "imageUrl": "/avatars/david-chen.jpg",
-    "slug": "david-chen",
-    "profile": {
-      "availabilityNote": "Available for outbound pipeline building and SDR operations support.",
-      "category": "Sales",
-      "experienceSummary": "Four years running B2B prospecting and outbound workflows.",
-      "industry": "Sales",
-      "philosophy": "\"Good outbound is disciplined, personalized, and measurable.\"",
-      "responsibilities": ["Research accounts", "Draft outreach", "Maintain CRM", "Book meetings"],
-      "reviews": [],
-      "sampleWork": ["Built a prospecting workflow that increased reply rates by 22%"],
-      "specialties": ["Prospecting", "Outbound sales", "CRM hygiene"],
-      "summaryTitle": "Professional summary"
-    }
-  },
-  {
-    "name": "Elena Brooks",
-    "title": "Content Strategist",
-    "department": "Content",
-    "experience": "7 yrs experience",
-    "salary": "$5,200/mo",
-    "status": "Available",
-    "description": "Elena plans editorial calendars, defines content priorities, develops long-form content, and ensures every piece serves a clear business purpose.",
-    "skills": ["Content strategy", "SEO", "Writing", "Editorial planning", "Research"],
-    "imageUrl": "/avatars/elena-brooks.jpg",
-    "slug": "elena-brooks",
-    "profile": {
-      "availabilityNote": "Available for editorial strategy and content planning engagements.",
-      "category": "Content",
-      "experienceSummary": "Seven years building editorial systems and business-focused content programs.",
-      "industry": "Content",
-      "philosophy": "\"Every piece of content should have a clear job to do.\"",
-      "responsibilities": ["Plan editorial calendars", "Set content priorities", "Guide long-form content"],
-      "reviews": [],
-      "sampleWork": ["Designed an editorial roadmap aligned to pipeline goals"],
-      "specialties": ["SEO", "Writing", "Editorial planning"],
-      "summaryTitle": "Professional summary"
-    }
-  },
-  {
-    "name": "Isabella Rossi",
-    "title": "Legal Counsel",
-    "department": "Legal",
-    "experience": "9 yrs experience",
-    "salary": "$7,000/mo",
-    "status": "Limited availability",
-    "description": "Isabella provides legal support for technology companies. She drafts and reviews contracts, manages vendor agreements, advises on compliance, and helps leadership navigate legal risk without slowing down the business.",
-    "skills": ["Contract drafting", "Legal review", "Compliance", "Terms of service", "Privacy policy"],
-    "imageUrl": "/avatars/isabella-rossi.jpg",
-    "slug": "isabella-rossi",
-    "profile": {
-      "availabilityNote": "Available for legal review, commercial contracts, and internal compliance support.",
-      "category": "Legal",
-      "experienceSummary": "Nine years advising technology businesses on contracts, risk, and compliance.",
-      "industry": "Technology",
-      "philosophy": "\"Legal should help the business move with confidence, not slow it down.\"",
-      "responsibilities": ["Draft contracts", "Review legal risk", "Advise leadership"],
-      "reviews": [],
-      "sampleWork": ["Standardized vendor contract review across a growing SaaS team"],
-      "specialties": ["Contract drafting", "Compliance", "Privacy policy"],
-      "summaryTitle": "Professional summary"
-    }
-  },
-  {
-    "name": "Lena Carter",
+    "name": "Etta Marsh",
     "title": "UGC Talent Manager",
-    "department": "Creator Economy",
-    "experience": "5 yrs experience",
-    "salary": "$0/mo",
+    "department": "Talent Management",
+    "experience": "6 yrs experience",
+    "salary": "$940/mo",
     "status": "Available",
-    "description": "Lena works with UGC creators to help them consistently secure paid partnerships. She organizes outreach, improves positioning, reviews portfolios, develops pitching strategies, and manages the creator pipeline from first contact to signed deal.",
-    "skills": ["Outreach strategy", "Creator relations", "Portfolio review", "Negotiation", "Pipeline tracking"],
-    "imageUrl": "/avatars/lena-carter.jpg",
-    "slug": "lena-carter",
+    "description": "Etta keeps a creator roster organized and moving. She vets inbound creators, audits engagement for fake followers, manages campaign briefs and schedules, and handles brand outreach so nothing slips between the cracks.",
+    "skills": [
+      "Creator vetting",
+      "Brief management",
+      "Scheduling",
+      "Brand outreach",
+      "Engagement audits"
+    ],
+    "imageUrl": "",
+    "slug": "etta-marsh",
     "profile": {
-      "availabilityNote": "Available for creator outreach, portfolio review, and partnership pipeline support.",
-      "category": "Creator Partnerships",
-      "experienceSummary": "Five years supporting creator positioning, outreach systems, and brand deal pipelines.",
-      "industry": "Creator Economy",
-      "philosophy": "\"Consistency wins more brand deals than occasional bursts of outreach.\"",
-      "responsibilities": ["Organize outreach", "Review portfolios", "Track negotiations"],
-      "reviews": [],
-      "sampleWork": ["Built a creator pipeline that increased qualified replies week over week"],
-      "specialties": ["Creator relations", "Negotiation", "Pipeline tracking"],
-      "summaryTitle": "Professional summary"
+      "availabilityNote": "Available for roster coordination and vetting. Strong fit when you have inbound volume that needs structure.",
+      "category": "Creator Economy",
+      "experienceSummary": "Six years coordinating creator campaigns and vetting talent for mid-market brands.",
+      "industry": "UGC & Influencer",
+      "philosophy": "\"Half of talent management is just making sure the right things happen on time. I'm very good at the boring, important half.\"",
+      "responsibilities": [
+        "Vet and shortlist inbound creators",
+        "Audit engagement and flag fake followers",
+        "Manage campaign briefs and timelines",
+        "Run first-touch brand outreach",
+        "Keep the roster calendar current"
+      ],
+      "reviews": [
+        {
+          "company": "Velo Apparel",
+          "name": "Devin K.",
+          "quote": "Etta caught two fake-follower accounts I would've signed. Worth it for that alone.",
+          "rating": 5
+        }
+      ],
+      "sampleWork": [
+        "Cut a 41-applicant pool to a vetted shortlist of 6",
+        "Flagged and removed two creators for purchased followers",
+        "Declined two briefs that undercut the rate floor"
+      ],
+      "specialties": [
+        "Creator vetting and shortlisting",
+        "Engagement fraud detection",
+        "Campaign coordination",
+        "Outreach sequencing"
+      ],
+      "summaryTitle": "UGC Talent Manager"
+    }
+  },
+  {
+    "name": "Rowan Feld",
+    "title": "Junior UGC Talent Manager",
+    "department": "Talent Management",
+    "experience": "2 yrs experience",
+    "salary": "$490/mo",
+    "status": "Available",
+    "description": "Rowan handles the daily fundamentals: cold outreach to brands, inbox triage, follow-ups, and calendar planning. A dependable first hire to take repetitive coordination off your plate and keep outreach consistent.",
+    "skills": [
+      "Cold outreach",
+      "Calendar planning",
+      "Inbox triage",
+      "Follow-ups",
+      "List building"
+    ],
+    "imageUrl": "",
+    "slug": "rowan-feld",
+    "profile": {
+      "availabilityNote": "Available as a first hire for the outreach fundamentals. Best when priorities and rate rules are clear.",
+      "category": "Creator Economy",
+      "experienceSummary": "Two years supporting creator outreach and coordination.",
+      "industry": "UGC & Influencer",
+      "philosophy": "\"Consistency beats intensity. I send the follow-up everyone else forgets.\"",
+      "responsibilities": [
+        "Send cold outreach to target brands",
+        "Triage the inbox and route what matters",
+        "Keep follow-ups on schedule",
+        "Build and maintain outreach lists",
+        "Plan the weekly calendar"
+      ],
+      "reviews": [
+        {
+          "company": "Independent creator",
+          "name": "Priya S.",
+          "quote": "Rowan does the outreach I always put off. My pipeline finally has momentum.",
+          "rating": 5
+        }
+      ],
+      "sampleWork": [
+        "Sent 14 outreach emails in a morning with 3 same-day replies",
+        "Kept a 40-brand follow-up sequence on schedule",
+        "Built a clean weekly planning rhythm from scratch"
+      ],
+      "specialties": [
+        "Outbound outreach",
+        "Inbox triage",
+        "Follow-up discipline",
+        "Calendar planning"
+      ],
+      "summaryTitle": "Junior UGC Talent Manager"
+    }
+  },
+  {
+    "name": "June Okafor",
+    "title": "Brand Partnerships Manager",
+    "department": "Partnerships",
+    "experience": "8 yrs experience",
+    "salary": "$1,450/mo",
+    "status": "Not available for hire",
+    "description": "June sources and closes brand partnerships. She builds deal flow, reviews contracts, manages renewals, and reports on partnership performance \u2014 a step beyond talent management into the deal side of the business.",
+    "skills": [
+      "Deal sourcing",
+      "Contract review",
+      "Renewals",
+      "Reporting",
+      "Partnership strategy"
+    ],
+    "imageUrl": "",
+    "slug": "june-okafor",
+    "profile": {
+      "availabilityNote": "Currently at full capacity and not accepting new engagements.",
+      "category": "Creator Economy",
+      "experienceSummary": "Eight years building brand partnership pipelines for creators and small agencies.",
+      "industry": "Brand Partnerships",
+      "philosophy": "\"Every renewal is a negotiation you already earned. Don't leave it on the table.\"",
+      "responsibilities": [
+        "Source and qualify brand partnerships",
+        "Review and redline contracts",
+        "Manage renewals and upsells",
+        "Report on partnership performance",
+        "Set partnership strategy"
+      ],
+      "reviews": [
+        {
+          "company": "Meridian Beauty",
+          "name": "Alex T.",
+          "quote": "June turned our one-off deals into a renewals engine. Different level.",
+          "rating": 5
+        }
+      ],
+      "sampleWork": [
+        "Flagged a lapsing license still running as paid ads and renewed at +20%",
+        "Built a repeatable renewal playbook",
+        "Sourced a partnership pipeline from a cold start"
+      ],
+      "specialties": [
+        "Deal sourcing",
+        "Contract review",
+        "Renewal management",
+        "Partnership reporting"
+      ],
+      "summaryTitle": "Brand Partnerships Manager"
+    }
+  },
+  {
+    "name": "Camille Roy",
+    "title": "UGC Strategy Lead",
+    "department": "Strategy",
+    "experience": "9 yrs experience",
+    "salary": "$1,700/mo",
+    "status": "Limited availability",
+    "description": "Camille sets the direction a roster runs on: positioning, niche fit, content strategy, and which brands to chase. She works above the day-to-day to make sure the outreach and deals point at the right targets.",
+    "skills": [
+      "Positioning",
+      "Content strategy",
+      "Niche fit",
+      "Brand targeting",
+      "Portfolio review"
+    ],
+    "imageUrl": "",
+    "slug": "camille-roy",
+    "profile": {
+      "availabilityNote": "Limited availability \u2014 taking a small number of strategy engagements.",
+      "category": "Creator Economy",
+      "experienceSummary": "Nine years shaping creator positioning and content strategy across categories.",
+      "industry": "UGC & Influencer",
+      "philosophy": "\"Strategy is deciding what not to pitch. Focus is the whole game in this space.\"",
+      "responsibilities": [
+        "Define creator positioning and niche",
+        "Set the content and pitch strategy",
+        "Choose brand targets worth chasing",
+        "Review portfolios and media kits",
+        "Align the roster on direction"
+      ],
+      "reviews": [
+        {
+          "company": "Halcyon Studio",
+          "name": "Nadia F.",
+          "quote": "Camille figured out the niche I'd been circling for a year in one session.",
+          "rating": 5
+        }
+      ],
+      "sampleWork": [
+        "Repositioned a stalled creator into a defined, higher-paying niche",
+        "Built a brand target list that doubled reply rates",
+        "Turned a scattered media kit into a clear pitch"
+      ],
+      "specialties": [
+        "Positioning strategy",
+        "Brand targeting",
+        "Content direction",
+        "Portfolio review"
+      ],
+      "summaryTitle": "UGC Strategy Lead"
     }
   }
 ]

@@ -1,4 +1,5 @@
 import type { Worker } from "../types";
+import { WorkerMark } from "./WorkerMark";
 
 type HireWorkerPageProps = {
   onBack: () => void;
@@ -7,61 +8,43 @@ type HireWorkerPageProps = {
 };
 
 export function HireWorkerPage({ onBack, onConfirmHire, worker }: HireWorkerPageProps) {
+  const first = worker.name.split(" ")[0];
+
   return (
-    <main className="content-page">
-      <div className="hire-page-shell">
-        <a className="back-link" href={`#worker-${worker.slug}`} onClick={(event) => { event.preventDefault(); onBack(); }}>
-          ← Back to worker
-        </a>
+    <main className="hire">
+      <a className="rp-back" href={`#worker-${worker.slug}`} onClick={(e) => { e.preventDefault(); onBack(); }}>← Back to profile</a>
 
-        <header className="content-header">
-          <h1>Hire {worker.name}</h1>
-          <p>
-            You’re about to hire {worker.name} as your {worker.title}. After hiring, {worker.name.split(" ")[0]} will begin a
-            new hire onboarding session to learn your goals, preferences, work style, and role-specific context.
-          </p>
-        </header>
-
-        <div className="hire-page-grid">
-          <section className="profile-panel">
-            <h2>Hiring decision</h2>
-            <dl className="info-list">
-              <div>
-                <dt>Worker</dt>
-                <dd>{worker.name}</dd>
-              </div>
-              <div>
-                <dt>Role</dt>
-                <dd>{worker.title}</dd>
-              </div>
-              <div>
-                <dt>Department</dt>
-                <dd>{worker.department}</dd>
-              </div>
-              <div>
-                <dt>Monthly salary</dt>
-                <dd>{worker.salary}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className="profile-panel">
-            <h2>What happens after hiring</h2>
-            <ul className="profile-bullets">
-              <li>{worker.name.split(" ")[0]} runs a new hire onboarding session.</li>
-              <li>Ryva saves your goals, preferences, approval rules, and role context into the worker’s memory.</li>
-              <li>Your office is seeded with first-day tasks, a first briefing, and initial working context.</li>
-              <li>{worker.name.split(" ")[0]} then joins Ryva Office and starts operating from that context.</li>
-            </ul>
-          </section>
+      <div className="hire-card">
+        <div className="hire-id">
+          <WorkerMark seed={worker.slug} size={64} />
+          <div>
+            <h1>Hire {worker.name}</h1>
+            <p>as your {worker.title}</p>
+          </div>
+          <div className="hire-price">
+            <strong>{worker.salary}</strong>
+            <span>billed monthly</span>
+          </div>
         </div>
 
-        <div className="hire-page-actions">
-          <button className="button button-primary" onClick={() => onConfirmHire(worker.slug)} type="button">
-            Hire {worker.name}
-          </button>
-          <button className="button button-secondary" onClick={onBack} type="button">
-            Back
+        <div className="hire-body">
+          <p className="hire-lede">
+            {first} starts the moment you sign. First thing, they'll sit down with you for a
+            first-day onboarding — learning your goals, brand, approval rules, and how you want
+            work done — then get to work from that context.
+          </p>
+
+          <div className="hire-steps">
+            <div className="hire-step"><span className="n">01</span><b>Onboarding</b><p>{first} asks the questions a good new hire would to understand the job.</p></div>
+            <div className="hire-step"><span className="n">02</span><b>Context saved</b><p>Your goals, preferences, and rules are written into {first}'s memory.</p></div>
+            <div className="hire-step"><span className="n">03</span><b>First day</b><p>Your office is seeded with first tasks and a briefing, and {first} gets to work.</p></div>
+          </div>
+        </div>
+
+        <div className="hire-actions">
+          <button className="r-btn r-btn-ghost" onClick={onBack} type="button">Cancel</button>
+          <button className="r-btn r-btn-accent" onClick={() => onConfirmHire(worker.slug)} type="button">
+            Hire {first} · {worker.salary}
           </button>
         </div>
       </div>

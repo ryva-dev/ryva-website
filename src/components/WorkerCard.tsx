@@ -1,4 +1,5 @@
 import type { Worker } from "../types";
+import { WorkerMark } from "./WorkerMark";
 
 type WorkerCardProps = {
   onHire: (workerSlug: string) => void;
@@ -6,43 +7,39 @@ type WorkerCardProps = {
 };
 
 export function WorkerCard({ onHire, worker }: WorkerCardProps) {
+  const unavailable = worker.status === "Not available for hire";
+  const statusClass =
+    worker.status === "Available" ? "open" : worker.status === "Limited availability" ? "limited" : "closed";
+  const statusLabel =
+    worker.status === "Available" ? "Available" : worker.status === "Limited availability" ? "Limited" : "Not available for hire";
+  const salaryNumber = worker.salary.replace(/\/mo$/, "");
+
   return (
-    <article className="worker-row-card">
-      <div className="worker-row-main">
-        <img
-          alt={worker.name}
-          className="worker-row-avatar"
-          src={worker.imageUrl}
-        />
+    <article className={`r-worker${unavailable ? " unavailable" : ""}`} style={{ cursor: "default" }}>
+      <WorkerMark seed={worker.slug} size={52} />
+      <h4>{worker.name}</h4>
+      <div className="role">{worker.title}</div>
+      <div className="skills">{worker.skills.slice(0, 4).join(" · ")}</div>
 
-        <div className="worker-row-content">
-          <div className="worker-row-header">
-            <div>
-              <h3>{worker.name}</h3>
-              <p className="worker-row-title">{worker.title}</p>
-              <p className="worker-row-meta">
-                {worker.department} · {worker.experience}
-              </p>
-            </div>
+      <div className="foot">
+        <span className="sal">{salaryNumber}<span>/mo</span></span>
+        <span className={`r-status ${statusClass}`}>{statusLabel}</span>
+      </div>
 
-            <div className="worker-row-price">
-              <strong>{worker.salary}</strong>
-              <span>{worker.status}</span>
-            </div>
-          </div>
-
-          <p className="worker-row-description">{worker.description}</p>
-          <p className="worker-row-skills">{worker.skills.join(" · ")}</p>
-
-          <div className="worker-row-actions">
-            <a className="button button-secondary" href={`#worker-${worker.slug}`}>
-              View profile
-            </a>
-            <button className="button button-primary" onClick={() => onHire(worker.slug)} type="button">
-              Hire
-            </button>
-          </div>
-        </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <a className="r-btn r-btn-ghost" href={`#worker-${worker.slug}`} style={{ flex: 1, justifyContent: "center", fontSize: 13, padding: "9px 14px" }}>
+          View profile
+        </a>
+        {!unavailable && (
+          <button
+            className="r-btn r-btn-accent"
+            type="button"
+            onClick={() => onHire(worker.slug)}
+            style={{ flex: 1, justifyContent: "center", fontSize: 13, padding: "9px 14px" }}
+          >
+            Hire
+          </button>
+        )}
       </div>
     </article>
   );
