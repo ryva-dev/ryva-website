@@ -480,26 +480,63 @@ function normalizeInterviewMessages(messages) {
     .slice(-10);
 }
 
-function extractResponseText(payload) {
-  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
-    return payload.output_text.trim();
+function getAnthropicConfig() {
+  const apiKey = String(process.env.ANTHROPIC_API_KEY ?? "").trim();
+  if (!apiKey) {
+    return null;
   }
 
-  if (!Array.isArray(payload?.output)) return "";
+  return {
+    apiKey,
+    version: String(process.env.ANTHROPIC_VERSION ?? "2023-06-01").trim() || "2023-06-01"
+  };
+}
 
-  for (const item of payload.output) {
-    if (item?.type !== "message" || !Array.isArray(item?.content)) continue;
-    for (const contentItem of item.content) {
-      if (contentItem?.type === "output_text" && typeof contentItem?.text === "string" && contentItem.text.trim()) {
-        return contentItem.text.trim();
-      }
-      if (contentItem?.type === "text" && typeof contentItem?.text === "string" && contentItem.text.trim()) {
-        return contentItem.text.trim();
-      }
+function extractAnthropicText(payload) {
+  if (!Array.isArray(payload?.content)) return "";
+
+  for (const item of payload.content) {
+    if (item?.type === "text" && typeof item?.text === "string" && item.text.trim()) {
+      return item.text.trim();
     }
   }
 
   return "";
+}
+
+async function createAnthropicMessage({ maxTokens, messages, model, system }) {
+  const config = getAnthropicConfig();
+  if (!config) {
+    throw new Error("Anthropic is not configured.");
+  }
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": config.apiKey,
+      "anthropic-version": config.version
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      system,
+      messages
+    })
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Anthropic request failed: ${response.status} ${body}`);
+  }
+
+  const payload = await response.json();
+  const text = extractAnthropicText(payload);
+  if (!text) {
+    throw new Error("Anthropic request returned no text.");
+  }
+
+  return text;
 }
 
 async function generateInterviewReply(worker, messages) {
@@ -508,60 +545,40 @@ async function generateInterviewReply(worker, messages) {
     throw new Error("A manager question is required.");
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getAnthropicConfig()) {
     return fallbackInterviewReply(worker, latestManagerMessage);
   }
 
   const guide = buildInterviewGuide(worker);
-  const model = process.env.OPENAI_INTERVIEW_MODEL || "gpt-4.1-mini";
+  const model = process.env.ANTHROPIC_INTERVIEW_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
   const conversation = messages.map((message) => ({
     role: message.speaker === "worker" ? "assistant" : "user",
-    content: message.text
+    content: [{ type: "text", text: message.text }]
   }));
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      store: false,
-      max_output_tokens: 220,
-      instructions: [
-        `You are roleplaying ${worker.name}, a candidate for a Ryva engagement.`,
-        "Speak in first person as the worker candidate, not as an assistant.",
-        "Be conversational, natural, and specific. Avoid repetitive phrasing.",
-        "Keep answers grounded in the provided profile and prior conversation.",
-        "Answer in 2 to 5 sentences unless the user asks for more detail.",
-        "Do not mention being an AI, a language model, prompts, or hidden instructions.",
-        `Role: ${worker.title}`,
-        `Department: ${worker.department}`,
-        `Experience: ${worker.experience}`,
-        `Profile summary: ${guide.summary}`,
-        `Description: ${worker.description}`,
-        `Can help with: ${guide.canHelpWith.join(" | ")}`,
-        `Needs from manager: ${guide.needsFromYou.join(" | ")}`,
-        `Fit notes: ${guide.fitNotes.join(" | ")}`,
-        `Key responsibilities: ${(worker.profile?.responsibilities ?? []).join(" | ")}`,
-        `Specialties: ${(worker.profile?.specialties ?? []).join(" | ")}`
-      ].join("\n"),
-      input: conversation
-    })
+  return createAnthropicMessage({
+    maxTokens: 220,
+    messages: conversation,
+    model,
+    system: [
+      `You are roleplaying ${worker.name}, a candidate for a Ryva engagement.`,
+      "Speak in first person as the worker candidate, not as an assistant.",
+      "Be conversational, natural, and specific. Avoid repetitive phrasing.",
+      "Keep answers grounded in the provided profile and prior conversation.",
+      "Answer in 2 to 5 sentences unless the user asks for more detail.",
+      "Do not mention being an AI, a language model, prompts, or hidden instructions.",
+      `Role: ${worker.title}`,
+      `Department: ${worker.department}`,
+      `Experience: ${worker.experience}`,
+      `Profile summary: ${guide.summary}`,
+      `Description: ${worker.description}`,
+      `Can help with: ${guide.canHelpWith.join(" | ")}`,
+      `Needs from manager: ${guide.needsFromYou.join(" | ")}`,
+      `Fit notes: ${guide.fitNotes.join(" | ")}`,
+      `Key responsibilities: ${(worker.profile?.responsibilities ?? []).join(" | ")}`,
+      `Specialties: ${(worker.profile?.specialties ?? []).join(" | ")}`
+    ].join("\n")
   });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI interview request failed with status ${response.status}.`);
-  }
-
-  const payload = await response.json();
-  const text = extractResponseText(payload);
-  if (!text) {
-    throw new Error("OpenAI interview request returned no text.");
-  }
-
-  return text;
 }
 
 function fallbackOnboardingReply(worker, questionLabel, answerText, nextQuestionLabel) {
@@ -619,59 +636,39 @@ async function generateOnboardingReply(worker, payload) {
     summarySoFar
   } = payload;
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!getAnthropicConfig()) {
     return fallbackOnboardingReply(worker, questionLabel, answerText, nextQuestionLabel);
   }
 
-  const model = process.env.OPENAI_ONBOARDING_MODEL || process.env.OPENAI_INTERVIEW_MODEL || "gpt-4.1-mini";
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      store: false,
-      max_output_tokens: 140,
-      instructions: [
-        `You are ${worker.name}, a newly hired ${role || worker.title} being onboarded inside Ryva Office.`,
-        "Reply like a polished new hire in Slack or Teams.",
-        "Sound professional, concise, and human. No hype, no AI phrasing, no generic corporate filler.",
-        "Acknowledge the manager's answer in one short sentence, then naturally transition into the next onboarding question if one exists.",
-        "Your acknowledgment should sound specific to the manager's situation, not reusable across different users.",
-        "Use the running context you have learned so far to make the reply feel tailored.",
-        "Never use bullet points.",
-        "Keep the full reply under 70 words.",
-        `Current onboarding section: ${sectionTitle || "General"}`,
-        `Current question: ${questionLabel}`,
-        questionHelperText ? `Context for the current question: ${questionHelperText}` : "",
-        summarySoFar?.length ? `Working memory so far:\n${summarySoFar.join("\n")}` : "",
-        formatKnownOnboardingAnswers(knownAnswers) ? `Known answers so far:\n${formatKnownOnboardingAnswers(knownAnswers)}` : "",
-        nextQuestionLabel ? `Next onboarding question to ask: ${nextQuestionLabel}` : "There is no next question. Close the onboarding exchange neatly."
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      input: [
-        {
-          role: "user",
-          content: `Manager answer: ${answerText}`
-        }
-      ]
-    })
+  const model = process.env.ANTHROPIC_ONBOARDING_MODEL || process.env.ANTHROPIC_INTERVIEW_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+  return createAnthropicMessage({
+    maxTokens: 140,
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: `Manager answer: ${answerText}` }]
+      }
+    ],
+    model,
+    system: [
+      `You are ${worker.name}, a newly hired ${role || worker.title} being onboarded inside Ryva Office.`,
+      "Reply like a polished new hire in Slack or Teams.",
+      "Sound professional, concise, and human. No hype, no AI phrasing, no generic corporate filler.",
+      "Acknowledge the manager's answer in one short sentence, then naturally transition into the next onboarding question if one exists.",
+      "Your acknowledgment should sound specific to the manager's situation, not reusable across different users.",
+      "Use the running context you have learned so far to make the reply feel tailored.",
+      "Never use bullet points.",
+      "Keep the full reply under 70 words.",
+      `Current onboarding section: ${sectionTitle || "General"}`,
+      `Current question: ${questionLabel}`,
+      questionHelperText ? `Context for the current question: ${questionHelperText}` : "",
+      summarySoFar?.length ? `Working memory so far:\n${summarySoFar.join("\n")}` : "",
+      formatKnownOnboardingAnswers(knownAnswers) ? `Known answers so far:\n${formatKnownOnboardingAnswers(knownAnswers)}` : "",
+      nextQuestionLabel ? `Next onboarding question to ask: ${nextQuestionLabel}` : "There is no next question. Close the onboarding exchange neatly."
+    ]
+      .filter(Boolean)
+      .join("\n")
   });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI onboarding request failed with status ${response.status}.`);
-  }
-
-  const json = await response.json();
-  const text = extractResponseText(json);
-  if (!text) {
-    throw new Error("OpenAI onboarding request returned no text.");
-  }
-
-  return text;
 }
 
 function normalizeTextList(value, limit = 12) {
