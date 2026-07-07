@@ -67,6 +67,255 @@ const TASK_TYPE_OUTPUT_TYPE_MAP = {
   weekly_action_plan: "weekly_plan"
 };
 
+const MARA_KNOWLEDGE_MODULES = [
+  {
+    id: "mara-ugc-basics",
+    workerType: "mara",
+    title: "UGC creator basics",
+    category: "ugc_basics",
+    summary: "Foundational UGC context: what brands usually buy, how UGC differs from influencer work, and what beginners need first.",
+    content: "UGC is creator-made content brands buy for their own channels or ads. It differs from influencer content because the value is the asset itself, not mainly the creator's audience. Brands usually buy short-form videos, photos, testimonials, product demos, routines, unboxings, hooks, and paid-ad-ready variations. Beginner creators often need a few solid samples, a simple niche position, and a clean outreach rhythm before expecting steady replies.",
+    structuredContent: {
+      beginnerExpectations: ["A few strong sample videos matter more than a polished website at first", "Clear niche positioning beats trying to pitch everyone", "Brands care about usable creative, not follower count alone"],
+      deliverables: ["Short-form videos", "Photos", "Hooks", "Testimonials", "Product demos", "Routine content"],
+      keyDifferences: ["UGC is an asset purchase", "Influencer work is often audience/distribution-led", "UGC can be used organically or in paid ads"],
+      outreachBasics: ["Short pitch", "Specific angle", "Simple CTA", "Track follow-ups"]
+    },
+    tags: ["ugc", "basics", "beginner", "deliverables"],
+    isActive: true
+  },
+  {
+    id: "mara-creator-positioning",
+    workerType: "mara",
+    title: "Creator positioning",
+    category: "creator_positioning",
+    summary: "How to choose a niche, describe strengths, position beginners, and avoid generic creator messaging.",
+    content: "Good creator positioning names the niche, style, strengths, and the kind of brand problem the creator helps solve. Beginners should position around clarity, taste, speed, relatability, or a strong product demo angle rather than pretending to have huge campaign experience. Avoid generic lines like 'passionate creator open to all collaborations.'",
+    structuredContent: {
+      avoid: ["passionate creator open to all collaborations", "I can do anything for any brand", "generic lifestyle creator with no angle"],
+      beginnerPositioning: ["Frame spec work honestly as sample campaign work", "Lead with niche fit and usable content style", "Use practical strengths like clarity, relatability, or demo ability"],
+      positioningIngredients: ["Niche", "Audience or content style", "Proof point", "Brand-facing angle", "Creator strengths"]
+    },
+    tags: ["positioning", "niche", "beginner", "proof"],
+    isActive: true
+  },
+  {
+    id: "mara-brand-research",
+    workerType: "mara",
+    title: "Brand fit criteria",
+    category: "brand_research",
+    summary: "Signals for finding likely UGC buyers, beginner-friendly brands, bad-fit signals, and priority rules.",
+    content: "Good UGC-fit brands usually have active ecommerce, visual products, an ad-friendly offer, and some evidence they use creator or social-style content already. Beginner-friendly brands are often DTC, move quickly, and do not require heavy production polish. Bad-fit signals include unclear offers, no visual product use case, hyper-corporate procurement for tiny creator budgets, or lots of free-work language.",
+    structuredContent: {
+      beginnerFriendlySignals: ["DTC store", "Active social posting", "Visual product", "Clear product page", "Evidence of UGC or paid social usage"],
+      priorityScoring: ["+ niche overlap", "+ product demo potential", "+ active ad presence", "- vague scope", "- obvious free-work angle"],
+      badFitSignals: ["Exposure-only tone", "No clear product angle", "Heavy process for low-budget asks", "Unclear deliverables"]
+    },
+    tags: ["brand research", "fit", "dtc", "priority"],
+    isActive: true
+  },
+  {
+    id: "mara-outreach",
+    workerType: "mara",
+    title: "Outreach best practices",
+    category: "outreach",
+    summary: "Short personalized outreach, clear value, specific angle, and beginner-friendly CTA choices.",
+    content: "Good outreach is short, specific, and easy to reply to. It should name why the brand fits, suggest a concrete content angle, and avoid overexplaining. DM outreach is usually looser and faster. Email outreach can be slightly more structured and should use a clean subject line.",
+    structuredContent: {
+      ctas: ["Happy to send a few concepts if useful", "Want me to mock up a couple of angles?", "Open to a quick fit check?"],
+      emailVsDm: ["DM can be warmer and shorter", "Email can include a tighter value proposition and subject line"],
+      principles: ["Personalize the first line", "Keep the value proposition clear", "Name a specific angle", "End with a low-friction CTA"]
+    },
+    tags: ["outreach", "email", "dm", "personalization"],
+    isActive: true
+  },
+  {
+    id: "mara-pitch-templates",
+    workerType: "mara",
+    title: "Pitch templates",
+    category: "pitch_templates",
+    summary: "Reusable template ingredients, tone variants, placeholders, and subject line examples.",
+    content: "Good pitch templates should be modular. Mara should always keep placeholders for brand name, product, fit reason, and concept angle. Beginners should not oversell themselves. Better to offer a tight concept and a simple next step.",
+    structuredContent: {
+      placeholders: ["[Brand]", "[Product]", "[Why you fit them]", "[Concept angle]"],
+      subjectLines: ["UGC idea for [Brand]", "Quick creator fit for [Brand]", "[Category] concept for [Brand]"],
+      templateTypes: ["Short email", "Short DM", "Warm casual", "Professional", "Follow-up-friendly"]
+    },
+    tags: ["pitch", "templates", "subject lines"],
+    isActive: true
+  },
+  {
+    id: "mara-follow-ups",
+    workerType: "mara",
+    title: "Follow-up strategy",
+    category: "follow_ups",
+    summary: "When to follow up, how many times, and how to avoid sounding desperate.",
+    content: "A simple beginner-safe follow-up rhythm is 3 days, 7 days, and 14 days, then close the loop. Follow-ups should stay calm and useful. Mara should stop after a polite final message unless the brand reopens the conversation.",
+    structuredContent: {
+      cadence: ["Day 3", "Day 7", "Day 14 closeout"],
+      principles: ["Short", "No guilt framing", "Light value reminder", "Stop after final closeout"],
+      trackingNeeds: ["Last touch date", "Next follow-up date", "Reply status"]
+    },
+    tags: ["follow up", "cadence", "tracking"],
+    isActive: true
+  },
+  {
+    id: "mara-pricing",
+    workerType: "mara",
+    title: "UGC pricing basics",
+    category: "pricing",
+    summary: "Starter pricing guidance, bundles, add-ons, usage rights, and caution against hard unsupported pricing claims.",
+    content: "Pricing guidance should be directional, not guaranteed market data. Mara should talk in framework terms: complexity, deliverables, usage rights, raw footage, rush delivery, bundles, and revisions all affect pricing. Beginners can use simple per-video or bundle logic, but Mara should avoid pretending to know what any specific brand will pay without evidence.",
+    structuredContent: {
+      commonFactors: ["Video count", "Edits", "Usage rights", "Raw footage", "Rush timing", "Exclusivity"],
+      guidanceRules: ["Give pricing structure, not fake market certainty", "Encourage clarifying scope and rights first", "Separate organic usage from paid ad usage"]
+    },
+    tags: ["pricing", "bundles", "usage rights"],
+    isActive: true
+  },
+  {
+    id: "mara-usage-rights",
+    workerType: "mara",
+    title: "Usage rights basics",
+    category: "usage_rights",
+    summary: "Organic vs paid usage, duration, territory, exclusivity, raw footage, and contract caution.",
+    content: "Usage rights should be clarified before agreement. Organic usage is different from paid ad usage. Territory, duration, exclusivity, raw footage rights, and whitelisting or Spark-style permissions all change the scope. Mara should explicitly say this is not legal advice and recommend careful contract review.",
+    structuredContent: {
+      clarifyFirst: ["Organic vs paid ad usage", "Usage duration", "Territory", "Exclusivity", "Raw footage rights"],
+      caution: ["Not legal advice", "Review contract wording carefully", "Do not assume paid usage is included automatically"]
+    },
+    tags: ["usage rights", "paid ads", "raw footage", "exclusivity"],
+    isActive: true
+  },
+  {
+    id: "mara-content-strategy",
+    workerType: "mara",
+    title: "Content strategy",
+    category: "content_strategy",
+    summary: "Hooks, problem-solution framing, demos, routines, storytelling, and CTA options for UGC.",
+    content: "Effective UGC usually starts with a clear hook, shows a relatable problem, demonstrates the product naturally, and ends with a clean payoff or CTA. Mara should use content pillars like demo, testimonial, routine, comparison, unboxing, and storytelling based on the creator's niche.",
+    structuredContent: {
+      formats: ["Demo", "Testimonial", "Routine", "Comparison", "Unboxing", "Day-in-the-life", "Storytelling"],
+      hookIdeas: ["Problem-first", "What surprised me", "Why this works", "Before you buy"],
+      ctas: ["Would you try it?", "Here’s how I’d use it", "Want me to turn this into a script next?"]
+    },
+    tags: ["content strategy", "hooks", "storytelling"],
+    isActive: true
+  },
+  {
+    id: "mara-content-formats",
+    workerType: "mara",
+    title: "Content formats",
+    category: "content_formats",
+    summary: "Common UGC formats and when they tend to work.",
+    content: "Different products need different formats. Routines work well for repeated-use products. Comparison and testimonial styles work when trust is the main barrier. Demo-heavy content works when the product payoff is visual.",
+    structuredContent: {
+      formatGuide: ["Routine = repeated-use products", "Demo = visual transformation or process", "Testimonial = trust and relatability", "Comparison = decision support"]
+    },
+    tags: ["formats", "routine", "demo", "testimonial"],
+    isActive: true
+  },
+  {
+    id: "mara-portfolio",
+    workerType: "mara",
+    title: "Portfolio recommendations",
+    category: "portfolio",
+    summary: "What a beginner portfolio should include and how to present sample work honestly.",
+    content: "A beginner portfolio should be simple: clear niche or categories, 3 to 5 sample assets, contact info, and enough structure to show the creator can think like a brand partner. Spec work should be labeled honestly as sample or concept work.",
+    structuredContent: {
+      include: ["Niche sections", "Sample assets", "Contact info", "Simple about section"],
+      avoid: ["Overstuffed media kit before basics exist", "Dishonest claims about client work", "Generic lifestyle pages with no category fit"],
+      sampleProjects: ["Routine demo", "Problem-solution piece", "Close-up product explainer"]
+    },
+    tags: ["portfolio", "beginner", "samples"],
+    isActive: true
+  },
+  {
+    id: "mara-campaign-workflow",
+    workerType: "mara",
+    title: "Campaign workflow",
+    category: "campaign_workflow",
+    summary: "The normal flow from lead found through payment and future follow-up.",
+    content: "A clean UGC workflow usually moves from lead found, pitch sent, reply received, brief clarified, terms clarified, content created, draft sent, revision handled, approval confirmed, payment tracked, and future follow-up or testimonial request logged.",
+    structuredContent: {
+      stages: ["Lead found", "Pitch sent", "Reply received", "Brief received", "Terms clarified", "Content created", "Draft sent", "Revision", "Approved", "Payment", "Future follow-up"]
+    },
+    tags: ["workflow", "pipeline", "campaign"],
+    isActive: true
+  },
+  {
+    id: "mara-negotiation",
+    workerType: "mara",
+    title: "Negotiation basics",
+    category: "negotiation",
+    summary: "Simple, calm negotiation posture for beginners without fake confidence or fake rate certainty.",
+    content: "Negotiation should stay calm and scope-based. Mara should emphasize deliverables, usage, revisions, timing, and raw footage rather than bluffing. A good beginner stance is to clarify the package before discussing price confidence.",
+    structuredContent: {
+      anchors: ["Clarify scope", "Separate usage rights", "Name add-ons clearly", "Avoid bluffing on market data"]
+    },
+    tags: ["negotiation", "scope", "rates"],
+    isActive: true
+  },
+  {
+    id: "mara-red-flags",
+    workerType: "mara",
+    title: "Brand red flags",
+    category: "red_flags",
+    summary: "Common issues to clarify without accusing the brand: scope, payment, rights, revisions, urgency, and free-work signals.",
+    content: "Mara should frame concerns as clarifications, not accusations. Common red flags include vague deliverables, free or product-only compensation, affiliate-only offers when the creator wants paid UGC, unclear usage rights, raw footage requested without terms, unlimited revisions, unclear payment timing, no contract, or aggressive urgency.",
+    structuredContent: {
+      clarifications: ["Deliverables", "Compensation", "Usage rights", "Revisions", "Timeline", "Contract"],
+      redFlags: ["Free or product-only", "Affiliate-only", "Raw footage without terms", "Unlimited revisions", "Urgent pressure", "No payment timing"]
+    },
+    tags: ["red flags", "contracts", "usage", "payment"],
+    isActive: true
+  },
+  {
+    id: "mara-admin-tracking",
+    workerType: "mara",
+    title: "Admin tracking",
+    category: "admin_tracking",
+    summary: "What Mara should track in a basic creator pipeline and why.",
+    content: "A basic creator tracker should include brand name, contact, category, stage, last touch, next follow-up, payment status, usage notes, deliverables, and priority. Mara should keep the structure simple enough to maintain consistently.",
+    structuredContent: {
+      fields: ["Brand", "Contact", "Category", "Stage", "Last touch", "Next follow-up", "Deliverables", "Payment status", "Usage notes", "Priority"],
+      stages: ["Targeted", "Pitched", "Awaiting reply", "In conversation", "Content in progress", "Closed"],
+      scoring: ["Niche fit", "Product fit", "Urgency", "Reply probability"]
+    },
+    tags: ["tracking", "admin", "pipeline"],
+    isActive: true
+  },
+  {
+    id: "mara-beginner-roadmap",
+    workerType: "mara",
+    title: "Beginner UGC roadmap",
+    category: "beginner_roadmap",
+    summary: "A practical first roadmap for beginner creators: niche, samples, portfolio, first brands, and weekly rhythm.",
+    content: "A good beginner roadmap is simple: choose a niche, make 3 to 5 sample assets, build a lightweight portfolio, identify a first list of brands, send pitches, track follow-ups, and improve the system week by week.",
+    structuredContent: {
+      steps: ["Choose niche", "Create 3 to 5 sample videos", "Build simple portfolio", "Identify first 25 brands", "Send first pitches", "Track follow-ups", "Improve based on replies", "Create weekly rhythm"]
+    },
+    tags: ["beginner", "roadmap", "portfolio", "first brands"],
+    isActive: true
+  }
+];
+
+const TASK_TYPE_KNOWLEDGE_CATEGORIES = {
+  brand_fit_criteria: ["ugc_basics", "brand_research", "creator_positioning"],
+  brand_tracker_structure: ["campaign_workflow", "admin_tracking"],
+  content_idea_batch: ["ugc_basics", "content_strategy", "content_formats", "creator_positioning"],
+  creator_positioning: ["ugc_basics", "creator_positioning", "beginner_roadmap"],
+  draft_brand_reply: ["outreach", "negotiation", "usage_rights", "red_flags"],
+  follow_up_sequence: ["follow_ups", "outreach", "admin_tracking"],
+  outreach_strategy: ["outreach", "brand_research", "follow_ups", "creator_positioning"],
+  pasted_message_analysis: ["red_flags", "usage_rights", "negotiation"],
+  personalized_pitch: ["outreach", "pitch_templates", "creator_positioning", "brand_research"],
+  pitch_template: ["outreach", "pitch_templates", "creator_positioning", "brand_research"],
+  portfolio_recommendations: ["portfolio", "beginner_roadmap", "creator_positioning"],
+  ugc_shot_list: ["content_strategy", "content_formats"],
+  weekly_action_plan: ["beginner_roadmap", "admin_tracking", "campaign_workflow"]
+};
+
 export function normalizeForComparison(value) {
   return String(value ?? "")
     .toLowerCase()
@@ -79,6 +328,113 @@ function ensureColumn(db, tableName, columnName, columnDefinition) {
   if (!columns.some((column) => column.name === columnName)) {
     db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
   }
+}
+
+function seedMaraKnowledgeModules(db) {
+  const timestamp = new Date().toISOString();
+  for (const module of MARA_KNOWLEDGE_MODULES) {
+    db.prepare(
+      `INSERT INTO worker_knowledge_modules
+        (id, worker_type, worker_id, title, category, summary, content, structured_content_json, tags_json, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         worker_type = excluded.worker_type,
+         worker_id = excluded.worker_id,
+         title = excluded.title,
+         category = excluded.category,
+         summary = excluded.summary,
+         content = excluded.content,
+         structured_content_json = excluded.structured_content_json,
+         tags_json = excluded.tags_json,
+         is_active = excluded.is_active,
+         updated_at = excluded.updated_at`
+    ).run(
+      module.id,
+      module.workerType ?? null,
+      null,
+      module.title,
+      module.category,
+      module.summary,
+      module.content,
+      module.structuredContent ? JSON.stringify(module.structuredContent) : null,
+      module.tags ? JSON.stringify(module.tags) : null,
+      module.isActive ? 1 : 0,
+      timestamp,
+      timestamp
+    );
+  }
+}
+
+export function listWorkerKnowledgeModules(db, { userId = null, workerId = null, workerType = "mara" } = {}) {
+  return db
+    .prepare(
+      `SELECT id, worker_type AS workerType, worker_id AS workerId, title, category, summary, content,
+              structured_content_json AS structuredContentJson, tags_json AS tagsJson, is_active AS isActive,
+              created_at AS createdAt, updated_at AS updatedAt
+       FROM worker_knowledge_modules
+       WHERE is_active = 1
+         AND (worker_id IS NULL OR worker_id = ?)
+         AND (worker_type IS NULL OR worker_type = ?)
+       ORDER BY category, title`
+    )
+    .all(workerId, workerType)
+    .map((row) => ({
+      ...row,
+      isActive: Boolean(row.isActive),
+      structuredContent: safeJsonParse(row.structuredContentJson, null),
+      tags: safeJsonParse(row.tagsJson, [])
+    }));
+}
+
+function inferTaskTypeFromMessage(text) {
+  const lower = String(text ?? "").toLowerCase();
+  if (/pitch template|write me a pitch|pitch for/.test(lower)) return "pitch_template";
+  if (/content ideas?|idea batch/.test(lower)) return "content_idea_batch";
+  if (/follow up|follow-up/.test(lower)) return "follow_up_sequence";
+  if (/tracker/.test(lower)) return "brand_tracker_structure";
+  if (/portfolio/.test(lower)) return "portfolio_recommendations";
+  if (/positioning|niche/.test(lower)) return "creator_positioning";
+  if (/reply to this brand|draft a reply/.test(lower)) return "draft_brand_reply";
+  if (/analyze this brand message|analyze this message/.test(lower)) return "pasted_message_analysis";
+  if (/outreach strategy/.test(lower)) return "outreach_strategy";
+  return "general_internal_task";
+}
+
+export function getMaraRelevantKnowledge({
+  db,
+  taskType = null,
+  tags = [],
+  limit = 5,
+  userId = null,
+  userMessage = "",
+  workerId = MARA_WORKER_ID
+}) {
+  const inferredTaskType = taskType || inferTaskTypeFromMessage(userMessage);
+  const modules = listWorkerKnowledgeModules(db, { userId, workerId, workerType: "mara" });
+  const neededCategories = new Set(["ugc_basics", ...(TASK_TYPE_KNOWLEDGE_CATEGORIES[inferredTaskType] || [])]);
+  const neededTags = Array.isArray(tags) ? tags.map((tag) => String(tag).toLowerCase()) : [];
+  const lowerMessage = String(userMessage ?? "").toLowerCase();
+
+  return modules
+    .map((module) => {
+      let score = neededCategories.has(module.category) ? 5 : 0;
+      for (const tag of module.tags) {
+        const normalizedTag = String(tag).toLowerCase();
+        if (neededTags.includes(normalizedTag)) score += 2;
+        if (lowerMessage.includes(normalizedTag)) score += 1;
+      }
+      if (lowerMessage.includes(module.category.replace(/_/g, " "))) score += 2;
+      return { ...module, score };
+    })
+    .filter((module) => module.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit);
+}
+
+function formatKnowledgeModuleBrief(modules) {
+  return modules
+    .map((module) => `${module.title}: ${module.summary}`)
+    .join("\n");
 }
 
 export function inferMaraTaskType(title, source = "") {
@@ -215,9 +571,25 @@ export function initWorkerTables(db) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS worker_knowledge_modules (
+      id TEXT PRIMARY KEY,
+      worker_type TEXT,
+      worker_id TEXT,
+      title TEXT NOT NULL,
+      category TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      content TEXT NOT NULL,
+      structured_content_json TEXT,
+      tags_json TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   ensureColumn(db, "worker_tasks", "task_type", "TEXT");
+  seedMaraKnowledgeModules(db);
 }
 
 export function defaultPermissionsForWorker(workerId) {
@@ -691,6 +1063,11 @@ function buildContextProfile(context) {
   };
 }
 
+function getStructuredList(module, key, fallback = []) {
+  const value = module?.structuredContent?.[key];
+  return Array.isArray(value) ? value : fallback;
+}
+
 export function buildMaraExecutionContext({
   db,
   readAccountContext,
@@ -707,12 +1084,22 @@ export function buildMaraExecutionContext({
     throw new Error("Worker task not found.");
   }
 
+  const recentMessages = typeof readMessages === "function" ? readMessages(userId, workerId) : [];
+  const relevantKnowledgeModules = getMaraRelevantKnowledge({
+    db,
+    taskType: task.taskType,
+    userId,
+    userMessage: recentMessages.map((message) => message.text).join("\n"),
+    workerId
+  });
+
   return {
     accountContext: typeof readAccountContext === "function" ? readAccountContext(userId) : null,
     connectedIntegrations: typeof readConnectedIntegrations === "function" ? readConnectedIntegrations(userId, workerId) : [],
     currentTask: task,
     permissions: getWorkerPermissions(db, userId, workerId),
     previousOutputs: listWorkerOutputs(db, userId, workerId),
+    relevantKnowledgeModules,
     recentActivity: db
       .prepare(
         `SELECT id, event_type AS eventType, title, description, created_at AS createdAt
@@ -722,7 +1109,7 @@ export function buildMaraExecutionContext({
          LIMIT 8`
       )
       .all(userId, workerId),
-    recentMessages: typeof readMessages === "function" ? readMessages(userId, workerId) : [],
+    recentMessages,
     recurringResponsibilities: listRecurringResponsibilities(db, userId, workerId),
     relatedOpenTasks: listWorkerTasksForUserWorker(db, userId, workerId).filter((entry) => entry.id !== taskId && ["approved", "in_progress", "blocked"].includes(entry.status)),
     userId,
@@ -732,8 +1119,15 @@ export function buildMaraExecutionContext({
   };
 }
 
+function getKnowledgeModule(context, category) {
+  return (context.relevantKnowledgeModules || []).find((module) => module.category === category) ?? null;
+}
+
 function executeCreatorPositioningTask(context) {
   const profile = buildContextProfile(context);
+  const positioningModule = getKnowledgeModule(context, "creator_positioning");
+  const positioningIngredients = getStructuredList(positioningModule, "positioningIngredients", ["Niche", "Proof point", "Brand-facing angle"]);
+  const beginnerPositioning = getStructuredList(positioningModule, "beginnerPositioning", ["Lead with niche fit and usable content style"]);
   const structuredContent = {
     audienceSummary: `Creators and brand teams looking for ${profile.niche} content that feels credible and conversion-aware.`,
     brandFacingAngle: `Position ${profile.brandName} as a creator who can make ${profile.niche} feel useful, trustworthy, and easy to brief.`,
@@ -753,7 +1147,9 @@ function executeCreatorPositioningTask(context) {
       "Use this positioning to tighten your first pitch template",
       "Build brand fit criteria from the same niche assumptions",
       "Create a first content idea batch around the same buyer problems"
-    ]
+    ],
+    positioningIngredients,
+    beginnerPositioning
   };
 
   return {
@@ -764,6 +1160,8 @@ function executeCreatorPositioningTask(context) {
       { title: "Content strengths", value: structuredContent.contentStrengths },
       { title: "Brand-facing angle", value: structuredContent.brandFacingAngle },
       { title: "What makes this creator pitchable", value: structuredContent.pitchableFactors },
+      { title: "Positioning ingredients Mara is using", value: structuredContent.positioningIngredients },
+      { title: "Beginner positioning rules", value: structuredContent.beginnerPositioning },
       { title: "Suggested next steps", value: structuredContent.suggestedNextSteps }
     ]),
     outputType: "creator_positioning",
@@ -774,21 +1172,14 @@ function executeCreatorPositioningTask(context) {
 
 function executeBrandFitCriteriaTask(context) {
   const profile = buildContextProfile(context);
+  const brandResearchModule = getKnowledgeModule(context, "brand_research");
   const structuredContent = {
-    alignmentCriteria: [
-      `Clear fit with ${profile.niche}`,
-      "Creator-friendly briefing process",
-      "Room for authentic product integration"
-    ],
+    alignmentCriteria: [`Clear fit with ${profile.niche}`, ...getStructuredList(brandResearchModule, "beginnerFriendlySignals", []).slice(0, 2)],
     bestFitIndustries: ["Skincare", "Wellness", "Beauty-adjacent lifestyle"],
     brandSizeType: ["Indie brands", "Growth-stage DTC brands", "Small teams that value flexible creators"],
     productCategories: ["Serums", "Routine-based products", "Supplements", "Daily-use wellness products"],
-    redFlags: ["Heavy legal review for tiny budgets", "Unclear deliverables", "No usage terms", "Spec work requests"],
-    outreachPriorityRules: [
-      "Prioritize brands with visible UGC usage already",
-      "Move faster on brands with clear niche overlap",
-      "Deprioritize brands asking for polished ad creative first"
-    ]
+    redFlags: getStructuredList(brandResearchModule, "badFitSignals", ["Unclear deliverables", "Spec work requests"]),
+    outreachPriorityRules: getStructuredList(brandResearchModule, "priorityScoring", ["Prioritize brands with visible UGC usage already"])
   };
 
   return {
@@ -808,17 +1199,18 @@ function executeBrandFitCriteriaTask(context) {
 
 function executePitchTemplateTask(context) {
   const profile = buildContextProfile(context);
+  const outreachModule = getKnowledgeModule(context, "outreach");
+  const pitchModule = getKnowledgeModule(context, "pitch_templates");
   const positioning = context.previousOutputs.find((output) => output.outputType === "creator_positioning")?.structuredContent?.creatorPositioningStatement
     || `${profile.brandName} creates native-feeling ${profile.niche} content.`;
   const structuredContent = {
     casualVersion: `Hey [Brand] — I create ${profile.niche} content that feels natural and easy to plug into your organic or paid mix. If helpful, I can send a few quick concepts tailored to [product / campaign].`,
     emailPitch: `Hi [Brand],\n\nI'm ${profile.brandName} and I create ${profile.niche} content that helps brands look credible without feeling over-produced. ${positioning}\n\nIf you're open to it, I can send a few fast concept angles tailored to [product / campaign].\n\nBest,\n[Your name]`,
-    personalisationPlaceholders: ["[Brand]", "[product / campaign]", "[specific reason you fit them]"],
+    personalisationPlaceholders: getStructuredList(pitchModule, "placeholders", ["[Brand]", "[product / campaign]", "[specific reason you fit them]"]),
     professionalVersion: `Hi [Brand], I create concise ${profile.niche} UGC designed to feel trustworthy and easy for brand teams to brief. I'd be happy to send a few tailored concept angles if you're exploring new creator content.`,
-    subjectLineOptions: ["UGC idea for [Brand]", "Quick creator fit for [Brand]", `${profile.niche} UGC concept for [Brand]`],
+    subjectLineOptions: getStructuredList(pitchModule, "subjectLines", ["UGC idea for [Brand]", "Quick creator fit for [Brand]", `${profile.niche} UGC concept for [Brand]`]),
     usageNotes: [
-      "Swap in a specific product or campaign mention before sending",
-      "Keep the first line short and relevant",
+      ...getStructuredList(outreachModule, "principles", ["Personalize the first line", "Keep the value proposition clear"]).slice(0, 2),
       "Use the casual version for DMs and the professional version for email"
     ],
     warmDmPitch: `Hey [Brand] — I make ${profile.niche} UGC that feels straightforward and credible. I had a couple of quick concept ideas for [product / campaign] if you'd want me to send them over.`
@@ -841,11 +1233,12 @@ function executePitchTemplateTask(context) {
 }
 
 function executeFollowUpSequenceTask(context) {
+  const followUpModule = getKnowledgeModule(context, "follow_ups");
   const structuredContent = {
     followUp1: "Wanted to bump this in case it got buried. Happy to send a few quick concept angles if useful.",
     followUp2: "Circling back once more in case creator content is still on your plate this month. I can keep it simple and tailored to your current product focus.",
     finalCloseLoop: "I'll close the loop here for now, but if creator content comes up again later I'd be happy to revisit it.",
-    timingRecommendations: ["Send follow-up 1 after 3 days", "Send follow-up 2 after 7 days", "Use the final closeout after 14 days"],
+    timingRecommendations: getStructuredList(followUpModule, "cadence", ["Send follow-up 1 after 3 days", "Send follow-up 2 after 7 days", "Use the final closeout after 14 days"]),
     whenNotToFollowUp: ["If the brand already said no", "If legal or payment questions are unresolved", "If the timing window has clearly passed"]
   };
 
@@ -865,10 +1258,14 @@ function executeFollowUpSequenceTask(context) {
 
 function executeContentIdeaBatchTask(context) {
   const profile = buildContextProfile(context);
+  const contentStrategyModule = getKnowledgeModule(context, "content_strategy");
+  const contentFormatsModule = getKnowledgeModule(context, "content_formats");
+  const hookIdeas = getStructuredList(contentStrategyModule, "hookIdeas", ["Problem-first", "Why this works", "Before you buy"]);
+  const formats = getStructuredList(contentStrategyModule, "formats", getStructuredList(contentFormatsModule, "formatGuide", ["Demo", "Routine", "Testimonial"]));
   const ideas = Array.from({ length: 10 }, (_, index) => ({
     difficultyLevel: index < 3 ? "Low" : index < 7 ? "Medium" : "Medium",
-    format: index % 2 === 0 ? "Talking-head with demo cutaways" : "Routine-style montage",
-    hook: `${["Why this works", "What I would try", "Before you buy", "The easiest way to use", "What surprised me about"][index % 5]} [product / category]`,
+    format: formats[index % formats.length],
+    hook: `${hookIdeas[index % hookIdeas.length]} [product / category]`,
     idea: `${profile.niche} concept ${index + 1}`,
     productFit: profile.niche,
     whyItWorks: "Ties a clear user problem to an easy visual payoff."
@@ -887,12 +1284,13 @@ function executeContentIdeaBatchTask(context) {
   };
 }
 
-function executeUGCShotListTask() {
+function executeUGCShotListTask(context) {
+  const contentStrategyModule = getKnowledgeModule(context, "content_strategy");
   const structuredContent = {
     bRollIdeas: ["Product in use", "Texture or close-up", "Natural environment", "Routine transition shots"],
     ctaOptions: ["Want me to map this to a brand brief too?", "I can turn this into a script next.", "I can pair this with hooks for email outreach."],
     editingNotes: ["Keep cuts tight", "Front-load the payoff", "Add captions for the hook"],
-    hook: "Start with the pain point before the product.",
+    hook: getStructuredList(contentStrategyModule, "hookIdeas", ["Problem-first"])[0],
     problemSolutionFraming: "Show the frustrating before-state, then the product slotting naturally into the fix.",
     shotsNeeded: ["Hook shot", "Problem demonstration", "Product application", "Result / proof", "Closing CTA frame"],
     talkingPoints: ["What problem this solves", "Why this product fits daily routine", "What changed after using it"]
@@ -915,6 +1313,7 @@ function executeUGCShotListTask() {
 }
 
 function executeWeeklyActionPlanTask(context) {
+  const roadmapModule = getKnowledgeModule(context, "beginner_roadmap");
   const openTaskTitles = context.relatedOpenTasks.slice(0, 4).map((task) => task.title);
   const structuredContent = {
     adminTasks: ["Update the brand tracker", "Review priorities for next approvals"],
@@ -930,6 +1329,7 @@ function executeWeeklyActionPlanTask(context) {
     priority: "Get the first creator outreach system working end to end.",
     userNeeds: ["Approve anything external before it is sent", "Provide pasted brand messages when you want reply drafting"],
     whatMaraCanDoNext: ["Run another safe internal task", "Draft replies to pasted messages", "Create a shot list or weekly plan"],
+    roadmapReference: getStructuredList(roadmapModule, "steps", []).slice(0, 4),
     contentTasks: ["Create one content idea batch", "Turn best ideas into a shot list"]
   };
 
@@ -942,6 +1342,7 @@ function executeWeeklyActionPlanTask(context) {
       { title: "Admin tasks", value: structuredContent.adminTasks },
       { title: "Follow-up tasks", value: structuredContent.followUpTasks },
       { title: "What Mara can do next", value: structuredContent.whatMaraCanDoNext },
+      { title: "Beginner roadmap this plan is following", value: structuredContent.roadmapReference },
       { title: "What the user needs to approve or provide", value: structuredContent.userNeeds }
     ]),
     outputType: "weekly_plan",
@@ -950,16 +1351,18 @@ function executeWeeklyActionPlanTask(context) {
   };
 }
 
-function executeBrandTrackerStructureTask() {
+function executeBrandTrackerStructureTask(context) {
+  const trackingModule = getKnowledgeModule(context, "admin_tracking");
+  const workflowModule = getKnowledgeModule(context, "campaign_workflow");
   const structuredContent = {
     exampleRows: [
       "Brand A | Warm prospect | Follow up Friday | Priority 8",
       "Brand B | Waiting on brief | Review Monday | Priority 6"
     ],
     followUpDateLogic: "Set next follow-up 3 days after first touch, then 7 days after second touch.",
-    pipelineStages: ["Targeted", "Pitched", "Awaiting reply", "In conversation", "Brief received", "Closed"],
-    priorityScoringLogic: ["+3 niche fit", "+2 product fit", "+2 creator-friendly UGC usage", "-2 unclear scope"],
-    recommendedTrackerFields: ["Brand", "Contact", "Category", "Status", "Last touch", "Next follow-up", "Priority score", "Notes"],
+    pipelineStages: getStructuredList(workflowModule, "stages", ["Targeted", "Pitched", "Awaiting reply", "In conversation", "Brief received", "Closed"]),
+    priorityScoringLogic: getStructuredList(trackingModule, "scoring", ["+3 niche fit", "+2 product fit", "+2 creator-friendly UGC usage", "-2 unclear scope"]),
+    recommendedTrackerFields: getStructuredList(trackingModule, "fields", ["Brand", "Contact", "Category", "Status", "Last touch", "Next follow-up", "Priority score", "Notes"]),
     statusDefinitions: ["Targeted = worth reaching out", "Awaiting reply = first message sent", "In conversation = active back-and-forth"]
   };
 
@@ -998,13 +1401,29 @@ function executePastedMessageAnalysisTask(context) {
     };
   }
 
+  const redFlagsModule = getKnowledgeModule(context, "red_flags");
+  const usageModule = getKnowledgeModule(context, "usage_rights");
+  const lower = pasted.toLowerCase();
+  const potentialClarifications = [];
+  if (!/deliverable|video|asset|content/i.test(lower)) potentialClarifications.push("Potential thing to clarify: what exact deliverables the brand wants.");
+  if (!/pay|budget|rate|compensation|paid/i.test(lower)) potentialClarifications.push("Potential thing to clarify: how compensation works and when payment happens.");
+  if (!/usage|ads|paid social|whitelist|spark|raw footage/i.test(lower)) potentialClarifications.push("Potential thing to clarify: whether usage rights, paid ad usage, or raw footage are expected.");
+  if (!/deadline|by |timeline|turnaround/i.test(lower)) potentialClarifications.push("Potential thing to clarify: the deadline or turnaround timeline.");
+
   const structuredContent = {
     deadlinesOrDeliverables: /deadline|deliverable|due/i.test(pasted) ? ["The message references timing or deliverable expectations."] : ["No explicit deadline or deliverable was clearly stated."],
     questionsToAsk: ["Clarify deliverables", "Confirm timeline", "Confirm usage rights if content is involved"],
     recommendedResponseStrategy: "Acknowledge interest, clarify scope, and avoid agreeing to anything external without approval.",
-    redFlags: /free|spec|unpaid/i.test(pasted) ? ["The message may imply unpaid or speculative work."] : ["No obvious red flags beyond normal scope clarification."],
+    redFlags: [
+      ...(/free|spec|unpaid|affiliate only|product only/i.test(pasted) ? ["Potential thing to clarify: whether this is paid work versus product-only or affiliate-only compensation."] : []),
+      ...(/raw footage/i.test(pasted) ? ["Potential thing to clarify: raw footage rights and what is included."] : []),
+      ...potentialClarifications,
+      ...(potentialClarifications.length === 0 ? ["No major red flags jumped out, but usage and payment terms should still be confirmed."] : [])
+    ],
     summary: pasted.slice(0, 220),
-    whatBrandIsAskingFor: /reply|respond/i.test(pasted) ? "A response or next-step confirmation." : "Brand context, deliverables, or collaboration discussion."
+    whatBrandIsAskingFor: /reply|respond/i.test(pasted) ? "A response or next-step confirmation." : "Brand context, deliverables, or collaboration discussion.",
+    usageRightsReminder: usageModule?.summary || "",
+    redFlagPrinciples: getStructuredList(redFlagsModule, "clarifications", [])
   };
 
   return {
@@ -1014,6 +1433,7 @@ function executePastedMessageAnalysisTask(context) {
       { title: "Deadlines or deliverables mentioned", value: structuredContent.deadlinesOrDeliverables },
       { title: "Red flags", value: structuredContent.redFlags },
       { title: "Questions to ask", value: structuredContent.questionsToAsk },
+      { title: "Usage-rights reminder", value: structuredContent.usageRightsReminder || "Clarify organic vs paid usage before agreeing." },
       { title: "Recommended response strategy", value: structuredContent.recommendedResponseStrategy }
     ]),
     outputType: "message_analysis",
@@ -1034,10 +1454,11 @@ function executeDraftBrandReplyTask(context) {
   }
 
   const preferences = buildContextProfile(context).preferences[0] || "short, clear, and confident";
+  const negotiationModule = getKnowledgeModule(context, "negotiation");
   const structuredContent = {
     approvalReminder: "Sending this externally still requires approval and any needed integration setup.",
     professionalVersion: `Hi [Brand], thanks for reaching out. I'm interested and would be glad to move this forward. Before confirming, I'd love to align on deliverables, timing, and usage details so I can respond clearly.`,
-    questionsToClarify: ["What deliverables are needed?", "What timing are you targeting?", "How will the content be used?"],
+    questionsToClarify: ["What deliverables are needed?", "What timing are you targeting?", "How will the content be used?", ...getStructuredList(negotiationModule, "anchors", []).slice(0, 1)],
     replyDraft: `Hi [Brand], thanks for reaching out. I'd be happy to explore this. Before I confirm anything, can you share a bit more on deliverables, timeline, and how you'd want the content used?`,
     warmerVersion: `Hey [Brand], appreciate the note. I'd love to hear a little more about what you're looking for so I can respond in a way that actually matches the scope.`
   };
@@ -1059,11 +1480,13 @@ function executeDraftBrandReplyTask(context) {
 
 function executePortfolioRecommendationsTask(context) {
   const profile = buildContextProfile(context);
+  const portfolioModule = getKnowledgeModule(context, "portfolio");
+  const roadmapModule = getKnowledgeModule(context, "beginner_roadmap");
   const structuredContent = {
     currentLikelyGaps: ["Before/after proof", "Category-specific examples", "A clear creator positioning section"],
     nextThreeImprovements: ["Add two niche-specific sample projects", "Write a tighter intro using the positioning output", "Show one simple case-study layout"],
-    recommendedPortfolioSections: ["About", "Best-fit niches", "Sample UGC concepts", "Process / deliverables", "Contact"],
-    sampleProjectsToCreate: [`${profile.niche} routine walkthrough`, "Problem / solution testimonial", "Product close-up plus talking head"],
+    recommendedPortfolioSections: getStructuredList(portfolioModule, "include", ["About", "Best-fit niches", "Sample UGC concepts", "Process / deliverables", "Contact"]),
+    sampleProjectsToCreate: getStructuredList(portfolioModule, "sampleProjects", [`${profile.niche} routine walkthrough`, "Problem / solution testimonial", "Product close-up plus talking head"]),
     positionBeginnerWork: "Frame early work as concept-driven sample campaigns that show taste, structure, and platform understanding."
   };
 
@@ -1073,6 +1496,7 @@ function executePortfolioRecommendationsTask(context) {
       { title: "Recommended portfolio sections", value: structuredContent.recommendedPortfolioSections },
       { title: "Sample projects to create", value: structuredContent.sampleProjectsToCreate },
       { title: "How to position beginner work", value: structuredContent.positionBeginnerWork },
+      { title: "Beginner roadmap tie-in", value: getStructuredList(roadmapModule, "steps", []).slice(0, 3) },
       { title: "Next 3 portfolio improvements", value: structuredContent.nextThreeImprovements }
     ]),
     outputType: "recommendation",
@@ -1083,11 +1507,13 @@ function executePortfolioRecommendationsTask(context) {
 
 function executeOutreachStrategyTask(context) {
   const profile = buildContextProfile(context);
+  const outreachModule = getKnowledgeModule(context, "outreach");
+  const followUpModule = getKnowledgeModule(context, "follow_ups");
   const structuredContent = {
-    followUpStrategy: "Use a 3 / 7 / 14 day sequence and stop after the polite closeout.",
+    followUpStrategy: getStructuredList(followUpModule, "principles", ["Use a 3 / 7 / 14 day sequence and stop after the polite closeout."]).join(" | "),
     maraNext: ["Run the pitch template task if not done", "Build a follow-up sequence", "Prepare the first tracker structure"],
     outreachCadence: "Start with a small focused batch each week rather than broad-volume outreach.",
-    personalizationStrategy: "Use niche overlap, product fit, and a single concrete reason for contacting each brand.",
+    personalizationStrategy: getStructuredList(outreachModule, "principles", ["Use niche overlap, product fit, and a single concrete reason for contacting each brand."]).join(" | "),
     pitchAngle: profile.positioningOutput?.structuredContent?.brandFacingAngle || `Lead with ${profile.niche} fit and low-friction UGC value.`,
     targetBrandCategories: ["Skincare", "Wellness", "Beauty-adjacent lifestyle"],
     whatToTrack: ["Brand", "Last touch", "Next follow-up", "Reply status", "Notes"]
@@ -1991,12 +2417,49 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
       }
     }))
     .slice(0, 3);
+  const hasPositioning = workerOutputs.some((output) => output.outputType === "creator_positioning");
+  const hasBrandCriteria = workerOutputs.some((output) => output.outputType === "brand_criteria");
+  const hasFollowUpSequence = workerOutputs.some((output) => output.outputType === "follow_up_sequence");
+  const hasPortfolioRecommendations = workerOutputs.some((output) => output.outputType === "recommendation");
+  const lowerMemory = JSON.stringify(whatMaraKnows).toLowerCase();
+  const beginnerSignal = /beginner|starting|new/.test(lowerMemory);
+  const skincareSignal = /skincare|wellness|beauty/.test(lowerMemory);
+  const lostTrackSignal = /follow up|follow-up|losing track|messy|missed/.test(lowerMemory);
   const outputsByType = latestOutputs.reduce((acc, item) => {
     const type = item.outputPreview?.type || "general";
     acc[type] = acc[type] ? [...acc[type], item] : [item];
     return acc;
   }, {});
-  const starterTasks = [
+  const starterTasks = [];
+  if (!hasPositioning) {
+    starterTasks.push({
+      description: "Turn onboarding context into a sharper positioning statement Mara can use in future work.",
+      priority: "high",
+      title: "Define creator positioning"
+    });
+  }
+  if (skincareSignal && !hasBrandCriteria) {
+    starterTasks.push({
+      description: "Document what skincare or wellness brands Mara should prioritize and avoid before outreach.",
+      priority: "high",
+      title: "Build brand fit criteria"
+    });
+  }
+  if (beginnerSignal && !hasPortfolioRecommendations) {
+    starterTasks.push({
+      description: "Map the simplest portfolio structure and sample-project plan before pushing more outreach volume.",
+      priority: "high",
+      title: "Create portfolio recommendations"
+    });
+  }
+  if (lostTrackSignal && !hasFollowUpSequence) {
+    starterTasks.push({
+      description: "Build a repeatable follow-up sequence so brand outreach stops slipping through the cracks.",
+      priority: "high",
+      title: "Build follow-up sequence"
+    });
+  }
+  starterTasks.push(
     {
       description: "Draft a first reusable outreach template grounded in the creator's niche and tone.",
       priority: "high",
@@ -2006,18 +2469,8 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
       description: "Generate a first batch of content ideas Mara can build from.",
       priority: "high",
       title: "Create first content idea batch"
-    },
-    {
-      description: "Turn onboarding context into a sharper positioning statement Mara can use in future work.",
-      priority: "high",
-      title: "Define creator positioning"
-    },
-    {
-      description: "Document the kinds of brands Mara should prioritize and avoid.",
-      priority: "high",
-      title: "Build brand fit criteria"
     }
-  ];
+  );
   const inactiveRecurring = recurringResponsibilities.filter((item) => !item.isActive);
   const recommendedNextActions = [];
   let recommendedNext = null;

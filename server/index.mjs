@@ -21,6 +21,7 @@ import {
   createSuggestedTask,
   dismissWorkerTask,
   ensureWorkerPermissions,
+  getMaraRelevantKnowledge,
   getWorkerPermissions,
   listWorkerOutputs,
   listWorkerTasksForUserWorker,
@@ -1966,6 +1967,39 @@ function formatKnowledgeForPrompt(knowledge) {
     .join("\n");
 }
 
+function buildMaraKnowledgeAdviceFallback(userId, worker, text) {
+  const modules = getMaraRelevantKnowledge({
+    db,
+    userId,
+    userMessage: text,
+    workerId: worker.slug
+  });
+  const message = String(text ?? "").toLowerCase();
+  const primary = modules[0];
+
+  if (/price|pricing|rate/.test(message)) {
+    return "Based on UGC best practices, I’d frame pricing around deliverables, usage rights, raw footage, timing, and revisions rather than pretending there’s one guaranteed number. A good starter approach is to clarify scope first, then price the package in pieces so you do not accidentally include paid usage or extras for free.";
+  }
+
+  if (/usage|rights|contract|raw footage|exclusivity/.test(message)) {
+    return "Based on UGC best practices, I’d clarify organic usage, paid ad usage, duration, raw footage, and exclusivity before agreeing to anything. This is not legal advice, but those are the terms I’d want pinned down before you move forward.";
+  }
+
+  if (/pitch|outreach|brand/.test(message)) {
+    return "A good starter approach is short, personalized outreach with one concrete angle and a low-friction CTA. I’d keep it tight, name why the brand fits, and avoid overexplaining or pretending you have more proof than you do.";
+  }
+
+  if (/content|ideas|hooks/.test(message)) {
+    return "A good starter approach is to anchor the content around a clear hook, a relatable problem, a product demonstration, and a simple payoff. I’d keep the ideas narrow and usable instead of trying to make every concept do too much at once.";
+  }
+
+  if (primary) {
+    return `Based on UGC best practices, ${primary.summary.charAt(0).toLowerCase()}${primary.summary.slice(1)} Here’s what I’d do next: keep the plan simple, specific, and easy to execute.`;
+  }
+
+  return makeWorkerReply(worker?.name);
+}
+
 async function generateOfficeWorkerReply(userId, worker, text) {
   const latestMessage = String(text ?? "").trim();
   if (!latestMessage) {
@@ -1973,7 +2007,7 @@ async function generateOfficeWorkerReply(userId, worker, text) {
   }
 
   if (!getAnthropicConfig()) {
-    return makeWorkerReply(worker?.name);
+    return buildMaraKnowledgeAdviceFallback(userId, worker, text);
   }
 
   const model = process.env.ANTHROPIC_OFFICE_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
@@ -2004,6 +2038,15 @@ async function generateOfficeWorkerReply(userId, worker, text) {
           readOfficeOverlays: readOfficeOverlaysForUser
         })
       : null;
+  const relevantKnowledge =
+    worker.slug === MARA_SLUG
+      ? getMaraRelevantKnowledge({
+          db,
+          userId,
+          userMessage: latestMessage,
+          workerId: worker.slug
+        })
+      : [];
 
   return createAnthropicMessage({
     maxTokens: 220,
@@ -2024,6 +2067,8 @@ async function generateOfficeWorkerReply(userId, worker, text) {
       onboarding ? `Brand name: ${onboarding.brandName}` : "",
       onboarding ? `Business context: ${onboarding.whatYouDo}` : "",
       `Durable memory for this manager:\n${formatKnowledgeForPrompt(knowledge)}`,
+      relevantKnowledge.length > 0 ? `Relevant UGC operating knowledge:\n${relevantKnowledge.map((module) => `${module.title}: ${module.summary}`).join("\n")}` : "",
+      worker.slug === MARA_SLUG ? "If you reference best practices, say 'based on UGC best practices' or similar. Do not claim live TikTok, Reddit, inbox, web, or pricing research unless it actually happened and evidence exists." : "",
       integrations.length > 0
         ? `Connected tools: ${integrations.map((integration) => `${integration.accountLabel} (${integration.status})`).join(" | ")}`
         : "Connected tools: none",

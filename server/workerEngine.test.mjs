@@ -15,9 +15,11 @@ import {
   defaultPermissionsForWorker,
   dismissWorkerTask,
   ensureWorkerPermissions,
+  getMaraRelevantKnowledge,
   getWorkerPermissions,
   inferMaraTaskType,
   initWorkerTables,
+  listWorkerKnowledgeModules,
   listRecurringResponsibilities,
   listWorkerOutputs,
   listWorkerTasksForUserWorker,
@@ -375,7 +377,7 @@ test("recommended next includes starter task metadata when no tracked work exist
 
   const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
   assert.equal(workspace.recommendedNext?.kind, "starter_task");
-  assert.equal(workspace.recommendedNext?.createTask?.title, "Create first pitch template");
+  assert.equal(workspace.recommendedNext?.createTask?.title, "Define creator positioning");
 });
 
 test("dismissing a worker task removes it from active recommendation flow", () => {
@@ -613,4 +615,166 @@ test("activity log records task execution and output creation", () => {
   assert.ok(events.includes("task_execution_started"));
   assert.ok(events.includes("task_execution_completed"));
   assert.ok(events.includes("worker_output_created"));
+});
+
+test("UGC knowledge modules are seeded", () => {
+  const db = makeDb();
+  const modules = listWorkerKnowledgeModules(db, { workerId: MARA_WORKER_ID });
+  assert.ok(modules.length >= 12);
+  assert.ok(modules.some((module) => module.category === "ugc_basics"));
+  assert.ok(modules.some((module) => module.category === "red_flags"));
+});
+
+test("getMaraRelevantKnowledge returns relevant modules by task type", () => {
+  const db = makeDb();
+  const modules = getMaraRelevantKnowledge({
+    db,
+    taskType: "pitch_template",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const categories = modules.map((module) => module.category);
+  assert.ok(categories.includes("ugc_basics"));
+  assert.ok(categories.includes("outreach"));
+  assert.ok(categories.includes("pitch_templates"));
+  assert.ok(!categories.includes("admin_tracking"));
+});
+
+test("pitch template execution includes outreach and pitch knowledge", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Create a first pitch template.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "pitch_template",
+    title: "Create first pitch template",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.match(result.output.content, /Subject line options/);
+  assert.match(result.output.content, /Personalization placeholders/);
+});
+
+test("content idea batch execution includes content strategy knowledge", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Create a first content idea batch.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "content_idea_batch",
+    title: "Create first content idea batch",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.ok(result.output.structuredContent.ideas.some((idea) => /Problem-first|Why this works|Before you buy/.test(idea.hook)));
+});
+
+test("brand fit criteria execution includes brand research knowledge", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Build brand fit criteria.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "brand_fit_criteria",
+    title: "Build brand fit criteria",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.match(result.output.content, /Bad-fit|Red flags|priority/i);
+});
+
+test("pasted brand message analysis detects missing usage payment and deliverable details", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Analyze the pasted brand message.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "pasted_message_analysis",
+    title: "Analyze pasted brand message",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({
+    db,
+    taskId: created.id,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders({
+      readMessages: () => [{ author: "You", text: "Brand: We'd love to work with you soon. Let us know if interested." }]
+    })
+  });
+  assert.match(result.output.content, /Potential thing to clarify: what exact deliverables/i);
+  assert.match(result.output.content, /Potential thing to clarify: how compensation works/i);
+  assert.match(result.output.content, /Potential thing to clarify: whether usage rights/i);
+});
+
+test("draft brand reply includes approval reminder and clarification questions", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Draft a brand reply.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "draft_brand_reply",
+    title: "Draft brand reply",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({
+    db,
+    taskId: created.id,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders({
+      readMessages: () => [{ author: "You", text: "Brand: We'd love a video and raw footage. Can you send pricing?" }]
+    })
+  });
+  assert.match(result.output.content, /Approval reminder/);
+  assert.match(result.output.content, /Questions to clarify/);
+});
+
+test("Mara recommendations change when portfolio and follow-up system are missing", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID, {
+    readKnowledgeSections: () => [{ title: "Recent direction", items: ["I am a beginner creator and I am losing track of follow-ups."] }],
+    readOfficeOverlays: () => ({ worklog: [] })
+  });
+  assert.match(workspace.recommendedNext.label, /portfolio|positioning|follow-up/i);
+});
+
+test("knowledge retrieval does not include every module unnecessarily", () => {
+  const db = makeDb();
+  const modules = getMaraRelevantKnowledge({
+    db,
+    taskType: "follow_up_sequence",
+    limit: 4,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  assert.ok(modules.length <= 4);
+  assert.ok(modules.every((module) => ["ugc_basics", "follow_ups", "outreach", "admin_tracking"].includes(module.category)));
+});
+
+test("Mara outputs do not claim live research was performed", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Create a first content idea batch.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "content_idea_batch",
+    title: "Create first content idea batch",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.doesNotMatch(result.output.content, /I checked TikTok trends|Reddit/i);
 });
