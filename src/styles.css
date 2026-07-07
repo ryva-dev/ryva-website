@@ -3949,6 +3949,8 @@ a:focus-visible {
 .ro-mara-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .ro-mara-item strong, .ro-mara-memory strong, .ro-mara-feed-item strong { display: block; font-size: 13.5px; color: var(--ink); }
 .ro-mara-item p, .ro-mara-memory p, .ro-mara-feed-item p { margin: 5px 0 0; font-size: 13px; line-height: 1.55; color: var(--muted); overflow-wrap: anywhere; }
+.ro-mara-subnote { color: var(--ink) !important; font-size: 12.5px !important; }
+.ro-mara-nextstep { color: var(--accent-deep) !important; font-size: 12.5px !important; font-weight: 550; }
 .ro-mara-item-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
 .ro-mara-output { width: 100%; text-align: left; border: 1px solid var(--line-soft); border-radius: 14px; background: color-mix(in srgb, var(--paper) 78%, #fff); padding: 14px; cursor: pointer; transition: border-color 0.18s, transform 0.18s; }
 .ro-mara-output:hover { border-color: var(--accent); transform: translateY(-1px); }

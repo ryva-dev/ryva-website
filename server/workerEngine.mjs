@@ -34,6 +34,12 @@ const PRIORITY_MAP = {
   medium: "Medium"
 };
 
+const PRIORITY_RANK = {
+  high: 3,
+  low: 1,
+  medium: 2
+};
+
 export function normalizeForComparison(value) {
   return String(value ?? "")
     .toLowerCase()
@@ -275,6 +281,54 @@ export function createWorkerActivityLog(db, {
 
 function hasRequiredPermissions(permissions, requiredPermissions) {
   return requiredPermissions.every((permission) => permissions[permission] === true);
+}
+
+function describePermissionBlocker(permission) {
+  switch (String(permission ?? "")) {
+    case "canDraftOutreach":
+      return {
+        blockerReason: "Mara needs outreach drafting permission before she can produce this work.",
+        nextStep: "Approve or enable outreach drafting so Mara can prepare the asset."
+      };
+    case "canRunResearch":
+      return {
+        blockerReason: "Mara needs research permission before she can run this task.",
+        nextStep: "Approve research access or give Mara a different internal task."
+      };
+    case "canReadInbox":
+      return {
+        blockerReason: "Mara cannot review inbox-based work until inbox access is connected.",
+        nextStep: "Connect Gmail or Outlook before asking Mara to review inbox follow-ups."
+      };
+    case "canUseConnectedIntegrations":
+      return {
+        blockerReason: "This work depends on a connected integration Mara cannot use yet.",
+        nextStep: "Connect the required tool or keep Mara on internal planning work for now."
+      };
+    case "canSendEmailsWithApproval":
+    case "canSendEmailsWithoutApproval":
+      return {
+        blockerReason: "This task depends on email sending permissions Mara does not have yet.",
+        nextStep: "Approve sending permissions before asking Mara to send or schedule emails."
+      };
+    default:
+      return {
+        blockerReason: "Mara is blocked until the required permission or input is provided.",
+        nextStep: "Give Mara the missing permission or redirect her to a safe internal task."
+      };
+  }
+}
+
+function rankPriority(priority) {
+  return PRIORITY_RANK[String(priority ?? "").toLowerCase()] ?? 0;
+}
+
+function pickHighestPriorityTask(tasks) {
+  return [...tasks].sort((left, right) => {
+    const byPriority = rankPriority(right.priority) - rankPriority(left.priority);
+    if (byPriority !== 0) return byPriority;
+    return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+  })[0] ?? null;
 }
 
 export function listWorkerTasksForUserWorker(db, userId, workerId) {
@@ -1052,7 +1106,6 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
   const researchItems = listResearchItems(db, userId, workerId);
   const permissions = getWorkerPermissions(db, userId, workerId);
   const whatMaraKnows = typeof readKnowledgeSections === "function" ? readKnowledgeSections(userId, workerId) : [];
-  const overlays = typeof readOfficeOverlays === "function" ? readOfficeOverlays(userId) : { worklog: [] };
   const recentActivity = db
     .prepare(
       `SELECT id, event_type AS eventType, title, description, related_task_id AS relatedTaskId, metadata_json AS metadataJson, created_at AS createdAt
@@ -1070,19 +1123,35 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
   const completedTasks = tasks.filter((task) => task.status === "completed");
   const blockedTasks = tasks.filter((task) => task.status === "blocked");
   const runnableTasks = openTasks.filter((task) => task.status === "approved");
-  const currentWork = openTasks.find((task) => task.status === "in_progress") || runnableTasks[0] || null;
+  const runningTask = openTasks.find((task) => task.status === "running") ?? null;
+  const inProgressTask = openTasks.find((task) => task.status === "in_progress") ?? null;
+  const highestPriorityRunnableTask = pickHighestPriorityTask(runnableTasks);
+  const currentWork = runningTask || inProgressTask || highestPriorityRunnableTask;
+  const blockedTaskDetails = blockedTasks.map((task) => {
+    const primaryPermission = Array.isArray(task.requiredPermissions) ? task.requiredPermissions[0] : null;
+    const blocking = describePermissionBlocker(primaryPermission);
+    return {
+      ...task,
+      blockerReason: blocking.blockerReason,
+      nextStep: blocking.nextStep
+    };
+  });
   const waitingOnUser = [
     ...approvals.map((request) => ({
       id: request.id,
       kind: "approval",
       title: request.title,
-      description: request.description
+      description: request.description,
+      blockerReason: "Mara is paused until you approve or reject this request.",
+      nextStep: "Review this request so Mara can continue."
     })),
-    ...blockedTasks.map((task) => ({
+    ...blockedTaskDetails.map((task) => ({
       id: task.id,
       kind: "blocked_task",
       title: task.title,
-      description: task.description || "This task is blocked until you provide the next input."
+      description: task.description || "This task is blocked until you provide the next input.",
+      blockerReason: task.blockerReason,
+      nextStep: task.nextStep
     }))
   ].slice(0, 3);
   const latestOutputs = completedTasks
@@ -1097,21 +1166,59 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     acc[type] = acc[type] ? [...acc[type], item] : [item];
     return acc;
   }, {});
-  const recommendedNextActions = [
-    ...proposedTasks.slice(0, 2).map((task) => task.title),
-    ...runnableTasks.slice(0, 2).map((task) => `Run ${task.title}`),
-    ...researchItems.filter((item) => item.status === "queued").slice(0, 2).map((item) => `Research: ${item.topic}`)
-  ].slice(0, 4);
-  const recommendedNextTaskToRun = runnableTasks[0] ?? null;
+  const starterTasks = [
+    "Create first pitch template",
+    "Create first content idea batch",
+    "Define creator positioning",
+    "Build brand fit criteria"
+  ];
+  const inactiveRecurring = recurringResponsibilities.filter((item) => !item.isActive);
+  const recommendedNextActions = [];
+
+  if (blockedTaskDetails[0]) {
+    recommendedNextActions.push(`Unblock ${blockedTaskDetails[0].title}`);
+  } else if (approvals[0]) {
+    recommendedNextActions.push(approvals[0].title);
+  } else if (highestPriorityRunnableTask) {
+    recommendedNextActions.push(`Run ${highestPriorityRunnableTask.title}`);
+  } else if (inactiveRecurring[0]) {
+    recommendedNextActions.push(`Activate ${inactiveRecurring[0].title}`);
+  }
+
+  for (const task of proposedTasks.slice(0, 2)) {
+    if (!recommendedNextActions.includes(task.title)) {
+      recommendedNextActions.push(task.title);
+    }
+  }
+  for (const item of researchItems.filter((entry) => entry.status === "queued").slice(0, 2)) {
+    const label = `Research: ${item.topic}`;
+    if (!recommendedNextActions.includes(label)) {
+      recommendedNextActions.push(label);
+    }
+  }
+  if (recommendedNextActions.length === 0) {
+    recommendedNextActions.push(...starterTasks);
+  }
+
+  const recommendedNextTaskToRun =
+    highestPriorityRunnableTask
+    || pickHighestPriorityTask(completedTasks.length === 0 ? proposedTasks.filter((task) => task.requiredPermissions.length === 0) : [])
+    || null;
+  const hasTrackedWork =
+    tasks.length > 0
+    || approvals.length > 0
+    || researchItems.length > 0
+    || recurringResponsibilities.length > 0;
   const currentFocus =
-    currentWork?.title
-    || blockedTasks[0]?.title
+    runningTask?.title
+    || inProgressTask?.title
+    || highestPriorityRunnableTask?.title
     || waitingOnUser[0]?.title
-    || recommendedNextActions[0]
+    || (hasTrackedWork ? recommendedNextActions[0] : null)
     || "Mara is ready for her next assignment.";
 
   return {
-    blockedTasks,
+    blockedTasks: blockedTaskDetails,
     completedTasks,
     currentFocus,
     currentWork,

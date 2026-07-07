@@ -68,6 +68,8 @@ type MaraWorkspaceTask = {
   priority: string;
   dueAt?: string | null;
   output?: string | null;
+  blockerReason?: string;
+  nextStep?: string;
 };
 
 type MaraWorkspaceApproval = {
@@ -105,6 +107,8 @@ type MaraWorkspaceWaitingItem = {
   kind: "approval" | "blocked_task";
   title: string;
   description: string;
+  blockerReason?: string;
+  nextStep?: string;
 };
 
 type MaraWorkspace = {
@@ -383,16 +387,19 @@ function MaraWorkspacePanel({
 
   const recommendedAction = workspace?.recommendedNextActions[0] ?? "";
   const topOutput = workspace?.latestOutputs[0] ?? null;
+  const focusLabel = workspace?.currentFocus && !workspace.currentFocus.startsWith("Mara is")
+    ? `Mara is focused on ${workspace.currentFocus}.`
+    : workspace?.currentFocus || "Mara is ready for her first assignment.";
 
   return (
-    <section className="ro-mara-presence" aria-label="Mara workspace">
+    <section className="ro-mara-presence" aria-label="Mara's desk">
       <div className="ro-mara-focus">
         <div>
-          <span className="ro-mara-eyebrow">Mara at work</span>
-          <strong>{workspace?.currentFocus || "Mara is ready for her first assignment."}</strong>
+          <span className="ro-mara-eyebrow">Mara's desk</span>
+          <strong>{focusLabel}</strong>
           <p>
             {workspace?.currentWork
-              ? `Working on ${workspace.currentWork.title}.`
+              ? `On Mara's plate: ${workspace.currentWork.title}.`
               : workspace?.waitingOnUser[0]
                 ? `Waiting on you: ${workspace.waitingOnUser[0].title}.`
                 : "Mara is ready for her next assignment."}
@@ -436,6 +443,8 @@ function MaraWorkspacePanel({
                   <div>
                     <strong>{item.title}</strong>
                     <p>{item.description}</p>
+                    {item.blockerReason ? <p className="ro-mara-subnote">{item.blockerReason}</p> : null}
+                    {item.nextStep ? <p className="ro-mara-nextstep">Next: {item.nextStep}</p> : null}
                   </div>
                   {approval ? (
                     <div className="ro-mara-item-actions">
@@ -457,7 +466,7 @@ function MaraWorkspacePanel({
 
         <section className="ro-mara-section">
           <div className="ro-mara-section-head">
-            <h3>Recently completed</h3>
+            <h3>Mara just finished</h3>
             <span>{workspace?.latestOutputs.length ? `${workspace.latestOutputs.length} outputs` : "Nothing yet"}</span>
           </div>
           {workspace?.latestOutputs.length ? (
@@ -475,7 +484,7 @@ function MaraWorkspacePanel({
 
         <section className="ro-mara-section">
           <div className="ro-mara-section-head">
-            <h3>What Mara knows</h3>
+            <h3>Mara learned</h3>
             <span>{workspace?.whatMaraKnows.length ? `${workspace.whatMaraKnows.length} memory items` : "Still learning"}</span>
           </div>
           {workspace?.whatMaraKnows.length ? (
@@ -530,7 +539,7 @@ function MaraWorkspacePanel({
       <div className="ro-mara-grid ro-mara-grid-compact">
         <section className="ro-mara-section">
           <div className="ro-mara-section-head">
-            <h3>Recently from Mara</h3>
+            <h3>Mara just did</h3>
             <span>{workspace?.recentActivity.length ? `${workspace.recentActivity.length} events` : "Quiet"}</span>
           </div>
           {workspace?.recentActivity.length ? (
@@ -550,7 +559,7 @@ function MaraWorkspacePanel({
 
         <section className="ro-mara-section">
           <div className="ro-mara-section-head">
-            <h3>Open work</h3>
+            <h3>On Mara's plate</h3>
             <span>{workspace?.runnableTasks.length ? `${workspace.runnableTasks.length} runnable` : "No open tasks"}</span>
           </div>
           {workspace?.runnableTasks.length ? (
