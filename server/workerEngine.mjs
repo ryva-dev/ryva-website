@@ -40,11 +40,65 @@ const PRIORITY_RANK = {
   medium: 2
 };
 
+const INTERNAL_ONLY_PERMISSION_PATTERNS = /sendemail|external|inbox|integration/i;
+
+const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
+  "brand_fit_criteria",
+  "content_idea_batch",
+  "creator_positioning",
+  "pitch_template"
+]);
+
+const TASK_TYPE_OUTPUT_TYPE_MAP = {
+  brand_fit_criteria: "brand_criteria",
+  brand_tracker_structure: "tracker_structure",
+  content_idea_batch: "content_ideas",
+  creator_positioning: "creator_positioning",
+  draft_brand_reply: "reply_draft",
+  follow_up_sequence: "follow_up_sequence",
+  general_internal_task: "summary",
+  outreach_strategy: "strategy",
+  pasted_message_analysis: "message_analysis",
+  personalized_pitch: "pitch_draft",
+  pitch_template: "pitch_template",
+  portfolio_recommendations: "recommendation",
+  research_queue_summary: "summary",
+  ugc_shot_list: "shot_list",
+  weekly_action_plan: "weekly_plan"
+};
+
 export function normalizeForComparison(value) {
   return String(value ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function ensureColumn(db, tableName, columnName, columnDefinition) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (!columns.some((column) => column.name === columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+}
+
+export function inferMaraTaskType(title, source = "") {
+  const normalized = normalizeForComparison(`${title} ${source}`);
+
+  if (normalized.includes("creator positioning")) return "creator_positioning";
+  if (normalized.includes("brand fit criteria")) return "brand_fit_criteria";
+  if (normalized.includes("pitch template")) return "pitch_template";
+  if (normalized.includes("personalized pitch")) return "personalized_pitch";
+  if (normalized.includes("follow up sequence") || normalized.includes("follow-up sequence")) return "follow_up_sequence";
+  if (normalized.includes("content idea")) return "content_idea_batch";
+  if (normalized.includes("shot list")) return "ugc_shot_list";
+  if (normalized.includes("weekly action plan")) return "weekly_action_plan";
+  if (normalized.includes("brand tracker structure") || normalized.includes("tracker structure")) return "brand_tracker_structure";
+  if (normalized.includes("message analysis")) return "pasted_message_analysis";
+  if (normalized.includes("draft brand reply") || normalized.includes("brand reply")) return "draft_brand_reply";
+  if (normalized.includes("portfolio recommendation")) return "portfolio_recommendations";
+  if (normalized.includes("outreach strategy")) return "outreach_strategy";
+  if (normalized.includes("research queue summary")) return "research_queue_summary";
+  return "general_internal_task";
 }
 
 export function initWorkerTables(db) {
@@ -147,7 +201,23 @@ export function initWorkerTables(db) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS worker_outputs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      task_id TEXT,
+      output_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      structured_content_json TEXT,
+      source TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
+
+  ensureColumn(db, "worker_tasks", "task_type", "TEXT");
 }
 
 export function defaultPermissionsForWorker(workerId) {
@@ -336,7 +406,7 @@ export function listWorkerTasksForUserWorker(db, userId, workerId) {
     .prepare(
       `SELECT id, user_id AS userId, worker_id AS workerId, title, description, source, status, priority,
               due_at AS dueAt, required_permissions_json AS requiredPermissionsJson, evidence_used_json AS evidenceUsedJson,
-              output, created_at AS createdAt, updated_at AS updatedAt
+              output, task_type AS taskType, created_at AS createdAt, updated_at AS updatedAt
        FROM worker_tasks
        WHERE user_id = ? AND worker_id = ?
        ORDER BY created_at DESC`
@@ -345,7 +415,8 @@ export function listWorkerTasksForUserWorker(db, userId, workerId) {
     .map((row) => ({
       ...row,
       evidenceUsed: safeJsonParse(row.evidenceUsedJson, []),
-      requiredPermissions: safeJsonParse(row.requiredPermissionsJson, [])
+      requiredPermissions: safeJsonParse(row.requiredPermissionsJson, []),
+      taskType: row.taskType || inferMaraTaskType(row.title, row.source)
     }));
 }
 
@@ -371,11 +442,12 @@ export function createWorkerTask(db, task) {
   const id = randomUUID();
   const requiredPermissions = Array.isArray(task.requiredPermissions) ? task.requiredPermissions.map(String) : [];
   const evidenceUsed = Array.isArray(task.evidenceUsed) ? task.evidenceUsed : [];
+  const taskType = String(task.taskType || inferMaraTaskType(task.title, task.source)).trim();
 
   db.prepare(
     `INSERT INTO worker_tasks (id, user_id, worker_id, title, description, source, status, priority, due_at,
-      required_permissions_json, evidence_used_json, output, normalized_title, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      required_permissions_json, evidence_used_json, output, task_type, normalized_title, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     task.userId,
@@ -389,6 +461,7 @@ export function createWorkerTask(db, task) {
     JSON.stringify(requiredPermissions),
     JSON.stringify(evidenceUsed),
     task.output ?? null,
+    taskType,
     normalizedTitle,
     timestamp,
     timestamp
@@ -492,108 +565,730 @@ export function completeWorkerTask(db, userId, workerId, taskId, output = null) 
   return { ok: true };
 }
 
-function buildTaskOutput(task) {
-  const lowerTitle = String(task.title ?? "").toLowerCase();
+export function listWorkerOutputs(db, userId, workerId) {
+  return db
+    .prepare(
+      `SELECT id, user_id AS userId, worker_id AS workerId, task_id AS taskId, output_type AS outputType,
+              title, content, structured_content_json AS structuredContentJson, source, created_at AS createdAt, updated_at AS updatedAt
+       FROM worker_outputs
+       WHERE user_id = ? AND worker_id = ?
+       ORDER BY created_at DESC`
+    )
+    .all(userId, workerId)
+    .map((row) => ({
+      ...row,
+      structuredContent: safeJsonParse(row.structuredContentJson, null)
+    }));
+}
 
-  if (lowerTitle.includes("pitch template")) {
-    return {
-      preview: "Hi [Brand] — I create concise UGC that feels native, credible, and easy to plug into skincare campaigns.",
-      title: task.title,
-      type: "pitch_template"
-    };
-  }
+export function createWorkerOutput(db, output) {
+  const timestamp = output.createdAt || new Date().toISOString();
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO worker_outputs
+      (id, user_id, worker_id, task_id, output_type, title, content, structured_content_json, source, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    output.userId,
+    output.workerId,
+    output.taskId ?? null,
+    output.outputType,
+    output.title,
+    output.content,
+    output.structuredContent ? JSON.stringify(output.structuredContent) : null,
+    output.source,
+    timestamp,
+    timestamp
+  );
 
-  if (lowerTitle.includes("content idea")) {
-    return {
-      preview: "Idea batch: problem-solution demo, routine integration, testimonial-style hook.",
-      title: task.title,
-      type: "content_ideas"
-    };
-  }
-
-  if (lowerTitle.includes("brand fit criteria")) {
-    return {
-      preview: "Prioritize skincare, wellness, and creator-friendly brands with realistic UGC fit.",
-      title: task.title,
-      type: "fit_criteria"
-    };
-  }
-
-  if (lowerTitle.includes("positioning")) {
-    return {
-      preview: "Creator positioning: practical, trustworthy UGC for skincare and wellness brands.",
-      title: task.title,
-      type: "positioning"
-    };
-  }
-
-  if (lowerTitle.includes("follow-up sequence")) {
-    return {
-      preview: "Follow-up sequence: day 3 nudge, day 7 value-led follow-up, day 14 final closeout.",
-      title: task.title,
-      type: "follow_up_sequence"
-    };
-  }
-
-  if (lowerTitle.includes("find first 5") || lowerTitle.includes("brand leads")) {
-    return {
-      preview: "Starter lead set prepared with 5 aligned brands and next-angle notes.",
-      title: task.title,
-      type: "brand_research"
-    };
-  }
+  createWorkerActivityLog(db, {
+    createdAt: timestamp,
+    description: output.title,
+    eventType: "worker_output_created",
+    metadata: { outputType: output.outputType, source: output.source },
+    relatedTaskId: output.taskId ?? null,
+    title: output.title,
+    userId: output.userId,
+    workerId: output.workerId
+  });
 
   return {
-    preview: task.description || "Task output prepared.",
-    title: task.title,
-    type: "general"
+    id,
+    ...output,
+    createdAt: timestamp,
+    updatedAt: timestamp
   };
 }
 
-export function runWorkerTask(db, userId, workerId, taskId) {
-  const task = db
-    .prepare(
-      `SELECT id, title, description, status, required_permissions_json AS requiredPermissionsJson
-       FROM worker_tasks
-       WHERE id = ? AND user_id = ? AND worker_id = ?`
-    )
-    .get(taskId, userId, workerId);
+function buildPreviewFromContent(content) {
+  return String(content ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(" ");
+}
 
+function getMemoryItem(knowledgeSections, title) {
+  const section = (Array.isArray(knowledgeSections) ? knowledgeSections : []).find((entry) => String(entry?.title ?? "").trim() === title);
+  return Array.isArray(section?.items) ? section.items : [];
+}
+
+function buildSectionContent(title, values) {
+  if (Array.isArray(values)) {
+    return [`${title}:`, ...values.map((value) => `- ${value}`)].join("\n");
+  }
+  return `${title}: ${String(values ?? "").trim()}`;
+}
+
+function buildRichContent(sections) {
+  return sections
+    .filter((section) => section && section.title && section.value)
+    .map((section) => buildSectionContent(section.title, section.value))
+    .join("\n\n");
+}
+
+function buildContextProfile(context) {
+  const onboarding = context.accountContext ?? {};
+  const preferences = getMemoryItem(context.workerKnowledge, "Preferences");
+  const goals = getMemoryItem(context.workerKnowledge, "Goals");
+  const approvalRules = getMemoryItem(context.workerKnowledge, "Approval rules");
+  const painPoints = getMemoryItem(context.workerKnowledge, "Pain points").concat(getMemoryItem(context.workerKnowledge, "Pain point map"));
+  const recentDirection = getMemoryItem(context.workerKnowledge, "Recent direction");
+  const brandFitOutput = context.previousOutputs.find((output) => output.outputType === "brand_criteria");
+  const positioningOutput = context.previousOutputs.find((output) => output.outputType === "creator_positioning");
+
+  return {
+    approvalRules,
+    audience: String(onboarding.whatYouDo || recentDirection[0] || "UGC-focused creators and founder-led brands").trim(),
+    brandFitOutput,
+    brandName: String(onboarding.brandName || "Your brand").trim(),
+    goals,
+    niche: String(onboarding.whatYouDo || preferences[0] || "skincare and wellness UGC").trim(),
+    painPoints,
+    positioningOutput,
+    preferences,
+    recentDirection
+  };
+}
+
+export function buildMaraExecutionContext({
+  db,
+  readAccountContext,
+  readConnectedIntegrations,
+  readMessages,
+  readMaraOnboarding,
+  readWorkerKnowledge,
+  taskId,
+  userId,
+  workerId
+}) {
+  const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
   if (!task) {
     throw new Error("Worker task not found.");
   }
 
-  const requiredPermissions = safeJsonParse(task.requiredPermissionsJson, []);
-  if (Array.isArray(requiredPermissions) && requiredPermissions.some((permission) => /sendemail|external|inbox|integration/i.test(String(permission)))) {
-    throw new Error("This task requires approval or an external integration before it can run.");
+  return {
+    accountContext: typeof readAccountContext === "function" ? readAccountContext(userId) : null,
+    connectedIntegrations: typeof readConnectedIntegrations === "function" ? readConnectedIntegrations(userId, workerId) : [],
+    currentTask: task,
+    permissions: getWorkerPermissions(db, userId, workerId),
+    previousOutputs: listWorkerOutputs(db, userId, workerId),
+    recentActivity: db
+      .prepare(
+        `SELECT id, event_type AS eventType, title, description, created_at AS createdAt
+         FROM worker_activity_log
+         WHERE user_id = ? AND worker_id = ?
+         ORDER BY created_at DESC
+         LIMIT 8`
+      )
+      .all(userId, workerId),
+    recentMessages: typeof readMessages === "function" ? readMessages(userId, workerId) : [],
+    recurringResponsibilities: listRecurringResponsibilities(db, userId, workerId),
+    relatedOpenTasks: listWorkerTasksForUserWorker(db, userId, workerId).filter((entry) => entry.id !== taskId && ["approved", "in_progress", "blocked"].includes(entry.status)),
+    userId,
+    workerId,
+    workerKnowledge: typeof readWorkerKnowledge === "function" ? readWorkerKnowledge(userId, workerId) : [],
+    workerOnboarding: typeof readMaraOnboarding === "function" ? readMaraOnboarding(userId, workerId) : null
+  };
+}
+
+function executeCreatorPositioningTask(context) {
+  const profile = buildContextProfile(context);
+  const structuredContent = {
+    audienceSummary: `Creators and brand teams looking for ${profile.niche} content that feels credible and conversion-aware.`,
+    brandFacingAngle: `Position ${profile.brandName} as a creator who can make ${profile.niche} feel useful, trustworthy, and easy to brief.`,
+    contentStrengths: [
+      "Clear founder-friendly communication",
+      "UGC that feels native instead of over-produced",
+      "Practical hooks tied to product outcomes"
+    ],
+    creatorPositioningStatement: `${profile.brandName} creates practical, trustworthy ${profile.niche} content that helps brands look credible without losing the native feel that makes UGC perform.`,
+    nicheSummary: profile.niche,
+    pitchableFactors: [
+      "Clear niche alignment",
+      "Low-friction content style",
+      "Beginner-friendly but commercially useful positioning"
+    ],
+    suggestedNextSteps: [
+      "Use this positioning to tighten your first pitch template",
+      "Build brand fit criteria from the same niche assumptions",
+      "Create a first content idea batch around the same buyer problems"
+    ]
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Creator positioning statement", value: structuredContent.creatorPositioningStatement },
+      { title: "Niche summary", value: structuredContent.nicheSummary },
+      { title: "Audience summary", value: structuredContent.audienceSummary },
+      { title: "Content strengths", value: structuredContent.contentStrengths },
+      { title: "Brand-facing angle", value: structuredContent.brandFacingAngle },
+      { title: "What makes this creator pitchable", value: structuredContent.pitchableFactors },
+      { title: "Suggested next steps", value: structuredContent.suggestedNextSteps }
+    ]),
+    outputType: "creator_positioning",
+    structuredContent,
+    title: "Creator positioning"
+  };
+}
+
+function executeBrandFitCriteriaTask(context) {
+  const profile = buildContextProfile(context);
+  const structuredContent = {
+    alignmentCriteria: [
+      `Clear fit with ${profile.niche}`,
+      "Creator-friendly briefing process",
+      "Room for authentic product integration"
+    ],
+    bestFitIndustries: ["Skincare", "Wellness", "Beauty-adjacent lifestyle"],
+    brandSizeType: ["Indie brands", "Growth-stage DTC brands", "Small teams that value flexible creators"],
+    productCategories: ["Serums", "Routine-based products", "Supplements", "Daily-use wellness products"],
+    redFlags: ["Heavy legal review for tiny budgets", "Unclear deliverables", "No usage terms", "Spec work requests"],
+    outreachPriorityRules: [
+      "Prioritize brands with visible UGC usage already",
+      "Move faster on brands with clear niche overlap",
+      "Deprioritize brands asking for polished ad creative first"
+    ]
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Best-fit industries", value: structuredContent.bestFitIndustries },
+      { title: "Brand size and type", value: structuredContent.brandSizeType },
+      { title: "Product categories", value: structuredContent.productCategories },
+      { title: "Alignment criteria", value: structuredContent.alignmentCriteria },
+      { title: "Red flags", value: structuredContent.redFlags },
+      { title: "Outreach priority rules", value: structuredContent.outreachPriorityRules }
+    ]),
+    outputType: "brand_criteria",
+    structuredContent,
+    title: "Brand fit criteria"
+  };
+}
+
+function executePitchTemplateTask(context) {
+  const profile = buildContextProfile(context);
+  const positioning = context.previousOutputs.find((output) => output.outputType === "creator_positioning")?.structuredContent?.creatorPositioningStatement
+    || `${profile.brandName} creates native-feeling ${profile.niche} content.`;
+  const structuredContent = {
+    casualVersion: `Hey [Brand] — I create ${profile.niche} content that feels natural and easy to plug into your organic or paid mix. If helpful, I can send a few quick concepts tailored to [product / campaign].`,
+    emailPitch: `Hi [Brand],\n\nI'm ${profile.brandName} and I create ${profile.niche} content that helps brands look credible without feeling over-produced. ${positioning}\n\nIf you're open to it, I can send a few fast concept angles tailored to [product / campaign].\n\nBest,\n[Your name]`,
+    personalisationPlaceholders: ["[Brand]", "[product / campaign]", "[specific reason you fit them]"],
+    professionalVersion: `Hi [Brand], I create concise ${profile.niche} UGC designed to feel trustworthy and easy for brand teams to brief. I'd be happy to send a few tailored concept angles if you're exploring new creator content.`,
+    subjectLineOptions: ["UGC idea for [Brand]", "Quick creator fit for [Brand]", `${profile.niche} UGC concept for [Brand]`],
+    usageNotes: [
+      "Swap in a specific product or campaign mention before sending",
+      "Keep the first line short and relevant",
+      "Use the casual version for DMs and the professional version for email"
+    ],
+    warmDmPitch: `Hey [Brand] — I make ${profile.niche} UGC that feels straightforward and credible. I had a couple of quick concept ideas for [product / campaign] if you'd want me to send them over.`
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Short email pitch", value: structuredContent.emailPitch },
+      { title: "Short DM pitch", value: structuredContent.warmDmPitch },
+      { title: "Professional version", value: structuredContent.professionalVersion },
+      { title: "Casual version", value: structuredContent.casualVersion },
+      { title: "Subject line options", value: structuredContent.subjectLineOptions },
+      { title: "Personalization placeholders", value: structuredContent.personalisationPlaceholders },
+      { title: "Usage notes", value: structuredContent.usageNotes }
+    ]),
+    outputType: "pitch_template",
+    structuredContent,
+    title: "Pitch template"
+  };
+}
+
+function executeFollowUpSequenceTask(context) {
+  const structuredContent = {
+    followUp1: "Wanted to bump this in case it got buried. Happy to send a few quick concept angles if useful.",
+    followUp2: "Circling back once more in case creator content is still on your plate this month. I can keep it simple and tailored to your current product focus.",
+    finalCloseLoop: "I'll close the loop here for now, but if creator content comes up again later I'd be happy to revisit it.",
+    timingRecommendations: ["Send follow-up 1 after 3 days", "Send follow-up 2 after 7 days", "Use the final closeout after 14 days"],
+    whenNotToFollowUp: ["If the brand already said no", "If legal or payment questions are unresolved", "If the timing window has clearly passed"]
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Follow-up 1", value: structuredContent.followUp1 },
+      { title: "Follow-up 2", value: structuredContent.followUp2 },
+      { title: "Final close-the-loop message", value: structuredContent.finalCloseLoop },
+      { title: "Timing recommendations", value: structuredContent.timingRecommendations },
+      { title: "When not to follow up", value: structuredContent.whenNotToFollowUp }
+    ]),
+    outputType: "follow_up_sequence",
+    structuredContent,
+    title: "Follow-up sequence"
+  };
+}
+
+function executeContentIdeaBatchTask(context) {
+  const profile = buildContextProfile(context);
+  const ideas = Array.from({ length: 10 }, (_, index) => ({
+    difficultyLevel: index < 3 ? "Low" : index < 7 ? "Medium" : "Medium",
+    format: index % 2 === 0 ? "Talking-head with demo cutaways" : "Routine-style montage",
+    hook: `${["Why this works", "What I would try", "Before you buy", "The easiest way to use", "What surprised me about"][index % 5]} [product / category]`,
+    idea: `${profile.niche} concept ${index + 1}`,
+    productFit: profile.niche,
+    whyItWorks: "Ties a clear user problem to an easy visual payoff."
+  }));
+
+  return {
+    content: buildRichContent([
+      {
+        title: "10 UGC content ideas",
+        value: ideas.map((idea) => `${idea.idea}: ${idea.hook} | ${idea.format} | ${idea.whyItWorks} | Difficulty: ${idea.difficultyLevel}`)
+      }
+    ]),
+    outputType: "content_ideas",
+    structuredContent: { ideas },
+    title: "Content idea batch"
+  };
+}
+
+function executeUGCShotListTask() {
+  const structuredContent = {
+    bRollIdeas: ["Product in use", "Texture or close-up", "Natural environment", "Routine transition shots"],
+    ctaOptions: ["Want me to map this to a brand brief too?", "I can turn this into a script next.", "I can pair this with hooks for email outreach."],
+    editingNotes: ["Keep cuts tight", "Front-load the payoff", "Add captions for the hook"],
+    hook: "Start with the pain point before the product.",
+    problemSolutionFraming: "Show the frustrating before-state, then the product slotting naturally into the fix.",
+    shotsNeeded: ["Hook shot", "Problem demonstration", "Product application", "Result / proof", "Closing CTA frame"],
+    talkingPoints: ["What problem this solves", "Why this product fits daily routine", "What changed after using it"]
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Shots needed", value: structuredContent.shotsNeeded },
+      { title: "B-roll ideas", value: structuredContent.bRollIdeas },
+      { title: "Talking points", value: structuredContent.talkingPoints },
+      { title: "Hook", value: structuredContent.hook },
+      { title: "Problem / solution framing", value: structuredContent.problemSolutionFraming },
+      { title: "CTA options", value: structuredContent.ctaOptions },
+      { title: "Editing notes", value: structuredContent.editingNotes }
+    ]),
+    outputType: "shot_list",
+    structuredContent,
+    title: "UGC shot list"
+  };
+}
+
+function executeWeeklyActionPlanTask(context) {
+  const openTaskTitles = context.relatedOpenTasks.slice(0, 4).map((task) => task.title);
+  const structuredContent = {
+    adminTasks: ["Update the brand tracker", "Review priorities for next approvals"],
+    dailySuggestedActions: [
+      "Monday: tighten outreach assets",
+      "Tuesday: draft creator content concepts",
+      "Wednesday: review follow-ups and open blockers",
+      "Thursday: refine pitches or replies",
+      "Friday: package next-week priorities"
+    ],
+    followUpTasks: ["Review stalled conversations", "Queue the next follow-up touchpoint"],
+    outreachTasks: openTaskTitles.length > 0 ? openTaskTitles : ["Use the pitch template on best-fit brand targets"],
+    priority: "Get the first creator outreach system working end to end.",
+    userNeeds: ["Approve anything external before it is sent", "Provide pasted brand messages when you want reply drafting"],
+    whatMaraCanDoNext: ["Run another safe internal task", "Draft replies to pasted messages", "Create a shot list or weekly plan"],
+    contentTasks: ["Create one content idea batch", "Turn best ideas into a shot list"]
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "This week's priority", value: structuredContent.priority },
+      { title: "Daily suggested actions", value: structuredContent.dailySuggestedActions },
+      { title: "Outreach tasks", value: structuredContent.outreachTasks },
+      { title: "Content tasks", value: structuredContent.contentTasks },
+      { title: "Admin tasks", value: structuredContent.adminTasks },
+      { title: "Follow-up tasks", value: structuredContent.followUpTasks },
+      { title: "What Mara can do next", value: structuredContent.whatMaraCanDoNext },
+      { title: "What the user needs to approve or provide", value: structuredContent.userNeeds }
+    ]),
+    outputType: "weekly_plan",
+    structuredContent,
+    title: "Weekly action plan"
+  };
+}
+
+function executeBrandTrackerStructureTask() {
+  const structuredContent = {
+    exampleRows: [
+      "Brand A | Warm prospect | Follow up Friday | Priority 8",
+      "Brand B | Waiting on brief | Review Monday | Priority 6"
+    ],
+    followUpDateLogic: "Set next follow-up 3 days after first touch, then 7 days after second touch.",
+    pipelineStages: ["Targeted", "Pitched", "Awaiting reply", "In conversation", "Brief received", "Closed"],
+    priorityScoringLogic: ["+3 niche fit", "+2 product fit", "+2 creator-friendly UGC usage", "-2 unclear scope"],
+    recommendedTrackerFields: ["Brand", "Contact", "Category", "Status", "Last touch", "Next follow-up", "Priority score", "Notes"],
+    statusDefinitions: ["Targeted = worth reaching out", "Awaiting reply = first message sent", "In conversation = active back-and-forth"]
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Recommended tracker fields", value: structuredContent.recommendedTrackerFields },
+      { title: "Pipeline stages", value: structuredContent.pipelineStages },
+      { title: "Status definitions", value: structuredContent.statusDefinitions },
+      { title: "Follow-up date logic", value: structuredContent.followUpDateLogic },
+      { title: "Priority scoring logic", value: structuredContent.priorityScoringLogic },
+      { title: "Example rows", value: structuredContent.exampleRows }
+    ]),
+    outputType: "tracker_structure",
+    structuredContent,
+    title: "Brand tracker structure"
+  };
+}
+
+function getLatestPastedBrandMessage(context) {
+  const message = [...context.recentMessages]
+    .reverse()
+    .find((entry) => entry.author === "You" && /brand[:\-]/i.test(entry.text));
+  if (!message) return "";
+  const match = String(message.text).split(/brand[:\-]/i);
+  return match.length > 1 ? match.slice(1).join(" ").trim() : String(message.text).trim();
+}
+
+function executePastedMessageAnalysisTask(context) {
+  const pasted = getLatestPastedBrandMessage(context);
+  if (!pasted) {
+    return {
+      blocked: true,
+      blockerReason: "This task requires pasted brand message text before Mara can analyze it.",
+      neededFromUser: "Paste the brand message into chat.",
+      suggestedNextStep: "Reply in chat with the brand message you want Mara to analyze."
+    };
+  }
+
+  const structuredContent = {
+    deadlinesOrDeliverables: /deadline|deliverable|due/i.test(pasted) ? ["The message references timing or deliverable expectations."] : ["No explicit deadline or deliverable was clearly stated."],
+    questionsToAsk: ["Clarify deliverables", "Confirm timeline", "Confirm usage rights if content is involved"],
+    recommendedResponseStrategy: "Acknowledge interest, clarify scope, and avoid agreeing to anything external without approval.",
+    redFlags: /free|spec|unpaid/i.test(pasted) ? ["The message may imply unpaid or speculative work."] : ["No obvious red flags beyond normal scope clarification."],
+    summary: pasted.slice(0, 220),
+    whatBrandIsAskingFor: /reply|respond/i.test(pasted) ? "A response or next-step confirmation." : "Brand context, deliverables, or collaboration discussion."
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Summary of the brand message", value: structuredContent.summary },
+      { title: "What the brand is asking for", value: structuredContent.whatBrandIsAskingFor },
+      { title: "Deadlines or deliverables mentioned", value: structuredContent.deadlinesOrDeliverables },
+      { title: "Red flags", value: structuredContent.redFlags },
+      { title: "Questions to ask", value: structuredContent.questionsToAsk },
+      { title: "Recommended response strategy", value: structuredContent.recommendedResponseStrategy }
+    ]),
+    outputType: "message_analysis",
+    structuredContent,
+    title: "Pasted brand message analysis"
+  };
+}
+
+function executeDraftBrandReplyTask(context) {
+  const pasted = getLatestPastedBrandMessage(context);
+  if (!pasted) {
+    return {
+      blocked: true,
+      blockerReason: "This task requires pasted brand message text before Mara can draft a reply.",
+      neededFromUser: "Paste the brand message you want a reply to.",
+      suggestedNextStep: "Drop the full brand message into chat and Mara can draft the reply."
+    };
+  }
+
+  const preferences = buildContextProfile(context).preferences[0] || "short, clear, and confident";
+  const structuredContent = {
+    approvalReminder: "Sending this externally still requires approval and any needed integration setup.",
+    professionalVersion: `Hi [Brand], thanks for reaching out. I'm interested and would be glad to move this forward. Before confirming, I'd love to align on deliverables, timing, and usage details so I can respond clearly.`,
+    questionsToClarify: ["What deliverables are needed?", "What timing are you targeting?", "How will the content be used?"],
+    replyDraft: `Hi [Brand], thanks for reaching out. I'd be happy to explore this. Before I confirm anything, can you share a bit more on deliverables, timeline, and how you'd want the content used?`,
+    warmerVersion: `Hey [Brand], appreciate the note. I'd love to hear a little more about what you're looking for so I can respond in a way that actually matches the scope.`
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Reply draft", value: structuredContent.replyDraft },
+      { title: "Alternative warmer version", value: structuredContent.warmerVersion },
+      { title: "Alternative more professional version", value: structuredContent.professionalVersion },
+      { title: "Questions to clarify", value: structuredContent.questionsToClarify },
+      { title: "Approval reminder", value: structuredContent.approvalReminder },
+      { title: "Tone note", value: `Built around the user's preference for ${preferences}.` }
+    ]),
+    outputType: "reply_draft",
+    structuredContent,
+    title: "Draft brand reply"
+  };
+}
+
+function executePortfolioRecommendationsTask(context) {
+  const profile = buildContextProfile(context);
+  const structuredContent = {
+    currentLikelyGaps: ["Before/after proof", "Category-specific examples", "A clear creator positioning section"],
+    nextThreeImprovements: ["Add two niche-specific sample projects", "Write a tighter intro using the positioning output", "Show one simple case-study layout"],
+    recommendedPortfolioSections: ["About", "Best-fit niches", "Sample UGC concepts", "Process / deliverables", "Contact"],
+    sampleProjectsToCreate: [`${profile.niche} routine walkthrough`, "Problem / solution testimonial", "Product close-up plus talking head"],
+    positionBeginnerWork: "Frame early work as concept-driven sample campaigns that show taste, structure, and platform understanding."
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Current likely gaps", value: structuredContent.currentLikelyGaps },
+      { title: "Recommended portfolio sections", value: structuredContent.recommendedPortfolioSections },
+      { title: "Sample projects to create", value: structuredContent.sampleProjectsToCreate },
+      { title: "How to position beginner work", value: structuredContent.positionBeginnerWork },
+      { title: "Next 3 portfolio improvements", value: structuredContent.nextThreeImprovements }
+    ]),
+    outputType: "recommendation",
+    structuredContent,
+    title: "Portfolio recommendations"
+  };
+}
+
+function executeOutreachStrategyTask(context) {
+  const profile = buildContextProfile(context);
+  const structuredContent = {
+    followUpStrategy: "Use a 3 / 7 / 14 day sequence and stop after the polite closeout.",
+    maraNext: ["Run the pitch template task if not done", "Build a follow-up sequence", "Prepare the first tracker structure"],
+    outreachCadence: "Start with a small focused batch each week rather than broad-volume outreach.",
+    personalizationStrategy: "Use niche overlap, product fit, and a single concrete reason for contacting each brand.",
+    pitchAngle: profile.positioningOutput?.structuredContent?.brandFacingAngle || `Lead with ${profile.niche} fit and low-friction UGC value.`,
+    targetBrandCategories: ["Skincare", "Wellness", "Beauty-adjacent lifestyle"],
+    whatToTrack: ["Brand", "Last touch", "Next follow-up", "Reply status", "Notes"]
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Target brand categories", value: structuredContent.targetBrandCategories },
+      { title: "Pitch angle", value: structuredContent.pitchAngle },
+      { title: "Outreach cadence", value: structuredContent.outreachCadence },
+      { title: "Personalization strategy", value: structuredContent.personalizationStrategy },
+      { title: "Follow-up strategy", value: structuredContent.followUpStrategy },
+      { title: "What to track", value: structuredContent.whatToTrack },
+      { title: "What Mara should do next", value: structuredContent.maraNext }
+    ]),
+    outputType: "strategy",
+    structuredContent,
+    title: "Outreach strategy"
+  };
+}
+
+function executeGeneralInternalTask(context) {
+  const profile = buildContextProfile(context);
+  const structuredContent = {
+    summary: context.currentTask.description || `Internal task completed for ${profile.brandName}.`,
+    nextSteps: ["Use the output in the next safe internal task", "Refine it in chat if needed"]
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Summary", value: structuredContent.summary },
+      { title: "Next steps", value: structuredContent.nextSteps }
+    ]),
+    outputType: "summary",
+    structuredContent,
+    title: context.currentTask.title
+  };
+}
+
+function executeTaskByType(context) {
+  switch (context.currentTask.taskType) {
+    case "creator_positioning":
+      return executeCreatorPositioningTask(context);
+    case "brand_fit_criteria":
+      return executeBrandFitCriteriaTask(context);
+    case "pitch_template":
+    case "personalized_pitch":
+      return executePitchTemplateTask(context);
+    case "follow_up_sequence":
+      return executeFollowUpSequenceTask(context);
+    case "content_idea_batch":
+      return executeContentIdeaBatchTask(context);
+    case "ugc_shot_list":
+      return executeUGCShotListTask(context);
+    case "weekly_action_plan":
+      return executeWeeklyActionPlanTask(context);
+    case "brand_tracker_structure":
+      return executeBrandTrackerStructureTask(context);
+    case "pasted_message_analysis":
+      return executePastedMessageAnalysisTask(context);
+    case "draft_brand_reply":
+      return executeDraftBrandReplyTask(context);
+    case "portfolio_recommendations":
+      return executePortfolioRecommendationsTask(context);
+    case "outreach_strategy":
+      return executeOutreachStrategyTask(context);
+    default:
+      return executeGeneralInternalTask(context);
+  }
+}
+
+function markTaskBlocked(db, userId, workerId, taskId, blocker) {
+  updateWorkerTaskStatus(db, userId, workerId, taskId, "blocked");
+  db.prepare(
+    `UPDATE worker_tasks
+     SET output = ?, updated_at = ?
+     WHERE id = ? AND user_id = ? AND worker_id = ?`
+  ).run(JSON.stringify(blocker), new Date().toISOString(), taskId, userId, workerId);
+  createWorkerActivityLog(db, {
+    description: blocker.blockerReason,
+    eventType: "task_execution_blocked",
+    metadata: blocker,
+    relatedTaskId: taskId,
+    title: "Task blocked",
+    userId,
+    workerId
+  });
+  return blocker;
+}
+
+export function runMaraTask({ db, readAccountContext, readConnectedIntegrations, readMessages, readMaraOnboarding, readWorkerKnowledge, taskId, userId, workerId }) {
+  const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
+  if (!task) {
+    throw new Error("Worker task not found.");
+  }
+
+  if (workerId !== MARA_WORKER_ID) {
+    throw new Error("This executor is only available for Mara.");
+  }
+
+  if (!["approved", "in_progress"].includes(task.status)) {
+    throw new Error("Only approved or in-progress tasks can be executed.");
+  }
+
+  const permissions = getWorkerPermissions(db, userId, workerId);
+  if (!hasRequiredPermissions(permissions, task.requiredPermissions)) {
+    const primaryPermission = task.requiredPermissions[0];
+    return markTaskBlocked(db, userId, workerId, taskId, {
+      blockerReason: describePermissionBlocker(primaryPermission).blockerReason,
+      neededFromUser: describePermissionBlocker(primaryPermission).nextStep,
+      suggestedNextStep: "Update Mara's permissions or pick a safe internal task instead."
+    });
+  }
+
+  if (task.requiredPermissions.some((permission) => INTERNAL_ONLY_PERMISSION_PATTERNS.test(String(permission)))) {
+    return markTaskBlocked(db, userId, workerId, taskId, {
+      blockerReason: "This task depends on an external action or integration Mara cannot execute internally.",
+      neededFromUser: "Use an internal-only task or provide the required integration and approval path first.",
+      suggestedNextStep: "Keep Mara on drafting, planning, analysis, or internal workflow work."
+    });
   }
 
   const timestamp = new Date().toISOString();
-  db.prepare(
-    `UPDATE worker_tasks
-     SET status = 'in_progress', updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_id = ?`
-  ).run(timestamp, taskId, userId, workerId);
-  db.prepare(
-    `UPDATE office_custom_tasks
-     SET status = 'In Progress'
-     WHERE id = ? AND user_id = ? AND worker_slug = ?`
-  ).run(taskId, userId, workerId);
-
-  const output = buildTaskOutput(task);
-  completeWorkerTask(db, userId, workerId, taskId, JSON.stringify(output));
+  updateWorkerTaskStatus(db, userId, workerId, taskId, "in_progress");
   createWorkerActivityLog(db, {
     createdAt: timestamp,
-    description: `Completed ${task.title}.`,
-    eventType: "output_completed",
-    metadata: output,
+    description: `Started ${task.title}.`,
+    eventType: "task_execution_started",
     relatedTaskId: taskId,
     title: task.title,
     userId,
     workerId
   });
 
-  return output;
+  const context = buildMaraExecutionContext({
+    db,
+    readAccountContext,
+    readConnectedIntegrations,
+    readMessages,
+    readMaraOnboarding,
+    readWorkerKnowledge,
+    taskId,
+    userId,
+    workerId
+  });
+
+  const result = executeTaskByType(context);
+  if (result?.blocked) {
+    return markTaskBlocked(db, userId, workerId, taskId, result);
+  }
+
+  const savedOutput = createWorkerOutput(db, {
+    content: result.content,
+    outputType: result.outputType || TASK_TYPE_OUTPUT_TYPE_MAP[task.taskType] || "summary",
+    source: "task_execution",
+    structuredContent: result.structuredContent ?? null,
+    taskId,
+    title: result.title || task.title,
+    userId,
+    workerId
+  });
+  const previewPayload = {
+    outputId: savedOutput.id,
+    preview: buildPreviewFromContent(savedOutput.content),
+    title: savedOutput.title,
+    type: savedOutput.outputType
+  };
+  completeWorkerTask(db, userId, workerId, taskId, JSON.stringify(previewPayload));
+  createWorkerActivityLog(db, {
+    createdAt: timestamp,
+    description: `Finished ${task.title}.`,
+    eventType: "task_execution_completed",
+    metadata: { outputId: savedOutput.id, outputType: savedOutput.outputType },
+    relatedTaskId: taskId,
+    title: task.title,
+    userId,
+    workerId
+  });
+
+  return {
+    output: savedOutput,
+    task: listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId)
+  };
+}
+
+export function runWorkerTask(db, userId, workerId, taskId, options = {}) {
+  return runMaraTask({ db, taskId, userId, workerId, ...options });
+}
+
+export function autoExecuteSafeMaraTasks({ db, readAccountContext, readConnectedIntegrations, readMessages, readMaraOnboarding, readWorkerKnowledge, taskIds, userId, workerId }) {
+  const results = [];
+  for (const taskId of taskIds) {
+    const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
+    if (!task || !SAFE_AUTO_EXECUTE_TASK_TYPES.has(task.taskType)) {
+      continue;
+    }
+
+    const result = runMaraTask({
+      db,
+      readAccountContext,
+      readConnectedIntegrations,
+      readMessages,
+      readMaraOnboarding,
+      readWorkerKnowledge,
+      taskId,
+      userId,
+      workerId
+    });
+    createWorkerActivityLog(db, {
+      description: `Auto-executed ${task.title}.`,
+      eventType: "task_auto_executed",
+      relatedTaskId: taskId,
+      title: task.title,
+      userId,
+      workerId
+    });
+    results.push(result);
+  }
+  return results;
 }
 
 export function createSuggestedTask(db, task) {
@@ -1075,6 +1770,22 @@ export function runMaraActionDetector({
     });
   }
 
+  if (/pitch template|make me a pitch|write me a pitch/.test(lower)) {
+    const directPitchTitle = /skincare/.test(lower) ? "Create first skincare pitch template" : "Create first pitch template";
+    if (!existingTaskTitles.has(normalizeForComparison(directPitchTitle))) {
+      tasksToCreate.push({
+        description: "Draft a reusable internal pitch template aligned with the user's niche and tone preferences.",
+        evidenceUsed: [normalizedText],
+        priority: "high",
+        requiredPermissions: [],
+        source: "chat_direct_request",
+        status: permissions.canCreateTasks ? "approved" : "proposed",
+        taskType: "pitch_template",
+        title: directPitchTitle
+      });
+    }
+  }
+
   if (/losing track|follow-up|follow up|tracker|messy|missed/.test(lower)) {
     if (!existingTaskTitles.has(normalizeForComparison("Set up brand tracker structure"))) {
       tasksToCreate.push({
@@ -1087,6 +1798,77 @@ export function runMaraActionDetector({
         title: "Set up brand tracker structure"
       });
     }
+  }
+
+  if (/content ideas?|ugc ideas?|idea batch/.test(lower)) {
+    if (!existingTaskTitles.has(normalizeForComparison("Create first content idea batch"))) {
+      tasksToCreate.push({
+        description: "Create a first batch of internal UGC content ideas tailored to the user's niche.",
+        evidenceUsed: [normalizedText],
+        priority: "high",
+        requiredPermissions: [],
+        source: "chat_direct_request",
+        status: permissions.canCreateTasks ? "approved" : "proposed",
+        taskType: "content_idea_batch",
+        title: "Create first content idea batch"
+      });
+    }
+  }
+
+  if (/positioning/.test(lower)) {
+    if (!existingTaskTitles.has(normalizeForComparison("Define creator positioning"))) {
+      tasksToCreate.push({
+        description: "Define the creator's positioning using onboarding, memory, and current direction.",
+        evidenceUsed: [normalizedText],
+        priority: "high",
+        requiredPermissions: [],
+        source: "chat_direct_request",
+        status: permissions.canCreateTasks ? "approved" : "proposed",
+        taskType: "creator_positioning",
+        title: "Define creator positioning"
+      });
+    }
+  }
+
+  if (/brand fit|ideal brands|best fit brands/.test(lower)) {
+    if (!existingTaskTitles.has(normalizeForComparison("Build brand fit criteria"))) {
+      tasksToCreate.push({
+        description: "Build brand-fit rules Mara can reuse for future strategy and outreach planning.",
+        evidenceUsed: [normalizedText],
+        priority: "high",
+        requiredPermissions: [],
+        source: "chat_direct_request",
+        status: permissions.canCreateTasks ? "approved" : "proposed",
+        taskType: "brand_fit_criteria",
+        title: "Build brand fit criteria"
+      });
+    }
+  }
+
+  if (/reply to this brand|draft a reply|reply draft/.test(lower)) {
+    tasksToCreate.push({
+      description: "Draft a reply to the pasted brand message using the user's tone and approval rules.",
+      evidenceUsed: [normalizedText],
+      priority: "high",
+      requiredPermissions: [],
+      source: "chat_direct_request",
+      status: permissions.canCreateTasks ? "approved" : "proposed",
+      taskType: "draft_brand_reply",
+      title: "Draft brand reply"
+    });
+  }
+
+  if (/analyze this brand message|analyze this message|what is this brand asking/.test(lower)) {
+    tasksToCreate.push({
+      description: "Analyze the pasted brand message and summarize asks, risks, and response strategy.",
+      evidenceUsed: [normalizedText],
+      priority: "high",
+      requiredPermissions: [],
+      source: "chat_direct_request",
+      status: permissions.canCreateTasks ? "approved" : "proposed",
+      taskType: "pasted_message_analysis",
+      title: "Analyze pasted brand message"
+    });
   }
 
   if (/gmail|outlook|inbox|email/.test(lower) && /connect|read|use|check/.test(lower)) {
@@ -1127,6 +1909,7 @@ export function runMaraActionDetector({
 
 export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections, readOfficeOverlays } = {}) {
   const tasks = listWorkerTasksForUserWorker(db, userId, workerId);
+  const workerOutputs = listWorkerOutputs(db, userId, workerId);
   const approvals = listApprovalRequests(db, userId, workerId).filter((request) => request.status === "pending");
   const recurringResponsibilities = listRecurringResponsibilities(db, userId, workerId);
   const researchItems = listResearchItems(db, userId, workerId);
@@ -1142,7 +1925,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     )
     .all(userId, workerId)
     .map((row) => ({ ...row, metadata: safeJsonParse(row.metadataJson, {}) }))
-    .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "output_completed", "recurring_responsibility_created"].includes(row.eventType))
+    .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "task_execution_started", "task_execution_completed", "task_execution_blocked", "worker_output_created", "task_auto_executed", "chat_task_created", "chat_task_executed", "recurring_responsibility_created"].includes(row.eventType))
     .slice(0, 5);
   const openTasks = tasks.filter((task) => ["approved", "in_progress"].includes(task.status));
   const proposedTasks = tasks.filter((task) => task.status === "proposed");
@@ -1180,12 +1963,15 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
       nextStep: task.nextStep
     }))
   ].slice(0, 3);
-  const latestOutputs = completedTasks
-    .map((task) => ({
-      ...task,
-      outputPreview: typeof task.output === "string" ? safeJsonParse(task.output, null) ?? { preview: task.output, title: task.title, type: "general" } : null
+  const latestOutputs = workerOutputs
+    .map((output) => ({
+      ...output,
+      outputPreview: {
+        preview: buildPreviewFromContent(output.content),
+        title: output.title,
+        type: output.outputType
+      }
     }))
-    .filter((task) => task.outputPreview)
     .slice(0, 3);
   const outputsByType = latestOutputs.reduce((acc, item) => {
     const type = item.outputPreview?.type || "general";
@@ -1321,6 +2107,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
   return {
     blockedTasks: blockedTaskDetails,
     completedTasks,
+    completedWork: workerOutputs,
     currentFocus,
     currentWork,
     latestOutputs,

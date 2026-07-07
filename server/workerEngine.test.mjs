@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import {
+  autoExecuteSafeMaraTasks,
   buildMaraInitialWorkPlan,
+  buildMaraExecutionContext,
   buildMaraWorkspace,
   convertResearchItemToTask,
   createApprovalRequest,
@@ -14,11 +16,14 @@ import {
   dismissWorkerTask,
   ensureWorkerPermissions,
   getWorkerPermissions,
+  inferMaraTaskType,
   initWorkerTables,
   listRecurringResponsibilities,
+  listWorkerOutputs,
   listWorkerTasksForUserWorker,
   MARA_WORKER_ID,
   runMaraActionDetector,
+  runMaraTask,
   runWorkerTask,
   updateApprovalRequestStatus
 } from "./workerEngine.mjs";
@@ -67,6 +72,17 @@ function makeDb() {
   `);
   initWorkerTables(db);
   return db;
+}
+
+function makeExecutionReaders(overrides = {}) {
+  return {
+    readAccountContext: () => ({ brandName: "Glow Forge", whatYouDo: "skincare and wellness UGC" }),
+    readConnectedIntegrations: () => [],
+    readMaraOnboarding: () => ({ answers: { approval_rules: "Ask before sending anything external." }, generatedSummary: [] }),
+    readMessages: () => [],
+    readWorkerKnowledge: () => [{ title: "Preferences", items: ["Keep outreach short and confident."] }],
+    ...overrides
+  };
 }
 
 test("worker permissions default correctly for Mara", () => {
@@ -240,12 +256,13 @@ test("safe internal Mara tasks can run and save an output", () => {
     workerId: MARA_WORKER_ID
   });
 
-  const output = runWorkerTask(db, "user-1", MARA_WORKER_ID, created.id);
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   const task = db.prepare("SELECT status, output FROM worker_tasks WHERE id = ?").get(created.id);
 
-  assert.equal(output.type, "pitch_template");
+  assert.equal(result.output.outputType, "pitch_template");
   assert.equal(task.status, "completed");
   assert.ok(String(task.output).includes("pitch_template"));
+  assert.equal(listWorkerOutputs(db, "user-1", MARA_WORKER_ID).length, 1);
 });
 
 test("workspace object returns tasks, memory, permissions, recurring responsibilities, and activity", () => {
@@ -377,4 +394,223 @@ test("dismissing a worker task removes it from active recommendation flow", () =
   const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
   assert.notEqual(workspace.recommendedNext?.taskId, created.id);
   assert.equal(db.prepare("SELECT status FROM worker_tasks WHERE id = ?").get(created.id).status, "dismissed");
+});
+
+test("runMaraTask refuses tasks from another user", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Draft a first pitch template.",
+    priority: "high",
+    requiredPermissions: [],
+    title: "Create first pitch template",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  assert.throws(() => runMaraTask({ db, taskId: created.id, userId: "user-2", workerId: MARA_WORKER_ID, ...makeExecutionReaders() }), /Worker task not found/);
+});
+
+test("runMaraTask checks permissions and blocks when missing", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID, { canDraftOutreach: false });
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Draft a first pitch template.",
+    priority: "high",
+    requiredPermissions: ["canDraftOutreach"],
+    title: "Create first pitch template",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const task = listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID).find((entry) => entry.id === created.id);
+
+  assert.equal(task.status, "proposed");
+});
+
+test("runMaraTask marks task blocked when required context is missing", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Draft a reply to the latest brand message.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "draft_brand_reply",
+    title: "Draft brand reply",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.match(result.blockerReason, /requires pasted brand message text/i);
+  assert.equal(db.prepare("SELECT status FROM worker_tasks WHERE id = ?").get(created.id).status, "blocked");
+});
+
+test("autoExecuteSafeMaraTasks executes safe onboarding tasks", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const first = createApprovedTaskIfPermissionAllows(db, {
+    description: "Define creator positioning.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "creator_positioning",
+    title: "Define creator positioning",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const second = createApprovedTaskIfPermissionAllows(db, {
+    description: "Build brand fit criteria.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "brand_fit_criteria",
+    title: "Build brand fit criteria",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  const results = autoExecuteSafeMaraTasks({
+    db,
+    taskIds: [first.id, second.id],
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders()
+  });
+
+  assert.equal(results.length, 2);
+  assert.equal(listWorkerOutputs(db, "user-1", MARA_WORKER_ID).length, 2);
+});
+
+test("task type inference works for onboarding-generated tasks", () => {
+  assert.equal(inferMaraTaskType("Define creator positioning", "onboarding_generated"), "creator_positioning");
+  assert.equal(inferMaraTaskType("Build brand fit criteria", "onboarding_generated"), "brand_fit_criteria");
+  assert.equal(inferMaraTaskType("Create first pitch template", "onboarding_generated"), "pitch_template");
+  assert.equal(inferMaraTaskType("Create first content idea batch", "onboarding_generated"), "content_idea_batch");
+});
+
+test("creator positioning task produces saved output", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Define creator positioning.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "creator_positioning",
+    title: "Define creator positioning",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.equal(result.output.outputType, "creator_positioning");
+  assert.match(result.output.content, /Creator positioning statement/);
+});
+
+test("brand fit criteria task produces saved output", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Build brand fit criteria.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "brand_fit_criteria",
+    title: "Build brand fit criteria",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.equal(result.output.outputType, "brand_criteria");
+  assert.match(result.output.content, /Best-fit industries/);
+});
+
+test("content idea batch task produces saved output", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Create a first content idea batch.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "content_idea_batch",
+    title: "Create first content idea batch",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.equal(result.output.outputType, "content_ideas");
+  assert.equal(result.output.structuredContent.ideas.length, 10);
+});
+
+test("buildMaraExecutionContext reuses previous outputs", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const positioningTask = createApprovedTaskIfPermissionAllows(db, {
+    description: "Define creator positioning.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "creator_positioning",
+    title: "Define creator positioning",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  runMaraTask({ db, taskId: positioningTask.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const pitchTask = createApprovedTaskIfPermissionAllows(db, {
+    description: "Create first pitch template.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "pitch_template",
+    title: "Create first pitch template",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const context = buildMaraExecutionContext({ db, taskId: pitchTask.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.ok(context.previousOutputs.some((output) => output.outputType === "creator_positioning"));
+});
+
+test("workspace includes latest outputs and runnable tasks", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const completed = createApprovedTaskIfPermissionAllows(db, {
+    description: "Define creator positioning.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "creator_positioning",
+    title: "Define creator positioning",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  runMaraTask({ db, taskId: completed.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  createApprovedTaskIfPermissionAllows(db, {
+    description: "Build follow-up sequence.",
+    priority: "medium",
+    requiredPermissions: [],
+    taskType: "follow_up_sequence",
+    title: "Build follow-up sequence",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID, {
+    readKnowledgeSections: makeExecutionReaders().readWorkerKnowledge,
+    readOfficeOverlays: () => ({ worklog: [] })
+  });
+
+  assert.ok(workspace.latestOutputs.length > 0);
+  assert.ok(workspace.runnableTasks.length > 0);
+});
+
+test("activity log records task execution and output creation", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Create first pitch template.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "pitch_template",
+    title: "Create first pitch template",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+
+  const events = db.prepare("SELECT event_type AS eventType FROM worker_activity_log WHERE user_id = ? AND worker_id = ?").all("user-1", MARA_WORKER_ID).map((row) => row.eventType);
+  assert.ok(events.includes("task_execution_started"));
+  assert.ok(events.includes("task_execution_completed"));
+  assert.ok(events.includes("worker_output_created"));
 });

@@ -95,6 +95,7 @@ type MaraWorkspaceKnowledge = {
 };
 
 type MaraWorkspaceOutput = MaraWorkspaceTask & {
+  content?: string;
   outputPreview: {
     preview: string;
     title: string;
@@ -656,7 +657,7 @@ function MaraOutputModal({
   onClose: () => void;
   task: MaraWorkspaceOutput;
 }) {
-  const parsedOutput = parseTaskOutput(task.output);
+  const parsedOutput = task.outputPreview || parseTaskOutput(task.output);
 
   return (
     <div className="ro-modal-scrim" onClick={onClose}>
@@ -670,6 +671,12 @@ function MaraOutputModal({
           <span>Preview</span>
           <div className="ro-artifact">{parsedOutput?.preview || "No preview available yet."}</div>
         </div>
+        {task.content ? (
+          <div className="ro-field">
+            <span>Full output</span>
+            <div className="ro-artifact" style={{ whiteSpace: "pre-wrap" }}>{task.content}</div>
+          </div>
+        ) : null}
         <div className="ro-modal-actions">
           <button className="r-btn r-btn-accent" type="button" onClick={onClose}>Close</button>
         </div>

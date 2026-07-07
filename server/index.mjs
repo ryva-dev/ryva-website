@@ -10,19 +10,23 @@ import { fileURLToPath } from "node:url";
 import { db } from "./db.mjs";
 import { sendTransactionalEmail } from "./mailer.mjs";
 import {
+  autoExecuteSafeMaraTasks,
   buildMaraInitialWorkPlan,
   buildMaraWorkspace,
   createApprovalRequest,
   createApprovedTaskIfPermissionAllows,
+  createWorkerActivityLog,
   createRecurringResponsibility,
   createResearchItem,
   createSuggestedTask,
   dismissWorkerTask,
   ensureWorkerPermissions,
   getWorkerPermissions,
+  listWorkerOutputs,
   listWorkerTasksForUserWorker,
   MARA_ROLE_DEFINITION,
   runMaraActionDetector,
+  runMaraTask,
   runWorkerTask,
   updateApprovalRequestStatus
 } from "./workerEngine.mjs";
@@ -1761,6 +1765,65 @@ function getWorkerKnowledgeSections(userId, workerSlug) {
   return parseJson(record?.knowledgeJson, []);
 }
 
+function readMaraOnboardingAnswers(userId, workerSlug) {
+  const record = db
+    .prepare(
+      `SELECT answers_json AS answersJson, generated_summary_json AS generatedSummaryJson, status, completed_at AS completedAt
+       FROM office_onboarding_sessions
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .get(userId, workerSlug);
+
+  if (!record) {
+    return null;
+  }
+
+  return {
+    answers: parseJson(record.answersJson, {}),
+    completedAt: record.completedAt ?? null,
+    generatedSummary: parseJson(record.generatedSummaryJson, []),
+    status: record.status
+  };
+}
+
+function readWorkerIntegrationMetadata(userId, workerSlug) {
+  return db
+    .prepare(
+      `SELECT provider, status, account_label AS accountLabel, metadata_json AS metadataJson
+       FROM office_worker_integrations
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY updated_at DESC`
+    )
+    .all(userId, workerSlug)
+    .map((row) => ({
+      ...row,
+      metadata: parseJson(row.metadataJson, {})
+    }));
+}
+
+function readWorkerRecentMessages(userId, workerSlug) {
+  return db
+    .prepare(
+      `SELECT author, text, created_at AS createdAt
+       FROM office_chat_messages
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC
+       LIMIT 10`
+    )
+    .all(userId, workerSlug)
+    .reverse();
+}
+
+function buildMaraExecutionReaders() {
+  return {
+    readAccountContext: getUserOnboardingRecord,
+    readConnectedIntegrations: readWorkerIntegrationMetadata,
+    readMaraOnboarding: readMaraOnboardingAnswers,
+    readMessages: readWorkerRecentMessages,
+    readWorkerKnowledge: readWorkerKnowledgeSections
+  };
+}
+
 function mergeKnowledgeSections(existingKnowledge, sectionsToMerge) {
   const next = Array.isArray(existingKnowledge) ? [...existingKnowledge] : [];
 
@@ -2325,10 +2388,30 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
   }
 
   try {
-    const output = runWorkerTask(db, req.user.id, workerSlug, taskId);
-    res.json({ ok: true, output });
+    const result = runWorkerTask(db, req.user.id, workerSlug, taskId, {
+      db,
+      ...buildMaraExecutionReaders()
+    });
+    res.json({ ok: true, ...result });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not run worker task." });
+  }
+});
+
+app.post("/api/workers/mara/tasks/:taskId/run", assertOrigin, requireAuth, async (req, res) => {
+  const taskId = String(req.params.taskId ?? "").trim();
+
+  try {
+    const result = runMaraTask({
+      db,
+      taskId,
+      userId: req.user.id,
+      workerId: MARA_SLUG,
+      ...buildMaraExecutionReaders()
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not run Mara task." });
   }
 });
 
@@ -3218,6 +3301,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
 
   if (workerSlug === MARA_SLUG && worker) {
     ensureWorkerPermissions(db, req.user.id, workerSlug);
+    const createdChatTaskIds = [];
     const detectorResult = runMaraActionDetector({
       openTasks: listWorkerTasksForUserWorker(db, req.user.id, workerSlug),
       permissions: getWorkerPermissions(db, req.user.id, workerSlug),
@@ -3251,11 +3335,24 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
 
     for (const task of detectorResult.tasksToCreate) {
       if (task.status === "approved") {
-        createApprovedTaskIfPermissionAllows(db, {
+        const created = createApprovedTaskIfPermissionAllows(db, {
           ...task,
           userId: req.user.id,
           workerId: workerSlug
         });
+        if (!created.duplicate && created.id) {
+          createdChatTaskIds.push(created.id);
+          const createdTask = listWorkerTasksForUserWorker(db, req.user.id, workerSlug).find((entry) => entry.id === created.id);
+          createWorkerActivityLog(db, {
+            description: text,
+            eventType: "chat_task_created",
+            metadata: { taskType: createdTask?.taskType || null },
+            relatedTaskId: created.id,
+            title: createdTask?.title || task.title,
+            userId: req.user.id,
+            workerId: workerSlug
+          });
+        }
       } else {
         createSuggestedTask(db, {
           ...task,
@@ -3288,6 +3385,52 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
         userId: req.user.id,
         workerId: workerSlug
       });
+    }
+
+    const executedResults = autoExecuteSafeMaraTasks({
+      db,
+      taskIds: createdChatTaskIds,
+      userId: req.user.id,
+      workerId: workerSlug,
+      ...buildMaraExecutionReaders()
+    });
+
+    for (const result of executedResults) {
+      if (result?.task?.id) {
+        createWorkerActivityLog(db, {
+          description: text,
+          eventType: "chat_task_executed",
+          metadata: { outputId: result.output?.id ?? null },
+          relatedTaskId: result.task.id,
+          title: result.task.title,
+          userId: req.user.id,
+          workerId: workerSlug
+        });
+      }
+    }
+
+    if (executedResults.length > 0) {
+      const completedOutputs = executedResults.filter((result) => result?.output?.content);
+      const blockedOutputs = executedResults.filter((result) => result?.blockerReason);
+      const replyParts = [];
+
+      for (const result of completedOutputs.slice(0, 2)) {
+        replyParts.push(`${result.output.title}\n\n${result.output.content}`);
+      }
+
+      for (const blocked of blockedOutputs.slice(0, 1)) {
+        replyParts.push(`I couldn't complete that yet.\n\nReason: ${blocked.blockerReason}\nNeed from you: ${blocked.neededFromUser}\nNext: ${blocked.suggestedNextStep}`);
+      }
+
+      if (replyParts.length > 0) {
+        const replyCreatedAt = new Date(Date.now() + 1000).toISOString();
+        db.prepare(
+          `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(randomUUID(), req.user.id, workerSlug, "Worker", replyParts.join("\n\n"), replyCreatedAt);
+        res.status(201).json({ ok: true });
+        return;
+      }
     }
   }
 
@@ -3855,9 +3998,10 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       });
       const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
       replaceWorkerKnowledge(req.user.id, workerSlug, mergedKnowledge);
+      const createdTaskIds = [];
 
       for (const task of initialPlan.tasks) {
-        createApprovedTaskIfPermissionAllows(db, {
+        const created = createApprovedTaskIfPermissionAllows(db, {
           description: task.description,
           dueAt: task.priority === "high" ? "This week" : "Next 7 days",
           evidenceUsed: generatedSummary,
@@ -3868,6 +4012,9 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
           userId: req.user.id,
           workerId: workerSlug
         });
+        if (!created.duplicate && created.id) {
+          createdTaskIds.push(created.id);
+        }
       }
 
       for (const recurring of initialPlan.recurringResponsibilities) {
@@ -3882,6 +4029,14 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
           workerId: workerSlug
         });
       }
+
+      autoExecuteSafeMaraTasks({
+        db,
+        taskIds: createdTaskIds,
+        userId: req.user.id,
+        workerId: workerSlug,
+        ...buildMaraExecutionReaders()
+      });
     }
   }
 
