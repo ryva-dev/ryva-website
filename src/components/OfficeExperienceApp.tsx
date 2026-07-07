@@ -538,6 +538,8 @@ function TodayView({
 }) {
   const today = new Date();
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
+  const todayStart = new Date(today);
+  todayStart.setHours(0, 0, 0, 0);
   const todaysEvents = overlays.calendarEvents
     .filter((e) => new Date(e.startsAt).toDateString() === today.toDateString())
     .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
@@ -557,14 +559,11 @@ function TodayView({
     })
     .filter((entry) => entry.worker)
     .slice(0, 4);
-  const miniCalendarHours = Array.from({ length: 7 }, (_, index) => 9 + index);
-  const featuredHours = miniCalendarHours.map((hour) => {
-    const event = todaysEvents.find((entry) => {
-      const date = new Date(entry.startsAt);
-      return date.getHours() === hour;
-    });
-    return { event, hour };
-  });
+  const todayCalStart = 7;
+  const todayCalEnd = 21;
+  const todayCalHours = Array.from({ length: todayCalEnd - todayCalStart }, (_, index) => todayCalStart + index);
+  const nowHour = today.getHours() + today.getMinutes() / 60;
+  const hourLabel = (h: number) => (h === 0 ? "12 AM" : h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`);
 
   const dateLine = today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
@@ -613,39 +612,58 @@ function TodayView({
         {todaysEvents.length === 0 ? (
           <p className="ro-blank">Nothing on the calendar today.</p>
         ) : (
-          <div className="ro-mini-day">
-            <div className="ro-mini-day-grid">
-              {featuredHours.map(({ event, hour }) => (
-                <button
-                  key={hour}
-                  className={`ro-mini-slot${event ? " has-event" : ""}`}
-                  type="button"
-                  onClick={() => onNavigate("#app/office/calendar")}
-                >
-                  <span className="ro-mini-slot-time">{hour > 12 ? `${hour - 12} PM` : hour === 12 ? "12 PM" : `${hour} AM`}</span>
-                  <div className="ro-mini-slot-body">
-                    {event ? (
-                      <>
-                        <strong>{event.title}</strong>
-                        <p>{event.workerSlug ? nameFor(event.workerSlug) : "Office"}</p>
-                      </>
-                    ) : (
-                      <span className="ro-mini-slot-empty">Open</span>
-                    )}
-                  </div>
-                </button>
-              ))}
+          <div className="ro-today-calendar" onClick={() => onNavigate("#app/office/calendar")} role="button" tabIndex={0} onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onNavigate("#app/office/calendar");
+            }
+          }}>
+            <div className="ro-cal-days ro-cal-days-day">
+              <div className="ro-cal-sidehead" />
+              <div className="ro-cal-dayhead is-today">
+                <span>{todayStart.toLocaleDateString([], { weekday: "short" })}</span>
+                <strong>{todayStart.getDate()}</strong>
+              </div>
             </div>
-            <div className="ro-mini-day-list">
-              {todaysEvents.slice(0, 3).map((e) => (
-                <button key={e.id} className="ro-row ro-row-slim" type="button" onClick={() => onNavigate("#app/office/calendar")}>
-                  <span className="ro-row-time">{clock(e.startsAt)}</span>
-                  <div className="ro-row-copy">
-                    <strong>{e.title}</strong>
-                    <p>{e.workerSlug ? nameFor(e.workerSlug) : "Office event"}</p>
+            <div className="ro-today-calendar-scroll">
+              <div className="ro-cal-grid ro-cal-grid-day" style={{ height: (todayCalEnd - todayCalStart) * HOUR_PX }}>
+                {todayCalHours.map((h) => (
+                  <div className="ro-cal-row" key={h} style={{ height: HOUR_PX }}>
+                    <span className="ro-cal-hour">{hourLabel(h)}</span>
+                    <div className="ro-cal-row-days">
+                      <div className="ro-cal-lane" />
+                    </div>
                   </div>
-                </button>
-              ))}
+                ))}
+
+                {todaysEvents.map((e) => {
+                  const top = (hourOf(e.startsAt) - todayCalStart) * HOUR_PX;
+                  const height = Math.max(28, (hourOf(e.endsAt) - hourOf(e.startsAt)) * HOUR_PX - 4);
+                  return (
+                    <button
+                      key={e.id}
+                      className={`ro-evt type-${e.eventType.toLowerCase()}`}
+                      style={{ top, height, left: 66, right: 10 }}
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onNavigate("#app/office/calendar");
+                      }}
+                    >
+                      <span className="ro-evt-title">{e.title}</span>
+                      <small>{e.workerSlug ? nameFor(e.workerSlug) : clock(e.startsAt)}</small>
+                    </button>
+                  );
+                })}
+
+                {nowHour >= todayCalStart && nowHour <= todayCalEnd && (
+                  <div
+                    className="ro-nowline"
+                    style={{ top: (nowHour - todayCalStart) * HOUR_PX, left: 58, right: 10 }}
+                    data-time={today.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                  />
+                )}
+              </div>
             </div>
           </div>
         )}
