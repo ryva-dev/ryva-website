@@ -412,6 +412,110 @@ export function completeWorkerTask(db, userId, workerId, taskId, output = null) 
   return { ok: true };
 }
 
+function buildTaskOutput(task) {
+  const lowerTitle = String(task.title ?? "").toLowerCase();
+
+  if (lowerTitle.includes("pitch template")) {
+    return {
+      preview: "Hi [Brand] — I create concise UGC that feels native, credible, and easy to plug into skincare campaigns.",
+      title: task.title,
+      type: "pitch_template"
+    };
+  }
+
+  if (lowerTitle.includes("content idea")) {
+    return {
+      preview: "Idea batch: problem-solution demo, routine integration, testimonial-style hook.",
+      title: task.title,
+      type: "content_ideas"
+    };
+  }
+
+  if (lowerTitle.includes("brand fit criteria")) {
+    return {
+      preview: "Prioritize skincare, wellness, and creator-friendly brands with realistic UGC fit.",
+      title: task.title,
+      type: "fit_criteria"
+    };
+  }
+
+  if (lowerTitle.includes("positioning")) {
+    return {
+      preview: "Creator positioning: practical, trustworthy UGC for skincare and wellness brands.",
+      title: task.title,
+      type: "positioning"
+    };
+  }
+
+  if (lowerTitle.includes("follow-up sequence")) {
+    return {
+      preview: "Follow-up sequence: day 3 nudge, day 7 value-led follow-up, day 14 final closeout.",
+      title: task.title,
+      type: "follow_up_sequence"
+    };
+  }
+
+  if (lowerTitle.includes("find first 5") || lowerTitle.includes("brand leads")) {
+    return {
+      preview: "Starter lead set prepared with 5 aligned brands and next-angle notes.",
+      title: task.title,
+      type: "brand_research"
+    };
+  }
+
+  return {
+    preview: task.description || "Task output prepared.",
+    title: task.title,
+    type: "general"
+  };
+}
+
+export function runWorkerTask(db, userId, workerId, taskId) {
+  const task = db
+    .prepare(
+      `SELECT id, title, description, status, required_permissions_json AS requiredPermissionsJson
+       FROM worker_tasks
+       WHERE id = ? AND user_id = ? AND worker_id = ?`
+    )
+    .get(taskId, userId, workerId);
+
+  if (!task) {
+    throw new Error("Worker task not found.");
+  }
+
+  const requiredPermissions = safeJsonParse(task.requiredPermissionsJson, []);
+  if (Array.isArray(requiredPermissions) && requiredPermissions.some((permission) => /sendemail|external|inbox|integration/i.test(String(permission)))) {
+    throw new Error("This task requires approval or an external integration before it can run.");
+  }
+
+  const timestamp = new Date().toISOString();
+  db.prepare(
+    `UPDATE worker_tasks
+     SET status = 'in_progress', updated_at = ?
+     WHERE id = ? AND user_id = ? AND worker_id = ?`
+  ).run(timestamp, taskId, userId, workerId);
+  db.prepare(
+    `UPDATE office_custom_tasks
+     SET status = 'In Progress'
+     WHERE id = ? AND user_id = ? AND worker_slug = ?`
+  ).run(taskId, userId, workerId);
+
+  const output = buildTaskOutput(task);
+  completeWorkerTask(db, userId, workerId, taskId, JSON.stringify(output));
+  createWorkerActivityLog(db, {
+    createdAt: timestamp,
+    description: `Completed ${task.title}.`,
+    eventType: "output_completed",
+    metadata: output,
+    relatedTaskId: taskId,
+    title: task.title,
+    userId,
+    workerId
+  });
+
+  return output;
+}
+
 export function createSuggestedTask(db, task) {
   return createWorkerTask(db, {
     ...task,
@@ -674,6 +778,71 @@ export function listApprovalRequests(db, userId, workerId) {
     .map((row) => ({ ...row, payload: safeJsonParse(row.payloadJson, {}) }));
 }
 
+export function updateApprovalRequestStatus(db, userId, workerId, approvalId, status) {
+  const nextStatus = String(status ?? "").trim().toLowerCase();
+  if (!["approved", "rejected", "dismissed"].includes(nextStatus)) {
+    throw new Error("Unsupported approval status.");
+  }
+
+  const approval = db
+    .prepare(
+      `SELECT id, title, description, payload_json AS payloadJson
+       FROM worker_approval_requests
+       WHERE id = ? AND user_id = ? AND worker_id = ?`
+    )
+    .get(approvalId, userId, workerId);
+
+  if (!approval) {
+    throw new Error("Approval request not found.");
+  }
+
+  const timestamp = new Date().toISOString();
+  db.prepare(
+    `UPDATE worker_approval_requests
+     SET status = ?, updated_at = ?
+     WHERE id = ? AND user_id = ? AND worker_id = ?`
+  ).run(nextStatus, timestamp, approvalId, userId, workerId);
+
+  db.prepare(
+    `UPDATE office_suggested_actions
+     SET status = ?, updated_at = ?
+     WHERE id = ? AND user_id = ? AND worker_slug = ?`
+  ).run(nextStatus, timestamp, approvalId, userId, workerId);
+
+  createWorkerActivityLog(db, {
+    createdAt: timestamp,
+    description: approval.description,
+    eventType: nextStatus === "approved" ? "approval_approved" : "approval_rejected",
+    metadata: safeJsonParse(approval.payloadJson, {}),
+    title: approval.title,
+    userId,
+    workerId
+  });
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    userId,
+    workerId,
+    nextStatus === "approved" ? "Approved worker request." : "Rejected worker request.",
+    "Worker approvals",
+    approval.title,
+    timestamp
+  );
+
+  return {
+    approval: {
+      ...approval,
+      payload: safeJsonParse(approval.payloadJson, {}),
+      status: nextStatus,
+      updatedAt: timestamp
+    },
+    ok: true
+  };
+}
+
 export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
   const niche = String(maraAnswers.target_niches || accountContext?.whatYouDo || "UGC creator work").trim();
   const workflowPain = String(maraAnswers.workflow_breakdowns || "Tracking follow-ups and brand conversations").trim();
@@ -893,26 +1062,88 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
        LIMIT 12`
     )
     .all(userId, workerId)
-    .map((row) => ({ ...row, metadata: safeJsonParse(row.metadataJson, {}) }));
+    .map((row) => ({ ...row, metadata: safeJsonParse(row.metadataJson, {}) }))
+    .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "output_completed", "recurring_responsibility_created"].includes(row.eventType))
+    .slice(0, 5);
   const openTasks = tasks.filter((task) => ["approved", "in_progress"].includes(task.status));
   const proposedTasks = tasks.filter((task) => task.status === "proposed");
   const completedTasks = tasks.filter((task) => task.status === "completed");
   const blockedTasks = tasks.filter((task) => task.status === "blocked");
+  const runnableTasks = openTasks.filter((task) => task.status === "approved");
+  const currentWork = openTasks.find((task) => task.status === "in_progress") || runnableTasks[0] || null;
+  const waitingOnUser = [
+    ...approvals.map((request) => ({
+      id: request.id,
+      kind: "approval",
+      title: request.title,
+      description: request.description
+    })),
+    ...blockedTasks.map((task) => ({
+      id: task.id,
+      kind: "blocked_task",
+      title: task.title,
+      description: task.description || "This task is blocked until you provide the next input."
+    }))
+  ].slice(0, 3);
+  const latestOutputs = completedTasks
+    .map((task) => ({
+      ...task,
+      outputPreview: typeof task.output === "string" ? safeJsonParse(task.output, null) ?? { preview: task.output, title: task.title, type: "general" } : null
+    }))
+    .filter((task) => task.outputPreview)
+    .slice(0, 3);
+  const outputsByType = latestOutputs.reduce((acc, item) => {
+    const type = item.outputPreview?.type || "general";
+    acc[type] = acc[type] ? [...acc[type], item] : [item];
+    return acc;
+  }, {});
+  const recommendedNextActions = [
+    ...proposedTasks.slice(0, 2).map((task) => task.title),
+    ...runnableTasks.slice(0, 2).map((task) => `Run ${task.title}`),
+    ...researchItems.filter((item) => item.status === "queued").slice(0, 2).map((item) => `Research: ${item.topic}`)
+  ].slice(0, 4);
+  const recommendedNextTaskToRun = runnableTasks[0] ?? null;
+  const currentFocus =
+    currentWork?.title
+    || blockedTasks[0]?.title
+    || waitingOnUser[0]?.title
+    || recommendedNextActions[0]
+    || "Mara is ready for her next assignment.";
 
   return {
     blockedTasks,
     completedTasks,
-    currentFocus: openTasks[0]?.title || proposedTasks[0]?.title || "Building the next best operating step.",
+    currentFocus,
+    currentWork,
+    latestOutputs,
     openTasks,
     pendingApprovals: approvals,
     permissions,
     proposedTasks,
     recentActivity,
+    recommendedNextTaskToRun,
     recurringResponsibilities,
-    recommendedNextActions: [
-      ...proposedTasks.slice(0, 2).map((task) => task.title),
-      ...researchItems.filter((item) => item.status === "queued").slice(0, 2).map((item) => `Research: ${item.topic}`)
-    ].slice(0, 4),
-    whatMaraKnows
+    recommendedNextActions,
+    researchItems,
+    runnableTasks,
+    waitingOnUser,
+    whatMaraKnows: whatMaraKnows
+      .map((section) => ({
+        ...section,
+        friendlyLabel:
+          section.title === "Brand fit criteria"
+            ? "Your niche"
+            : section.title === "Preferences"
+              ? "Your tone"
+              : section.title === "Approval rules"
+                ? "Your rules"
+                : section.title === "Pain point map" || section.title === "Pain points"
+                  ? "Your bottlenecks"
+                : section.title === "Goals"
+                    ? "Your goals"
+                    : section.title
+      }))
+      .slice(0, 5),
+    outputsByType
   };
 }

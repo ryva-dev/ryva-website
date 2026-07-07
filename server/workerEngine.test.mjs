@@ -17,7 +17,9 @@ import {
   listRecurringResponsibilities,
   listWorkerTasksForUserWorker,
   MARA_WORKER_ID,
-  runMaraActionDetector
+  runMaraActionDetector,
+  runWorkerTask,
+  updateApprovalRequestStatus
 } from "./workerEngine.mjs";
 
 function makeDb() {
@@ -149,6 +151,23 @@ test("Mara creates approval requests for external actions", () => {
   assert.equal(row.status, "pending");
 });
 
+test("approval requests can be approved and reflected in suggested actions", () => {
+  const db = makeDb();
+  const approval = createApprovalRequest(db, {
+    actionType: "send_email",
+    description: "Send a drafted reply.",
+    payload: { to: "brand@example.com" },
+    title: "Approve drafted reply",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  const result = updateApprovalRequestStatus(db, "user-1", MARA_WORKER_ID, approval.id, "approved");
+  assert.equal(result.ok, true);
+  assert.equal(db.prepare("SELECT status FROM worker_approval_requests WHERE id = ?").get(approval.id).status, "approved");
+  assert.equal(db.prepare("SELECT status FROM office_suggested_actions WHERE id = ?").get(approval.id).status, "approved");
+});
+
 test("approved tasks fall back to proposed when permission is missing", () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID, { canDraftOutreach: false });
@@ -206,6 +225,26 @@ test("research items can be queued and converted to tasks", () => {
   assert.equal(converted.duplicate, false);
   const updated = db.prepare("SELECT status FROM worker_research_items WHERE id = ?").get(research.id);
   assert.equal(updated.status, "converted_to_task");
+});
+
+test("safe internal Mara tasks can run and save an output", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Draft a first pitch template.",
+    priority: "high",
+    requiredPermissions: [],
+    title: "Create first pitch template",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  const output = runWorkerTask(db, "user-1", MARA_WORKER_ID, created.id);
+  const task = db.prepare("SELECT status, output FROM worker_tasks WHERE id = ?").get(created.id);
+
+  assert.equal(output.type, "pitch_template");
+  assert.equal(task.status, "completed");
+  assert.ok(String(task.output).includes("pitch_template"));
 });
 
 test("workspace object returns tasks, memory, permissions, recurring responsibilities, and activity", () => {

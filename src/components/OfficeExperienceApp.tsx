@@ -59,6 +59,69 @@ type OverlayOnboarding = {
   completedAt?: string | null;
 };
 
+type MaraWorkspaceTask = {
+  id: string;
+  title: string;
+  description: string;
+  source: string;
+  status: string;
+  priority: string;
+  dueAt?: string | null;
+  output?: string | null;
+};
+
+type MaraWorkspaceApproval = {
+  id: string;
+  title: string;
+  description: string;
+  actionType: string;
+  status: string;
+};
+
+type MaraWorkspaceActivity = {
+  id: string;
+  eventType: string;
+  title: string;
+  description: string;
+  createdAt: string;
+};
+
+type MaraWorkspaceKnowledge = {
+  title: string;
+  friendlyLabel: string;
+  items: string[];
+};
+
+type MaraWorkspaceOutput = MaraWorkspaceTask & {
+  outputPreview: {
+    preview: string;
+    title: string;
+    type: string;
+  } | null;
+};
+
+type MaraWorkspaceWaitingItem = {
+  id: string;
+  kind: "approval" | "blocked_task";
+  title: string;
+  description: string;
+};
+
+type MaraWorkspace = {
+  blockedTasks: MaraWorkspaceTask[];
+  currentFocus: string;
+  currentWork: MaraWorkspaceTask | null;
+  latestOutputs: MaraWorkspaceOutput[];
+  pendingApprovals: MaraWorkspaceApproval[];
+  recentActivity: MaraWorkspaceActivity[];
+  recommendedNextActions: string[];
+  recommendedNextTaskToRun: MaraWorkspaceTask | null;
+  researchItems: Array<{ id: string; topic: string; status: string }>;
+  runnableTasks: MaraWorkspaceTask[];
+  waitingOnUser: MaraWorkspaceWaitingItem[];
+  whatMaraKnows: MaraWorkspaceKnowledge[];
+};
+
 type Overlays = {
   chats: OverlayChat[];
   tasks: OverlayTask[];
@@ -164,6 +227,28 @@ const NAV_ITEMS: Array<{ tab: Tab; label: string; icon: JSX.Element }> = [
 function lastActivityFor(slug: string, worklog: OverlayWorklog[]): string {
   const entry = worklog.find((w) => w.workerSlug === slug);
   return entry ? entry.action : "No activity yet";
+}
+
+function parseTaskOutput(output: string | null | undefined) {
+  if (!output) return null;
+  try {
+    const parsed = JSON.parse(output);
+    if (parsed && typeof parsed === "object") {
+      return {
+        preview: String(parsed.preview ?? ""),
+        title: String(parsed.title ?? ""),
+        type: String(parsed.type ?? "general")
+      };
+    }
+  } catch {
+    return {
+      preview: String(output),
+      title: "",
+      type: "general"
+    };
+  }
+
+  return null;
 }
 
 /* ---------- empty state ---------- */
@@ -273,6 +358,256 @@ function TodayView({
 
 /* ---------- Chat ---------- */
 
+function MaraWorkspacePanel({
+  busyId,
+  canUseEmail,
+  onApprove,
+  onReject,
+  onRunTask,
+  onSeedCorrection,
+  onViewOutput,
+  workspace,
+}: {
+  busyId: string | null;
+  canUseEmail: boolean;
+  onApprove: (approvalId: string) => Promise<void>;
+  onReject: (approvalId: string) => Promise<void>;
+  onRunTask: (taskId: string) => Promise<void>;
+  onSeedCorrection: (prompt: string) => void;
+  onViewOutput: (task: MaraWorkspaceOutput) => void;
+  workspace: MaraWorkspace | null;
+}) {
+  const readyLabel = canUseEmail
+    ? "Inbox access is connected. Mara can work from office chat, memory, tasks, and inbox-aware follow-up."
+    : "Inbox access is not connected. Mara can still work from office chat, memory, tasks, and structured outputs. Connect Gmail or Outlook later if you want inbox review.";
+
+  const recommendedAction = workspace?.recommendedNextActions[0] ?? "";
+  const topOutput = workspace?.latestOutputs[0] ?? null;
+
+  return (
+    <section className="ro-mara-presence" aria-label="Mara workspace">
+      <div className="ro-mara-focus">
+        <div>
+          <span className="ro-mara-eyebrow">Mara at work</span>
+          <strong>{workspace?.currentFocus || "Mara is ready for her first assignment."}</strong>
+          <p>
+            {workspace?.currentWork
+              ? `Working on ${workspace.currentWork.title}.`
+              : workspace?.waitingOnUser[0]
+                ? `Waiting on you: ${workspace.waitingOnUser[0].title}.`
+                : "Mara is ready for her next assignment."}
+          </p>
+        </div>
+        <div className="ro-mara-focus-actions">
+          {workspace?.recommendedNextTaskToRun ? (
+            <button
+              className="r-btn r-btn-accent"
+              type="button"
+              onClick={() => void onRunTask(workspace.recommendedNextTaskToRun!.id)}
+              disabled={busyId === workspace.recommendedNextTaskToRun.id}
+            >
+              {busyId === workspace.recommendedNextTaskToRun.id ? "Running..." : "Run next task"}
+            </button>
+          ) : null}
+          {topOutput ? (
+            <button className="r-btn r-btn-ghost" type="button" onClick={() => onViewOutput(topOutput)}>
+              View latest output
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="ro-mara-capability">
+        <strong>{canUseEmail ? "Inbox access connected" : "Inbox access not connected"}</strong>
+        <p>{readyLabel}</p>
+      </div>
+
+      <div className="ro-mara-grid">
+        <section className="ro-mara-section">
+          <div className="ro-mara-section-head">
+            <h3>Waiting on you</h3>
+            <span>{workspace?.waitingOnUser.length ? `${Math.min(workspace.waitingOnUser.length, 3)} items` : "All clear"}</span>
+          </div>
+          {workspace?.waitingOnUser.length ? (
+            workspace.waitingOnUser.slice(0, 3).map((item) => {
+              const approval = workspace.pendingApprovals.find((request) => request.id === item.id);
+              return (
+                <div className="ro-mara-item" key={item.id}>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.description}</p>
+                  </div>
+                  {approval ? (
+                    <div className="ro-mara-item-actions">
+                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>
+                        Reject
+                      </button>
+                      <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
+                        {busyId === approval.id ? "Saving..." : "Approve"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          ) : (
+            <div className="ro-mara-empty">No approvals needed right now.</div>
+          )}
+        </section>
+
+        <section className="ro-mara-section">
+          <div className="ro-mara-section-head">
+            <h3>Recently completed</h3>
+            <span>{workspace?.latestOutputs.length ? `${workspace.latestOutputs.length} outputs` : "Nothing yet"}</span>
+          </div>
+          {workspace?.latestOutputs.length ? (
+            workspace.latestOutputs.slice(0, 3).map((task) => (
+              <button className="ro-mara-output" type="button" key={task.id} onClick={() => onViewOutput(task)}>
+                <strong>{task.title}</strong>
+                <p>{task.outputPreview?.preview || "Output ready to review."}</p>
+                <span>View output</span>
+              </button>
+            ))
+          ) : (
+            <div className="ro-mara-empty">Mara has not completed work yet. Start by running her first task.</div>
+          )}
+        </section>
+
+        <section className="ro-mara-section">
+          <div className="ro-mara-section-head">
+            <h3>What Mara knows</h3>
+            <span>{workspace?.whatMaraKnows.length ? `${workspace.whatMaraKnows.length} memory items` : "Still learning"}</span>
+          </div>
+          {workspace?.whatMaraKnows.length ? (
+            workspace.whatMaraKnows.slice(0, 5).map((section) => (
+              <div className="ro-mara-memory" key={section.friendlyLabel}>
+                <strong>{section.friendlyLabel}</strong>
+                <p>{section.items[0] || "No saved detail yet."}</p>
+                <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${section.friendlyLabel.toLowerCase()}: `)}>
+                  Correct in chat
+                </button>
+              </div>
+            ))
+          ) : (
+            <div className="ro-mara-empty">Mara will learn your preferences as you work together.</div>
+          )}
+        </section>
+
+        <section className="ro-mara-section">
+          <div className="ro-mara-section-head">
+            <h3>Recommended next</h3>
+            <span>{recommendedAction ? "Ready" : "Waiting"}</span>
+          </div>
+          {recommendedAction ? (
+            <div className="ro-mara-item">
+              <div>
+                <strong>{recommendedAction}</strong>
+                <p>
+                  {workspace?.recommendedNextTaskToRun
+                    ? "This is a safe internal task Mara can run right now."
+                    : "This is the clearest next move based on what Mara has learned so far."}
+                </p>
+              </div>
+              {workspace?.recommendedNextTaskToRun ? (
+                <div className="ro-mara-item-actions">
+                  <button
+                    className="r-btn r-btn-accent"
+                    type="button"
+                    onClick={() => void onRunTask(workspace.recommendedNextTaskToRun!.id)}
+                    disabled={busyId === workspace.recommendedNextTaskToRun.id}
+                  >
+                    {busyId === workspace.recommendedNextTaskToRun.id ? "Running..." : "Run task"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="ro-mara-empty">Mara is ready for her next assignment.</div>
+          )}
+        </section>
+      </div>
+
+      <div className="ro-mara-grid ro-mara-grid-compact">
+        <section className="ro-mara-section">
+          <div className="ro-mara-section-head">
+            <h3>Recently from Mara</h3>
+            <span>{workspace?.recentActivity.length ? `${workspace.recentActivity.length} events` : "Quiet"}</span>
+          </div>
+          {workspace?.recentActivity.length ? (
+            <div className="ro-mara-feed">
+              {workspace.recentActivity.slice(0, 5).map((entry) => (
+                <div className="ro-mara-feed-item" key={entry.id}>
+                  <strong>{entry.title}</strong>
+                  <p>{entry.description}</p>
+                  <time>{timeAgo(entry.createdAt)}</time>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="ro-mara-empty">No recent worker activity yet.</div>
+          )}
+        </section>
+
+        <section className="ro-mara-section">
+          <div className="ro-mara-section-head">
+            <h3>Open work</h3>
+            <span>{workspace?.runnableTasks.length ? `${workspace.runnableTasks.length} runnable` : "No open tasks"}</span>
+          </div>
+          {workspace?.runnableTasks.length ? (
+            workspace.runnableTasks.slice(0, 3).map((task) => (
+              <div className="ro-mara-item" key={task.id}>
+                <div>
+                  <strong>{task.title}</strong>
+                  <p>{task.description}</p>
+                </div>
+                <div className="ro-mara-item-actions">
+                  <button className="r-btn r-btn-ghost" type="button" onClick={() => onSeedCorrection(`Let's work on ${task.title.toLowerCase()}. `)}>
+                    Open in chat
+                  </button>
+                  <button className="r-btn r-btn-accent" type="button" onClick={() => void onRunTask(task.id)} disabled={busyId === task.id}>
+                    {busyId === task.id ? "Running..." : "Run task"}
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="ro-mara-empty">Mara is ready for her first assignment.</div>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function MaraOutputModal({
+  onClose,
+  task,
+}: {
+  onClose: () => void;
+  task: MaraWorkspaceOutput;
+}) {
+  const parsedOutput = parseTaskOutput(task.output);
+
+  return (
+    <div className="ro-modal-scrim" onClick={onClose}>
+      <div className="ro-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>{task.title}</h3>
+        <div className="ro-field">
+          <span>Output type</span>
+          <div className="ro-artifact">{parsedOutput?.type || "general"}</div>
+        </div>
+        <div className="ro-field">
+          <span>Preview</span>
+          <div className="ro-artifact">{parsedOutput?.preview || "No preview available yet."}</div>
+        </div>
+        <div className="ro-modal-actions">
+          <button className="r-btn r-btn-accent" type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatView({
   workers, overlays, selectedSlug, onNavigate, onReload,
 }: {
@@ -282,6 +617,10 @@ function ChatView({
   const active = workers.find((w) => w.slug === selectedSlug) ?? workers[0] ?? null;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [workspace, setWorkspace] = useState<MaraWorkspace | null>(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [busyWorkspaceAction, setBusyWorkspaceAction] = useState<string | null>(null);
+  const [selectedOutput, setSelectedOutput] = useState<MaraWorkspaceOutput | null>(null);
   const thread = useMemo(
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
     [overlays.chats, active?.slug]
@@ -294,17 +633,86 @@ function ChatView({
     (integration) => integration.status === "connected" && (integration.provider === "gmail" || integration.provider === "outlook")
   );
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadWorkspace = async () => {
+      if (active?.slug !== "mara-vale") {
+        setWorkspace(null);
+        setWorkspaceLoading(false);
+        return;
+      }
+
+      setWorkspaceLoading(true);
+      try {
+        const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${active.slug}/workspace`);
+        if (!cancelled) {
+          setWorkspace(payload.workspace);
+        }
+      } catch {
+        if (!cancelled) {
+          setWorkspace(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setWorkspaceLoading(false);
+        }
+      }
+    };
+
+    void loadWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, [active?.slug]);
+
+  const reloadOffice = useCallback(async () => {
+    await onReload();
+    if (active?.slug === "mara-vale") {
+      const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${active.slug}/workspace`);
+      setWorkspace(payload.workspace);
+    }
+  }, [active?.slug, onReload]);
+
   const send = async () => {
     if (!active || !draft.trim() || sending) return;
     setSending(true);
     try {
       await officeJson(`/api/office/workers/${active.slug}/chat`, { method: "POST", body: JSON.stringify({ text: draft.trim() }) });
       setDraft("");
-      await onReload();
+      await reloadOffice();
     } catch {
       /* surfaced via disabled state; keep draft */
     } finally {
       setSending(false);
+    }
+  };
+
+  const runTask = async (taskId: string) => {
+    if (!active) return;
+    setBusyWorkspaceAction(taskId);
+    try {
+      await officeJson(`/api/office/workers/${active.slug}/tasks/${taskId}/run`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      await reloadOffice();
+    } finally {
+      setBusyWorkspaceAction(null);
+    }
+  };
+
+  const updateApproval = async (approvalId: string, status: "approved" | "rejected") => {
+    if (!active) return;
+    setBusyWorkspaceAction(approvalId);
+    try {
+      await officeJson(`/api/office/workers/${active.slug}/approval-requests/${approvalId}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status })
+      });
+      await reloadOffice();
+    } finally {
+      setBusyWorkspaceAction(null);
     }
   };
 
@@ -333,14 +741,23 @@ function ChatView({
           </div>
           <div className="ro-chat-scroll">
             {active.slug === "mara-vale" ? (
-              <div className="ro-capability-card">
-                <strong>{canUseEmail ? "Inbox access connected" : "Inbox access not connected"}</strong>
-                <p>
-                  {canUseEmail
-                    ? "Mara can use connected inbox access in addition to normal office chat, briefings, tasks, and operating memory."
-                    : "Mara can still help with chat, workflow setup, briefings, task structure, and operating memory. Connect Gmail or Outlook later if you want inbox triage and email-based campaign work."}
-                </p>
-              </div>
+              workspaceLoading ? (
+                <div className="ro-capability-card">
+                  <strong>Loading Mara's desk</strong>
+                  <p>Pulling Mara's current work, memory, approvals, and latest outputs.</p>
+                </div>
+              ) : (
+                <MaraWorkspacePanel
+                  busyId={busyWorkspaceAction}
+                  canUseEmail={canUseEmail}
+                  onApprove={async (approvalId) => updateApproval(approvalId, "approved")}
+                  onReject={async (approvalId) => updateApproval(approvalId, "rejected")}
+                  onRunTask={runTask}
+                  onSeedCorrection={(prompt) => setDraft(prompt)}
+                  onViewOutput={setSelectedOutput}
+                  workspace={workspace}
+                />
+              )
             ) : null}
             {thread.length === 0 ? (
               <div className="ro-chat-intro">
@@ -367,6 +784,7 @@ function ChatView({
               Send
             </button>
           </div>
+          {selectedOutput ? <MaraOutputModal task={selectedOutput} onClose={() => setSelectedOutput(null)} /> : null}
         </div>
       ) : (
         <div className="ro-chat-main"><EmptyOffice label="your conversations" onNavigate={onNavigate} /></div>

@@ -21,7 +21,9 @@ import {
   getWorkerPermissions,
   listWorkerTasksForUserWorker,
   MARA_ROLE_DEFINITION,
-  runMaraActionDetector
+  runMaraActionDetector,
+  runWorkerTask,
+  updateApprovalRequestStatus
 } from "./workerEngine.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2305,6 +2307,51 @@ app.get("/api/office/workers/:slug/workspace", requireAuth, async (req, res) => 
       readOfficeOverlays: readOfficeOverlaysForUser
     })
   });
+});
+
+app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const taskId = String(req.params.taskId ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "This worker cannot run internal task execution from office yet." });
+    return;
+  }
+
+  try {
+    const output = runWorkerTask(db, req.user.id, workerSlug, taskId);
+    res.json({ ok: true, output });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not run worker task." });
+  }
+});
+
+app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const approvalId = String(req.params.approvalId ?? "").trim();
+  const status = String(req.body?.status ?? "").trim().toLowerCase();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Structured worker approvals are only available for Mara right now." });
+    return;
+  }
+
+  try {
+    const result = updateApprovalRequestStatus(db, req.user.id, workerSlug, approvalId, status);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not update approval request." });
+  }
 });
 
 app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, async (req, res) => {
