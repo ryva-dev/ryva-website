@@ -118,6 +118,18 @@ type MaraWorkspace = {
   latestOutputs: MaraWorkspaceOutput[];
   pendingApprovals: MaraWorkspaceApproval[];
   recentActivity: MaraWorkspaceActivity[];
+  recommendedNext: {
+    actionLabel: string;
+    approvalId?: string;
+    createTask?: { title: string; description: string; priority: string };
+    description?: string;
+    dismissible: boolean;
+    itemId?: string;
+    kind: string;
+    label: string;
+    prompt?: string;
+    taskId?: string;
+  } | null;
   recommendedNextActions: string[];
   recommendedNextTaskToRun: MaraWorkspaceTask | null;
   researchItems: Array<{ id: string; topic: string; status: string }>;
@@ -366,7 +378,9 @@ function MaraWorkspacePanel({
   busyId,
   canUseEmail,
   onApprove,
+  onCreateRecommendedTask,
   onCreateNext,
+  onDismissTask,
   onDismissRecommendation,
   onReject,
   onRunTask,
@@ -378,7 +392,9 @@ function MaraWorkspacePanel({
   busyId: string | null;
   canUseEmail: boolean;
   onApprove: (approvalId: string) => Promise<void>;
+  onCreateRecommendedTask: (task: { title: string; description: string; priority: string }) => Promise<void>;
   onCreateNext: (prompt: string) => void;
+  onDismissTask: (taskId: string) => Promise<void>;
   onDismissRecommendation: () => void;
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
@@ -391,7 +407,8 @@ function MaraWorkspacePanel({
     ? "Inbox access is connected. Mara can work from office chat, memory, tasks, and inbox-aware follow-up."
     : "Inbox access is not connected. Mara can still work from office chat, memory, tasks, and structured outputs. Connect Gmail or Outlook later if you want inbox review.";
 
-  const recommendedAction = recommendationDismissed ? "" : workspace?.recommendedNextActions[0] ?? "";
+  const recommendedNext = recommendationDismissed ? null : workspace?.recommendedNext ?? null;
+  const recommendedAction = recommendedNext?.label ?? "";
   const topOutput = workspace?.latestOutputs[0] ?? null;
   const focusLabel = workspace?.currentFocus && !workspace.currentFocus.startsWith("Mara is")
     ? `Mara is focused on ${workspace.currentFocus}.`
@@ -527,11 +544,26 @@ function MaraWorkspacePanel({
                 <button
                   className="r-btn r-btn-ghost"
                   type="button"
-                  onClick={onDismissRecommendation}
+                  onClick={() => {
+                    if (recommendedNext?.taskId) {
+                      void onDismissTask(recommendedNext.taskId);
+                      return;
+                    }
+                    onDismissRecommendation();
+                  }}
                 >
                   Dismiss
                 </button>
-                {workspace?.recommendedNextTaskToRun ? (
+                {recommendedNext?.approvalId ? (
+                  <button
+                    className="r-btn r-btn-accent"
+                    type="button"
+                    onClick={() => void onApprove(recommendedNext.approvalId!)}
+                    disabled={busyId === recommendedNext.approvalId}
+                  >
+                    {busyId === recommendedNext.approvalId ? "Saving..." : "Approve"}
+                  </button>
+                ) : workspace?.recommendedNextTaskToRun ? (
                   <button
                     className="r-btn r-btn-accent"
                     type="button"
@@ -540,13 +572,21 @@ function MaraWorkspacePanel({
                   >
                     {busyId === workspace.recommendedNextTaskToRun.id ? "Running..." : "Run task"}
                   </button>
+                ) : recommendedNext?.createTask ? (
+                  <button
+                    className="r-btn r-btn-accent"
+                    type="button"
+                    onClick={() => void onCreateRecommendedTask(recommendedNext.createTask!)}
+                  >
+                    {recommendedNext.actionLabel || "Create next task"}
+                  </button>
                 ) : (
                   <button
                     className="r-btn r-btn-accent"
                     type="button"
-                    onClick={() => onCreateNext(`Let's make this the next thing on Mara's plate: ${recommendedAction}.`)}
+                    onClick={() => onCreateNext(recommendedNext?.prompt || `Let's make this the next thing on Mara's plate: ${recommendedAction}.`)}
                   >
-                    Create in chat
+                    {recommendedNext?.actionLabel || "Create in chat"}
                   </button>
                 )}
               </div>
@@ -737,6 +777,35 @@ function ChatView({
     }
   };
 
+  const dismissTask = async (taskId: string) => {
+    if (!active) return;
+    setBusyWorkspaceAction(taskId);
+    try {
+      await officeJson(`/api/office/workers/${active.slug}/tasks/${taskId}/dismiss`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      await reloadOffice();
+      setRecommendationDismissed(true);
+    } finally {
+      setBusyWorkspaceAction(null);
+    }
+  };
+
+  const createRecommendedTask = async (task: { title: string; description: string; priority: string }) => {
+    if (!active) return;
+    setBusyWorkspaceAction(task.title);
+    try {
+      await officeJson(`/api/office/workers/${active.slug}/recommended-next/create`, {
+        method: "POST",
+        body: JSON.stringify(task)
+      });
+      await reloadOffice();
+    } finally {
+      setBusyWorkspaceAction(null);
+    }
+  };
+
   const updateApproval = async (approvalId: string, status: "approved" | "rejected") => {
     if (!active) return;
     setBusyWorkspaceAction(approvalId);
@@ -786,7 +855,9 @@ function ChatView({
                   busyId={busyWorkspaceAction}
                   canUseEmail={canUseEmail}
                   onApprove={async (approvalId) => updateApproval(approvalId, "approved")}
+                  onCreateRecommendedTask={createRecommendedTask}
                   onCreateNext={(prompt) => setDraft(prompt)}
+                  onDismissTask={dismissTask}
                   onDismissRecommendation={() => setRecommendationDismissed(true)}
                   onReject={async (approvalId) => updateApproval(approvalId, "rejected")}
                   onRunTask={runTask}

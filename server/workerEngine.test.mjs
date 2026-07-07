@@ -11,6 +11,7 @@ import {
   createResearchItem,
   createSuggestedTask,
   defaultPermissionsForWorker,
+  dismissWorkerTask,
   ensureWorkerPermissions,
   getWorkerPermissions,
   initWorkerTables,
@@ -349,4 +350,31 @@ test("workspace uses honest empty state when no real work exists", () => {
   assert.equal(workspace.runnableTasks.length, 0);
   assert.equal(workspace.latestOutputs.length, 0);
   assert.equal(workspace.pendingApprovals.length, 0);
+});
+
+test("recommended next includes starter task metadata when no tracked work exists", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+
+  const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
+  assert.equal(workspace.recommendedNext?.kind, "starter_task");
+  assert.equal(workspace.recommendedNext?.createTask?.title, "Create first pitch template");
+});
+
+test("dismissing a worker task removes it from active recommendation flow", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Draft the first pitch template.",
+    priority: "high",
+    requiredPermissions: [],
+    title: "Create first pitch template",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  dismissWorkerTask(db, "user-1", MARA_WORKER_ID, created.id);
+  const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
+  assert.notEqual(workspace.recommendedNext?.taskId, created.id);
+  assert.equal(db.prepare("SELECT status FROM worker_tasks WHERE id = ?").get(created.id).status, "dismissed");
 });

@@ -446,6 +446,32 @@ export function updateWorkerTaskStatus(db, userId, workerId, taskId, status) {
   return { ok: true };
 }
 
+export function dismissWorkerTask(db, userId, workerId, taskId) {
+  const task = db
+    .prepare(
+      `SELECT id, title
+       FROM worker_tasks
+       WHERE id = ? AND user_id = ? AND worker_id = ?`
+    )
+    .get(taskId, userId, workerId);
+
+  if (!task) {
+    throw new Error("Worker task not found.");
+  }
+
+  updateWorkerTaskStatus(db, userId, workerId, taskId, "dismissed");
+  createWorkerActivityLog(db, {
+    description: "Dismissed from Mara's active plate.",
+    eventType: "task_dismissed",
+    relatedTaskId: taskId,
+    title: task.title,
+    userId,
+    workerId
+  });
+
+  return { ok: true };
+}
+
 export function completeWorkerTask(db, userId, workerId, taskId, output = null) {
   const timestamp = new Date().toISOString();
   db.prepare(
@@ -1167,27 +1193,94 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     return acc;
   }, {});
   const starterTasks = [
-    "Create first pitch template",
-    "Create first content idea batch",
-    "Define creator positioning",
-    "Build brand fit criteria"
+    {
+      description: "Draft a first reusable outreach template grounded in the creator's niche and tone.",
+      priority: "high",
+      title: "Create first pitch template"
+    },
+    {
+      description: "Generate a first batch of content ideas Mara can build from.",
+      priority: "high",
+      title: "Create first content idea batch"
+    },
+    {
+      description: "Turn onboarding context into a sharper positioning statement Mara can use in future work.",
+      priority: "high",
+      title: "Define creator positioning"
+    },
+    {
+      description: "Document the kinds of brands Mara should prioritize and avoid.",
+      priority: "high",
+      title: "Build brand fit criteria"
+    }
   ];
   const inactiveRecurring = recurringResponsibilities.filter((item) => !item.isActive);
   const recommendedNextActions = [];
+  let recommendedNext = null;
 
   if (blockedTaskDetails[0]) {
     recommendedNextActions.push(`Unblock ${blockedTaskDetails[0].title}`);
+    recommendedNext = {
+      actionLabel: "Open task",
+      description: blockedTaskDetails[0].nextStep,
+      dismissible: true,
+      itemId: blockedTaskDetails[0].id,
+      kind: "task",
+      label: `Unblock ${blockedTaskDetails[0].title}`,
+      taskId: blockedTaskDetails[0].id
+    };
   } else if (approvals[0]) {
     recommendedNextActions.push(approvals[0].title);
+    recommendedNext = {
+      actionLabel: "Approve",
+      approvalId: approvals[0].id,
+      description: "Mara is paused until you approve or reject this request.",
+      dismissible: false,
+      kind: "approval",
+      label: approvals[0].title
+    };
   } else if (highestPriorityRunnableTask) {
     recommendedNextActions.push(`Run ${highestPriorityRunnableTask.title}`);
+    recommendedNext = {
+      actionLabel: "Run task",
+      description: highestPriorityRunnableTask.description,
+      dismissible: true,
+      itemId: highestPriorityRunnableTask.id,
+      kind: "task",
+      label: `Run ${highestPriorityRunnableTask.title}`,
+      taskId: highestPriorityRunnableTask.id
+    };
   } else if (inactiveRecurring[0]) {
     recommendedNextActions.push(`Activate ${inactiveRecurring[0].title}`);
+    recommendedNext = {
+      actionLabel: "Create in chat",
+      description: inactiveRecurring[0].description,
+      dismissible: true,
+      kind: "recurring",
+      label: `Activate ${inactiveRecurring[0].title}`,
+      prompt: `Set this recurring responsibility up for Mara: ${inactiveRecurring[0].title}. ${inactiveRecurring[0].description}`
+    };
   }
 
   for (const task of proposedTasks.slice(0, 2)) {
     if (!recommendedNextActions.includes(task.title)) {
       recommendedNextActions.push(task.title);
+    }
+    if (!recommendedNext) {
+      recommendedNext = {
+        actionLabel: "Create next task",
+        createTask: {
+          description: task.description,
+          priority: task.priority,
+          title: task.title
+        },
+        description: task.description,
+        dismissible: true,
+        itemId: task.id,
+        kind: "proposed_task",
+        label: task.title,
+        taskId: task.id
+      };
     }
   }
   for (const item of researchItems.filter((entry) => entry.status === "queued").slice(0, 2)) {
@@ -1197,7 +1290,15 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     }
   }
   if (recommendedNextActions.length === 0) {
-    recommendedNextActions.push(...starterTasks);
+    recommendedNextActions.push(...starterTasks.map((task) => task.title));
+    recommendedNext = {
+      actionLabel: "Create next task",
+      createTask: starterTasks[0],
+      description: starterTasks[0].description,
+      dismissible: true,
+      kind: "starter_task",
+      label: starterTasks[0].title
+    };
   }
 
   const recommendedNextTaskToRun =
@@ -1228,6 +1329,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     permissions,
     proposedTasks,
     recentActivity,
+    recommendedNext,
     recommendedNextTaskToRun,
     recurringResponsibilities,
     recommendedNextActions,

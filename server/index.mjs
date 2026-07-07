@@ -17,6 +17,7 @@ import {
   createRecurringResponsibility,
   createResearchItem,
   createSuggestedTask,
+  dismissWorkerTask,
   ensureWorkerPermissions,
   getWorkerPermissions,
   listWorkerTasksForUserWorker,
@@ -2329,6 +2330,52 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not run worker task." });
   }
+});
+
+app.post("/api/office/workers/:slug/tasks/:taskId/dismiss", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const taskId = String(req.params.taskId ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  try {
+    const result = dismissWorkerTask(db, req.user.id, workerSlug, taskId);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not dismiss worker task." });
+  }
+});
+
+app.post("/api/office/workers/:slug/recommended-next/create", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const title = String(req.body?.title ?? "").trim();
+  const description = String(req.body?.description ?? "").trim();
+  const priority = String(req.body?.priority ?? "high").trim().toLowerCase();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!title || !description) {
+    res.status(400).json({ error: "A task title and description are required." });
+    return;
+  }
+
+  const result = createApprovedTaskIfPermissionAllows(db, {
+    description,
+    priority: ["low", "medium", "high"].includes(priority) ? priority : "high",
+    requiredPermissions: [],
+    source: "office_recommended_next",
+    title,
+    userId: req.user.id,
+    workerId: workerSlug
+  });
+
+  res.status(result.duplicate ? 200 : 201).json({ ok: true, ...result });
 });
 
 app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", assertOrigin, requireAuth, async (req, res) => {
