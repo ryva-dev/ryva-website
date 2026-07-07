@@ -3633,6 +3633,8 @@ a:focus-visible {
 .r-worker .foot { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line-soft); display: flex; align-items: center; justify-content: space-between; }
 .r-worker .sal { font-family: var(--mono); font-size: 13px; font-weight: 500; }
 .r-worker .sal span { font-size: 10.5px; color: var(--faint); font-weight: 400; }
+.r-worker-actions { display: flex; gap: 8px; margin-top: 16px; min-width: 0; }
+.r-worker-action { flex: 1 1 0; min-width: 0; justify-content: center; font-size: 13px; padding: 9px 14px; white-space: nowrap; }
 .r-status { font-size: 11px; font-weight: 550; padding: 4px 11px; border-radius: 100px; }
 .r-status.open { color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .r-status.limited { color: #b06f16; background: color-mix(in srgb, #e0a020 12%, transparent); }
@@ -3674,27 +3676,45 @@ a:focus-visible {
   .r-demo-rail, .r-demo-side { display: none; }
   .r-steps, .r-roster { grid-template-columns: 1fr; }
   .r-salary-inner { grid-template-columns: 1fr; gap: 40px; }
+  .r-market-layout { grid-template-columns: 1fr; }
+  .r-market-sidebar { position: static; }
 }
 
 /* ---- marketplace page 2.0 ---- */
-.r-market { max-width: 1200px; margin: 0 auto; padding: 48px 40px 100px; }
-.r-market-head { margin-bottom: 8px; }
+.r-market { max-width: 1280px; margin: 0 auto; padding: 48px 40px 100px; }
+.r-market-head { margin-bottom: 34px; }
 .r-market-head h1 { font-size: clamp(30px, 4vw, 46px); font-weight: 560; letter-spacing: -0.03em; margin: 0; }
 .r-market-head h1 em { font-style: normal; color: var(--accent); }
-.r-market-sub { font-size: 15px; color: var(--muted); margin-top: 10px; }
-.r-market-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 32px 0 24px; flex-wrap: wrap; }
-.r-search { position: relative; flex: 1; min-width: 240px; max-width: 420px; }
-.r-search input { width: 100%; padding: 11px 16px 11px 40px; border-radius: 100px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; color: var(--ink); transition: border-color 0.2s; }
-.r-search input:focus { outline: none; border-color: var(--accent); }
-.r-search svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; stroke: var(--faint); fill: none; stroke-width: 2; }
+.r-market-sub { font-size: 15px; color: var(--muted); margin: 10px 0 0; max-width: 720px; line-height: 1.65; }
+.r-market-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 32px; align-items: start; }
+.r-market-sidebar { position: sticky; top: 92px; }
+.r-market-sidebar-card { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); padding: 22px 20px; box-shadow: var(--shadow-sm); }
+.r-market-sidebar-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+.r-market-sidebar-label { margin: 0 0 6px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--faint); }
+.r-market-sidebar-top h2 { margin: 0; font-size: 20px; font-weight: 560; letter-spacing: -0.02em; }
+.r-filter-clear { padding: 0; border: 0; background: transparent; font-family: var(--body); font-size: 13px; font-weight: 550; color: var(--muted); cursor: pointer; }
+.r-filter-clear:hover { color: var(--ink); }
+.r-filter-section { padding: 18px 0; border-top: 1px solid var(--line-soft); }
+.r-filter-section:first-of-type { border-top: 0; }
+.r-filter-section-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+.r-filter-section-body { display: grid; gap: 12px; margin-top: 14px; }
+.r-filter-option { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; font-weight: 500; cursor: pointer; }
+.r-filter-option input { width: 16px; height: 16px; margin: 0; border: 1px solid var(--line); border-radius: 4px; appearance: none; background: var(--surface); flex: 0 0 auto; }
+.r-filter-option input:checked { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 3px #fff; }
+.r-filter-option-radio input { border-radius: 999px; }
+.r-filter-option:hover span { color: var(--ink); }
+.r-market-main { min-width: 0; }
+.r-market-results-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding-top: 8px; }
 .r-count { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-.r-market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 16px; }
+.r-market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 22px; align-items: start; }
 .r-empty { text-align: center; padding: 80px 20px; color: var(--muted); }
 .r-empty h3 { font-size: 20px; color: var(--ink); margin: 0 0 8px; }
 
 @media (max-width: 720px) {
   .r-hero, .r-demo-wrap, .r-block, .r-market { padding-left: 20px; padding-right: 20px; }
   .r-proofline { gap: 20px; }
+  .r-market-grid { grid-template-columns: 1fr; }
+  .r-worker-actions { flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3708,18 +3728,6 @@ a:focus-visible {
 /* ============================================================
    RYVA 2.0 — filter bar, about page, office command center
    ============================================================ */
-
-/* ---- marketplace filter bar ---- */
-.r-market-controls { align-items: center; }
-.r-filters { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.r-fpills { display: flex; gap: 8px; flex-wrap: wrap; }
-.r-fpill { font-family: var(--body); font-size: 13px; font-weight: 500; padding: 7px 15px; border-radius: 100px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; transition: all 0.15s; }
-.r-fpill:hover { border-color: var(--ink); color: var(--ink); }
-.r-fpill.on { background: var(--accent-tint); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent-deep); }
-.r-seg { display: inline-flex; background: var(--paper); border: 1px solid var(--line); border-radius: 100px; padding: 3px; gap: 2px; }
-.r-seg-btn { font-family: var(--body); font-size: 12.5px; font-weight: 550; padding: 6px 13px; border-radius: 100px; border: none; background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; }
-.r-seg-btn:hover { color: var(--ink); }
-.r-seg-btn.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
 
 /* ---- about page ---- */
 .r-about { max-width: 1000px; margin: 0 auto; padding: 72px 40px 120px; }

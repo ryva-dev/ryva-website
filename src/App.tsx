@@ -174,6 +174,7 @@ async function apiJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
 }
 
 function WorkersPage({
+  onClearFilters,
   onDepartmentToggle,
   onExperienceToggle,
   onHire,
@@ -186,6 +187,7 @@ function WorkersPage({
   totalWorkers,
   workers
 }: {
+  onClearFilters: () => void;
   onDepartmentToggle: (value: string) => void;
   onExperienceToggle: (value: string) => void;
   onHire: (workerSlug: string) => void;
@@ -205,11 +207,9 @@ function WorkersPage({
         <p className="r-market-sub">Interview any worker before you hire. One salary, no scope creep, on the clock from day one.</p>
       </div>
 
-      <div className="r-market-controls">
-        <div className="r-count">
-          {workers.length} of {totalWorkers} {totalWorkers === 1 ? "worker" : "workers"}
-        </div>
+      <div className="r-market-layout">
         <FilterSidebar
+          onClearAll={onClearFilters}
           onDepartmentToggle={onDepartmentToggle}
           onExperienceToggle={onExperienceToggle}
           onSalaryToggle={onSalaryToggle}
@@ -219,20 +219,28 @@ function WorkersPage({
           selectedSalary={selectedSalary}
           selectedSort={selectedSort}
         />
-      </div>
 
-      {workers.length > 0 ? (
-        <div className="r-market-grid">
-          {workers.map((worker) => (
-            <WorkerCard key={worker.slug} onHire={onHire} worker={worker} />
-          ))}
-        </div>
-      ) : (
-        <div className="r-empty">
-          <h3>No workers match that search</h3>
-          <p>Try a different role, skill, or department.</p>
-        </div>
-      )}
+        <section className="r-market-main">
+          <div className="r-market-results-head">
+            <div className="r-count">
+              {workers.length} of {totalWorkers} {totalWorkers === 1 ? "worker" : "workers"}
+            </div>
+          </div>
+
+          {workers.length > 0 ? (
+            <div className="r-market-grid">
+              {workers.map((worker) => (
+                <WorkerCard key={worker.slug} onHire={onHire} worker={worker} />
+              ))}
+            </div>
+          ) : (
+            <div className="r-empty">
+              <h3>No workers match that search</h3>
+              <p>Try a different role, skill, or department.</p>
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
@@ -452,6 +460,13 @@ export default function App() {
 
   function toggleValue(values: string[], value: string, setter: (values: string[]) => void) {
     setter(values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value]);
+  }
+
+  function clearWorkerFilters() {
+    setSelectedDepartments([]);
+    setSelectedExperience([]);
+    setSelectedSalary([]);
+    setSelectedSort("Relevance");
   }
 
   async function handleLogin(input: { email: string; password: string }) {
@@ -684,6 +699,7 @@ export default function App() {
 
         {!isWorkersLoading && !isOfficeRoute && view === "workers" && (
           <WorkersPage
+            onClearFilters={clearWorkerFilters}
             onDepartmentToggle={(value) => toggleValue(selectedDepartments, value, setSelectedDepartments)}
             onExperienceToggle={(value) => toggleValue(selectedExperience, value, setSelectedExperience)}
             onHire={handleCheckout}

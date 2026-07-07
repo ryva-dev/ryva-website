@@ -26,16 +26,15 @@ export function WorkerCard({ onHire, worker }: WorkerCardProps) {
         <span className={`r-status ${statusClass}`}>{statusLabel}</span>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <a className="r-btn r-btn-ghost" href={`#worker-${worker.slug}`} style={{ flex: 1, justifyContent: "center", fontSize: 13, padding: "9px 14px" }}>
+      <div className="r-worker-actions">
+        <a className="r-btn r-btn-ghost r-worker-action" href={`#worker-${worker.slug}`}>
           View profile
         </a>
         {!unavailable && (
           <button
-            className="r-btn r-btn-accent"
+            className="r-btn r-btn-accent r-worker-action"
             type="button"
             onClick={() => onHire(worker.slug)}
-            style={{ flex: 1, justifyContent: "center", fontSize: 13, padding: "9px 14px" }}
           >
             Hire
           </button>
