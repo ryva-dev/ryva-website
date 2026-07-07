@@ -1665,9 +1665,14 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
       ),
     [hiredWorkers, overlays, maraWorkspaces]
   );
-  const selectedWorkerSlug = workerDetailsSlug || workerSlug || hiredWorkers[0]?.slug || null;
-  const selectedWorkerForDetails = hiredWorkers.find((worker) => worker.slug === selectedWorkerSlug) ?? null;
-  const selectedDesk = desks.find((desk) => desk.workerSlug === selectedWorkerSlug) ?? null;
+  const activeWorkerSlug = workerSlug || hiredWorkers[0]?.slug || null;
+  const activeDesk = desks.find((desk) => desk.workerSlug === activeWorkerSlug) ?? null;
+  const selectedWorkerForDetails = workerDetailsSlug
+    ? hiredWorkers.find((worker) => worker.slug === workerDetailsSlug) ?? null
+    : null;
+  const selectedDesk = workerDetailsSlug
+    ? desks.find((desk) => desk.workerSlug === workerDetailsSlug) ?? null
+    : null;
 
   const runWorkerTask = useCallback(async (workerSlugParam: string, taskId: string) => {
     if (!isMaraWorker(workerSlugParam)) return;
@@ -1738,7 +1743,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
       case "chat": {
         main = (
           <ChatView
-            activeDesk={selectedDesk}
+            activeDesk={activeDesk}
             onOpenWorkerDetails={() => setWorkerDetailsSlug(workerSlug || hiredWorkers[0]?.slug || null)}
             workers={hiredWorkers}
             overlays={overlays}
@@ -1799,7 +1804,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
         </div>
         {hasWorkers ? (
           hiredWorkers.map((w) => (
-            <button key={w.slug} className={`ro-member${selectedWorkerSlug === w.slug ? " on" : ""}`} type="button" onClick={() => go(`#app/office/chat/${w.slug}`)} aria-label={w.name} title={w.name}>
+            <button key={w.slug} className={`ro-member${activeWorkerSlug === w.slug ? " on" : ""}`} type="button" onClick={() => go(`#app/office/chat/${w.slug}`)} aria-label={w.name} title={w.name}>
               <WorkerMark seed={w.slug} size={34} active />
               {!teamCollapsed && <div className="ro-member-info"><b>{w.name}</b><span>{desks.find((desk) => desk.workerSlug === w.slug)?.currentFocus || lastActivityFor(w.slug, overlays.worklog)}</span></div>}
             </button>
