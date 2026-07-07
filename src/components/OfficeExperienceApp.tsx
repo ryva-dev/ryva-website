@@ -366,26 +366,32 @@ function MaraWorkspacePanel({
   busyId,
   canUseEmail,
   onApprove,
+  onCreateNext,
+  onDismissRecommendation,
   onReject,
   onRunTask,
   onSeedCorrection,
   onViewOutput,
+  recommendationDismissed,
   workspace,
 }: {
   busyId: string | null;
   canUseEmail: boolean;
   onApprove: (approvalId: string) => Promise<void>;
+  onCreateNext: (prompt: string) => void;
+  onDismissRecommendation: () => void;
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
   onViewOutput: (task: MaraWorkspaceOutput) => void;
+  recommendationDismissed: boolean;
   workspace: MaraWorkspace | null;
 }) {
   const readyLabel = canUseEmail
     ? "Inbox access is connected. Mara can work from office chat, memory, tasks, and inbox-aware follow-up."
     : "Inbox access is not connected. Mara can still work from office chat, memory, tasks, and structured outputs. Connect Gmail or Outlook later if you want inbox review.";
 
-  const recommendedAction = workspace?.recommendedNextActions[0] ?? "";
+  const recommendedAction = recommendationDismissed ? "" : workspace?.recommendedNextActions[0] ?? "";
   const topOutput = workspace?.latestOutputs[0] ?? null;
   const focusLabel = workspace?.currentFocus && !workspace.currentFocus.startsWith("Mara is")
     ? `Mara is focused on ${workspace.currentFocus}.`
@@ -460,7 +466,7 @@ function MaraWorkspacePanel({
               );
             })
           ) : (
-            <div className="ro-mara-empty">No approvals needed right now.</div>
+            <div className="ro-mara-empty">No approvals needed right now. Nothing is blocking Mara right now.</div>
           )}
         </section>
 
@@ -517,8 +523,15 @@ function MaraWorkspacePanel({
                     : "This is the clearest next move based on what Mara has learned so far."}
                 </p>
               </div>
-              {workspace?.recommendedNextTaskToRun ? (
-                <div className="ro-mara-item-actions">
+              <div className="ro-mara-item-actions">
+                <button
+                  className="r-btn r-btn-ghost"
+                  type="button"
+                  onClick={onDismissRecommendation}
+                >
+                  Dismiss
+                </button>
+                {workspace?.recommendedNextTaskToRun ? (
                   <button
                     className="r-btn r-btn-accent"
                     type="button"
@@ -527,8 +540,16 @@ function MaraWorkspacePanel({
                   >
                     {busyId === workspace.recommendedNextTaskToRun.id ? "Running..." : "Run task"}
                   </button>
-                </div>
-              ) : null}
+                ) : (
+                  <button
+                    className="r-btn r-btn-accent"
+                    type="button"
+                    onClick={() => onCreateNext(`Let's make this the next thing on Mara's plate: ${recommendedAction}.`)}
+                  >
+                    Create in chat
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="ro-mara-empty">Mara is ready for her next assignment.</div>
@@ -630,6 +651,7 @@ function ChatView({
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [busyWorkspaceAction, setBusyWorkspaceAction] = useState<string | null>(null);
   const [selectedOutput, setSelectedOutput] = useState<MaraWorkspaceOutput | null>(null);
+  const [recommendationDismissed, setRecommendationDismissed] = useState(false);
   const thread = useMemo(
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
     [overlays.chats, active?.slug]
@@ -674,6 +696,10 @@ function ChatView({
       cancelled = true;
     };
   }, [active?.slug]);
+
+  useEffect(() => {
+    setRecommendationDismissed(false);
+  }, [workspace?.recommendedNextActions?.[0], active?.slug]);
 
   const reloadOffice = useCallback(async () => {
     await onReload();
@@ -760,10 +786,13 @@ function ChatView({
                   busyId={busyWorkspaceAction}
                   canUseEmail={canUseEmail}
                   onApprove={async (approvalId) => updateApproval(approvalId, "approved")}
+                  onCreateNext={(prompt) => setDraft(prompt)}
+                  onDismissRecommendation={() => setRecommendationDismissed(true)}
                   onReject={async (approvalId) => updateApproval(approvalId, "rejected")}
                   onRunTask={runTask}
                   onSeedCorrection={(prompt) => setDraft(prompt)}
                   onViewOutput={setSelectedOutput}
+                  recommendationDismissed={recommendationDismissed}
                   workspace={workspace}
                 />
               )
