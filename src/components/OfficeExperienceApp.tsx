@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OnboardingSessionState } from "../onboardingSchemas";
 import type { Worker } from "../types";
 import { WorkerOnboardingPage } from "./WorkerOnboardingPage";
@@ -536,149 +536,115 @@ function TodayView({
   userName: string; workers: Worker[]; overlays: Overlays;
   onNavigate: (h: string) => void; onApprovalsClick: () => void;
 }) {
-  const approvalsCount = desks.reduce((count, desk) => count + desk.waitingOnUser.length, 0);
   const today = new Date();
+  const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
   const todaysEvents = overlays.calendarEvents
     .filter((e) => new Date(e.startsAt).toDateString() === today.toDateString())
     .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
   const attentionItems = desks
-    .flatMap((desk) =>
-      desk.waitingOnUser.map((item) => ({
-        ...item,
-        workerSlug: desk.workerSlug
-      }))
-    )
-    .slice(0, 5);
-  const workMoving = desks
-    .flatMap((desk) =>
+    .flatMap((desk) => desk.waitingOnUser.map((item) => ({ ...item, workerSlug: desk.workerSlug })))
+    .slice(0, 6);
+  const officeFeed = [
+    ...desks.flatMap((desk) =>
       desk.workInMotion.map((item) => ({
-        ...item,
-        workerSlug: desk.workerSlug
+        id: `motion-${item.id}`,
+        workerSlug: desk.workerSlug,
+        title: item.title,
+        summary: item.summary,
+        when: "In progress",
+        sort: Number.MAX_SAFE_INTEGER,
       }))
-    )
-    .slice(0, 6);
-  const recentChanges = desks
-    .flatMap((desk) =>
+    ),
+    ...desks.flatMap((desk) =>
       desk.recentActivity.map((item) => ({
-        ...item,
-        workerSlug: desk.workerSlug
+        id: `recent-${item.id}`,
+        workerSlug: desk.workerSlug,
+        title: item.title,
+        summary: item.summary,
+        when: timeAgo(item.createdAt),
+        sort: +new Date(item.createdAt),
       }))
-    )
-    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
-    .slice(0, 6);
+    ),
+  ]
+    .sort((a, b) => b.sort - a.sort)
+    .slice(0, 8);
+
+  const dateLine = today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
   return (
     <div className="ro-main-scroll">
-      <div className="ro-day-head">
-        <h1>Good {today.getHours() < 12 ? "morning" : today.getHours() < 18 ? "afternoon" : "evening"}, <em>{userName.split(" ")[0]}.</em></h1>
-        <div className="ro-clockline">
-          <span>{workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock</span>
+      <header className="ro-page-head">
+        <h1>Good {today.getHours() < 12 ? "morning" : today.getHours() < 18 ? "afternoon" : "evening"}, {userName.split(" ")[0]}.</h1>
+        <p className="ro-page-meta">{dateLine} · {workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock</p>
+      </header>
+
+      <section className="ro-sec ro-sec-lead">
+        <div className="ro-sec-head">
+          <h2>Needs your attention</h2>
+          <span className="ro-sec-n">{attentionItems.length === 0 ? "All clear" : attentionItems.length}</span>
         </div>
-      </div>
-
-      <div className="ro-today-grid ro-today-grid-wide">
-        <section className="ro-flow-section">
-          <button className="ro-section-head ro-linkrow" type="button" onClick={onApprovalsClick}>
-            <div>
-              <span className="ro-section-kicker">Attention</span>
-              <h2>What needs you</h2>
-            </div>
-            <span className="ro-section-meta">{approvalsCount === 0 ? "All clear" : `${approvalsCount} item${approvalsCount === 1 ? "" : "s"}`}</span>
-          </button>
-          {attentionItems.length === 0 ? (
-            <div className="ro-quiet-card">Nothing is waiting on you right now.</div>
-          ) : (
-            <div className="ro-flow-list">
-              {attentionItems.map((item) => (
-                <button key={item.id} className="ro-flow-row" type="button" onClick={onApprovalsClick}>
-                  <div className="ro-flow-row-mark"><WorkerMark seed={item.workerSlug} size={20} /></div>
-                  <div className="ro-flow-row-copy">
-                    <strong>{item.title}</strong>
-                    <p>{item.summary}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="ro-flow-section">
-          <div className="ro-section-head">
-            <div>
-              <span className="ro-section-kicker">In motion</span>
-              <h2>Work moving through the office</h2>
-            </div>
-          </div>
-          {workMoving.length === 0 ? (
-            <div className="ro-quiet-card">Your workers are ready for their next assignments.</div>
-          ) : (
-            <div className="ro-flow-list">
-              {workMoving.map((item) => (
-                <button
-                  key={item.id}
-                  className="ro-flow-row"
-                  type="button"
-                  onClick={() => onNavigate(`#app/office/chat/${item.workerSlug}`)}
-                >
-                  <div className="ro-flow-row-mark"><WorkerMark seed={item.workerSlug} size={20} /></div>
-                  <div className="ro-flow-row-copy">
-                    <strong>{item.title}</strong>
-                    <p>{item.summary}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="ro-flow-section">
-          <div className="ro-section-head">
-            <div>
-              <span className="ro-section-kicker">Recent</span>
-              <h2>What changed</h2>
-            </div>
-          </div>
-          {recentChanges.length === 0 ? (
-            <div className="ro-quiet-card">No recent activity yet.</div>
-          ) : (
-            <div className="ro-feed">
-              {recentChanges.map((entry) => (
-                <div className="ro-event" key={entry.id}>
-                  <WorkerMark seed={entry.workerSlug} size={22} />
-                  <div className="ro-event-body">
-                    <strong>{entry.title}</strong>
-                    <p>{entry.summary}</p>
-                  </div>
-                  <time>{timeAgo(entry.createdAt)}</time>
+        {attentionItems.length === 0 ? (
+          <p className="ro-blank">Nothing is waiting on you right now.</p>
+        ) : (
+          <div className="ro-rows">
+            {attentionItems.map((item) => (
+              <button key={item.id} className="ro-row ro-row-lead" type="button" onClick={onApprovalsClick}>
+                <div className="ro-row-copy">
+                  <strong>{item.title}</strong>
+                  <p>{item.summary}</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <aside className="ro-flow-section ro-sched-card">
-          <div className="ro-section-head">
-            <div>
-              <span className="ro-section-kicker">Upcoming</span>
-              <h2>Today</h2>
-            </div>
+                <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
+              </button>
+            ))}
           </div>
-          {todaysEvents.length === 0 ? (
-            <div className="ro-quiet-card">Nothing scheduled.
-              <button className="ro-inline-link" type="button" onClick={() => onNavigate("#app/office/calendar")}>Open calendar</button>
-            </div>
-          ) : (
-            <div className="ro-today-events">
-              {todaysEvents.map((e) => (
-                <button key={e.id} className="ro-today-event" type="button" onClick={() => onNavigate("#app/office/calendar")}>
-                  <span className="t">{clock(e.startsAt)}</span>
-                  <span className="ev">{e.workerSlug && <WorkerMark seed={e.workerSlug} size={14} />}{e.title}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </aside>
-      </div>
+        )}
+      </section>
+
+      <section className="ro-sec">
+        <div className="ro-sec-head">
+          <h2>Today</h2>
+          <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/calendar")}>Open calendar</button>
+        </div>
+        {todaysEvents.length === 0 ? (
+          <p className="ro-blank">Nothing on the calendar today.</p>
+        ) : (
+          <div className="ro-rows">
+            {todaysEvents.map((e) => (
+              <button key={e.id} className="ro-row ro-row-slim" type="button" onClick={() => onNavigate("#app/office/calendar")}>
+                <span className="ro-row-time">{clock(e.startsAt)}</span>
+                <div className="ro-row-copy"><strong>{e.title}</strong></div>
+                {e.workerSlug && <span className="ro-row-aside">{nameFor(e.workerSlug)}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="ro-sec">
+        <div className="ro-sec-head">
+          <h2>Around the office</h2>
+        </div>
+        {officeFeed.length === 0 ? (
+          <p className="ro-blank">Quiet so far. Work your team does will show up here.</p>
+        ) : (
+          <div className="ro-rows">
+            {officeFeed.map((entry) => (
+              <button
+                key={entry.id}
+                className="ro-row ro-row-quiet"
+                type="button"
+                onClick={() => onNavigate(`#app/office/chat/${entry.workerSlug}`)}
+              >
+                <div className="ro-row-copy">
+                  <strong>{entry.title}</strong>
+                  <p>{entry.summary}</p>
+                </div>
+                <span className="ro-row-aside">{nameFor(entry.workerSlug)} · {entry.when}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -963,7 +929,7 @@ function ChatView({
   return (
     <div className="ro-chat">
       <div className="ro-chat-list">
-        <div className="ro-panel-title" style={{ padding: "0 4px 12px" }}>Workers</div>
+        <div className="ro-list-label">Team</div>
         {workers.map((w) => (
           <button
             key={w.slug}
@@ -982,7 +948,7 @@ function ChatView({
           <div className="ro-chat-head">
             <WorkerMark seed={active.slug} size={36} active />
             <div><b>{active.name}</b><span>{active.title}</span></div>
-            <button className="ro-chat-context" type="button" onClick={onOpenWorkerDetails}>
+            <button className="ro-textlink" type="button" onClick={onOpenWorkerDetails}>
               Worker details
             </button>
           </div>
@@ -1064,80 +1030,64 @@ function ApprovalsView({
   };
 
   const total = pending.length + overlays.briefings.length + suggestedApprovals.length;
-  if (total === 0) {
-    return (
-      <div className="ro-main-scroll">
-        <div className="ro-day-head"><h1>Approvals</h1></div>
-        <div className="ro-quiet-card ro-quiet-lg">You're all caught up. Nothing is waiting on your sign-off.</div>
-      </div>
-    );
-  }
 
   return (
     <div className="ro-main-scroll">
-      <div className="ro-day-head"><h1>Approvals</h1></div>
+      <header className="ro-page-head">
+        <h1>Approvals</h1>
+        <p className="ro-page-meta">{total === 0 ? "Nothing waiting on your sign-off" : `${total} item${total === 1 ? "" : "s"} waiting on you`}</p>
+      </header>
 
-      {suggestedApprovals.map((action) => (
-        <div className="ro-approval" key={action.id}>
-          <div className="ro-appr-head">
-            <WorkerMark seed={action.workerSlug} size={22} />
-            <b>{nameFor(action.workerSlug)}</b><span>{sentenceCase(action.actionType.replace(/_/g, " "))}</span>
-            <time>{timeAgo(action.createdAt)}</time>
-          </div>
-          <div className="ro-artifact">
-            <span className="ro-alabel">Proposed action</span>
-            <strong>{action.title}</strong>
-            <p>{normalizeOfficeCopy(action.description)}</p>
-            <div className="ro-decisions"><span>{normalizeOfficeCopy(action.reason)}</span></div>
-          </div>
-          <div className="ro-appr-actions">
-            <button className="r-btn r-btn-ghost" type="button" style={{ fontSize: 13, padding: "8px 18px" }} onClick={() => onNavigate(`#app/office/chat/${action.workerSlug}`)}>
-              Open worker
-            </button>
-            <button className="r-btn r-btn-accent" type="button" style={{ fontSize: 13, padding: "8px 18px" }} onClick={() => onNavigate("#app/office/approvals")}>
-              Review
-            </button>
-          </div>
+      {total === 0 ? (
+        <p className="ro-blank">You're all caught up.</p>
+      ) : (
+        <div className="ro-appr-list">
+          {suggestedApprovals.map((action) => (
+            <article className="ro-appr" key={action.id}>
+              <div className="ro-appr-meta">{nameFor(action.workerSlug)} · {sentenceCase(action.actionType.replace(/_/g, " "))} · {timeAgo(action.createdAt)}</div>
+              <h3>{action.title}</h3>
+              <p>{normalizeOfficeCopy(action.description)}</p>
+              <p className="ro-appr-reason">{normalizeOfficeCopy(action.reason)}</p>
+              <div className="ro-appr-actions">
+                <button className="r-btn r-btn-accent" type="button" onClick={() => onNavigate(`#app/office/chat/${action.workerSlug}`)}>Review</button>
+                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/chat/${action.workerSlug}`)}>Open worker</button>
+              </div>
+            </article>
+          ))}
+
+          {pending.map((t) => (
+            <article className="ro-appr" key={t.id}>
+              <div className="ro-appr-meta">{nameFor(t.workerSlug)} · Review requested · due {t.dueDate}</div>
+              <h3>{t.title}</h3>
+              <p className="ro-appr-reason">{t.module}</p>
+              <div className="ro-appr-actions">
+                <button className="r-btn r-btn-accent" type="button" disabled={busy === t.id} onClick={() => void approveTask(t)}>Approve</button>
+                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/chat/${t.workerSlug}`)}>Request changes</button>
+              </div>
+            </article>
+          ))}
+
+          {overlays.briefings.map((b) => {
+            const decisions = safeList(b.decisionsJson);
+            return (
+              <article className="ro-appr" key={b.id}>
+                <div className="ro-appr-meta">{nameFor(b.workerSlug)} · Briefing · {b.dateLabel}</div>
+                <h3>{b.title}</h3>
+                <p>{normalizeOfficeCopy(b.summary || "Ready for your review.")}</p>
+                {decisions.length > 0 && (
+                  <ul className="ro-appr-points">
+                    {decisions.map((d, i) => <li key={i}>{d}</li>)}
+                  </ul>
+                )}
+                <div className="ro-appr-actions">
+                  <button className="r-btn r-btn-accent" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "approve")}>Approve</button>
+                  <button className="ro-textlink" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "followup")}>Send back</button>
+                </div>
+              </article>
+            );
+          })}
         </div>
-      ))}
-
-      {pending.map((t) => (
-        <div className="ro-approval" key={t.id}>
-          <div className="ro-appr-head">
-            <WorkerMark seed={t.workerSlug} size={22} />
-            <b>{nameFor(t.workerSlug)}</b><span>Review requested</span>
-            <time>{t.dueDate}</time>
-          </div>
-          <div className="ro-artifact"><span className="ro-alabel">{t.module}</span><strong>{t.title}</strong></div>
-          <div className="ro-appr-actions">
-            <button className="r-btn r-btn-accent" type="button" disabled={busy === t.id} onClick={() => void approveTask(t)} style={{ fontSize: 13, padding: "8px 18px" }}>Approve</button>
-            <button className="r-btn r-btn-ghost" type="button" onClick={() => onNavigate(`#app/office/chat/${t.workerSlug}`)} style={{ fontSize: 13, padding: "8px 18px" }}>Request changes</button>
-          </div>
-        </div>
-      ))}
-
-      {overlays.briefings.map((b) => {
-        const decisions = safeList(b.decisionsJson);
-        return (
-          <div className="ro-approval" key={b.id}>
-            <div className="ro-appr-head">
-              <WorkerMark seed={b.workerSlug} size={22} />
-              <b>{nameFor(b.workerSlug)}</b><span>briefing</span>
-              <time>{b.dateLabel}</time>
-            </div>
-            <div className="ro-artifact">
-              <span className="ro-alabel">Briefing</span>
-              <strong>{b.title}</strong>
-              <p>{normalizeOfficeCopy(b.summary || "Ready for your review.")}</p>
-              {decisions.length > 0 && <div className="ro-decisions">{decisions.map((d, i) => <span key={i}>• {d}</span>)}</div>}
-            </div>
-            <div className="ro-appr-actions">
-              <button className="r-btn r-btn-accent" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "approve")} style={{ fontSize: 13, padding: "8px 18px" }}>Approve</button>
-              <button className="r-btn r-btn-ghost" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "followup")} style={{ fontSize: 13, padding: "8px 18px" }}>Send back</button>
-            </div>
-          </div>
-        );
-      })}
+      )}
     </div>
   );
 }
@@ -1148,9 +1098,9 @@ function safeList(json: string): string[] {
 
 /* ---------- Calendar (real time now-line, real events, CRUD) ---------- */
 
-const WIN_START = 7;
-const WIN_END = 20;
-const HOUR_PX = 54;
+const WIN_START = 0;
+const WIN_END = 24;
+const HOUR_PX = 48;
 type CalendarMode = "day" | "week";
 
 function toLocalInput(iso: string) {
@@ -1188,18 +1138,27 @@ function CalendarView({
   const [editing, setEditing] = useState<OverlayCalendarEvent | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [now, setNow] = useState(new Date());
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
 
   const periodStart = mode === "week" ? startOfWeek(day) : day;
-  const displayDays = mode === "week" ? Array.from({ length: 5 }, (_, index) => addDays(periodStart, index)) : [day];
+  const displayDays = mode === "week" ? Array.from({ length: 7 }, (_, index) => addDays(periodStart, index)) : [day];
   const visibleEvents = overlays.calendarEvents
     .filter((e) => displayDays.some((displayDay) => sameDay(new Date(e.startsAt), displayDay)))
     .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt));
 
-  const isToday = displayDays.some((displayDay) => sameDay(displayDay, new Date()));
+  const todayVisible = displayDays.some((displayDay) => sameDay(displayDay, new Date()));
   const nowHour = now.getHours() + now.getMinutes() / 60;
-  const showNow = isToday && nowHour >= WIN_START && nowHour <= WIN_END;
+
+  // On mount / view change, scroll the grid to the working morning (or just above now).
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const target = todayVisible ? Math.max(nowHour - 2.5, 0) : 7;
+    node.scrollTop = target * HOUR_PX;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, day]);
 
   const shiftDay = (delta: number) => {
     const d = new Date(day);
@@ -1208,11 +1167,12 @@ function CalendarView({
   };
 
   const hours: number[] = [];
-  for (let h = WIN_START; h <= WIN_END; h += 1) hours.push(h);
+  for (let h = WIN_START; h < WIN_END; h += 1) hours.push(h);
+  const hourLabel = (h: number) => (h === 0 ? "12 AM" : h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`);
 
   return (
-    <div className="ro-main-scroll">
-      <div className="ro-day-head">
+    <div className="ro-main-scroll ro-main-wide">
+      <header className="ro-page-head ro-cal-head">
         <h1>
           {mode === "week"
             ? `${displayDays[0].toLocaleDateString([], { month: "long", day: "numeric" })} – ${displayDays[displayDays.length - 1].toLocaleDateString([], { month: "long", day: "numeric" })}`
@@ -1223,72 +1183,69 @@ function CalendarView({
             <button type="button" className={`r-seg-btn${mode === "day" ? " on" : ""}`} onClick={() => setMode("day")}>Day</button>
             <button type="button" className={`r-seg-btn${mode === "week" ? " on" : ""}`} onClick={() => setMode("week")}>Week</button>
           </div>
-          <button type="button" onClick={() => shiftDay(-1)} aria-label="Previous day">‹</button>
+          <button type="button" onClick={() => shiftDay(-1)} aria-label={mode === "week" ? "Previous week" : "Previous day"}>‹</button>
           <button type="button" className="ro-cal-today" onClick={() => { const d = new Date(); d.setHours(0, 0, 0, 0); setDay(d); }}>Today</button>
-          <button type="button" onClick={() => shiftDay(1)} aria-label="Next day">›</button>
-          <button type="button" className="r-btn r-btn-accent" style={{ fontSize: 13, padding: "8px 16px" }} onClick={() => { setEditing(null); setShowForm(true); }}>+ Event</button>
+          <button type="button" onClick={() => shiftDay(1)} aria-label={mode === "week" ? "Next week" : "Next day"}>›</button>
+          <button type="button" className="r-btn r-btn-accent" onClick={() => { setEditing(null); setShowForm(true); }}>New event</button>
         </div>
-      </div>
+      </header>
 
-      <div className="ro-cal">
+      <div className="ro-cal" ref={scrollRef}>
         <div className={`ro-cal-days ro-cal-days-${mode}`}>
           <div className="ro-cal-sidehead" />
-          {displayDays.map((displayDay) => (
-            <div className="ro-cal-dayhead" key={displayDay.toISOString()}>
-              <strong>{displayDay.toLocaleDateString([], { weekday: "short" })}</strong>
-              <span>{displayDay.toLocaleDateString([], { month: "short", day: "numeric" })}</span>
+          {displayDays.map((displayDay) => {
+            const isToday = sameDay(displayDay, new Date());
+            return (
+              <div className={`ro-cal-dayhead${isToday ? " is-today" : ""}`} key={displayDay.toISOString()}>
+                <span>{displayDay.toLocaleDateString([], { weekday: "short" })}</span>
+                <strong>{displayDay.getDate()}</strong>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className={`ro-cal-grid ro-cal-grid-${mode}`} style={{ height: (WIN_END - WIN_START) * HOUR_PX }}>
+          {hours.map((h) => (
+            <div className="ro-cal-row" key={h} style={{ height: HOUR_PX }}>
+              <span className="ro-cal-hour">{hourLabel(h)}</span>
+              <div className="ro-cal-row-days">
+                {displayDays.map((displayDay) => (
+                  <div className="ro-cal-lane" key={`${displayDay.toISOString()}-${h}`} />
+                ))}
+              </div>
             </div>
           ))}
-        </div>
-        <div className="ro-cal-scroll">
-          <div className={`ro-cal-grid ro-cal-grid-${mode}`} style={{ height: (WIN_END - WIN_START) * HOUR_PX }}>
-            {hours.map((h) => (
-              <div className="ro-cal-row" key={h} style={{ height: HOUR_PX }}>
-                <span className="ro-cal-hour">{h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`}</span>
-                <div className="ro-cal-row-days">
-                  {displayDays.map((displayDay) => (
-                    <div className="ro-cal-lane" key={`${displayDay.toISOString()}-${h}`} />
-                  ))}
-                </div>
-              </div>
-            ))}
 
-            {visibleEvents.map((e) => {
-              const eventDayIndex = displayDays.findIndex((displayDay) => sameDay(displayDay, new Date(e.startsAt)));
-              if (eventDayIndex < 0) return null;
-              const top = (hourOf(e.startsAt) - WIN_START) * HOUR_PX;
-              const height = Math.max(26, (hourOf(e.endsAt) - hourOf(e.startsAt)) * HOUR_PX - 4);
-              return (
-                <button
-                  key={e.id}
-                  className={`ro-evt type-${e.eventType.toLowerCase()}`}
-                  style={mode === "week" ? { top, height, left: `calc(58px + (${eventDayIndex} * (100% - 58px) / ${displayDays.length}) + 8px)`, width: `calc((100% - 58px) / ${displayDays.length} - 16px)` } : { top, height }}
-                  type="button"
-                  onClick={() => { setEditing(e); setShowForm(true); }}
-                >
-                  {e.workerSlug && <WorkerMark seed={e.workerSlug} size={14} />}
-                  <span className="ro-evt-title">{e.title}</span>
-                  <small>{clock(e.startsAt)}</small>
-                </button>
-              );
-            })}
+          {visibleEvents.map((e) => {
+            const eventDayIndex = displayDays.findIndex((displayDay) => sameDay(displayDay, new Date(e.startsAt)));
+            if (eventDayIndex < 0) return null;
+            const top = (hourOf(e.startsAt) - WIN_START) * HOUR_PX;
+            const height = Math.max(26, (hourOf(e.endsAt) - hourOf(e.startsAt)) * HOUR_PX - 4);
+            return (
+              <button
+                key={e.id}
+                className={`ro-evt type-${e.eventType.toLowerCase()}`}
+                style={{ top, height, left: `calc(58px + (${eventDayIndex} * (100% - 58px) / ${displayDays.length}) + 4px)`, width: `calc((100% - 58px) / ${displayDays.length} - 8px)` }}
+                type="button"
+                onClick={() => { setEditing(e); setShowForm(true); }}
+              >
+                <span className="ro-evt-title">{e.title}</span>
+                <small>{clock(e.startsAt)}</small>
+              </button>
+            );
+          })}
 
-            {showNow && (
-              <div
-                className="ro-nowline"
-                style={
-                  mode === "week"
-                    ? {
-                        top: (nowHour - WIN_START) * HOUR_PX,
-                        left: `calc(58px + (${Math.max(0, displayDays.findIndex((displayDay) => sameDay(displayDay, now)))} * (100% - 58px) / ${displayDays.length}))`,
-                        width: `calc((100% - 58px) / ${displayDays.length})`
-                      }
-                    : { top: (nowHour - WIN_START) * HOUR_PX }
-                }
-                data-time={now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-              />
-            )}
-          </div>
+          {todayVisible && (
+            <div
+              className="ro-nowline"
+              style={{
+                top: (nowHour - WIN_START) * HOUR_PX,
+                left: `calc(58px + (${Math.max(0, displayDays.findIndex((displayDay) => sameDay(displayDay, now)))} * (100% - 58px) / ${displayDays.length}))`,
+                width: `calc((100% - 58px) / ${displayDays.length})`,
+              }}
+              data-time={now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+            />
+          )}
         </div>
       </div>
 
@@ -1403,58 +1360,54 @@ function TeamView({
 }) {
   return (
     <div className="ro-main-scroll">
-      <div className="ro-day-head"><h1>Your <em>team</em></h1></div>
-      <div className="ro-team-grid">
-        {workers.map((w) => (
-          <article className="ro-team-card" key={w.slug} onClick={() => onOpenWorkerDetails(w.slug)} role="button" tabIndex={0} onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              onOpenWorkerDetails(w.slug);
-            }
-          }}>
-            <div className="ro-team-top">
-              <WorkerMark seed={w.slug} size={46} active />
-              <div>
-                <b>{w.name}</b>
-                <span>{w.title}</span>
-                <small>{formatWorkerCategory(w)}</small>
+      <header className="ro-page-head">
+        <h1>Team</h1>
+        <p className="ro-page-meta">{workers.length} {workers.length === 1 ? "person" : "people"} on payroll</p>
+      </header>
+
+      <div className="ro-rows">
+        {workers.map((w) => {
+          const focus = desks.find((desk) => desk.workerSlug === w.slug)?.currentFocus || lastActivityFor(w.slug, overlays.worklog);
+          return (
+            <div
+              className="ro-row ro-row-person"
+              key={w.slug}
+              role="button"
+              tabIndex={0}
+              onClick={() => onOpenWorkerDetails(w.slug)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onOpenWorkerDetails(w.slug);
+                }
+              }}
+            >
+              <WorkerMark seed={w.slug} size={44} active />
+              <div className="ro-row-copy">
+                <strong>{w.name}</strong>
+                <p>{w.title} · {focus}</p>
+              </div>
+              <div className="ro-row-end">
+                <span className="ro-row-aside">{w.salary}</span>
+                <button
+                  className="ro-textlink"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onNavigate(`#app/office/chat/${w.slug}`);
+                  }}
+                >
+                  Message
+                </button>
               </div>
             </div>
-            <div className="ro-team-activity">
-              {desks.find((desk) => desk.workerSlug === w.slug)?.currentFocus || lastActivityFor(w.slug, overlays.worklog)}
-            </div>
-            <div className="ro-team-actions">
-              <button
-                className="r-btn r-btn-ghost"
-                type="button"
-                style={{ fontSize: 13, padding: "8px 16px", flex: 1, justifyContent: "center" }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onNavigate(`#app/office/chat/${w.slug}`);
-                }}
-              >
-                Message
-              </button>
-              <button
-                className="r-btn r-btn-ghost"
-                type="button"
-                style={{ fontSize: 13, padding: "8px 16px", justifyContent: "center" }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onOpenWorkerDetails(w.slug);
-                }}
-              >
-                Details
-              </button>
-              <span className="ro-team-salary">{w.salary}</span>
-            </div>
-          </article>
-        ))}
-        <button className="ro-team-hire" type="button" onClick={() => onNavigate("#workers")}>
-          <span className="plus">+</span>
-          Hire from the marketplace
-        </button>
+          );
+        })}
       </div>
+
+      <button className="ro-textlink ro-hire-link" type="button" onClick={() => onNavigate("#workers")}>
+        Hire from the marketplace →
+      </button>
     </div>
   );
 }
@@ -1465,20 +1418,21 @@ function FilesView({ workers, overlays, onNavigate }: { workers: Worker[]; overl
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
   return (
     <div className="ro-main-scroll">
-      <div className="ro-day-head"><h1>Files</h1></div>
+      <header className="ro-page-head">
+        <h1>Files</h1>
+        <p className="ro-page-meta">{overlays.files.length === 0 ? "Nothing shared yet" : `${overlays.files.length} file${overlays.files.length === 1 ? "" : "s"}`}</p>
+      </header>
       {overlays.files.length === 0 ? (
-        <div className="ro-quiet-card ro-quiet-lg">
-          No files yet. Files you share with your workers — and deliverables they produce — will collect here.
-          {workers.length === 0 && <button className="ro-inline-link" type="button" onClick={() => onNavigate("#workers")}>Hire a worker to get started</button>}
-        </div>
+        <p className="ro-blank">
+          Files you share with your workers — and deliverables they produce — will collect here.
+          {workers.length === 0 && <> <button className="ro-textlink" type="button" onClick={() => onNavigate("#workers")}>Hire a worker to get started</button></>}
+        </p>
       ) : (
-        <div className="ro-files ro-files-list">
+        <div className="ro-rows">
           {overlays.files.map((f) => (
-            <a className="ro-file" key={f.id} href={`/api/office/files/${f.id}/download`}>
-              <span className="ro-file-icon">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M6 2h8l4 4v16H6z" /><path d="M14 2v4h4" /></svg>
-              </span>
-              <div><b>{f.name}</b><span>{nameFor(f.workerSlug)} · {timeAgo(f.updatedAt)}</span></div>
+            <a className="ro-row ro-row-slim" key={f.id} href={`/api/office/files/${f.id}/download`}>
+              <div className="ro-row-copy"><strong>{f.name}</strong></div>
+              <span className="ro-row-aside">{nameFor(f.workerSlug)} · {timeAgo(f.updatedAt)}</span>
             </a>
           ))}
         </div>
@@ -1526,7 +1480,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
 
   return (
     <div className="ro-main-scroll">
-      <div className="ro-day-head"><h1>Office <em>settings</em></h1></div>
+      <header className="ro-page-head"><h1>Settings</h1><p className="ro-page-meta">Context your workers read before acting</p></header>
       <div className="ro-settings">
         <label className="ro-field"><span>What your business does</span>
           <textarea value={brandContext} onChange={(e) => setBrandContext(e.target.value)} rows={3} placeholder="A line or two on your brand, niche, and who you serve. Your workers read this as context." />
@@ -1565,7 +1519,6 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
   const [overlays, setOverlays] = useState<Overlays>(EMPTY_OVERLAYS);
   const [loading, setLoading] = useState(true);
   const [navCollapsed, setNavCollapsed] = usePersistentBoolean("ryva.office.nav-collapsed", false);
-  const [teamCollapsed, setTeamCollapsed] = usePersistentBoolean("ryva.office.team-collapsed", false);
   const [workerDetailsSlug, setWorkerDetailsSlug] = useState<string | null>(null);
   const [maraWorkspaces, setMaraWorkspaces] = useState<Record<string, MaraWorkspace | null>>({});
   const [workerActionBusy, setWorkerActionBusy] = useState<string | null>(null);
@@ -1704,7 +1657,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
 
   let main: JSX.Element;
   if (loading) {
-    main = <div className="ro-main-scroll"><div className="ro-quiet-card ro-quiet-lg">Loading your office…</div></div>;
+    main = <div className="ro-main-scroll"><p className="ro-blank">Loading your office…</p></div>;
   } else if (WORKER_DEPENDENT.includes(tab) && !hasWorkers) {
     main = <EmptyOffice label={emptyLabels[tab] ?? "your office"} onNavigate={go} />;
   } else if (tab === "worker-onboarding" && workerSlug) {
@@ -1736,7 +1689,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
         worker={worker}
       />
     ) : (
-      <div className="ro-main-scroll"><div className="ro-quiet-card ro-quiet-lg">This worker could not be found.</div></div>
+      <div className="ro-main-scroll"><p className="ro-blank">This worker could not be found.</p></div>
     );
   } else {
     switch (tab) {
@@ -1769,7 +1722,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
     overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval).length;
 
   return (
-    <div className={`ro-shell${navCollapsed ? " nav-collapsed" : ""}${teamCollapsed ? " team-collapsed" : ""}`}>
+    <div className={`ro-shell${navCollapsed ? " nav-collapsed" : ""}`}>
       <aside className="ro-nav">
         <div className="ro-nav-top">
           <button className="ro-brand" type="button" onClick={() => go("#app/office")}>Ryva<span>.</span></button>
@@ -1781,7 +1734,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
           <button key={item.tab} className={`ro-nav-item${tab === item.tab ? " on" : ""}`} type="button" onClick={() => go(`#app/office/${item.tab}`)} aria-label={item.label} title={item.label}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
             {!navCollapsed && item.label}
-            {!navCollapsed && item.tab === "approvals" && pendingCount > 0 && <span className="ro-pill">{pendingCount}</span>}
+            {!navCollapsed && item.tab === "approvals" && pendingCount > 0 && <span className="ro-count">{pendingCount}</span>}
           </button>
         ))}
         <div className="ro-nav-foot">
@@ -1792,28 +1745,6 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
         </div>
       </aside>
 
-      <aside className="ro-team-rail">
-        <div className="ro-team-rail-head">
-          {!teamCollapsed && <b>Your team</b>}
-          <div className="ro-rail-head-actions">
-            {!teamCollapsed && <button type="button" onClick={() => go("#workers")} title="Hire">+</button>}
-            <button className="ro-collapse-toggle" type="button" onClick={() => setTeamCollapsed((value) => !value)} aria-label={teamCollapsed ? "Expand worker sidebar" : "Collapse worker sidebar"} title={teamCollapsed ? "Expand worker sidebar" : "Collapse worker sidebar"}>
-              {teamCollapsed ? "‹" : "›"}
-            </button>
-          </div>
-        </div>
-        {hasWorkers ? (
-          hiredWorkers.map((w) => (
-            <button key={w.slug} className={`ro-member${activeWorkerSlug === w.slug ? " on" : ""}`} type="button" onClick={() => go(`#app/office/chat/${w.slug}`)} aria-label={w.name} title={w.name}>
-              <WorkerMark seed={w.slug} size={34} active />
-              {!teamCollapsed && <div className="ro-member-info"><b>{w.name}</b><span>{desks.find((desk) => desk.workerSlug === w.slug)?.currentFocus || lastActivityFor(w.slug, overlays.worklog)}</span></div>}
-            </button>
-          ))
-        ) : (
-          <div className="ro-team-rail-empty">No one hired yet.</div>
-        )}
-        {!teamCollapsed && <button className="ro-hire-more" type="button" onClick={() => go("#workers")}>+ Hire from the marketplace</button>}
-      </aside>
 
       <main className="ro-main">{main}</main>
       {selectedWorkerForDetails && selectedDesk ? (
