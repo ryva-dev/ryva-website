@@ -938,4 +938,19 @@ test("runMaraAutonomyCycle creates deliverables and research-backed tasks", asyn
   assert.ok(summary.outputs.length > 0);
   assert.ok(listWorkerOutputs(db, "user-1", MARA_WORKER_ID).some((output) => output.title === "Daily brand research digest"));
   assert.ok(listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID).some((task) => /personalized pitch/i.test(task.title)));
+  const researchItems = db.prepare(
+    `SELECT source_type AS sourceType, summary, insights_json AS insightsJson
+     FROM worker_research_items
+     WHERE user_id = ? AND worker_id = ?
+     ORDER BY created_at DESC`
+  ).all("user-1", MARA_WORKER_ID);
+  assert.ok(researchItems.some((item) => item.sourceType === "reddit_signal"));
+  assert.ok(
+    researchItems.some((item) =>
+      item.sourceType === "web_brand" &&
+      /Suggested angle|TikTok content gap signal|Reddit creator signal/i.test(String(item.insightsJson))
+    )
+  );
+  const pitchTask = listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID).find((task) => /personalized pitch/i.test(task.title));
+  assert.match(String(pitchTask?.description ?? ""), /strongest current angle|ingredient education|current fit/i);
 });

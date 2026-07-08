@@ -1854,12 +1854,54 @@ async function fetchText(fetchImpl, url, headers = {}) {
   return response.text();
 }
 
-async function discoverBrandCandidates({ fetchImpl, limit, niche }) {
-  const queries = [
+function buildBrandResearchQueries({ niche, redditSignals = [], privateInsights = [] }) {
+  const themeTerms = [...privateInsights, ...redditSignals]
+    .flatMap((item) => String(item?.label || item?.title || item || "").toLowerCase().split(/[^a-z0-9]+/g))
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 4 && !["with", "that", "this", "from", "your", "about", "would", "could", "creator", "creators", "brand", "brands", "trend", "trends", "hooks"].includes(part));
+  const uniqueThemeTerms = [...new Set(themeTerms)].slice(0, 4);
+
+  return [
     `${niche} brand`,
     `${niche} ecommerce brand`,
-    `${niche} direct to consumer brand`
+    `${niche} direct to consumer brand`,
+    ...uniqueThemeTerms.map((term) => `${niche} ${term} brand`)
   ];
+}
+
+function summarizeBrandResearchFit({ brandName, niche, pageTitle, metaDescription, redditSignals = [], privateInsights = [] }) {
+  const summarySource = stripHtml(metaDescription || pageTitle || "").trim();
+  const lowerSource = summarySource.toLowerCase();
+  const matchedInsights = privateInsights
+    .map((item) => String(item?.label || item || "").trim())
+    .filter(Boolean)
+    .filter((label) => lowerSource.includes(label.toLowerCase().split(" ")[0]));
+  const matchedSignals = redditSignals
+    .map((item) => String(item?.title || "").trim())
+    .filter(Boolean)
+    .filter((title) => {
+      const anchor = title.toLowerCase().split(/[^a-z0-9]+/g).find((part) => part.length >= 5);
+      return anchor ? lowerSource.includes(anchor) : false;
+    })
+    .slice(0, 2);
+
+  const whyFit = [
+    `${brandName} appears aligned with ${niche}.`,
+    summarySource ? `Site language suggests: ${summarySource.slice(0, 140)}.` : null,
+    matchedInsights.length > 0 ? `Possible content-angle overlap: ${matchedInsights.join(", ")}.` : null,
+    matchedSignals.length > 0 ? `Recent creator chatter to keep in mind: ${matchedSignals.join(" | ")}.` : null
+  ].filter(Boolean);
+
+  return {
+    fitSummary: whyFit.join(" "),
+    matchedInsights,
+    matchedSignals,
+    suggestedAngle: matchedInsights[0] || matchedSignals[0] || `${niche} routine-led content`
+  };
+}
+
+async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsights = [], redditSignals = [] }) {
+  const queries = buildBrandResearchQueries({ niche, privateInsights, redditSignals });
   const candidates = [];
   const seenHosts = new Set();
 
@@ -1888,9 +1930,20 @@ async function discoverBrandCandidates({ fetchImpl, limit, niche }) {
       }
       const pageTitle = pageHtml.match(/<title[^>]*>(.*?)<\/title>/is)?.[1] || title;
       const metaDescription = pageHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] || "";
+      const fit = summarizeBrandResearchFit({
+        brandName: stripHtml(pageTitle).split("|")[0].split("-")[0].trim() || title || hostname,
+        metaDescription,
+        niche,
+        pageTitle,
+        privateInsights,
+        redditSignals
+      });
       candidates.push({
         brandName: stripHtml(pageTitle).split("|")[0].split("-")[0].trim() || title || hostname,
-        summary: stripHtml(metaDescription || title).slice(0, 220),
+        matchedInsights: fit.matchedInsights,
+        matchedSignals: fit.matchedSignals,
+        summary: fit.fitSummary.slice(0, 320),
+        suggestedAngle: fit.suggestedAngle,
         url,
         website: url
       });
@@ -1915,6 +1968,7 @@ async function fetchRedditSignals({ communities = MARA_REDDIT_COMMUNITIES, fetch
         if (!data.title) continue;
         signals.push({
           community,
+          summary: String(data.selftext || data.title || "").trim().slice(0, 240),
           title: String(data.title).trim(),
           url: `https://www.reddit.com${String(data.permalink || "")}`
         });
@@ -2013,20 +2067,48 @@ async function runMaraBrandResearchCycle({
   }
 
   const niche = inferMaraNiche({ accountContext, workerKnowledge });
-  const brands = await discoverBrandCandidates({ fetchImpl, limit: remaining, niche });
+  const redditSignals = await fetchRedditSignals({ fetchImpl });
+  const privateContentGaps = extractPrivateInsightItems(privateInsights).slice(0, 6);
+  const brands = await discoverBrandCandidates({
+    fetchImpl,
+    limit: remaining,
+    niche,
+    privateInsights: privateContentGaps,
+    redditSignals
+  });
   if (brands.length === 0) {
     return { note: "No new brand candidates were found." };
   }
 
-  const redditSignals = await fetchRedditSignals({ fetchImpl });
-  const privateContentGaps = extractPrivateInsightItems(privateInsights).slice(0, 4);
   const createdResearchIds = [];
   const createdPitchTaskIds = [];
+  const createdSignalResearchIds = [];
+
+  for (const signal of redditSignals.slice(0, 5)) {
+    const redditResearch = createResearchItem(db, {
+      evidence: [{ title: signal.title, url: signal.url }],
+      insights: [signal.summary || signal.title],
+      query: `Monitor creator chatter from r/${signal.community} for ${niche}.`,
+      scope: "creator_market_signal",
+      sourceType: "reddit_signal",
+      status: "completed",
+      summary: `${signal.title}${signal.summary ? ` — ${signal.summary}` : ""}`.slice(0, 320),
+      topic: `[r/${signal.community}] ${signal.title}`,
+      userId,
+      workerId
+    });
+    if (!redditResearch.duplicate && redditResearch.id) createdSignalResearchIds.push(redditResearch.id);
+  }
 
   for (const brand of brands) {
     const research = createResearchItem(db, {
       evidence: [{ title: brand.brandName, url: brand.url }],
-      insights: [brand.summary],
+      insights: [
+        brand.summary,
+        brand.suggestedAngle ? `Suggested angle: ${brand.suggestedAngle}` : null,
+        ...(Array.isArray(brand.matchedInsights) ? brand.matchedInsights.map((item) => `TikTok content gap signal: ${item}`) : []),
+        ...(Array.isArray(brand.matchedSignals) ? brand.matchedSignals.map((item) => `Reddit creator signal: ${item}`) : [])
+      ].filter(Boolean),
       query: `Research ${brand.brandName} for ${niche} UGC fit.`,
       scope: "brand_identity",
       sourceType: "web_brand",
@@ -2039,7 +2121,7 @@ async function runMaraBrandResearchCycle({
     if (!research.duplicate && research.id) {
       createdResearchIds.push(research.id);
       const pitchTask = convertResearchItemToTask(db, userId, workerId, research.id, {
-        description: `Draft a personalized pitch using the brand's identity, site language, and current fit with ${niche}.`,
+        description: `Draft a personalized pitch using the brand's identity, site language, ${brand.suggestedAngle || "the strongest current angle"}, and current fit with ${niche}.`,
         priority: "high",
         requiredPermissions: [],
         source: "autonomy_brand_research",
@@ -2063,6 +2145,7 @@ async function runMaraBrandResearchCycle({
     source: "research",
     structuredContent: {
       brands,
+      createdSignalResearchIds,
       privateContentGaps,
       redditSignals
     },
@@ -2071,7 +2154,7 @@ async function runMaraBrandResearchCycle({
     workerId
   });
 
-  return { createdPitchTaskIds, createdResearchIds, output };
+  return { createdPitchTaskIds, createdResearchIds, createdSignalResearchIds, output };
 }
 
 function runMaraInboxOrganizationCycle({ db, userId, workerId }) {
