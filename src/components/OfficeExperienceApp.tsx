@@ -221,10 +221,24 @@ type WorkerDeskApproval = {
 
 type WorkerDeskDeliverable = {
   id: string;
+  contentRefId?: string | null;
+  sourceType?: string;
   title: string;
   summary: string;
+  workerSlug?: string;
   sourceLabel: string;
   updatedAt: string;
+};
+
+type DeliverableDetail = {
+  content: string;
+  downloadUrl?: string | null;
+  previewText?: string;
+  structuredContent?: unknown;
+  summary: string;
+  title: string;
+  type: string;
+  workerName?: string;
 };
 
 type WorkerDeskActivity = {
@@ -466,22 +480,31 @@ function buildWorkerDesk(
       id: output.id,
       title: output.outputPreview?.title || output.title,
       summary: output.outputPreview?.preview || normalizeOfficeCopy(output.description || "", "Output ready to review."),
+      contentRefId: output.id,
+      sourceType: "worker_output",
       sourceLabel: "Deliverable",
-      updatedAt: output.dueAt || new Date().toISOString()
+      updatedAt: output.dueAt || new Date().toISOString(),
+      workerSlug: worker.slug
     })) ??
     workerDeliverables.slice(0, 5).map((deliverable) => ({
+      contentRefId: deliverable.contentRefId,
+      sourceType: deliverable.sourceType,
       id: deliverable.id,
       title: deliverable.title,
       summary: deliverable.summary || deliverable.previewText,
       sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
-      updatedAt: deliverable.updatedAt
+      updatedAt: deliverable.updatedAt,
+      workerSlug: worker.slug
     })) ??
     workerFiles.slice(0, 3).map((file) => ({
+      contentRefId: file.id,
+      sourceType: "uploaded_file",
       id: file.id,
       title: file.name,
       summary: `${file.type} prepared by ${worker.name.split(" ")[0]}.`,
       sourceLabel: "File",
-      updatedAt: file.updatedAt
+      updatedAt: file.updatedAt,
+      workerSlug: worker.slug
     }));
   const inMotion =
     workspace?.runnableTasks.map((task) => ({
@@ -636,6 +659,14 @@ function parseTaskOutput(output: string | null | undefined) {
   return null;
 }
 
+function seedOfficeConversationDraft(prompt: string) {
+  if (!prompt.trim()) return;
+  window.setTimeout(() => {
+    const event = new CustomEvent("ryva-office-seed-draft", { detail: { prompt } });
+    window.dispatchEvent(event);
+  }, 0);
+}
+
 /* ---------- empty state ---------- */
 
 function EmptyOffice({ label, onNavigate }: { label: string; onNavigate: (h: string) => void }) {
@@ -737,9 +768,11 @@ function TodayView({
               <h2>Needs you</h2>
               <div className="ro-sec-head-actions">
                 <span className="ro-sec-n">{attentionItems.length === 0 ? "All clear" : attentionItems.length}</span>
-                <button className="ro-textlink" type="button" onClick={onApprovalsClick}>
-                  {attentionItems.length === 0 ? "Open office" : "Open reviews"}
-                </button>
+                {attentionItems.length > 0 ? (
+                  <button className="ro-textlink" type="button" onClick={onApprovalsClick}>
+                    Open reviews
+                  </button>
+                ) : null}
               </div>
             </div>
             {leadAttention ? (
@@ -1195,22 +1228,68 @@ function WorkerDeskDeliverableModal({
   onClose: () => void;
   workerName: string;
 }) {
+  const [detail, setDetail] = useState<DeliverableDetail | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const payload = await officeJson<{ deliverable: DeliverableDetail }>(`/api/office/deliverables/${deliverable.id}`, { method: "GET" });
+        if (!cancelled) setDetail(payload.deliverable);
+      } catch {
+        if (!cancelled) {
+          setDetail({
+            content: "",
+            previewText: deliverable.summary,
+            summary: deliverable.summary,
+            title: deliverable.title,
+            type: deliverable.sourceLabel,
+            workerName
+          });
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [deliverable.id, deliverable.sourceLabel, deliverable.summary, deliverable.title, workerName]);
+
   return (
     <div className="ro-modal-scrim" onClick={onClose}>
       <div className="ro-modal" onClick={(event) => event.stopPropagation()}>
         <h3>{deliverable.title}</h3>
         <div className="ro-field">
           <span>Worker</span>
-          <div className="ro-artifact">{workerName}</div>
+          <div className="ro-artifact">{detail?.workerName || workerName}</div>
         </div>
         <div className="ro-field">
           <span>Type</span>
-          <div className="ro-artifact">{deliverable.sourceLabel}</div>
+          <div className="ro-artifact">{detail?.type || deliverable.sourceLabel}</div>
         </div>
         <div className="ro-field">
           <span>Summary</span>
-          <div className="ro-artifact">{deliverable.summary}</div>
+          <div className="ro-artifact">{detail?.summary || deliverable.summary}</div>
         </div>
+        {detail?.previewText ? (
+          <div className="ro-field">
+            <span>Preview</span>
+            <div className="ro-artifact">{detail.previewText}</div>
+          </div>
+        ) : null}
+        {detail?.content ? (
+          <div className="ro-field">
+            <span>Full output</span>
+            <div className="ro-artifact" style={{ whiteSpace: "pre-wrap" }}>{detail.content}</div>
+          </div>
+        ) : null}
+        {detail?.downloadUrl ? (
+          <div className="ro-modal-actions">
+            <a className="r-btn r-btn-ghost" href={detail.downloadUrl}>Download file</a>
+          </div>
+        ) : null}
         <div className="ro-modal-actions">
           <button className="r-btn r-btn-accent" type="button" onClick={onClose}>Close</button>
         </div>
@@ -1482,6 +1561,7 @@ function WorkerDeskView({
   onNavigate,
   onReject,
   onRunTask,
+  onRunAutonomy,
   onSeedCorrection,
   onReload,
   section
@@ -1496,6 +1576,7 @@ function WorkerDeskView({
   onNavigate: (hash: string) => void;
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
+  onRunAutonomy: () => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
   onReload: () => Promise<void>;
   section: WorkbenchSection;
@@ -1568,10 +1649,19 @@ function WorkerDeskView({
         </div>
         <div className="ro-worker-page-actions">
           <button className="r-btn r-btn-ghost" type="button" onClick={() => setSection("conversation")}>Message</button>
-          {isMaraWorker(activeWorker.slug) && nextRunnable ? (
-            <button className="r-btn r-btn-accent" type="button" onClick={() => void onRunTask(nextRunnable.id)} disabled={busyId === nextRunnable.id}>
-              {busyId === nextRunnable.id ? "Running..." : "Run next task"}
-            </button>
+          {isMaraWorker(activeWorker.slug) ? (
+            <>
+              {nextRunnable ? (
+                <button className="r-btn r-btn-accent" type="button" onClick={() => void onRunTask(nextRunnable.id)} disabled={busyId === nextRunnable.id}>
+                  {busyId === nextRunnable.id ? "Running..." : "Run next task"}
+                </button>
+              ) : (
+                <button className="r-btn r-btn-accent" type="button" onClick={() => setSection("conversation")}>Assign work</button>
+              )}
+              <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunAutonomy()} disabled={busyId === "mara-autonomy"}>
+                {busyId === "mara-autonomy" ? "Refreshing..." : "Run Mara now"}
+              </button>
+            </>
           ) : (
             <button className="r-btn r-btn-accent" type="button" onClick={() => setSection("conversation")}>Assign work</button>
           )}
@@ -1620,6 +1710,20 @@ function ApprovalsView({
       await onReload();
     } finally { setBusy(null); }
   };
+  const requestChanges = async (t: OverlayTask) => {
+    setBusy(t.id);
+    try {
+      await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/status`, { method: "POST", body: JSON.stringify({ status: "To Do" }) });
+      await onReload();
+      onNavigate(`#app/office/workers/${t.workerSlug}/conversation`);
+      seedOfficeConversationDraft(`Please revise "${t.title}" and bring it back ready for review. Focus on: `);
+    } finally { setBusy(null); }
+  };
+  const sendBackBriefing = async (b: OverlayBriefing) => {
+    await briefingAction(b, "followup");
+    onNavigate(`#app/office/workers/${b.workerSlug}/conversation`);
+    seedOfficeConversationDraft(`Please update "${b.title}" before the next review. Specifically: `);
+  };
 
   const total = pending.length + overlays.briefings.length + suggestedApprovals.length;
 
@@ -1656,7 +1760,7 @@ function ApprovalsView({
                 <p className="ro-appr-reason">{t.module}</p>
                 <div className="ro-appr-actions">
                   <button className="r-btn r-btn-accent" type="button" disabled={busy === t.id} onClick={() => void approveTask(t)}>{busy === t.id ? "Saving..." : "Approve"}</button>
-                  <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${t.workerSlug}/conversation`)}>Request changes</button>
+                  <button className="ro-textlink" type="button" disabled={busy === t.id} onClick={() => void requestChanges(t)}>Request changes</button>
                 </div>
               </article>
             ))}
@@ -1675,7 +1779,7 @@ function ApprovalsView({
                   )}
                   <div className="ro-appr-actions">
                     <button className="r-btn r-btn-accent" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "approve")}>{busy === b.id ? "Saving..." : "Approve"}</button>
-                    <button className="ro-textlink" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "followup")}>Send back</button>
+                    <button className="ro-textlink" type="button" disabled={busy === b.id} onClick={() => void sendBackBriefing(b)}>Send back</button>
                   </div>
                 </article>
               );
@@ -2204,11 +2308,18 @@ function TeamView({
             </div>
             <div className="ro-worker-floor">
               {activeWorkers.map(({ worker, desk, focus }) => (
-                <button
+                <div
                   className="ro-worker-floor-row"
                   key={worker.slug}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onNavigate(`#app/office/workers/${worker.slug}/desk`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onNavigate(`#app/office/workers/${worker.slug}/desk`);
+                    }
+                  }}
                 >
                   <div className="ro-worker-floor-mark">
                     <WorkerMark seed={worker.slug} size={42} active />
@@ -2236,7 +2347,7 @@ function TeamView({
                       Message
                     </button>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           </section>
@@ -2292,6 +2403,7 @@ function TeamView({
 /* ---------- Deliverables ---------- */
 
 function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void }) {
+  const [selectedDeliverable, setSelectedDeliverable] = useState<WorkerDeskDeliverable | null>(null);
   const groupedByWorker = workers
     .map((worker) => ({
       worker,
@@ -2327,7 +2439,16 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
                       className="ro-row ro-row-slim"
                       key={deliverable.id}
                       type="button"
-                      onClick={() => onNavigate(`#app/office/workers/${deliverable.workerSlug}/desk`)}
+                      onClick={() => setSelectedDeliverable({
+                        id: deliverable.id,
+                        contentRefId: deliverable.contentRefId,
+                        sourceType: deliverable.sourceType,
+                        title: deliverable.title,
+                        summary: deliverable.summary || deliverable.previewText,
+                        sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
+                        updatedAt: deliverable.updatedAt,
+                        workerSlug: deliverable.workerSlug
+                      })}
                     >
                       <div className="ro-row-copy">
                         <span className="ro-row-kicker">{sentenceCase(deliverable.deliverableType.replace(/_/g, " "))}</span>
@@ -2355,6 +2476,13 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
           </aside>
         </div>
       )}
+      {selectedDeliverable ? (
+        <WorkerDeskDeliverableModal
+          deliverable={selectedDeliverable}
+          onClose={() => setSelectedDeliverable(null)}
+          workerName={workers.find((worker) => worker.slug === selectedDeliverable.workerSlug)?.name ?? "Worker"}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2573,6 +2701,20 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     }
   }, [reload]);
 
+  const runWorkerAutonomy = useCallback(async (workerSlugParam: string) => {
+    if (!isMaraWorker(workerSlugParam)) return;
+    setWorkerActionBusy("mara-autonomy");
+    try {
+      await officeJson(`/api/office/workers/${workerSlugParam}/autonomy/run`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      await reload();
+    } finally {
+      setWorkerActionBusy(null);
+    }
+  }, [reload]);
+
   const updateWorkerApproval = useCallback(async (workerSlugParam: string, approvalId: string, status: "approved" | "rejected") => {
     if (!isMaraWorker(workerSlugParam)) return;
     setWorkerActionBusy(approvalId);
@@ -2642,13 +2784,11 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
               onNavigate={go}
               onReject={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "rejected")}
               onReload={reload}
+              onRunAutonomy={() => runWorkerAutonomy(activeWorker.slug)}
               onRunTask={(taskId) => runWorkerTask(activeWorker.slug, taskId)}
               onSeedCorrection={(prompt) => {
                 go(`#app/office/workers/${activeWorker.slug}/conversation`);
-                window.setTimeout(() => {
-                  const event = new CustomEvent("ryva-office-seed-draft", { detail: { prompt } });
-                  window.dispatchEvent(event);
-                }, 0);
+                seedOfficeConversationDraft(prompt);
               }}
               section={section ?? "desk"}
             />

@@ -4290,6 +4290,76 @@ app.post("/api/office/calendar/events/:eventId/delete", assertOrigin, requireAut
   res.json({ ok: true });
 });
 
+app.get("/api/office/deliverables/:deliverableId", requireAuth, (req, res) => {
+  const deliverableId = String(req.params.deliverableId ?? "").trim();
+  const deliverable = db
+    .prepare(
+      `SELECT id, worker_slug AS workerSlug, source_type AS sourceType, source_id AS sourceId, title, summary,
+              deliverable_type AS deliverableType, preview_text AS previewText, content_ref_id AS contentRefId
+       FROM office_deliverables
+       WHERE id = ? AND user_id = ?`
+    )
+    .get(deliverableId, req.user.id);
+
+  if (!deliverable) {
+    res.status(404).json({ error: "Deliverable not found." });
+    return;
+  }
+
+  const worker = WORKERS.find((entry) => entry.slug === deliverable.workerSlug);
+
+  if (deliverable.sourceType === "worker_output" && deliverable.contentRefId) {
+    const output = db
+      .prepare(
+        `SELECT output_type AS outputType, title, content, structured_content_json AS structuredContentJson
+         FROM worker_outputs
+         WHERE id = ? AND user_id = ? AND worker_id = ?`
+      )
+      .get(deliverable.contentRefId, req.user.id, deliverable.workerSlug);
+
+    if (output) {
+      res.json({
+        deliverable: {
+          content: String(output.content ?? ""),
+          previewText: deliverable.previewText,
+          structuredContent: parseJson(output.structuredContentJson, null),
+          summary: deliverable.summary,
+          title: output.title || deliverable.title,
+          type: sentenceCase(String(output.outputType ?? deliverable.deliverableType).replace(/_/g, " ")),
+          workerName: worker?.name ?? "Worker"
+        }
+      });
+      return;
+    }
+  }
+
+  if (deliverable.sourceType === "uploaded_file" && deliverable.contentRefId) {
+    res.json({
+      deliverable: {
+        content: "",
+        downloadUrl: `/api/office/files/${deliverable.contentRefId}/download`,
+        previewText: deliverable.previewText,
+        summary: deliverable.summary,
+        title: deliverable.title,
+        type: sentenceCase(String(deliverable.deliverableType ?? "file").replace(/_/g, " ")),
+        workerName: worker?.name ?? "Worker"
+      }
+    });
+    return;
+  }
+
+  res.json({
+    deliverable: {
+      content: "",
+      previewText: deliverable.previewText,
+      summary: deliverable.summary,
+      title: deliverable.title,
+      type: sentenceCase(String(deliverable.deliverableType ?? "deliverable").replace(/_/g, " ")),
+      workerName: worker?.name ?? "Worker"
+    }
+  });
+});
+
 app.get("/api/office/files/:fileId/download", requireAuth, async (req, res) => {
   const file = db
     .prepare(
