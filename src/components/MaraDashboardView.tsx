@@ -209,11 +209,17 @@ export function MaraDashboardView({ onOfficeReload, worker }: MaraDashboardViewP
   async function connect(provider: "gmail" | "outlook") {
     setBusyKey(`connect-${provider}`);
     try {
-      const response = await maraJson<{ dashboard: MaraDashboard }>(`/api/office/workers/${worker.slug}/connect-email`, {
+      const response = await maraJson<{ dashboard?: MaraDashboard; redirectUrl?: string }>(`/api/office/workers/${worker.slug}/connect-email`, {
         method: "POST",
         body: JSON.stringify({ provider })
       });
-      setDashboard(response.dashboard);
+      if (response.redirectUrl) {
+        window.location.href = response.redirectUrl;
+        return;
+      }
+      if (response.dashboard) {
+        setDashboard(response.dashboard);
+      }
       setError("");
       await onOfficeReload();
     } catch (nextError) {

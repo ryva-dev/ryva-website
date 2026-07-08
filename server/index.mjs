@@ -61,6 +61,9 @@ const allowedOrigin = new URL(appUrl).origin;
 const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const host = process.env.HOST ?? "0.0.0.0";
 const MARA_SLUG = "mara-vale";
+const maraAutonomyIntervalMinutes = Number.parseInt(process.env.MARA_AUTONOMY_INTERVAL_MINUTES ?? "15", 10);
+let maraAutonomyTimer = null;
+let maraAutonomyRunning = false;
 
 if (isProduction && !process.env.APP_URL) {
   throw new Error("APP_URL must be set in production.");
@@ -833,6 +836,429 @@ function ensureMaraIntegrationRecord(userId, provider) {
     nowIso(),
     nowIso()
   );
+}
+
+function upsertWorkerIntegration(userId, workerSlug, provider, status, accountLabel, metadata = {}) {
+  db.prepare(
+    `INSERT INTO office_worker_integrations
+      (id, user_id, worker_slug, provider, status, account_label, metadata_json, connected_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_slug, provider) DO UPDATE SET
+       status = excluded.status,
+       account_label = excluded.account_label,
+       metadata_json = excluded.metadata_json,
+       connected_at = excluded.connected_at,
+       updated_at = excluded.updated_at`
+  ).run(
+    randomUUID(),
+    userId,
+    workerSlug,
+    provider,
+    status,
+    accountLabel,
+    serializeJson(metadata),
+    status === "connected" ? nowIso() : null,
+    nowIso()
+  );
+}
+
+function getWorkerIntegration(userId, workerSlug, provider) {
+  const row = db.prepare(
+    `SELECT provider, status, account_label AS accountLabel, metadata_json AS metadataJson, connected_at AS connectedAt, updated_at AS updatedAt
+     FROM office_worker_integrations
+     WHERE user_id = ? AND worker_slug = ? AND provider = ?`
+  ).get(userId, workerSlug, provider);
+
+  if (!row) return null;
+  return {
+    ...row,
+    metadata: parseJson(row.metadataJson, {})
+  };
+}
+
+async function getFreshGoogleAccessToken(userId, workerSlug, provider = "gmail") {
+  const integration = getWorkerIntegration(userId, workerSlug, provider);
+  if (!integration || integration.status !== "connected") {
+    throw new Error("Gmail is not connected.");
+  }
+
+  const metadata = integration.metadata || {};
+  const refreshToken = String(metadata.refreshToken ?? "").trim();
+  if (!refreshToken) {
+    throw new Error("Missing Gmail refresh token.");
+  }
+
+  const expiresAt = String(metadata.expiresAt ?? "").trim();
+  const accessToken = String(metadata.accessToken ?? "").trim();
+  const needsRefresh = !accessToken || !expiresAt || new Date(expiresAt).getTime() <= Date.now() + 60_000;
+
+  if (!needsRefresh) {
+    return {
+      accessToken,
+      emailAddress: String(metadata.emailAddress ?? "").trim(),
+      integration
+    };
+  }
+
+  const refreshed = await refreshGoogleAccessToken(refreshToken);
+  const nextMetadata = {
+    ...metadata,
+    accessToken: String(refreshed.access_token ?? ""),
+    expiresAt: new Date(Date.now() + Number(refreshed.expires_in ?? 3600) * 1000).toISOString()
+  };
+  upsertWorkerIntegration(userId, workerSlug, provider, "connected", integration.accountLabel, nextMetadata);
+
+  return {
+    accessToken: nextMetadata.accessToken,
+    emailAddress: String(nextMetadata.emailAddress ?? "").trim(),
+    integration: getWorkerIntegration(userId, workerSlug, provider)
+  };
+}
+
+function extractHeaderValue(headers, name) {
+  const match = (headers || []).find((header) => String(header?.name || "").toLowerCase() === name.toLowerCase());
+  return String(match?.value ?? "").trim();
+}
+
+function parseEmailAddress(value) {
+  const raw = String(value ?? "").trim();
+  const bracketMatch = raw.match(/<([^>]+)>/);
+  if (bracketMatch) return bracketMatch[1].trim().toLowerCase();
+  const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return emailMatch ? emailMatch[0].trim().toLowerCase() : "";
+}
+
+function deriveBrandNameFromEmail(email, fallbackName = "") {
+  if (fallbackName) {
+    return fallbackName.replace(/<.*?>/g, "").trim();
+  }
+  const host = email.split("@")[1] || "";
+  const label = host.split(".")[0] || email;
+  return label
+    .split(/[-_.]/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function classifyGmailThread({ emailAddress, from, snippet, subject }) {
+  const senderEmail = parseEmailAddress(from);
+  const lowerSnippet = `${subject} ${snippet}`.toLowerCase();
+  const fromSelf = Boolean(senderEmail) && senderEmail === emailAddress.toLowerCase();
+  const brandRelated = !/@gmail\.com$/.test(senderEmail) && !/@yahoo\./.test(senderEmail) && !/@icloud\./.test(senderEmail);
+  const urgency = /asap|urgent|today|deadline|tomorrow|eod|by friday|by monday/.test(lowerSnippet) ? "high" : /soon|follow up|follow-up/.test(lowerSnippet) ? "medium" : "low";
+  const category = /brief|deliverable|campaign|ugc|creator|product/.test(lowerSnippet) ? "outreach" : "general";
+  const threadStatus = fromSelf ? "outbound" : "awaiting_reply";
+  const reason = brandRelated
+    ? "Likely brand-related thread from a non-personal domain."
+    : "Captured from connected Gmail for inbox organization.";
+  return { brandRelated, category, reason, threadStatus, urgency };
+}
+
+async function syncGmailInbox(userId, workerSlug) {
+  const { accessToken, emailAddress } = await getFreshGoogleAccessToken(userId, workerSlug, "gmail");
+  const listResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=newer_than:60d", {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+
+  if (!listResponse.ok) {
+    throw new Error(`Gmail message list failed with status ${listResponse.status}.`);
+  }
+
+  const listPayload = await listResponse.json();
+  const messages = Array.isArray(listPayload.messages) ? listPayload.messages : [];
+  let syncedCount = 0;
+
+  for (const message of messages) {
+    const detailResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Date`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!detailResponse.ok) continue;
+    const detail = await detailResponse.json();
+    const headers = detail.payload?.headers ?? [];
+    const subject = extractHeaderValue(headers, "Subject") || "(no subject)";
+    const from = extractHeaderValue(headers, "From");
+    const to = extractHeaderValue(headers, "To");
+    const senderEmail = parseEmailAddress(from);
+    const senderName = String(from || "").replace(/<.*?>/g, "").trim();
+    const snippet = String(detail.snippet ?? "").trim();
+    const receivedAt = extractHeaderValue(headers, "Date") ? new Date(extractHeaderValue(headers, "Date")).toISOString() : nowIso();
+    const classification = classifyGmailThread({ emailAddress, from, snippet, subject });
+    const brandName = deriveBrandNameFromEmail(senderEmail, senderName);
+
+    db.prepare(
+      `INSERT INTO office_email_threads
+        (id, user_id, worker_slug, provider, subject, participants_json, snippet, received_at, brand_related, category, urgency, confidence, reason, brand_name, contact_name, contact_email, source_message_count, thread_status, raw_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         subject = excluded.subject,
+         participants_json = excluded.participants_json,
+         snippet = excluded.snippet,
+         received_at = excluded.received_at,
+         brand_related = excluded.brand_related,
+         category = excluded.category,
+         urgency = excluded.urgency,
+         confidence = excluded.confidence,
+         reason = excluded.reason,
+         brand_name = excluded.brand_name,
+         contact_name = excluded.contact_name,
+         contact_email = excluded.contact_email,
+         source_message_count = excluded.source_message_count,
+         thread_status = excluded.thread_status,
+         raw_json = excluded.raw_json,
+         updated_at = excluded.updated_at`
+    ).run(
+      String(detail.id),
+      userId,
+      workerSlug,
+      "gmail",
+      subject,
+      JSON.stringify([from, to].filter(Boolean)),
+      snippet,
+      receivedAt,
+      classification.brandRelated ? 1 : 0,
+      classification.category,
+      classification.urgency,
+      classification.brandRelated ? 0.9 : 0.55,
+      classification.reason,
+      brandName,
+      senderName || brandName,
+      senderEmail,
+      1,
+      classification.threadStatus,
+      JSON.stringify(detail),
+      nowIso(),
+      nowIso()
+    );
+    syncedCount += 1;
+  }
+
+  insertMaraSyncJob(userId, "gmail", "gmail_inbox_sync", `Synced ${syncedCount} Gmail message${syncedCount === 1 ? "" : "s"} into Mara's inbox view.`);
+  return { syncedCount };
+}
+
+function extractDraftBrandLabel(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (!text) continue;
+    const directMatch = text.match(/\bfor ([A-Z0-9][A-Za-z0-9&.' -]{1,80})$/);
+    if (directMatch?.[1]) return directMatch[1].trim();
+    const ideaMatch = text.match(/\b(?:reply to|pitch for|follow[- ]up for)\s+([A-Z0-9][A-Za-z0-9&.' -]{1,80})/i);
+    if (ideaMatch?.[1]) return ideaMatch[1].trim();
+  }
+  return "";
+}
+
+function normalizePlaceholderText(value, replacements = {}) {
+  let next = String(value ?? "");
+  for (const [key, replacement] of Object.entries(replacements)) {
+    next = next.replace(new RegExp(`\\[${key}\\]`, "g"), String(replacement ?? ""));
+  }
+  return next
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
+function buildGmailRawMessage({ body, subject, to }) {
+  const headers = [
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: 7bit"
+  ];
+  if (to) headers.push(`To: ${to}`);
+  headers.push(`Subject: ${subject || "(no subject)"}`);
+  return Buffer.from(`${headers.join("\r\n")}\r\n\r\n${String(body ?? "").trim()}\r\n`, "utf8").toString("base64url");
+}
+
+function findBestDraftContact(userId, workerSlug, brandLabel = "") {
+  const normalizedBrand = String(brandLabel ?? "").trim().toLowerCase();
+  if (normalizedBrand) {
+    const campaignMatch = db.prepare(
+      `SELECT brand_name AS brandName, contact_email AS contactEmail, contact_name AS contactName, campaign_name AS subject
+       FROM office_campaigns
+       WHERE user_id = ? AND worker_slug = ? AND lower(brand_name) = lower(?)
+         AND contact_email <> ''
+       ORDER BY updated_at DESC
+       LIMIT 1`
+    ).get(userId, workerSlug, brandLabel);
+    if (campaignMatch) return campaignMatch;
+
+    const threadMatch = db.prepare(
+      `SELECT brand_name AS brandName, contact_email AS contactEmail, contact_name AS contactName, subject
+       FROM office_email_threads
+       WHERE user_id = ? AND worker_slug = ? AND contact_email <> ''
+         AND (lower(brand_name) = ? OR lower(subject) LIKE ?)
+       ORDER BY received_at DESC
+       LIMIT 1`
+    ).get(userId, workerSlug, normalizedBrand, `%${normalizedBrand}%`);
+    if (threadMatch) return threadMatch;
+  }
+
+  return db.prepare(
+    `SELECT brand_name AS brandName, contact_email AS contactEmail, contact_name AS contactName, subject
+     FROM office_email_threads
+     WHERE user_id = ? AND worker_slug = ? AND contact_email <> '' AND brand_related = 1
+     ORDER BY received_at DESC
+     LIMIT 1`
+  ).get(userId, workerSlug);
+}
+
+function buildDraftSpecsFromOutput(outputRow) {
+  const structured = outputRow.structuredContent ?? {};
+  const brandLabel = extractDraftBrandLabel(
+    structured.brandName,
+    outputRow.title,
+    outputRow.taskTitle,
+    outputRow.taskDescription
+  );
+  const contact = findBestDraftContact(outputRow.userId, outputRow.workerId, brandLabel);
+  const resolvedBrand = brandLabel || String(contact?.brandName ?? "Brand").trim();
+  const replacements = {
+    Brand: resolvedBrand,
+    "Your name": outputRow.userName || "Your name"
+  };
+  const drafts = [];
+
+  if (outputRow.outputType === "pitch_template" || outputRow.outputType === "pitch_draft") {
+    drafts.push({
+      body: normalizePlaceholderText(structured.emailPitch || outputRow.content, replacements),
+      subject: normalizePlaceholderText(
+        Array.isArray(structured.subjectLineOptions) ? structured.subjectLineOptions[0] : `UGC idea for ${resolvedBrand}`,
+        replacements
+      ),
+      title: outputRow.outputType === "pitch_draft" ? `Personalized pitch draft for ${resolvedBrand}` : `Pitch template draft for ${resolvedBrand}`,
+      to: String(contact?.contactEmail ?? "").trim()
+    });
+  }
+
+  if (outputRow.outputType === "reply_draft") {
+    drafts.push({
+      body: normalizePlaceholderText(structured.replyDraft || outputRow.content, replacements),
+      subject: String(contact?.subject ?? "").trim() ? `Re: ${String(contact.subject).trim()}` : `Reply for ${resolvedBrand}`,
+      title: `Brand reply draft for ${resolvedBrand}`,
+      to: String(contact?.contactEmail ?? "").trim()
+    });
+  }
+
+  if (outputRow.outputType === "follow_up_sequence") {
+    const followUps = [
+      ["Follow-up 1", structured.followUp1],
+      ["Follow-up 2", structured.followUp2],
+      ["Final close-the-loop", structured.finalCloseLoop]
+    ].filter(([, body]) => String(body ?? "").trim());
+
+    for (const [label, body] of followUps) {
+      drafts.push({
+        body: normalizePlaceholderText(body, replacements),
+        subject: `${label} for ${resolvedBrand}`,
+        title: `${label} draft for ${resolvedBrand}`,
+        to: String(contact?.contactEmail ?? "").trim()
+      });
+    }
+  }
+
+  return drafts;
+}
+
+async function createGmailDraftForOutput(userId, workerSlug, spec) {
+  const { accessToken } = await getFreshGoogleAccessToken(userId, workerSlug, "gmail");
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      message: {
+        raw: buildGmailRawMessage(spec)
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const payload = await response.text();
+    throw new Error(`Gmail draft creation failed with status ${response.status}: ${payload.slice(0, 240)}`);
+  }
+
+  const payload = await response.json();
+  return {
+    createdAt: nowIso(),
+    gmailDraftId: String(payload.id ?? ""),
+    gmailMessageId: String(payload.message?.id ?? ""),
+    subject: spec.subject,
+    title: spec.title,
+    to: spec.to || ""
+  };
+}
+
+async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = []) {
+  const gmail = getWorkerIntegration(userId, workerSlug, "gmail");
+  if (!gmail || gmail.status !== "connected") {
+    return { createdCount: 0, skipped: "gmail_not_connected" };
+  }
+
+  const rows = (outputIds.length > 0
+    ? db.prepare(
+        `SELECT o.id, o.user_id AS userId, o.worker_id AS workerId, o.task_id AS taskId, o.output_type AS outputType,
+                o.title, o.content, o.structured_content_json AS structuredContentJson,
+                t.title AS taskTitle, t.description AS taskDescription,
+                u.name AS userName
+         FROM worker_outputs o
+         LEFT JOIN worker_tasks t ON t.id = o.task_id
+         LEFT JOIN users u ON u.id = o.user_id
+         WHERE o.user_id = ? AND o.worker_id = ? AND o.id IN (${outputIds.map(() => "?").join(",")})
+         ORDER BY o.created_at DESC`
+      ).all(userId, workerSlug, ...outputIds)
+    : [])
+    .map((row) => ({ ...row, structuredContent: parseJson(row.structuredContentJson, {}) }));
+
+  let createdCount = 0;
+
+  for (const row of rows) {
+    if (!["pitch_template", "pitch_draft", "reply_draft", "follow_up_sequence"].includes(String(row.outputType))) {
+      continue;
+    }
+
+    const existingDrafts = Array.isArray(row.structuredContent?.gmailDrafts) ? row.structuredContent.gmailDrafts : [];
+    if (existingDrafts.length > 0) {
+      continue;
+    }
+
+    const draftSpecs = buildDraftSpecsFromOutput(row);
+    if (draftSpecs.length === 0) continue;
+
+    const createdDrafts = [];
+    for (const spec of draftSpecs) {
+      const created = await createGmailDraftForOutput(userId, workerSlug, spec);
+      createdDrafts.push(created);
+    }
+
+    const nextStructured = {
+      ...row.structuredContent,
+      gmailDrafts: createdDrafts
+    };
+
+    db.prepare(
+      `UPDATE worker_outputs
+       SET structured_content_json = ?, updated_at = ?
+       WHERE id = ? AND user_id = ? AND worker_id = ?`
+    ).run(JSON.stringify(nextStructured), nowIso(), row.id, userId, workerSlug);
+
+    createWorkerActivityLog(db, {
+      description: `Saved ${createdDrafts.length} Gmail draft${createdDrafts.length === 1 ? "" : "s"} from ${row.title}.`,
+      eventType: "gmail_draft_created",
+      metadata: { draftCount: createdDrafts.length, outputId: row.id },
+      relatedTaskId: row.taskId ?? null,
+      title: row.title,
+      userId,
+      workerId: workerSlug
+    });
+
+    createdCount += createdDrafts.length;
+  }
+
+  return { createdCount };
 }
 
 function insertMaraSyncJob(userId, provider, jobName, summary, status = "completed") {
@@ -1844,6 +2270,43 @@ function buildMaraExecutionReaders() {
   };
 }
 
+async function runScheduledMaraAutonomy() {
+  if (maraAutonomyRunning) return;
+  maraAutonomyRunning = true;
+  try {
+    const workersToRun = db.prepare(
+      `SELECT DISTINCT hw.user_id AS userId, hw.worker_slug AS workerSlug
+       FROM hired_workers hw
+       INNER JOIN office_onboarding_sessions os
+         ON os.user_id = hw.user_id AND os.worker_slug = hw.worker_slug
+       WHERE hw.status = 'active' AND hw.worker_slug = ? AND os.status = 'completed'`
+    ).all(MARA_SLUG);
+
+    for (const row of workersToRun) {
+      try {
+        const gmail = getWorkerIntegration(row.userId, row.workerSlug, "gmail");
+        if (gmail?.status === "connected") {
+          await syncGmailInbox(row.userId, row.workerSlug);
+        }
+        const summary = await runMaraAutonomyCycle({
+          db,
+          userId: row.userId,
+          workerId: row.workerSlug,
+          ...buildMaraExecutionReaders()
+        });
+        const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+        if (outputIds.length > 0) {
+          await syncMaraGmailDraftsForOutputs(row.userId, row.workerSlug, outputIds);
+        }
+      } catch (error) {
+        console.error(`Scheduled Mara autonomy failed for ${row.userId}:`, error);
+      }
+    }
+  } finally {
+    maraAutonomyRunning = false;
+  }
+}
+
 function mergeKnowledgeSections(existingKnowledge, sectionsToMerge) {
   const next = Array.isArray(existingKnowledge) ? [...existingKnowledge] : [];
 
@@ -2269,6 +2732,38 @@ function getGoogleRedirectUri() {
   return `${appUrl}/api/auth/google/callback`;
 }
 
+function getGmailConnectRedirectUri() {
+  return `${appUrl}/api/office/workers/${MARA_SLUG}/gmail/callback`;
+}
+
+function encodeGoogleStatePayload(payload) {
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function decodeGoogleStatePayload(value) {
+  try {
+    return JSON.parse(Buffer.from(String(value), "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function buildGoogleAuthorizationUrl({ accessType = null, prompt = "select_account", redirectUri, scope, state }) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!isGoogleAuthConfigured() || !clientId) {
+    throw new Error("Google auth is not configured.");
+  }
+  const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authorizationUrl.searchParams.set("client_id", clientId);
+  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("scope", scope);
+  authorizationUrl.searchParams.set("state", state);
+  authorizationUrl.searchParams.set("prompt", prompt);
+  if (accessType) authorizationUrl.searchParams.set("access_type", accessType);
+  return authorizationUrl;
+}
+
 async function exchangeGoogleCodeForTokens(code) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -2307,6 +2802,34 @@ async function fetchGoogleProfile(accessToken) {
 
   if (!response.ok) {
     throw new Error(`Google profile request failed with status ${response.status}.`);
+  }
+
+  return response.json();
+}
+
+async function refreshGoogleAccessToken(refreshToken) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error("Google refresh configuration is incomplete.");
+  }
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google token refresh failed with status ${response.status}.`);
   }
 
   return response.json();
@@ -2456,6 +2979,9 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
       db,
       ...buildMaraExecutionReaders()
     });
+    if (result?.output?.id) {
+      await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, [result.output.id]);
+    }
     res.json({ ok: true, ...result });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not run worker task." });
@@ -2473,6 +2999,9 @@ app.post("/api/workers/mara/tasks/:taskId/run", assertOrigin, requireAuth, async
       workerId: MARA_SLUG,
       ...buildMaraExecutionReaders()
     });
+    if (result?.output?.id) {
+      await syncMaraGmailDraftsForOutputs(req.user.id, MARA_SLUG, [result.output.id]);
+    }
     res.json({ ok: true, ...result });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not run Mara task." });
@@ -2567,30 +3096,14 @@ app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, a
     return;
   }
 
-  ensureMaraIntegrationRecord(req.user.id, provider);
-  updateWorkerPermissions(db, req.user.id, workerSlug, {
-    canDraftOutreach: true,
-    canReadInbox: true,
-    canSendEmailsWithApproval: true,
-    canUseConnectedIntegrations: true
-  });
-  insertMaraSyncJob(req.user.id, provider, "connect_integration", `${provider === "gmail" ? "Gmail" : "Outlook"} marked as available for Mara.`);
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    req.user.id,
-    workerSlug,
-    "Connected integration.",
-    "Integrations",
-    `${provider === "gmail" ? "Gmail" : "Outlook"} access enabled`,
-    nowIso()
-  );
+  if (provider === "outlook") {
+    res.status(501).json({ error: "Outlook is not wired yet. Use Gmail for the first live inbox integration." });
+    return;
+  }
 
   res.json({
     ok: true,
-    dashboard: getMaraDashboard(req.user.id)
+    redirectUrl: `/api/office/workers/${workerSlug}/connect-email/google`
   });
 });
 
@@ -2614,6 +3127,10 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
       workerId: workerSlug,
       ...buildMaraExecutionReaders()
     });
+    const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+    if (outputIds.length > 0) {
+      await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
+    }
     res.json({
       ok: true,
       summary,
@@ -2655,8 +3172,24 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
     return;
   }
 
-  ensureMaraKnowledge(req.user.id);
-  insertMaraSyncJob(req.user.id, "gmail", "generate_daily_mara_brief", "Mara started a fresh scan using connected inbox access.");
+  try {
+    const syncResult = await syncGmailInbox(req.user.id, workerSlug);
+    const summary = await runMaraAutonomyCycle({
+      db,
+      userId: req.user.id,
+      workerId: workerSlug,
+      ...buildMaraExecutionReaders()
+    });
+    const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+    if (outputIds.length > 0) {
+      await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
+    }
+    insertMaraSyncJob(req.user.id, "gmail", "generate_daily_mara_brief", `Mara synced ${syncResult.syncedCount} Gmail message${syncResult.syncedCount === 1 ? "" : "s"} and refreshed her working brief.`);
+  } catch (error) {
+    res.status(502).json({ error: error instanceof Error ? error.message : "Could not sync Gmail right now." });
+    return;
+  }
+
   db.prepare(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -2666,7 +3199,7 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
     MARA_SLUG,
     "Requested inbox scan.",
     "Mara",
-    "Connected inbox is ready for real campaign and thread ingestion",
+    "Connected Gmail inbox synced for real campaign and thread ingestion",
     nowIso()
   );
 
@@ -2933,22 +3466,19 @@ app.get("/api/office/files/:fileId/download", requireAuth, async (req, res) => {
 });
 
 app.get("/api/auth/google", (_req, res) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!isGoogleAuthConfigured() || !clientId) {
+  if (!isGoogleAuthConfigured()) {
     res.status(501).json({ error: "Google auth is not configured." });
     return;
   }
 
-  const state = randomBytes(24).toString("hex");
-  setGoogleStateCookie(res, state);
-
-  const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  authorizationUrl.searchParams.set("client_id", clientId);
-  authorizationUrl.searchParams.set("redirect_uri", getGoogleRedirectUri());
-  authorizationUrl.searchParams.set("response_type", "code");
-  authorizationUrl.searchParams.set("scope", "openid email profile");
-  authorizationUrl.searchParams.set("state", state);
-  authorizationUrl.searchParams.set("prompt", "select_account");
+  const nonce = randomBytes(24).toString("hex");
+  const statePayload = { kind: "auth_login", nonce };
+  setGoogleStateCookie(res, encodeGoogleStatePayload(statePayload));
+  const authorizationUrl = buildGoogleAuthorizationUrl({
+    redirectUri: getGoogleRedirectUri(),
+    scope: "openid email profile",
+    state: nonce
+  });
 
   res.redirect(authorizationUrl.toString());
 });
@@ -2957,10 +3487,11 @@ app.get("/api/auth/google/callback", async (req, res) => {
   const code = String(req.query.code ?? "").trim();
   const state = String(req.query.state ?? "").trim();
   const cookieState = String(req.cookies[googleStateCookieName] ?? "").trim();
+  const statePayload = decodeGoogleStatePayload(cookieState);
 
   clearGoogleStateCookie(res);
 
-  if (!code || !state || !safeEqualStrings(state, cookieState)) {
+  if (!code || !state || !statePayload?.nonce || !safeEqualStrings(state, statePayload.nonce)) {
     res.redirect(`${appUrl}/?notice=google-auth-failed#home`);
     return;
   }
@@ -3008,6 +3539,113 @@ app.get("/api/auth/google/callback", async (req, res) => {
     res.redirect(`${appUrl}/#app/office`);
   } catch {
     res.redirect(`${appUrl}/?notice=google-auth-failed#home`);
+  }
+});
+
+app.get("/api/office/workers/:slug/connect-email/google", requireAuth, (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Gmail connection is only available for Mara right now." });
+    return;
+  }
+
+  const nonce = randomBytes(24).toString("hex");
+  const statePayload = {
+    kind: "gmail_connect",
+    nonce,
+    provider: "gmail",
+    userId: req.user.id,
+    workerSlug
+  };
+  setGoogleStateCookie(res, encodeGoogleStatePayload(statePayload));
+  const authorizationUrl = buildGoogleAuthorizationUrl({
+    accessType: "offline",
+    prompt: "consent",
+    redirectUri: getGmailConnectRedirectUri(),
+    scope: [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.compose"
+    ].join(" "),
+    state: nonce
+  });
+
+  res.redirect(authorizationUrl.toString());
+});
+
+app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const code = String(req.query.code ?? "").trim();
+  const state = String(req.query.state ?? "").trim();
+  const cookieState = String(req.cookies[googleStateCookieName] ?? "").trim();
+  const statePayload = decodeGoogleStatePayload(cookieState);
+
+  clearGoogleStateCookie(res);
+
+  if (
+    !code ||
+    !state ||
+    !statePayload?.nonce ||
+    statePayload.kind !== "gmail_connect" ||
+    statePayload.provider !== "gmail" ||
+    statePayload.workerSlug !== workerSlug ||
+    !safeEqualStrings(state, statePayload.nonce)
+  ) {
+    res.redirect(`${appUrl}/?notice=gmail-connect-failed#app/office`);
+    return;
+  }
+
+  if (!hasHiredWorker(statePayload.userId, workerSlug)) {
+    res.redirect(`${appUrl}/?notice=gmail-connect-failed#app/office`);
+    return;
+  }
+
+  try {
+    const tokens = await exchangeGoogleCodeForTokens(code);
+    const profile = await fetchGoogleProfile(String(tokens.access_token ?? ""));
+    const gmailProfileResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+      headers: {
+        Authorization: `Bearer ${String(tokens.access_token ?? "")}`
+      }
+    });
+    const gmailProfile = gmailProfileResponse.ok ? await gmailProfileResponse.json() : {};
+    const emailAddress = String(gmailProfile.emailAddress ?? profile.email ?? "").trim();
+    const nextMetadata = {
+      accessToken: String(tokens.access_token ?? ""),
+      emailAddress,
+      expiresAt: new Date(Date.now() + Number(tokens.expires_in ?? 3600) * 1000).toISOString(),
+      refreshToken: String(tokens.refresh_token ?? "").trim()
+    };
+    upsertWorkerIntegration(statePayload.userId, workerSlug, "gmail", "connected", "Gmail inbox", nextMetadata);
+    updateWorkerPermissions(db, statePayload.userId, workerSlug, {
+      canDraftOutreach: true,
+      canReadInbox: true,
+      canSendEmailsWithApproval: true,
+      canUseConnectedIntegrations: true
+    });
+    await syncGmailInbox(statePayload.userId, workerSlug);
+    const summary = await runMaraAutonomyCycle({
+      db,
+      userId: statePayload.userId,
+      workerId: workerSlug,
+      ...buildMaraExecutionReaders()
+    });
+    const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+    if (outputIds.length > 0) {
+      await syncMaraGmailDraftsForOutputs(statePayload.userId, workerSlug, outputIds);
+    }
+    res.redirect(`${appUrl}/?notice=gmail-connected#app/office/desk/${workerSlug}`);
+  } catch (error) {
+    console.error("Gmail connect failed:", error);
+    res.redirect(`${appUrl}/?notice=gmail-connect-failed#app/office`);
   }
 });
 
@@ -3497,6 +4135,10 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
       workerId: workerSlug,
       ...buildMaraExecutionReaders()
     });
+    const executedOutputIds = executedResults.map((result) => result?.output?.id).filter(Boolean);
+    if (executedOutputIds.length > 0) {
+      await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, executedOutputIds);
+    }
 
     for (const result of executedResults) {
       if (result?.task?.id) {
@@ -4133,20 +4775,28 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
         });
       }
 
-      autoExecuteSafeMaraTasks({
+      const starterResults = autoExecuteSafeMaraTasks({
         db,
         taskIds: createdTaskIds,
         userId: req.user.id,
         workerId: workerSlug,
         ...buildMaraExecutionReaders()
       });
+      const starterOutputIds = starterResults.map((result) => result?.output?.id).filter(Boolean);
+      if (starterOutputIds.length > 0) {
+        await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, starterOutputIds);
+      }
 
-      await runMaraAutonomyCycle({
+      const summary = await runMaraAutonomyCycle({
         db,
         userId: req.user.id,
         workerId: workerSlug,
         ...buildMaraExecutionReaders()
       });
+      const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+      if (outputIds.length > 0) {
+        await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
+      }
     }
   }
 
@@ -4184,4 +4834,12 @@ app.use(async (req, res, next) => {
 
 app.listen(port, host, () => {
   console.log(`Ryva API listening on http://${host}:${port}`);
+  if (maraAutonomyIntervalMinutes > 0) {
+    const intervalMs = maraAutonomyIntervalMinutes * 60 * 1000;
+    maraAutonomyTimer = setInterval(() => {
+      void runScheduledMaraAutonomy();
+    }, intervalMs);
+    void runScheduledMaraAutonomy();
+    console.log(`Mara autonomy scheduler enabled every ${maraAutonomyIntervalMinutes} minute(s).`);
+  }
 });

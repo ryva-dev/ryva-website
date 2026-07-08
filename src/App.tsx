@@ -342,6 +342,14 @@ export default function App() {
       setIsAuthModalOpen(true);
     }
 
+    if (notice === "gmail-connected") {
+      setGlobalNotice("Gmail connected. Mara can now sync real inbox work.");
+    }
+
+    if (notice === "gmail-connect-failed") {
+      setGlobalNotice("Gmail connection could not be completed. Please try again.");
+    }
+
     if (resetTokenFromUrl) {
       setResetToken(resetTokenFromUrl);
       setIsAuthModalOpen(true);
