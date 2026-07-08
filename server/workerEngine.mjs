@@ -2013,6 +2013,79 @@ function countBrandResearchItemsToday(db, userId, workerId) {
   return Number(row?.count || 0);
 }
 
+function safeSelectAll(db, query, params = []) {
+  try {
+    return db.prepare(query).all(...params);
+  } catch {
+    return [];
+  }
+}
+
+function buildResearchSnapshot(db, userId, workerId, researchItems) {
+  const todayThreshold = startOfUtcDayIso();
+  const todaysResearch = researchItems
+    .filter((item) => String(item.createdAt || "") >= todayThreshold)
+    .slice(0, 8);
+  const brandResearch = todaysResearch.filter((item) => item.sourceType === "web_brand");
+  const redditSignals = todaysResearch.filter((item) => item.sourceType === "reddit_signal");
+
+  return {
+    brandsFoundToday: brandResearch.map((item) => ({
+      id: item.id,
+      summary: String(item.summary || "").trim(),
+      title: item.topic
+    })).slice(0, 5),
+    dailyCap: MARA_DAILY_BRAND_RESEARCH_LIMIT,
+    redditSignalsToday: redditSignals.map((item) => ({
+      id: item.id,
+      summary: String(item.summary || "").trim(),
+      title: item.topic
+    })).slice(0, 5),
+    researchedTodayCount: brandResearch.length
+  };
+}
+
+function buildInboxLeadSnapshot(db, userId, workerId) {
+  const threads = safeSelectAll(
+    db,
+    `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, thread_status AS threadStatus,
+            urgency, subject, snippet, received_at AS receivedAt
+     FROM office_email_threads
+     WHERE user_id = ? AND worker_slug = ? AND brand_related = 1
+     ORDER BY received_at DESC
+     LIMIT 40`,
+    [userId, workerId]
+  );
+
+  if (threads.length === 0) {
+    return {
+      items: [],
+      counts: {},
+      urgentCount: 0
+    };
+  }
+
+  const counts = threads.reduce((acc, thread) => {
+    const status = String(thread.threadStatus || "unknown");
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    counts,
+    items: threads.slice(0, 5).map((thread) => ({
+      brandName: thread.brandName || thread.subject || "Unknown brand",
+      contactEmail: thread.contactEmail || "",
+      contactName: thread.contactName || "",
+      snippet: String(thread.snippet || "").trim(),
+      status: String(thread.threadStatus || "unknown"),
+      subject: thread.subject,
+      urgency: thread.urgency || "low"
+    })),
+    urgentCount: threads.filter((thread) => String(thread.urgency || "").toLowerCase() === "high").length
+  };
+}
+
 function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, workerId }) {
   const plan = buildMaraInitialWorkPlan({ accountContext, maraAnswers });
   const existingTasks = listWorkerTasksForUserWorker(db, userId, workerId);
@@ -3020,6 +3093,8 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
   const approvals = listApprovalRequests(db, userId, workerId).filter((request) => request.status === "pending");
   const recurringResponsibilities = listRecurringResponsibilities(db, userId, workerId);
   const researchItems = listResearchItems(db, userId, workerId);
+  const researchSnapshot = buildResearchSnapshot(db, userId, workerId, researchItems);
+  const inboxLeadSnapshot = buildInboxLeadSnapshot(db, userId, workerId);
   const permissions = getWorkerPermissions(db, userId, workerId);
   const whatMaraKnows = typeof readKnowledgeSections === "function" ? readKnowledgeSections(userId, workerId) : [];
   const recentActivity = db
@@ -3244,6 +3319,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     completedWork: workerOutputs,
     currentFocus,
     currentWork,
+    inboxLeadSnapshot,
     latestOutputs,
     openTasks,
     pendingApprovals: approvals,
@@ -3255,6 +3331,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     recurringResponsibilities,
     recommendedNextActions,
     researchItems,
+    researchSnapshot,
     runnableTasks,
     waitingOnUser,
     whatMaraKnows: whatMaraKnows

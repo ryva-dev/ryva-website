@@ -116,6 +116,19 @@ type MaraWorkspace = {
   blockedTasks: MaraWorkspaceTask[];
   currentFocus: string;
   currentWork: MaraWorkspaceTask | null;
+  inboxLeadSnapshot: {
+    counts: Record<string, number>;
+    items: Array<{
+      brandName: string;
+      contactEmail: string;
+      contactName: string;
+      snippet: string;
+      status: string;
+      subject: string;
+      urgency: string;
+    }>;
+    urgentCount: number;
+  };
   latestOutputs: MaraWorkspaceOutput[];
   pendingApprovals: MaraWorkspaceApproval[];
   recentActivity: MaraWorkspaceActivity[];
@@ -134,6 +147,12 @@ type MaraWorkspace = {
   recommendedNextActions: string[];
   recommendedNextTaskToRun: MaraWorkspaceTask | null;
   researchItems: Array<{ id: string; topic: string; status: string }>;
+  researchSnapshot: {
+    brandsFoundToday: Array<{ id: string; title: string; summary: string }>;
+    dailyCap: number;
+    redditSignalsToday: Array<{ id: string; title: string; summary: string }>;
+    researchedTodayCount: number;
+  };
   runnableTasks: MaraWorkspaceTask[];
   waitingOnUser: MaraWorkspaceWaitingItem[];
   whatMaraKnows: MaraWorkspaceKnowledge[];
@@ -177,6 +196,10 @@ type WorkerDesk = {
   waitingOnUser: Array<{ id: string; title: string; summary: string; actionLabel?: string }>;
   recentCompleted: WorkerDeskDeliverable[];
   recentActivity: WorkerDeskActivity[];
+  researchToday: Array<{ id: string; title: string; summary: string }>;
+  redditSignals: Array<{ id: string; title: string; summary: string }>;
+  inboxLeads: Array<{ brandName: string; contactName: string; contactEmail: string; status: string; snippet: string; urgency: string }>;
+  inboxStatusCounts: Record<string, number>;
   approvals: WorkerDeskApproval[];
   memory: WorkerDeskMemory[];
   connectedTools: Array<{ provider: string; status: string; label: string }>;
@@ -436,10 +459,29 @@ function buildWorkerDesk(
     connectedTools,
     currentFocus: workspace?.currentFocus || fallbackFocus,
     currentFocusReason: workspace?.currentWork?.description || inMotion[0]?.summary || `${worker.name.split(" ")[0]} is available for the next piece of work.`,
+    inboxLeads: workspace?.inboxLeadSnapshot?.items.map((item) => ({
+      brandName: item.brandName,
+      contactEmail: item.contactEmail,
+      contactName: item.contactName,
+      snippet: normalizeOfficeCopy(item.snippet || item.subject),
+      status: sentenceCase(item.status.replace(/_/g, " ")),
+      urgency: item.urgency
+    })) ?? [],
+    inboxStatusCounts: workspace?.inboxLeadSnapshot?.counts ?? {},
     memory: memory.slice(0, 5),
     recentActivity: recentActivity.slice(0, 5),
     recentCompleted: outputs.slice(0, 3),
+    redditSignals: workspace?.researchSnapshot?.redditSignalsToday.map((item) => ({
+      id: item.id,
+      summary: normalizeOfficeCopy(item.summary),
+      title: item.title
+    })) ?? [],
     recommendedNext: workspace?.recommendedNext?.label || waitingFromWorkspace[0]?.title || inMotion[0]?.title || null,
+    researchToday: workspace?.researchSnapshot?.brandsFoundToday.map((item) => ({
+      id: item.id,
+      summary: normalizeOfficeCopy(item.summary),
+      title: item.title
+    })) ?? [],
     waitingOnUser: (waitingFromWorkspace.length > 0 ? waitingFromWorkspace : waitingFallback).slice(0, 3),
     workInMotion: inMotion.slice(0, 3)
   };
@@ -562,6 +604,12 @@ function TodayView({
     })
     .filter((entry) => entry.worker)
     .slice(0, 4);
+  const researchUpdates = desks
+    .flatMap((desk) => desk.researchToday.map((item) => ({ ...item, workerSlug: desk.workerSlug })))
+    .slice(0, 5);
+  const inboxUpdates = desks
+    .flatMap((desk) => desk.inboxLeads.map((item, index) => ({ ...item, id: `${desk.workerSlug}-${index}`, workerSlug: desk.workerSlug })))
+    .slice(0, 5);
   const todayCalStart = 7;
   const todayCalEnd = 21;
   const todayCalHours = Array.from({ length: todayCalEnd - todayCalStart }, (_, index) => todayCalStart + index);
@@ -705,6 +753,57 @@ function TodayView({
           </div>
         )}
       </section>
+
+      <section className="ro-sec">
+        <div className="ro-sec-head">
+          <h2>What your team uncovered</h2>
+          <span className="ro-sec-n">{researchUpdates.length === 0 ? "Quiet" : researchUpdates.length}</span>
+        </div>
+        {researchUpdates.length === 0 ? (
+          <p className="ro-blank">Fresh research and lead work will show up here once your workers complete it.</p>
+        ) : (
+          <div className="ro-rows">
+            {researchUpdates.map((item) => (
+              <button key={item.id} className="ro-row" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
+                <div className="ro-row-copy">
+                  <strong>{item.title}</strong>
+                  <p>{item.summary}</p>
+                </div>
+                <div className="ro-row-end">
+                  <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
+                  <span className="ro-row-cta">Open desk</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="ro-sec">
+        <div className="ro-sec-head">
+          <h2>Lead movement</h2>
+          <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/chat")}>Open chat</button>
+        </div>
+        {inboxUpdates.length === 0 ? (
+          <p className="ro-blank">Connected inbox work and lead status changes will show up here.</p>
+        ) : (
+          <div className="ro-rows">
+            {inboxUpdates.map((item) => (
+              <button key={item.id} className="ro-row" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
+                <div className="ro-row-copy">
+                  <strong>{item.brandName}</strong>
+                  <p>{item.status}{item.contactName ? ` · ${item.contactName}` : ""}</p>
+                  <p className="ro-worker-snapshot-sub">{item.snippet}</p>
+                </div>
+                <div className="ro-row-end">
+                  <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
+                  <span className="ro-row-cta">Open desk</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -832,6 +931,49 @@ function WorkerDeskSections({
           </div>
         ) : (
           <p className="ro-worker-note">Ready for the next assignment.</p>
+        )}
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Research completed today</strong>
+          <span>{desk.researchToday.length === 0 ? "Nothing yet" : `${desk.researchToday.length} found`}</span>
+        </div>
+        {desk.researchToday.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.researchToday.map((item) => (
+              <div className="ro-plain-row" key={item.id}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.summary}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ro-worker-note">No fresh research findings have been saved yet today.</p>
+        )}
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Lead status</strong>
+          <span>{desk.inboxLeads.length === 0 ? "No inbox map yet" : `${desk.inboxLeads.length} tracked`}</span>
+        </div>
+        {desk.inboxLeads.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.inboxLeads.map((item) => (
+              <div className="ro-plain-row" key={`${item.brandName}-${item.contactEmail || item.contactName}`}>
+                <div>
+                  <strong>{item.brandName}</strong>
+                  <p>{item.status}{item.contactName ? ` · ${item.contactName}` : ""}</p>
+                  <p>{item.snippet}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ro-worker-note">Connect Gmail and let Mara sync inbox work to organize lead status here.</p>
         )}
       </section>
 

@@ -955,6 +955,98 @@ function classifyGmailThread({ emailAddress, from, snippet, subject }) {
   return { brandRelated, category, reason, threadStatus, urgency };
 }
 
+function mapThreadStatusToCampaignStatus(threadStatus) {
+  const status = String(threadStatus || "").toLowerCase();
+  if (status === "awaiting_reply") return "awaiting_reply";
+  if (status === "outbound") return "pitched";
+  if (status === "brief_received") return "brief_received";
+  if (status === "needs_follow_up") return "follow_up_due";
+  return "active_thread";
+}
+
+function syncInboxThreadsToCampaigns(userId, workerSlug) {
+  const brandThreads = db.prepare(
+    `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, subject, snippet,
+            received_at AS receivedAt, urgency, thread_status AS threadStatus, id
+     FROM office_email_threads
+     WHERE user_id = ? AND worker_slug = ? AND brand_related = 1
+     ORDER BY received_at DESC`
+  ).all(userId, workerSlug);
+
+  const seenBrands = new Set();
+  let syncedCount = 0;
+
+  for (const thread of brandThreads) {
+    const brandKey = String(thread.brandName || thread.contactEmail || thread.subject || "").trim().toLowerCase();
+    if (!brandKey || seenBrands.has(brandKey)) continue;
+    seenBrands.add(brandKey);
+
+    const existing = db.prepare(
+      `SELECT id
+       FROM office_campaigns
+       WHERE user_id = ? AND worker_slug = ? AND brand_name = ? AND contact_email = ?
+       LIMIT 1`
+    ).get(userId, workerSlug, thread.brandName || "Unknown brand", thread.contactEmail || "");
+
+    if (existing) {
+      db.prepare(
+        `UPDATE office_campaigns
+         SET campaign_name = ?, campaign_status = ?, source_thread_id = ?, brief_text = ?, notes = ?, updated_at = ?
+         WHERE id = ?`
+      ).run(
+        thread.subject || `${thread.brandName || "Brand"} outreach`,
+        mapThreadStatusToCampaignStatus(thread.threadStatus),
+        thread.id,
+        thread.snippet || "",
+        `Synced from Gmail thread: ${thread.subject || thread.brandName || "Inbox thread"}`,
+        nowIso(),
+        existing.id
+      );
+      syncedCount += 1;
+      continue;
+    }
+
+    db.prepare(
+      `INSERT INTO office_campaigns
+        (id, user_id, worker_slug, brand_name, brand_website, contact_name, contact_email, product_name, campaign_name,
+         campaign_status, source_thread_id, deliverables_json, brief_text, draft_due_date, final_due_date, payment_amount,
+         payment_status, usage_rights, usage_rights_status, revision_limit, raw_footage_required, missing_fields_json,
+         risk_flags_json, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      userId,
+      workerSlug,
+      thread.brandName || "Unknown brand",
+      "",
+      thread.contactName || "",
+      thread.contactEmail || "",
+      "",
+      thread.subject || `${thread.brandName || "Brand"} outreach`,
+      mapThreadStatusToCampaignStatus(thread.threadStatus),
+      thread.id,
+      JSON.stringify([]),
+      thread.snippet || "",
+      null,
+      null,
+      "",
+      "unknown",
+      "",
+      "needs_review",
+      "",
+      0,
+      JSON.stringify([]),
+      JSON.stringify(thread.urgency === "high" ? ["urgent_thread"] : []),
+      `Synced from Gmail thread: ${thread.subject || thread.brandName || "Inbox thread"}`,
+      nowIso(),
+      nowIso()
+    );
+    syncedCount += 1;
+  }
+
+  return { syncedCount };
+}
+
 async function syncGmailInbox(userId, workerSlug) {
   const { accessToken, emailAddress } = await getFreshGoogleAccessToken(userId, workerSlug, "gmail");
   const listResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=newer_than:60d", {
@@ -1034,7 +1126,8 @@ async function syncGmailInbox(userId, workerSlug) {
   }
 
   insertMaraSyncJob(userId, "gmail", "gmail_inbox_sync", `Synced ${syncedCount} Gmail message${syncedCount === 1 ? "" : "s"} into Mara's inbox view.`);
-  return { syncedCount };
+  const campaignSync = syncInboxThreadsToCampaigns(userId, workerSlug);
+  return { campaignSyncCount: campaignSync.syncedCount, syncedCount };
 }
 
 function extractDraftBrandLabel(...values) {
