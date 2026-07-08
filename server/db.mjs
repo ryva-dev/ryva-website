@@ -146,6 +146,11 @@ export function ensureOfficeSchema() {
   ensureColumn("office_handbook_entries", "statement", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("office_handbook_entries", "created_at", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("office_handbook_entries", "updated_at", "TEXT NOT NULL DEFAULT ''");
+
+  ensureColumn("office_email_threads", "gmail_thread_id", "TEXT");
+  ensureColumn("office_email_threads", "body_text", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_email_threads", "parsed_at", "TEXT");
+  ensureColumn("office_campaigns", "last_parsed_at", "TEXT");
 }
 
 db.exec(`
@@ -552,12 +557,6 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 `);
-
-  ensureColumn("office_email_threads", "gmail_thread_id", "TEXT");
-  ensureColumn("office_email_threads", "body_text", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn("office_email_threads", "parsed_at", "TEXT");
-  ensureColumn("office_campaigns", "last_parsed_at", "TEXT");
-}
 
 ensureOfficeSchema();
 initWorkerTables(db);
