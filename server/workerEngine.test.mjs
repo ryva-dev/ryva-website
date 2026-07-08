@@ -25,8 +25,10 @@ import {
   listWorkerTasksForUserWorker,
   MARA_WORKER_ID,
   runMaraActionDetector,
+  runMaraAutonomyCycle,
   runMaraTask,
   runWorkerTask,
+  updateWorkerPermissions,
   updateApprovalRequestStatus
 } from "./workerEngine.mjs";
 
@@ -82,6 +84,7 @@ function makeExecutionReaders(overrides = {}) {
     readConnectedIntegrations: () => [],
     readMaraOnboarding: () => ({ answers: { approval_rules: "Ask before sending anything external." }, generatedSummary: [] }),
     readMessages: () => [],
+    readPrivateInsights: () => null,
     readWorkerKnowledge: () => [{ title: "Preferences", items: ["Keep outreach short and confident."] }],
     ...overrides
   };
@@ -96,6 +99,19 @@ test("worker permissions default correctly for Mara", () => {
   assert.equal(permissions.canRunResearch, true);
   assert.equal(permissions.canReadInbox, false);
   assert.equal(permissions.canSendEmailsWithoutApproval, false);
+});
+
+test("worker permissions can be updated after integration connect", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const updated = updateWorkerPermissions(db, "user-1", MARA_WORKER_ID, {
+    canReadInbox: true,
+    canSendEmailsWithApproval: true,
+    canUseConnectedIntegrations: true
+  });
+  assert.equal(updated.canReadInbox, true);
+  assert.equal(updated.canSendEmailsWithApproval, true);
+  assert.equal(updated.canUseConnectedIntegrations, true);
 });
 
 test("onboarding completion plan generates Mara work items", () => {
@@ -673,6 +689,32 @@ test("content idea batch execution includes content strategy knowledge", () => {
   assert.ok(result.output.structuredContent.ideas.some((idea) => /Problem-first|Why this works|Before you buy/.test(idea.hook)));
 });
 
+test("content idea batch execution uses private creator-search insights when present", () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Create a first content idea batch.",
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "content_idea_batch",
+    title: "Create first content idea batch",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = runMaraTask({
+    db,
+    taskId: created.id,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders({
+      readPrivateInsights: () => ({
+        contentGaps: [{ label: "ingredient education" }, { label: "day-in-the-life proof" }]
+      })
+    })
+  });
+  assert.ok(result.output.structuredContent.privateContentGapsUsed.includes("ingredient education"));
+});
+
 test("brand fit criteria execution includes brand research knowledge", () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
@@ -777,4 +819,123 @@ test("Mara outputs do not claim live research was performed", () => {
   });
   const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.doesNotMatch(result.output.content, /I checked TikTok trends|Reddit/i);
+});
+
+test("runMaraAutonomyCycle creates deliverables and research-backed tasks", async () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID, {
+    canReadInbox: true,
+    canSendEmailsWithApproval: true,
+    canUseConnectedIntegrations: true
+  });
+  db.prepare(
+    `CREATE TABLE office_email_threads (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_slug TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      participants_json TEXT NOT NULL,
+      snippet TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      brand_related INTEGER NOT NULL DEFAULT 0,
+      category TEXT NOT NULL,
+      urgency TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      contact_name TEXT NOT NULL,
+      contact_email TEXT NOT NULL,
+      source_message_count INTEGER NOT NULL DEFAULT 0,
+      thread_status TEXT NOT NULL,
+      raw_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`
+  ).run();
+  db.prepare(
+    `INSERT INTO office_email_threads
+      (id, user_id, worker_slug, provider, subject, participants_json, snippet, received_at, brand_related, category, urgency, confidence, reason, brand_name, contact_name, contact_email, source_message_count, thread_status, raw_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    "thread-1",
+    "user-1",
+    MARA_WORKER_ID,
+    "gmail",
+    "Glow Theory follow-up",
+    JSON.stringify(["brand@example.com"]),
+    "Need revised deliverables and timing.",
+    new Date().toISOString(),
+    1,
+    "outreach",
+    "high",
+    0.91,
+    "Likely brand thread",
+    "Glow Theory",
+    "Taylor",
+    "brand@example.com",
+    2,
+    "awaiting_reply",
+    "{}",
+    new Date().toISOString(),
+    new Date().toISOString()
+  );
+
+  const mockFetch = async (url) => {
+    if (String(url).includes("duckduckgo.com")) {
+      return {
+        ok: true,
+        text: async () => `
+          <a class="result__a" href="https://examplebrand.com">Example Brand</a>
+          <a class="result__a" href="https://secondbrand.com">Second Brand</a>
+        `
+      };
+    }
+    if (String(url).includes("reddit.com")) {
+      return {
+        ok: true,
+        text: async () => JSON.stringify({
+          data: {
+            children: [
+              { data: { title: "Creators are struggling with ingredient education hooks", permalink: "/r/ugc/comments/1" } }
+            ]
+          }
+        })
+      };
+    }
+    return {
+      ok: true,
+      text: async () => `
+        <html>
+          <head>
+            <title>Example Brand | Skincare</title>
+            <meta name="description" content="A skincare brand built around simple routines and founder-led education." />
+          </head>
+          <body></body>
+        </html>
+      `
+    };
+  };
+
+  const summary = await runMaraAutonomyCycle({
+    db,
+    fetchImpl: mockFetch,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders({
+      readConnectedIntegrations: () => [{ provider: "gmail", status: "connected", accountLabel: "Gmail inbox", metadata: {} }],
+      readMaraOnboarding: () => ({
+        answers: { approval_rules: "Ask before sending anything external." },
+        generatedSummary: [],
+        status: "completed"
+      }),
+      readPrivateInsights: () => ({
+        contentGaps: [{ label: "ingredient education" }, { label: "before-and-after honesty" }]
+      })
+    })
+  });
+
+  assert.ok(summary.outputs.length > 0);
+  assert.ok(listWorkerOutputs(db, "user-1", MARA_WORKER_ID).some((output) => output.title === "Daily brand research digest"));
+  assert.ok(listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID).some((task) => /personalized pitch/i.test(task.title)));
 });

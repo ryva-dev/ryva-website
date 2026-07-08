@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import Stripe from "stripe";
 import { fileURLToPath } from "node:url";
@@ -27,8 +28,10 @@ import {
   listWorkerTasksForUserWorker,
   MARA_ROLE_DEFINITION,
   runMaraActionDetector,
+  runMaraAutonomyCycle,
   runMaraTask,
   runWorkerTask,
+  updateWorkerPermissions,
   updateApprovalRequestStatus
 } from "./workerEngine.mjs";
 
@@ -41,6 +44,11 @@ const storageRoot =
   process.env.RAILWAY_VOLUME_MOUNT_PATH ||
   path.join(rootDir, "data");
 const uploadsDir = path.join(storageRoot, "office-uploads");
+const privateInsightsPath = process.env.MARA_PRIVATE_INSIGHTS_PATH
+  ? path.isAbsolute(process.env.MARA_PRIVATE_INSIGHTS_PATH)
+    ? process.env.MARA_PRIVATE_INSIGHTS_PATH
+    : path.resolve(rootDir, process.env.MARA_PRIVATE_INSIGHTS_PATH)
+  : path.join(storageRoot, "private", "mara-tiktok-creator-search-insights.json");
 const sessionCookieName = "ryva_session";
 const googleStateCookieName = "ryva_google_oauth_state";
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 7;
@@ -59,6 +67,7 @@ if (isProduction && !process.env.APP_URL) {
 }
 
 await fs.mkdir(uploadsDir, { recursive: true });
+await fs.mkdir(path.dirname(privateInsightsPath), { recursive: true });
 
 if (
   (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_WEBHOOK_SECRET) ||
@@ -1815,12 +1824,22 @@ function readWorkerRecentMessages(userId, workerSlug) {
     .reverse();
 }
 
+function readMaraPrivateInsights() {
+  try {
+    const raw = readFileSync(privateInsightsPath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 function buildMaraExecutionReaders() {
   return {
     readAccountContext: getUserOnboardingRecord,
     readConnectedIntegrations: readWorkerIntegrationMetadata,
     readMaraOnboarding: readMaraOnboardingAnswers,
     readMessages: readWorkerRecentMessages,
+    readPrivateInsights: readMaraPrivateInsights,
     readWorkerKnowledge: readWorkerKnowledgeSections
   };
 }
@@ -2549,6 +2568,12 @@ app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, a
   }
 
   ensureMaraIntegrationRecord(req.user.id, provider);
+  updateWorkerPermissions(db, req.user.id, workerSlug, {
+    canDraftOutreach: true,
+    canReadInbox: true,
+    canSendEmailsWithApproval: true,
+    canUseConnectedIntegrations: true
+  });
   insertMaraSyncJob(req.user.id, provider, "connect_integration", `${provider === "gmail" ? "Gmail" : "Outlook"} marked as available for Mara.`);
   db.prepare(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
@@ -2567,6 +2592,39 @@ app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, a
     ok: true,
     dashboard: getMaraDashboard(req.user.id)
   });
+});
+
+app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Autonomy runs are only available for Mara right now." });
+    return;
+  }
+
+  try {
+    const summary = await runMaraAutonomyCycle({
+      db,
+      userId: req.user.id,
+      workerId: workerSlug,
+      ...buildMaraExecutionReaders()
+    });
+    res.json({
+      ok: true,
+      summary,
+      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+        readKnowledgeSections: readWorkerKnowledgeSections,
+        readOfficeOverlays: readOfficeOverlaysForUser
+      })
+    });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not run Mara autonomy." });
+  }
 });
 
 app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async (req, res) => {
@@ -4078,6 +4136,13 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       autoExecuteSafeMaraTasks({
         db,
         taskIds: createdTaskIds,
+        userId: req.user.id,
+        workerId: workerSlug,
+        ...buildMaraExecutionReaders()
+      });
+
+      await runMaraAutonomyCycle({
+        db,
         userId: req.user.id,
         workerId: workerSlug,
         ...buildMaraExecutionReaders()

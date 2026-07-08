@@ -46,17 +46,34 @@ const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "brand_fit_criteria",
   "content_idea_batch",
   "creator_positioning",
+  "draft_brand_reply",
+  "follow_up_sequence",
+  "personalized_pitch",
   "pitch_template"
 ]);
 
+export const MARA_REDDIT_COMMUNITIES = [
+  "ugc",
+  "UGCSideHustle",
+  "UGCcreators",
+  "UGCUNIVERSITY",
+  "influencermarketing",
+  "socialmedia",
+  "TikTokMarketing"
+];
+
+const MARA_DAILY_BRAND_RESEARCH_LIMIT = 5;
+
 const TASK_TYPE_OUTPUT_TYPE_MAP = {
   brand_fit_criteria: "brand_criteria",
+  brand_research_digest: "summary",
   brand_tracker_structure: "tracker_structure",
   content_idea_batch: "content_ideas",
   creator_positioning: "creator_positioning",
   draft_brand_reply: "reply_draft",
   follow_up_sequence: "follow_up_sequence",
   general_internal_task: "summary",
+  inbox_status_digest: "summary",
   outreach_strategy: "strategy",
   pasted_message_analysis: "message_analysis",
   personalized_pitch: "pitch_draft",
@@ -674,6 +691,36 @@ export function ensureWorkerPermissions(db, userId, workerId, overrides = {}) {
   return getWorkerPermissions(db, userId, workerId);
 }
 
+export function updateWorkerPermissions(db, userId, workerId, overrides = {}) {
+  const current = ensureWorkerPermissions(db, userId, workerId);
+  const next = { ...current, ...overrides };
+  const timestamp = new Date().toISOString();
+  db.prepare(
+    `UPDATE worker_permissions
+     SET can_suggest_tasks = ?, can_create_tasks = ?, can_run_research = ?, can_create_recurring_responsibilities = ?,
+         can_draft_outreach = ?, can_read_inbox = ?, can_send_emails_with_approval = ?, can_send_emails_without_approval = ?,
+         can_update_external_trackers = ?, can_use_connected_integrations = ?, approval_required_for_external_actions = ?,
+         updated_at = ?
+     WHERE user_id = ? AND worker_id = ?`
+  ).run(
+    boolToInt(next.canSuggestTasks),
+    boolToInt(next.canCreateTasks),
+    boolToInt(next.canRunResearch),
+    boolToInt(next.canCreateRecurringResponsibilities),
+    boolToInt(next.canDraftOutreach),
+    boolToInt(next.canReadInbox),
+    boolToInt(next.canSendEmailsWithApproval),
+    boolToInt(next.canSendEmailsWithoutApproval),
+    boolToInt(next.canUpdateExternalTrackers),
+    boolToInt(next.canUseConnectedIntegrations),
+    boolToInt(next.approvalRequiredForExternalActions),
+    timestamp,
+    userId,
+    workerId
+  );
+  return getWorkerPermissions(db, userId, workerId);
+}
+
 export function getWorkerPermissions(db, userId, workerId) {
   const record = db
     .prepare(
@@ -1070,10 +1117,12 @@ function getStructuredList(module, key, fallback = []) {
 
 export function buildMaraExecutionContext({
   db,
+  fetchImpl,
   readAccountContext,
   readConnectedIntegrations,
   readMessages,
   readMaraOnboarding,
+  readPrivateInsights,
   readWorkerKnowledge,
   taskId,
   userId,
@@ -1097,9 +1146,14 @@ export function buildMaraExecutionContext({
     accountContext: typeof readAccountContext === "function" ? readAccountContext(userId) : null,
     connectedIntegrations: typeof readConnectedIntegrations === "function" ? readConnectedIntegrations(userId, workerId) : [],
     currentTask: task,
+    fetchImpl: typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch,
     permissions: getWorkerPermissions(db, userId, workerId),
     previousOutputs: listWorkerOutputs(db, userId, workerId),
+    privateInsights: typeof readPrivateInsights === "function" ? readPrivateInsights(userId, workerId) : null,
     relevantKnowledgeModules,
+    relatedResearch: listResearchItems(db, userId, workerId).filter((item) =>
+      (task.evidenceUsed || []).some((evidence) => String(evidence).trim() === `research:${item.id}`)
+    ),
     recentActivity: db
       .prepare(
         `SELECT id, event_type AS eventType, title, description, created_at AS createdAt
@@ -1121,6 +1175,35 @@ export function buildMaraExecutionContext({
 
 function getKnowledgeModule(context, category) {
   return (context.relevantKnowledgeModules || []).find((module) => module.category === category) ?? null;
+}
+
+function extractPrivateInsightItems(privateInsights) {
+  if (!privateInsights) return [];
+  if (Array.isArray(privateInsights)) {
+    return privateInsights.map((item) => String(item?.contentGap || item?.summary || item?.title || item).trim()).filter(Boolean);
+  }
+  if (Array.isArray(privateInsights.contentGaps)) {
+    return privateInsights.contentGaps.map((item) => String(item?.label || item?.gap || item?.title || item).trim()).filter(Boolean);
+  }
+  if (Array.isArray(privateInsights.insights)) {
+    return privateInsights.insights.map((item) => String(item?.contentGap || item?.summary || item?.title || item).trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function extractPersonalizedBrandTarget(context) {
+  const relatedResearch = context.relatedResearch?.[0] ?? null;
+  if (relatedResearch?.topic) {
+    return {
+      brandName: String(relatedResearch.topic).trim(),
+      summary: String(relatedResearch.summary || "").trim()
+    };
+  }
+  const match = String(context.currentTask?.title ?? "").match(/for\s+(.+)$/i);
+  return {
+    brandName: match?.[1]?.trim() || "[Brand]",
+    summary: ""
+  };
 }
 
 function executeCreatorPositioningTask(context) {
@@ -1203,17 +1286,24 @@ function executePitchTemplateTask(context) {
   const pitchModule = getKnowledgeModule(context, "pitch_templates");
   const positioning = context.previousOutputs.find((output) => output.outputType === "creator_positioning")?.structuredContent?.creatorPositioningStatement
     || `${profile.brandName} creates native-feeling ${profile.niche} content.`;
+  const personalizedTarget = context.currentTask.taskType === "personalized_pitch"
+    ? extractPersonalizedBrandTarget(context)
+    : null;
+  const brandLabel = personalizedTarget?.brandName || "[Brand]";
+  const fitReason = personalizedTarget?.summary
+    ? `A quick fit reason: ${personalizedTarget.summary}`
+    : `Reason for fit: native-feeling ${profile.niche} content with a clear product angle.`;
   const structuredContent = {
-    casualVersion: `Hey [Brand] — I create ${profile.niche} content that feels natural and easy to plug into your organic or paid mix. If helpful, I can send a few quick concepts tailored to [product / campaign].`,
-    emailPitch: `Hi [Brand],\n\nI'm ${profile.brandName} and I create ${profile.niche} content that helps brands look credible without feeling over-produced. ${positioning}\n\nIf you're open to it, I can send a few fast concept angles tailored to [product / campaign].\n\nBest,\n[Your name]`,
+    casualVersion: `Hey ${brandLabel} — I create ${profile.niche} content that feels natural and easy to plug into your organic or paid mix. ${fitReason} If helpful, I can send a few quick concepts tailored to your current push.`,
+    emailPitch: `Hi ${brandLabel},\n\nI'm ${profile.brandName} and I create ${profile.niche} content that helps brands look credible without feeling over-produced. ${positioning}\n\n${fitReason}\n\nIf you're open to it, I can send a few fast concept angles tailored to your current campaign.\n\nBest,\n[Your name]`,
     personalisationPlaceholders: getStructuredList(pitchModule, "placeholders", ["[Brand]", "[product / campaign]", "[specific reason you fit them]"]),
-    professionalVersion: `Hi [Brand], I create concise ${profile.niche} UGC designed to feel trustworthy and easy for brand teams to brief. I'd be happy to send a few tailored concept angles if you're exploring new creator content.`,
+    professionalVersion: `Hi ${brandLabel}, I create concise ${profile.niche} UGC designed to feel trustworthy and easy for brand teams to brief. ${fitReason} I'd be happy to send a few tailored concept angles if you're exploring new creator content.`,
     subjectLineOptions: getStructuredList(pitchModule, "subjectLines", ["UGC idea for [Brand]", "Quick creator fit for [Brand]", `${profile.niche} UGC concept for [Brand]`]),
     usageNotes: [
       ...getStructuredList(outreachModule, "principles", ["Personalize the first line", "Keep the value proposition clear"]).slice(0, 2),
       "Use the casual version for DMs and the professional version for email"
     ],
-    warmDmPitch: `Hey [Brand] — I make ${profile.niche} UGC that feels straightforward and credible. I had a couple of quick concept ideas for [product / campaign] if you'd want me to send them over.`
+    warmDmPitch: `Hey ${brandLabel} — I make ${profile.niche} UGC that feels straightforward and credible. ${fitReason} I had a couple of quick concept ideas if you'd want me to send them over.`
   };
 
   return {
@@ -1226,9 +1316,9 @@ function executePitchTemplateTask(context) {
       { title: "Personalization placeholders", value: structuredContent.personalisationPlaceholders },
       { title: "Usage notes", value: structuredContent.usageNotes }
     ]),
-    outputType: "pitch_template",
+    outputType: context.currentTask.taskType === "personalized_pitch" ? "pitch_draft" : "pitch_template",
     structuredContent,
-    title: "Pitch template"
+    title: context.currentTask.taskType === "personalized_pitch" ? `Personalized pitch for ${brandLabel}` : "Pitch template"
   };
 }
 
@@ -1262,11 +1352,14 @@ function executeContentIdeaBatchTask(context) {
   const contentFormatsModule = getKnowledgeModule(context, "content_formats");
   const hookIdeas = getStructuredList(contentStrategyModule, "hookIdeas", ["Problem-first", "Why this works", "Before you buy"]);
   const formats = getStructuredList(contentStrategyModule, "formats", getStructuredList(contentFormatsModule, "formatGuide", ["Demo", "Routine", "Testimonial"]));
+  const insightGaps = extractPrivateInsightItems(context.privateInsights).slice(0, 5);
   const ideas = Array.from({ length: 10 }, (_, index) => ({
     difficultyLevel: index < 3 ? "Low" : index < 7 ? "Medium" : "Medium",
     format: formats[index % formats.length],
-    hook: `${hookIdeas[index % hookIdeas.length]} [product / category]`,
-    idea: `${profile.niche} concept ${index + 1}`,
+    hook: `${hookIdeas[index % hookIdeas.length]} ${insightGaps[index % Math.max(insightGaps.length, 1)] || "[product / category]"}`,
+    idea: insightGaps[index]
+      ? `${profile.niche} concept ${index + 1}: ${insightGaps[index]}`
+      : `${profile.niche} concept ${index + 1}`,
     productFit: profile.niche,
     whyItWorks: "Ties a clear user problem to an easy visual payoff."
   }));
@@ -1279,7 +1372,7 @@ function executeContentIdeaBatchTask(context) {
       }
     ]),
     outputType: "content_ideas",
-    structuredContent: { ideas },
+    structuredContent: { ideas, privateContentGapsUsed: insightGaps },
     title: "Content idea batch"
   };
 }
@@ -1315,6 +1408,7 @@ function executeUGCShotListTask(context) {
 function executeWeeklyActionPlanTask(context) {
   const roadmapModule = getKnowledgeModule(context, "beginner_roadmap");
   const openTaskTitles = context.relatedOpenTasks.slice(0, 4).map((task) => task.title);
+  const insightGaps = extractPrivateInsightItems(context.privateInsights).slice(0, 3);
   const structuredContent = {
     adminTasks: ["Update the brand tracker", "Review priorities for next approvals"],
     dailySuggestedActions: [
@@ -1327,6 +1421,7 @@ function executeWeeklyActionPlanTask(context) {
     followUpTasks: ["Review stalled conversations", "Queue the next follow-up touchpoint"],
     outreachTasks: openTaskTitles.length > 0 ? openTaskTitles : ["Use the pitch template on best-fit brand targets"],
     priority: "Get the first creator outreach system working end to end.",
+    trendSignals: insightGaps,
     userNeeds: ["Approve anything external before it is sent", "Provide pasted brand messages when you want reply drafting"],
     whatMaraCanDoNext: ["Run another safe internal task", "Draft replies to pasted messages", "Create a shot list or weekly plan"],
     roadmapReference: getStructuredList(roadmapModule, "steps", []).slice(0, 4),
@@ -1341,6 +1436,7 @@ function executeWeeklyActionPlanTask(context) {
       { title: "Content tasks", value: structuredContent.contentTasks },
       { title: "Admin tasks", value: structuredContent.adminTasks },
       { title: "Follow-up tasks", value: structuredContent.followUpTasks },
+      { title: "Trend and content-gap notes", value: structuredContent.trendSignals.length > 0 ? structuredContent.trendSignals : ["No private creator-search insight file is loaded yet."] },
       { title: "What Mara can do next", value: structuredContent.whatMaraCanDoNext },
       { title: "Beginner roadmap this plan is following", value: structuredContent.roadmapReference },
       { title: "What the user needs to approve or provide", value: structuredContent.userNeeds }
@@ -1604,7 +1700,19 @@ function markTaskBlocked(db, userId, workerId, taskId, blocker) {
   return blocker;
 }
 
-export function runMaraTask({ db, readAccountContext, readConnectedIntegrations, readMessages, readMaraOnboarding, readWorkerKnowledge, taskId, userId, workerId }) {
+export function runMaraTask({
+  db,
+  fetchImpl,
+  readAccountContext,
+  readConnectedIntegrations,
+  readMessages,
+  readMaraOnboarding,
+  readPrivateInsights,
+  readWorkerKnowledge,
+  taskId,
+  userId,
+  workerId
+}) {
   const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
   if (!task) {
     throw new Error("Worker task not found.");
@@ -1650,10 +1758,12 @@ export function runMaraTask({ db, readAccountContext, readConnectedIntegrations,
 
   const context = buildMaraExecutionContext({
     db,
+    fetchImpl,
     readAccountContext,
     readConnectedIntegrations,
     readMessages,
     readMaraOnboarding,
+    readPrivateInsights,
     readWorkerKnowledge,
     taskId,
     userId,
@@ -1699,11 +1809,479 @@ export function runMaraTask({ db, readAccountContext, readConnectedIntegrations,
   };
 }
 
+function startOfUtcDayIso(date = new Date()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString();
+}
+
+function stripHtml(value) {
+  return String(value ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function decodeDuckDuckGoResultUrl(url) {
+  try {
+    const parsed = new URL(url, "https://duckduckgo.com");
+    const uddg = parsed.searchParams.get("uddg");
+    return uddg ? decodeURIComponent(uddg) : parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function extractHostname(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function isAllowedBrandResearchUrl(url) {
+  const host = extractHostname(url);
+  if (!host) return false;
+  return !/(reddit\.com|linkedin\.com|instagram\.com|tiktok\.com|youtube\.com|duckduckgo\.com)/i.test(host);
+}
+
+async function fetchText(fetchImpl, url, headers = {}) {
+  const response = await fetchImpl(url, {
+    headers: {
+      "user-agent": "RyvaMara/1.0 (+https://ryvaforge.com)",
+      ...headers
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Fetch failed for ${url}: ${response.status}`);
+  }
+  return response.text();
+}
+
+async function discoverBrandCandidates({ fetchImpl, limit, niche }) {
+  const queries = [
+    `${niche} brand`,
+    `${niche} ecommerce brand`,
+    `${niche} direct to consumer brand`
+  ];
+  const candidates = [];
+  const seenHosts = new Set();
+
+  for (const query of queries) {
+    if (candidates.length >= limit) break;
+    let html = "";
+    try {
+      html = await fetchText(fetchImpl, `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+    } catch {
+      continue;
+    }
+
+    const matches = [...html.matchAll(/result__a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gims)];
+    for (const match of matches) {
+      const url = decodeDuckDuckGoResultUrl(match[1]);
+      const title = stripHtml(match[2]);
+      const hostname = extractHostname(url);
+      if (!hostname || seenHosts.has(hostname) || !isAllowedBrandResearchUrl(url)) continue;
+      seenHosts.add(hostname);
+
+      let pageHtml = "";
+      try {
+        pageHtml = await fetchText(fetchImpl, url);
+      } catch {
+        pageHtml = "";
+      }
+      const pageTitle = pageHtml.match(/<title[^>]*>(.*?)<\/title>/is)?.[1] || title;
+      const metaDescription = pageHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] || "";
+      candidates.push({
+        brandName: stripHtml(pageTitle).split("|")[0].split("-")[0].trim() || title || hostname,
+        summary: stripHtml(metaDescription || title).slice(0, 220),
+        url,
+        website: url
+      });
+      if (candidates.length >= limit) break;
+    }
+  }
+
+  return candidates.slice(0, limit);
+}
+
+async function fetchRedditSignals({ communities = MARA_REDDIT_COMMUNITIES, fetchImpl, limitPerCommunity = 2 }) {
+  const signals = [];
+  for (const community of communities) {
+    try {
+      const text = await fetchText(fetchImpl, `https://www.reddit.com/r/${community}/new.json?limit=${limitPerCommunity}`, {
+        "accept": "application/json"
+      });
+      const parsed = JSON.parse(text);
+      const posts = parsed?.data?.children ?? [];
+      for (const post of posts.slice(0, limitPerCommunity)) {
+        const data = post?.data ?? {};
+        if (!data.title) continue;
+        signals.push({
+          community,
+          title: String(data.title).trim(),
+          url: `https://www.reddit.com${String(data.permalink || "")}`
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+  return signals.slice(0, 8);
+}
+
+function hasConnectedEmailIntegration(integrations) {
+  return integrations.some((integration) =>
+    ["gmail", "outlook"].includes(String(integration.provider || "").toLowerCase()) &&
+    String(integration.status || "").toLowerCase() === "connected"
+  );
+}
+
+function inferMaraNiche({ accountContext, workerKnowledge }) {
+  const preferences = getMemoryItem(workerKnowledge, "Preferences");
+  const nicheFromKnowledge = preferences.find((item) => /skincare|wellness|beauty|ugc|creator/i.test(String(item)));
+  return String(accountContext?.whatYouDo || nicheFromKnowledge || "UGC creator brands").trim();
+}
+
+function hasRecentOutputOfType(db, userId, workerId, outputType, maxAgeHours) {
+  const threshold = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
+  const row = db.prepare(
+    `SELECT id
+     FROM worker_outputs
+     WHERE user_id = ? AND worker_id = ? AND output_type = ? AND created_at >= ?
+     LIMIT 1`
+  ).get(userId, workerId, outputType, threshold);
+  return Boolean(row);
+}
+
+function countBrandResearchItemsToday(db, userId, workerId) {
+  const row = db.prepare(
+    `SELECT COUNT(*) AS count
+     FROM worker_research_items
+     WHERE user_id = ? AND worker_id = ? AND source_type = 'web_brand' AND created_at >= ?`
+  ).get(userId, workerId, startOfUtcDayIso());
+  return Number(row?.count || 0);
+}
+
+function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, workerId }) {
+  const plan = buildMaraInitialWorkPlan({ accountContext, maraAnswers });
+  const existingTasks = listWorkerTasksForUserWorker(db, userId, workerId);
+  const existingTitles = new Set(existingTasks.map((task) => normalizeForComparison(task.title)));
+  const createdTaskIds = [];
+
+  for (const task of plan.tasks) {
+    if (existingTitles.has(normalizeForComparison(task.title))) continue;
+    const created = createApprovedTaskIfPermissionAllows(db, {
+      description: task.description,
+      dueAt: task.priority === "high" ? "This week" : "Next 7 days",
+      evidenceUsed: [],
+      priority: task.priority,
+      requiredPermissions: [],
+      source: "autonomy_starter",
+      title: task.title,
+      userId,
+      workerId
+    });
+    if (!created.duplicate && created.id) createdTaskIds.push(created.id);
+  }
+
+  for (const recurring of plan.recurringResponsibilities) {
+    createRecurringResponsibility(db, {
+      cadence: recurring.cadence,
+      createdFrom: "autonomy_starter",
+      dayOfWeek: recurring.dayOfWeek,
+      description: recurring.description,
+      permissionRequired: recurring.permissionRequired ?? null,
+      title: recurring.title,
+      userId,
+      workerId
+    });
+  }
+
+  return createdTaskIds;
+}
+
+async function runMaraBrandResearchCycle({
+  accountContext,
+  db,
+  fetchImpl = globalThis.fetch,
+  privateInsights,
+  userId,
+  workerId,
+  workerKnowledge
+}) {
+  const todayCount = countBrandResearchItemsToday(db, userId, workerId);
+  const remaining = Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - todayCount);
+  if (remaining === 0) {
+    return { note: "Daily brand research cap reached." };
+  }
+
+  const niche = inferMaraNiche({ accountContext, workerKnowledge });
+  const brands = await discoverBrandCandidates({ fetchImpl, limit: remaining, niche });
+  if (brands.length === 0) {
+    return { note: "No new brand candidates were found." };
+  }
+
+  const redditSignals = await fetchRedditSignals({ fetchImpl });
+  const privateContentGaps = extractPrivateInsightItems(privateInsights).slice(0, 4);
+  const createdResearchIds = [];
+  const createdPitchTaskIds = [];
+
+  for (const brand of brands) {
+    const research = createResearchItem(db, {
+      evidence: [{ title: brand.brandName, url: brand.url }],
+      insights: [brand.summary],
+      query: `Research ${brand.brandName} for ${niche} UGC fit.`,
+      scope: "brand_identity",
+      sourceType: "web_brand",
+      status: "completed",
+      summary: brand.summary,
+      topic: brand.brandName,
+      userId,
+      workerId
+    });
+    if (!research.duplicate && research.id) {
+      createdResearchIds.push(research.id);
+      const pitchTask = convertResearchItemToTask(db, userId, workerId, research.id, {
+        description: `Draft a personalized pitch using the brand's identity, site language, and current fit with ${niche}.`,
+        priority: "high",
+        requiredPermissions: [],
+        source: "autonomy_brand_research",
+        status: "approved",
+        taskType: "personalized_pitch",
+        title: `Draft personalized pitch for ${brand.brandName}`
+      });
+      if (!pitchTask.duplicate && pitchTask.id) createdPitchTaskIds.push(pitchTask.id);
+    }
+  }
+
+  const content = buildRichContent([
+    { title: "Brands researched today", value: brands.map((brand) => `${brand.brandName}: ${brand.summary} (${brand.website})`) },
+    { title: "Fresh Reddit signals", value: redditSignals.length > 0 ? redditSignals.map((signal) => `[r/${signal.community}] ${signal.title}`) : ["No Reddit pulls were available during this cycle."] },
+    { title: "Private creator-search content gaps", value: privateContentGaps.length > 0 ? privateContentGaps : ["No private creator-search insight file is loaded yet."] }
+  ]);
+
+  const output = createWorkerOutput(db, {
+    content,
+    outputType: "summary",
+    source: "research",
+    structuredContent: {
+      brands,
+      privateContentGaps,
+      redditSignals
+    },
+    title: "Daily brand research digest",
+    userId,
+    workerId
+  });
+
+  return { createdPitchTaskIds, createdResearchIds, output };
+}
+
+function runMaraInboxOrganizationCycle({ db, userId, workerId }) {
+  const threads = db.prepare(
+    `SELECT subject, brand_name AS brandName, contact_email AS contactEmail, thread_status AS threadStatus, urgency, snippet
+     FROM office_email_threads
+     WHERE user_id = ? AND worker_slug = ?
+     ORDER BY received_at DESC
+     LIMIT 25`
+  ).all(userId, workerId);
+
+  if (threads.length === 0) {
+    return { note: "No inbox threads are available for organization yet." };
+  }
+
+  const statusCounts = threads.reduce((acc, thread) => {
+    const key = String(thread.threadStatus || "unknown");
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const urgentThreads = threads.filter((thread) => String(thread.urgency).toLowerCase() === "high").slice(0, 5);
+  const output = createWorkerOutput(db, {
+    content: buildRichContent([
+      { title: "Outreach status snapshot", value: Object.entries(statusCounts).map(([status, count]) => `${status}: ${count}`) },
+      { title: "Urgent threads", value: urgentThreads.length > 0 ? urgentThreads.map((thread) => `${thread.brandName || thread.subject} — ${thread.snippet}`) : ["No urgent outreach threads right now."] },
+      { title: "What Mara updated", value: ["Reviewed current outreach statuses", "Prepared the latest internal inbox snapshot", "Flagged urgent threads for approval or follow-up"] }
+    ]),
+    outputType: "summary",
+    source: "autonomy_inbox",
+    structuredContent: { statusCounts, urgentThreads },
+    title: "Inbox outreach digest",
+    userId,
+    workerId
+  });
+
+  return { output };
+}
+
+export async function runMaraAutonomyCycle({
+  db,
+  fetchImpl = globalThis.fetch,
+  readAccountContext,
+  readConnectedIntegrations,
+  readMessages,
+  readMaraOnboarding,
+  readPrivateInsights,
+  readWorkerKnowledge,
+  userId,
+  workerId
+}) {
+  if (workerId !== MARA_WORKER_ID) {
+    throw new Error("Autonomy cycle is only available for Mara.");
+  }
+
+  const permissions = ensureWorkerPermissions(db, userId, workerId);
+  const accountContext = typeof readAccountContext === "function" ? readAccountContext(userId) : null;
+  const onboarding = typeof readMaraOnboarding === "function" ? readMaraOnboarding(userId, workerId) : null;
+  const integrations = typeof readConnectedIntegrations === "function" ? readConnectedIntegrations(userId, workerId) : [];
+  const workerKnowledge = typeof readWorkerKnowledge === "function" ? readWorkerKnowledge(userId, workerId) : [];
+  const privateInsights = typeof readPrivateInsights === "function" ? readPrivateInsights(userId, workerId) : null;
+  const summary = {
+    createdTaskIds: [],
+    executedTaskIds: [],
+    notes: [],
+    outputs: [],
+    blockers: []
+  };
+
+  if (!onboarding || onboarding.status !== "completed") {
+    summary.blockers.push("Mara needs completed onboarding before her autonomy loop can start.");
+    return summary;
+  }
+
+  const starterTaskIds = createAutonomyStarterTasks({
+    accountContext,
+    db,
+    maraAnswers: onboarding.answers || {},
+    userId,
+    workerId
+  });
+  summary.createdTaskIds.push(...starterTaskIds);
+
+  const starterResults = autoExecuteSafeMaraTasks({
+    db,
+    fetchImpl,
+    readAccountContext,
+    readConnectedIntegrations,
+    readMessages,
+    readMaraOnboarding,
+    readPrivateInsights,
+    readWorkerKnowledge,
+    taskIds: starterTaskIds,
+    userId,
+    workerId
+  });
+  for (const result of starterResults) {
+    if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+    if (result?.output) summary.outputs.push(result.output);
+  }
+
+  if (permissions.canRunResearch) {
+    const researchResult = await runMaraBrandResearchCycle({
+      accountContext,
+      db,
+      fetchImpl,
+      privateInsights,
+      userId,
+      workerId,
+      workerKnowledge
+    });
+    if (researchResult.output) summary.outputs.push(researchResult.output);
+    if (researchResult.createdPitchTaskIds?.length) {
+      summary.createdTaskIds.push(...researchResult.createdPitchTaskIds);
+      const pitchResults = autoExecuteSafeMaraTasks({
+        db,
+        fetchImpl,
+        readAccountContext,
+        readConnectedIntegrations,
+        readMessages,
+        readMaraOnboarding,
+        readPrivateInsights,
+        readWorkerKnowledge,
+        taskIds: researchResult.createdPitchTaskIds,
+        userId,
+        workerId
+      });
+      for (const result of pitchResults) {
+        if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+        if (result?.output) summary.outputs.push(result.output);
+      }
+    }
+    if (researchResult.note) summary.notes.push(researchResult.note);
+  } else {
+    summary.blockers.push("Research permission is disabled.");
+  }
+
+  if (permissions.canReadInbox && hasConnectedEmailIntegration(integrations)) {
+    const inboxResult = runMaraInboxOrganizationCycle({ db, userId, workerId });
+    if (inboxResult.output) summary.outputs.push(inboxResult.output);
+    if (inboxResult.note) summary.notes.push(inboxResult.note);
+  } else if (hasConnectedEmailIntegration(integrations)) {
+    summary.blockers.push("Inbox is connected but Mara still does not have inbox-read permission.");
+  }
+
+  if (!hasRecentOutputOfType(db, userId, workerId, "weekly_plan", 24 * 7)) {
+    const weeklyTask = createApprovedTaskIfPermissionAllows(db, {
+      description: "Create the latest weekly action plan from current work, research, and blockers.",
+      priority: "high",
+      requiredPermissions: [],
+      source: "autonomy_weekly_planning",
+      status: "approved",
+      taskType: "weekly_action_plan",
+      title: "Create weekly action plan",
+      userId,
+      workerId
+    });
+    if (!weeklyTask.duplicate && weeklyTask.id) {
+      summary.createdTaskIds.push(weeklyTask.id);
+      const weeklyResult = runMaraTask({
+        db,
+        fetchImpl,
+        readAccountContext,
+        readConnectedIntegrations,
+        readMessages,
+        readMaraOnboarding,
+        readPrivateInsights,
+        readWorkerKnowledge,
+        taskId: weeklyTask.id,
+        userId,
+        workerId
+      });
+      if (weeklyResult?.task?.id) summary.executedTaskIds.push(weeklyResult.task.id);
+      if (weeklyResult?.output) summary.outputs.push(weeklyResult.output);
+    }
+  }
+
+  createWorkerActivityLog(db, {
+    description: `Created ${summary.createdTaskIds.length} task(s), executed ${summary.executedTaskIds.length} task(s), and saved ${summary.outputs.length} deliverable(s).`,
+    eventType: "autonomy_cycle_completed",
+    metadata: {
+      blockers: summary.blockers,
+      createdTaskIds: summary.createdTaskIds,
+      executedTaskIds: summary.executedTaskIds,
+      outputIds: summary.outputs.map((output) => output.id)
+    },
+    title: "Mara autonomy cycle",
+    userId,
+    workerId
+  });
+
+  return summary;
+}
+
 export function runWorkerTask(db, userId, workerId, taskId, options = {}) {
   return runMaraTask({ db, taskId, userId, workerId, ...options });
 }
 
-export function autoExecuteSafeMaraTasks({ db, readAccountContext, readConnectedIntegrations, readMessages, readMaraOnboarding, readWorkerKnowledge, taskIds, userId, workerId }) {
+export function autoExecuteSafeMaraTasks({
+  db,
+  fetchImpl,
+  readAccountContext,
+  readConnectedIntegrations,
+  readMessages,
+  readMaraOnboarding,
+  readPrivateInsights,
+  readWorkerKnowledge,
+  taskIds,
+  userId,
+  workerId
+}) {
   const results = [];
   for (const taskId of taskIds) {
     const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
@@ -1713,10 +2291,12 @@ export function autoExecuteSafeMaraTasks({ db, readAccountContext, readConnected
 
     const result = runMaraTask({
       db,
+      fetchImpl,
       readAccountContext,
       readConnectedIntegrations,
       readMessages,
       readMaraOnboarding,
+      readPrivateInsights,
       readWorkerKnowledge,
       taskId,
       userId,
@@ -2369,7 +2949,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     )
     .all(userId, workerId)
     .map((row) => ({ ...row, metadata: safeJsonParse(row.metadataJson, {}) }))
-    .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "task_execution_started", "task_execution_completed", "task_execution_blocked", "worker_output_created", "task_auto_executed", "chat_task_created", "chat_task_executed", "recurring_responsibility_created"].includes(row.eventType))
+    .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "task_execution_started", "task_execution_completed", "task_execution_blocked", "worker_output_created", "task_auto_executed", "chat_task_created", "chat_task_executed", "recurring_responsibility_created", "autonomy_cycle_completed"].includes(row.eventType))
     .slice(0, 5);
   const openTasks = tasks.filter((task) => ["approved", "in_progress"].includes(task.status));
   const proposedTasks = tasks.filter((task) => task.status === "proposed");
