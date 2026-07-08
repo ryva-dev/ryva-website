@@ -200,7 +200,7 @@ const EMPTY_OVERLAYS: Overlays = {
   chats: [], tasks: [], suggestedActions: [], worklog: [], files: [], briefings: [], calendarEvents: [], globalSettings: null, integrations: [], onboarding: [],
 };
 
-type Tab = "today" | "chat" | "approvals" | "calendar" | "team" | "files" | "settings" | "worker-onboarding";
+type Tab = "today" | "chat" | "approvals" | "calendar" | "team" | "files" | "settings" | "worker-onboarding" | "desk";
 const WORKER_DEPENDENT: Tab[] = ["today", "chat", "approvals", "team", "files"];
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -222,8 +222,11 @@ function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null }
   if (parts[2] === "workers" && parts[3] && parts[4] === "onboarding") {
     return { tab: "worker-onboarding", workerSlug: parts[3] };
   }
+  if (parts[2] === "desk" && parts[3]) {
+    return { tab: "desk", workerSlug: parts[3] };
+  }
   const raw = parts[2] as Tab | undefined;
-  const tab: Tab = (["today", "chat", "approvals", "calendar", "team", "files", "settings"] as Tab[]).includes(raw as Tab) ? (raw as Tab) : "today";
+  const tab: Tab = (["today", "chat", "approvals", "calendar", "team", "files", "settings", "desk"] as Tab[]).includes(raw as Tab) ? (raw as Tab) : "today";
   return { tab, workerSlug: parts[3] ?? null };
 }
 
@@ -708,6 +711,191 @@ function TodayView({
 
 /* ---------- Chat ---------- */
 
+function WorkerDeskSections({
+  activeWorker,
+  busyId,
+  canUseEmail,
+  desk,
+  onApprove,
+  onReject,
+  onRunTask,
+  onSeedCorrection,
+  onViewDeliverable
+}: {
+  activeWorker: Worker;
+  busyId: string | null;
+  canUseEmail: boolean;
+  desk: WorkerDesk;
+  onApprove: (approvalId: string) => Promise<void>;
+  onReject: (approvalId: string) => Promise<void>;
+  onRunTask: (taskId: string) => Promise<void>;
+  onSeedCorrection: (prompt: string) => void;
+  onViewDeliverable: (deliverable: WorkerDeskDeliverable) => void;
+}) {
+  const connectedLabel = canUseEmail
+    ? "Connected tools are available."
+    : "No connected tools yet.";
+
+  return (
+    <>
+      <section className="ro-worker-drawer-section">
+        <span className="ro-section-kicker">Current focus</span>
+        <h3>{desk.currentFocus}</h3>
+        <p>{desk.currentFocusReason}</p>
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Responsibilities</strong>
+          <span>{activeWorker.profile.responsibilities.length} areas</span>
+        </div>
+        <div className="ro-plain-list">
+          {activeWorker.profile.responsibilities.slice(0, 4).map((item) => (
+            <div className="ro-plain-row" key={item}>
+              <strong>{item}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Connected access</strong>
+          <span>{connectedLabel}</span>
+        </div>
+        {desk.connectedTools.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.connectedTools.map((tool) => (
+              <div className="ro-plain-row" key={`${tool.provider}-${tool.label}`}>
+                <strong>{tool.label}</strong>
+                <p>{sentenceCase(tool.status)}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ro-worker-note">This worker can still plan, draft, and organize work without connected tools.</p>
+        )}
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Waiting on you</strong>
+          <span>{desk.waitingOnUser.length === 0 ? "All clear" : `${desk.waitingOnUser.length} item${desk.waitingOnUser.length === 1 ? "" : "s"}`}</span>
+        </div>
+        {desk.waitingOnUser.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.waitingOnUser.map((item) => {
+              const approval = desk.approvals.find((entry) => entry.id === item.id);
+              return (
+                <div className="ro-plain-row" key={item.id}>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.summary}</p>
+                  </div>
+                  {approval && isMaraWorker(activeWorker.slug) ? (
+                    <div className="ro-inline-actions">
+                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>Deny</button>
+                      <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
+                        {busyId === approval.id ? "Saving..." : "Approve"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="ro-worker-note">Nothing is blocked right now.</p>
+        )}
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Current work</strong>
+          <span>{desk.workInMotion.length === 0 ? "Quiet" : `${desk.workInMotion.length} active`}</span>
+        </div>
+        {desk.workInMotion.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.workInMotion.map((item) => (
+              <div className="ro-plain-row" key={item.id}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.summary}</p>
+                </div>
+                {isMaraWorker(activeWorker.slug) ? (
+                  <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
+                    {busyId === item.id ? "Running..." : "Run"}
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ro-worker-note">Ready for the next assignment.</p>
+        )}
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Recent output</strong>
+          <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} item${desk.recentCompleted.length === 1 ? "" : "s"}`}</span>
+        </div>
+        {desk.recentCompleted.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.recentCompleted.map((item) => (
+              <button className="ro-plain-row ro-plain-row-button" type="button" key={item.id} onClick={() => onViewDeliverable(item)}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.summary}</p>
+                </div>
+                <span>{timeAgo(item.updatedAt)}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="ro-worker-note">No deliverables have been completed yet.</p>
+        )}
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>What {activeWorker.name.split(" ")[0]} knows</strong>
+          <span>{desk.memory.length === 0 ? "Learning" : `${desk.memory.length} notes`}</span>
+        </div>
+        {desk.memory.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.memory.map((item) => (
+              <div className="ro-plain-row" key={item.id}>
+                <div>
+                  <strong>{item.label}</strong>
+                  <p>{item.text}</p>
+                </div>
+                <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
+                  Correct in chat
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="ro-worker-note">This worker will learn more as you work together.</p>
+        )}
+      </section>
+
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Access and boundaries</strong>
+          <span>{isMaraWorker(activeWorker.slug) ? "Approval-aware" : "Role-based"}</span>
+        </div>
+        <p className="ro-worker-note">
+          {isMaraWorker(activeWorker.slug)
+            ? "External or sensitive actions stay behind approval. Safe internal work can move forward without extra prompting."
+            : "This worker operates within assigned permissions, tools, and review boundaries."}
+        </p>
+      </section>
+    </>
+  );
+}
+
 function WorkerDetailDrawer({
   activeWorker,
   busyId,
@@ -718,7 +906,8 @@ function WorkerDetailDrawer({
   onOpenChat,
   onReject,
   onRunTask,
-  onSeedCorrection
+  onSeedCorrection,
+  onViewDeliverable
 }: {
   activeWorker: Worker;
   busyId: string | null;
@@ -730,11 +919,8 @@ function WorkerDetailDrawer({
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
+  onViewDeliverable: (deliverable: WorkerDeskDeliverable) => void;
 }) {
-  const connectedLabel = canUseEmail
-    ? "Connected tools are available."
-    : "No connected tools yet.";
-
   return (
     <div className="ro-drawer-scrim" onClick={onClose}>
       <aside className="ro-worker-drawer" onClick={(event) => event.stopPropagation()} aria-label={`${activeWorker.name} details`}>
@@ -750,138 +936,17 @@ function WorkerDetailDrawer({
         </div>
 
         <div className="ro-worker-drawer-scroll">
-          <section className="ro-worker-drawer-section">
-            <span className="ro-section-kicker">Current focus</span>
-            <h3>{desk.currentFocus}</h3>
-            <p>{desk.currentFocusReason}</p>
-          </section>
-
-          <section className="ro-worker-drawer-section">
-            <div className="ro-worker-drawer-row">
-              <strong>Connected access</strong>
-              <span>{connectedLabel}</span>
-            </div>
-            {desk.connectedTools.length > 0 ? (
-              <div className="ro-plain-list">
-                {desk.connectedTools.map((tool) => (
-                  <div className="ro-plain-row" key={`${tool.provider}-${tool.label}`}>
-                    <strong>{tool.label}</strong>
-                    <p>{sentenceCase(tool.status)}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="ro-worker-note">This worker can still plan, draft, and organize work without connected tools.</p>
-            )}
-          </section>
-
-          <section className="ro-worker-drawer-section">
-            <div className="ro-worker-drawer-row">
-              <strong>Waiting on you</strong>
-              <span>{desk.waitingOnUser.length === 0 ? "All clear" : `${desk.waitingOnUser.length} item${desk.waitingOnUser.length === 1 ? "" : "s"}`}</span>
-            </div>
-            {desk.waitingOnUser.length > 0 ? (
-              <div className="ro-plain-list">
-                {desk.waitingOnUser.map((item) => {
-                  const approval = desk.approvals.find((entry) => entry.id === item.id);
-                  return (
-                    <div className="ro-plain-row" key={item.id}>
-                      <div>
-                        <strong>{item.title}</strong>
-                        <p>{item.summary}</p>
-                      </div>
-                      {approval && isMaraWorker(activeWorker.slug) ? (
-                        <div className="ro-inline-actions">
-                          <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>Deny</button>
-                          <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
-                            {busyId === approval.id ? "Saving..." : "Approve"}
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="ro-worker-note">Nothing is blocked right now.</p>
-            )}
-          </section>
-
-          <section className="ro-worker-drawer-section">
-            <div className="ro-worker-drawer-row">
-              <strong>On the desk</strong>
-              <span>{desk.workInMotion.length === 0 ? "Quiet" : `${desk.workInMotion.length} active`}</span>
-            </div>
-            {desk.workInMotion.length > 0 ? (
-              <div className="ro-plain-list">
-                {desk.workInMotion.map((item) => (
-                  <div className="ro-plain-row" key={item.id}>
-                    <div>
-                      <strong>{item.title}</strong>
-                      <p>{item.summary}</p>
-                    </div>
-                    {isMaraWorker(activeWorker.slug) ? (
-                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
-                        {busyId === item.id ? "Running..." : "Run"}
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="ro-worker-note">Ready for the next assignment.</p>
-            )}
-          </section>
-
-          <section className="ro-worker-drawer-section">
-            <div className="ro-worker-drawer-row">
-              <strong>Recently completed</strong>
-              <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} item${desk.recentCompleted.length === 1 ? "" : "s"}`}</span>
-            </div>
-            {desk.recentCompleted.length > 0 ? (
-              <div className="ro-plain-list">
-                {desk.recentCompleted.map((item) => (
-                  <div className="ro-plain-row" key={item.id}>
-                    <strong>{item.title}</strong>
-                    <p>{item.summary}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="ro-worker-note">No deliverables have been completed yet.</p>
-            )}
-          </section>
-
-          <section className="ro-worker-drawer-section">
-            <div className="ro-worker-drawer-row">
-              <strong>What {activeWorker.name.split(" ")[0]} knows</strong>
-              <span>{desk.memory.length === 0 ? "Learning" : `${desk.memory.length} notes`}</span>
-            </div>
-            {desk.memory.length > 0 ? (
-              <div className="ro-plain-list">
-                {desk.memory.map((item) => (
-                  <div className="ro-plain-row" key={item.id}>
-                    <div>
-                      <strong>{item.label}</strong>
-                      <p>{item.text}</p>
-                    </div>
-                    <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
-                      Correct in chat
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="ro-worker-note">This worker will learn more as you work together.</p>
-            )}
-          </section>
-
-          <section className="ro-worker-drawer-section">
-            <div className="ro-worker-drawer-row">
-              <strong>Recommended next</strong>
-            </div>
-            <p>{desk.recommendedNext || `${activeWorker.name.split(" ")[0]} is ready for the next assignment.`}</p>
-          </section>
+          <WorkerDeskSections
+            activeWorker={activeWorker}
+            busyId={busyId}
+            canUseEmail={canUseEmail}
+            desk={desk}
+            onApprove={onApprove}
+            onReject={onReject}
+            onRunTask={onRunTask}
+            onSeedCorrection={onSeedCorrection}
+            onViewDeliverable={onViewDeliverable}
+          />
         </div>
 
         <div className="ro-worker-drawer-actions">
@@ -928,6 +993,39 @@ function MaraOutputModal({
   );
 }
 
+function WorkerDeskDeliverableModal({
+  deliverable,
+  onClose,
+  workerName
+}: {
+  deliverable: WorkerDeskDeliverable;
+  onClose: () => void;
+  workerName: string;
+}) {
+  return (
+    <div className="ro-modal-scrim" onClick={onClose}>
+      <div className="ro-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>{deliverable.title}</h3>
+        <div className="ro-field">
+          <span>Worker</span>
+          <div className="ro-artifact">{workerName}</div>
+        </div>
+        <div className="ro-field">
+          <span>Type</span>
+          <div className="ro-artifact">{deliverable.sourceLabel}</div>
+        </div>
+        <div className="ro-field">
+          <span>Summary</span>
+          <div className="ro-artifact">{deliverable.summary}</div>
+        </div>
+        <div className="ro-modal-actions">
+          <button className="r-btn r-btn-accent" type="button" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatView({
   activeDesk,
   onOpenWorkerDetails,
@@ -941,7 +1039,6 @@ function ChatView({
   const active = workers.find((w) => w.slug === selectedSlug) ?? workers[0] ?? null;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [selectedOutput, setSelectedOutput] = useState<MaraWorkspaceOutput | null>(null);
   const thread = useMemo(
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
     [overlays.chats, active?.slug]
@@ -1050,11 +1147,84 @@ function ChatView({
               Send
             </button>
           </div>
-          {selectedOutput ? <MaraOutputModal task={selectedOutput} onClose={() => setSelectedOutput(null)} /> : null}
         </div>
       ) : (
         <div className="ro-chat-main"><EmptyOffice label="your conversations" onNavigate={onNavigate} /></div>
       )}
+    </div>
+  );
+}
+
+function WorkerDeskView({
+  activeWorker,
+  busyId,
+  canUseEmail,
+  desk,
+  onApprove,
+  onNavigate,
+  onReject,
+  onRunTask,
+  onSeedCorrection
+}: {
+  activeWorker: Worker;
+  busyId: string | null;
+  canUseEmail: boolean;
+  desk: WorkerDesk;
+  onApprove: (approvalId: string) => Promise<void>;
+  onNavigate: (hash: string) => void;
+  onReject: (approvalId: string) => Promise<void>;
+  onRunTask: (taskId: string) => Promise<void>;
+  onSeedCorrection: (prompt: string) => void;
+}) {
+  const [selectedDeliverable, setSelectedDeliverable] = useState<WorkerDeskDeliverable | null>(null);
+  const nextRunnable = desk.workInMotion[0] ?? null;
+
+  return (
+    <div className="ro-main-scroll ro-worker-desk-page">
+      <header className="ro-worker-page-head">
+        <div className="ro-worker-page-id">
+          <WorkerMark seed={activeWorker.slug} size={56} active />
+          <div>
+            <h1>{activeWorker.name}</h1>
+            <p className="ro-worker-page-role">{activeWorker.title}</p>
+            <p className="ro-worker-page-summary">{activeWorker.description}</p>
+          </div>
+        </div>
+        <div className="ro-worker-page-actions">
+          <button className="r-btn r-btn-ghost" type="button" onClick={() => onNavigate(`#app/office/chat/${activeWorker.slug}`)}>Message</button>
+          {isMaraWorker(activeWorker.slug) && nextRunnable ? (
+            <button className="r-btn r-btn-accent" type="button" onClick={() => void onRunTask(nextRunnable.id)} disabled={busyId === nextRunnable.id}>
+              {busyId === nextRunnable.id ? "Running..." : "Run next task"}
+            </button>
+          ) : (
+            <button className="r-btn r-btn-accent" type="button" onClick={() => onNavigate(`#app/office/chat/${activeWorker.slug}`)}>Assign work</button>
+          )}
+        </div>
+      </header>
+
+      <div className="ro-worker-page-layout">
+        <div className="ro-worker-page-main">
+          <WorkerDeskSections
+            activeWorker={activeWorker}
+            busyId={busyId}
+            canUseEmail={canUseEmail}
+            desk={desk}
+            onApprove={onApprove}
+            onReject={onReject}
+            onRunTask={onRunTask}
+            onSeedCorrection={onSeedCorrection}
+            onViewDeliverable={setSelectedDeliverable}
+          />
+        </div>
+      </div>
+
+      {selectedDeliverable ? (
+        <WorkerDeskDeliverableModal
+          deliverable={selectedDeliverable}
+          onClose={() => setSelectedDeliverable(null)}
+          workerName={activeWorker.name}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1404,13 +1574,11 @@ function EventForm({
 
 function TeamView({
   desks,
-  onOpenWorkerDetails,
   workers,
   overlays,
   onNavigate
 }: {
   desks: WorkerDesk[];
-  onOpenWorkerDetails: (workerSlug: string) => void;
   workers: Worker[];
   overlays: Overlays;
   onNavigate: (h: string) => void;
@@ -1431,11 +1599,11 @@ function TeamView({
               key={w.slug}
               role="button"
               tabIndex={0}
-              onClick={() => onOpenWorkerDetails(w.slug)}
+              onClick={() => onNavigate(`#app/office/desk/${w.slug}`)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  onOpenWorkerDetails(w.slug);
+                  onNavigate(`#app/office/desk/${w.slug}`);
                 }
               }}
             >
@@ -1576,7 +1744,6 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
   const [overlays, setOverlays] = useState<Overlays>(EMPTY_OVERLAYS);
   const [loading, setLoading] = useState(true);
   const [navCollapsed, setNavCollapsed] = usePersistentBoolean("ryva.office.nav-collapsed", false);
-  const [workerDetailsSlug, setWorkerDetailsSlug] = useState<string | null>(null);
   const [maraWorkspaces, setMaraWorkspaces] = useState<Record<string, MaraWorkspace | null>>({});
   const [workerActionBusy, setWorkerActionBusy] = useState<string | null>(null);
 
@@ -1677,12 +1844,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
   );
   const activeWorkerSlug = workerSlug || hiredWorkers[0]?.slug || null;
   const activeDesk = desks.find((desk) => desk.workerSlug === activeWorkerSlug) ?? null;
-  const selectedWorkerForDetails = workerDetailsSlug
-    ? hiredWorkers.find((worker) => worker.slug === workerDetailsSlug) ?? null
-    : null;
-  const selectedDesk = workerDetailsSlug
-    ? desks.find((desk) => desk.workerSlug === workerDetailsSlug) ?? null
-    : null;
+  const activeWorker = hiredWorkers.find((worker) => worker.slug === activeWorkerSlug) ?? null;
 
   const runWorkerTask = useCallback(async (workerSlugParam: string, taskId: string) => {
     if (!isMaraWorker(workerSlugParam)) return;
@@ -1754,7 +1916,10 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
         main = (
           <ChatView
             activeDesk={activeDesk}
-            onOpenWorkerDetails={() => setWorkerDetailsSlug(workerSlug || hiredWorkers[0]?.slug || null)}
+            onOpenWorkerDetails={() => {
+              const slug = workerSlug || hiredWorkers[0]?.slug || null;
+              if (slug) go(`#app/office/desk/${slug}`);
+            }}
             workers={hiredWorkers}
             overlays={overlays}
             selectedSlug={workerSlug}
@@ -1766,10 +1931,36 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
       }
       case "approvals": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} onNavigate={go} onReload={reload} />; break;
       case "calendar": main = <CalendarView workers={hiredWorkers} overlays={overlays} onReload={reload} />; break;
-      case "team": main = <TeamView desks={desks} onOpenWorkerDetails={setWorkerDetailsSlug} workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
+      case "team": main = <TeamView desks={desks} workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
       case "files": main = <FilesView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
       case "settings": main = <SettingsView overlays={overlays} onReload={reload} />; break;
-      default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/approvals")} onOpenWorkerDetails={setWorkerDetailsSlug} />;
+      case "desk": {
+        if (!activeWorker || !activeDesk) {
+          main = <div className="ro-main-scroll"><p className="ro-blank">This worker could not be found.</p></div>;
+          break;
+        }
+        main = (
+          <WorkerDeskView
+            activeWorker={activeWorker}
+            busyId={workerActionBusy}
+            canUseEmail={overlays.integrations.some((integration) => integration.workerSlug === activeWorker.slug && integration.status === "connected")}
+            desk={activeDesk}
+            onApprove={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "approved")}
+            onNavigate={go}
+            onReject={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "rejected")}
+            onRunTask={(taskId) => runWorkerTask(activeWorker.slug, taskId)}
+            onSeedCorrection={(prompt) => {
+              go(`#app/office/chat/${activeWorker.slug}`);
+              window.setTimeout(() => {
+                const event = new CustomEvent("ryva-office-seed-draft", { detail: { prompt } });
+                window.dispatchEvent(event);
+              }, 0);
+            }}
+          />
+        );
+        break;
+      }
+      default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/approvals")} onOpenWorkerDetails={(slug) => go(`#app/office/desk/${slug}`)} />;
     }
   }
 
@@ -1802,32 +1993,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
         </div>
       </aside>
 
-
       <main className="ro-main">{main}</main>
-      {selectedWorkerForDetails && selectedDesk ? (
-        <WorkerDetailDrawer
-          activeWorker={selectedWorkerForDetails}
-          busyId={workerActionBusy}
-          canUseEmail={overlays.integrations.some((integration) => integration.workerSlug === selectedWorkerForDetails.slug && integration.status === "connected")}
-          desk={selectedDesk}
-          onApprove={(approvalId) => updateWorkerApproval(selectedWorkerForDetails.slug, approvalId, "approved")}
-          onClose={() => setWorkerDetailsSlug(null)}
-          onOpenChat={() => {
-            setWorkerDetailsSlug(null);
-            go(`#app/office/chat/${selectedWorkerForDetails.slug}`);
-          }}
-          onReject={(approvalId) => updateWorkerApproval(selectedWorkerForDetails.slug, approvalId, "rejected")}
-          onRunTask={(taskId) => runWorkerTask(selectedWorkerForDetails.slug, taskId)}
-          onSeedCorrection={(prompt) => {
-            setWorkerDetailsSlug(null);
-            go(`#app/office/chat/${selectedWorkerForDetails.slug}`);
-            window.setTimeout(() => {
-              const event = new CustomEvent("ryva-office-seed-draft", { detail: { prompt } });
-              window.dispatchEvent(event);
-            }, 0);
-          }}
-        />
-      ) : null}
     </div>
   );
 }
