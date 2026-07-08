@@ -3,6 +3,8 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { chromium } from "playwright";
+import { buildScopedTrendInsights } from "../server/maraTrendInsights.mjs";
+import { getUserTrendInsightsFilePath } from "../server/maraTrendOps.mjs";
 
 const DEFAULT_OUTPUT_PATH = "/Users/allieball/Documents/Ryva/data/private/mara-tiktok-creator-search-insights.json";
 const DEFAULT_PROFILE_PATH = "/Users/allieball/Documents/Ryva/data/private/tiktok-creative-center-profile";
@@ -16,10 +18,13 @@ function parseArgs(argv) {
     headless: false,
     limit: DEFAULT_LIMIT,
     manualLogin: false,
+    niche: "",
     output: DEFAULT_OUTPUT_PATH,
     period: DEFAULT_PERIOD,
     profile: DEFAULT_PROFILE_PATH,
-    region: DEFAULT_REGION
+    region: DEFAULT_REGION,
+    storageRoot: path.resolve(process.cwd(), "data"),
+    userId: ""
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -67,6 +72,24 @@ function parseArgs(argv) {
 
     if (arg === "--profile" && next) {
       options.profile = path.resolve(process.cwd(), next);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--user-id" && next) {
+      options.userId = String(next).trim();
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--niche" && next) {
+      options.niche = String(next).trim();
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--storage-root" && next) {
+      options.storageRoot = path.resolve(process.cwd(), next);
       index += 1;
     }
   }
@@ -264,10 +287,19 @@ async function main() {
       visibleCount: expansion.visibleCount
     });
 
-    await mkdir(path.dirname(options.output), { recursive: true });
-    await writeFile(options.output, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    const outputPayload =
+      options.userId && options.niche
+        ? buildScopedTrendInsights(payload, options.niche)
+        : payload;
+    const outputPath =
+      options.userId && options.niche
+        ? getUserTrendInsightsFilePath(options.storageRoot, options.userId)
+        : options.output;
 
-    console.log(`Saved ${hashtags.length} TikTok hashtag trend rows to ${options.output}`);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, `${JSON.stringify(outputPayload, null, 2)}\n`, "utf8");
+
+    console.log(`Saved ${hashtags.length} TikTok hashtag trend rows to ${outputPath}`);
   } finally {
     await context.close();
   }

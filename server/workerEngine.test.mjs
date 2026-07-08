@@ -29,7 +29,8 @@ import {
   runMaraTask,
   runWorkerTask,
   updateWorkerPermissions,
-  updateApprovalRequestStatus
+  updateApprovalRequestStatus,
+  upsertWorkerBrand
 } from "./workerEngine.mjs";
 
 function makeDb() {
@@ -70,6 +71,76 @@ function makeDb() {
       payload_json TEXT NOT NULL,
       status TEXT NOT NULL,
       requires_approval INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE office_leads (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_slug TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      contact_name TEXT NOT NULL,
+      contact_email TEXT NOT NULL,
+      lead_stage TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      history_json TEXT NOT NULL,
+      metadata_json TEXT NOT NULL,
+      last_activity_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE office_email_threads (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_slug TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'gmail',
+      subject TEXT NOT NULL,
+      participants_json TEXT NOT NULL DEFAULT '[]',
+      snippet TEXT NOT NULL,
+      body_text TEXT NOT NULL DEFAULT '',
+      received_at TEXT NOT NULL,
+      brand_related INTEGER NOT NULL DEFAULT 0,
+      category TEXT NOT NULL DEFAULT 'general',
+      urgency TEXT NOT NULL DEFAULT 'low',
+      confidence REAL NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL DEFAULT '',
+      brand_name TEXT NOT NULL,
+      contact_name TEXT NOT NULL,
+      contact_email TEXT NOT NULL,
+      source_message_count INTEGER NOT NULL DEFAULT 1,
+      thread_status TEXT NOT NULL,
+      gmail_thread_id TEXT,
+      raw_json TEXT NOT NULL DEFAULT '{}',
+      parsed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE office_campaigns (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_slug TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      brand_website TEXT NOT NULL DEFAULT '',
+      contact_name TEXT NOT NULL,
+      contact_email TEXT NOT NULL,
+      product_name TEXT NOT NULL DEFAULT '',
+      campaign_name TEXT NOT NULL,
+      campaign_status TEXT NOT NULL,
+      source_thread_id TEXT,
+      deliverables_json TEXT NOT NULL,
+      brief_text TEXT NOT NULL,
+      draft_due_date TEXT,
+      final_due_date TEXT,
+      payment_amount TEXT NOT NULL DEFAULT '',
+      payment_status TEXT NOT NULL DEFAULT 'unknown',
+      usage_rights TEXT NOT NULL DEFAULT '',
+      usage_rights_status TEXT NOT NULL DEFAULT 'unclear',
+      revision_limit TEXT NOT NULL DEFAULT '',
+      raw_footage_required INTEGER NOT NULL DEFAULT 0,
+      missing_fields_json TEXT NOT NULL,
+      risk_flags_json TEXT NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      last_parsed_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -186,7 +257,7 @@ test("Mara creates approval requests for external actions", () => {
   assert.equal(row.status, "pending");
 });
 
-test("approval requests can be approved and reflected in suggested actions", () => {
+test("approval requests can be approved and reflected in suggested actions", async () => {
   const db = makeDb();
   const approval = createApprovalRequest(db, {
     actionType: "send_email",
@@ -197,7 +268,7 @@ test("approval requests can be approved and reflected in suggested actions", () 
     workerId: MARA_WORKER_ID
   });
 
-  const result = updateApprovalRequestStatus(db, "user-1", MARA_WORKER_ID, approval.id, "approved");
+  const result = await updateApprovalRequestStatus(db, "user-1", MARA_WORKER_ID, approval.id, "approved");
   assert.equal(result.ok, true);
   assert.equal(db.prepare("SELECT status FROM worker_approval_requests WHERE id = ?").get(approval.id).status, "approved");
   assert.equal(db.prepare("SELECT status FROM office_suggested_actions WHERE id = ?").get(approval.id).status, "approved");
@@ -262,7 +333,7 @@ test("research items can be queued and converted to tasks", () => {
   assert.equal(updated.status, "converted_to_task");
 });
 
-test("safe internal Mara tasks can run and save an output", () => {
+test("safe internal Mara tasks can run and save an output", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -274,7 +345,7 @@ test("safe internal Mara tasks can run and save an output", () => {
     workerId: MARA_WORKER_ID
   });
 
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   const task = db.prepare("SELECT status, output FROM worker_tasks WHERE id = ?").get(created.id);
 
   assert.equal(result.output.outputType, "pitch_template");
@@ -414,7 +485,7 @@ test("dismissing a worker task removes it from active recommendation flow", () =
   assert.equal(db.prepare("SELECT status FROM worker_tasks WHERE id = ?").get(created.id).status, "dismissed");
 });
 
-test("runMaraTask refuses tasks from another user", () => {
+test("runMaraTask refuses tasks from another user", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -426,10 +497,13 @@ test("runMaraTask refuses tasks from another user", () => {
     workerId: MARA_WORKER_ID
   });
 
-  assert.throws(() => runMaraTask({ db, taskId: created.id, userId: "user-2", workerId: MARA_WORKER_ID, ...makeExecutionReaders() }), /Worker task not found/);
+  await assert.rejects(
+    () => runMaraTask({ db, taskId: created.id, userId: "user-2", workerId: MARA_WORKER_ID, ...makeExecutionReaders() }),
+    /Worker task not found/
+  );
 });
 
-test("runMaraTask checks permissions and blocks when missing", () => {
+test("runMaraTask checks permissions and blocks when missing", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID, { canDraftOutreach: false });
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -445,7 +519,7 @@ test("runMaraTask checks permissions and blocks when missing", () => {
   assert.equal(task.status, "proposed");
 });
 
-test("runMaraTask marks task blocked when required context is missing", () => {
+test("runMaraTask marks task blocked when required context is missing", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -458,12 +532,12 @@ test("runMaraTask marks task blocked when required context is missing", () => {
     workerId: MARA_WORKER_ID
   });
 
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.match(result.blockerReason, /requires pasted brand message text/i);
   assert.equal(db.prepare("SELECT status FROM worker_tasks WHERE id = ?").get(created.id).status, "blocked");
 });
 
-test("autoExecuteSafeMaraTasks executes safe onboarding tasks", () => {
+test("autoExecuteSafeMaraTasks executes safe onboarding tasks", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const first = createApprovedTaskIfPermissionAllows(db, {
@@ -485,7 +559,7 @@ test("autoExecuteSafeMaraTasks executes safe onboarding tasks", () => {
     workerId: MARA_WORKER_ID
   });
 
-  const results = autoExecuteSafeMaraTasks({
+  const results = await autoExecuteSafeMaraTasks({
     db,
     taskIds: [first.id, second.id],
     userId: "user-1",
@@ -504,7 +578,7 @@ test("task type inference works for onboarding-generated tasks", () => {
   assert.equal(inferMaraTaskType("Create first content idea batch", "onboarding_generated"), "content_idea_batch");
 });
 
-test("creator positioning task produces saved output", () => {
+test("creator positioning task produces saved output", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -516,12 +590,12 @@ test("creator positioning task produces saved output", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.equal(result.output.outputType, "creator_positioning");
   assert.match(result.output.content, /Creator positioning statement/);
 });
 
-test("brand fit criteria task produces saved output", () => {
+test("brand fit criteria task produces saved output", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -533,12 +607,12 @@ test("brand fit criteria task produces saved output", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.equal(result.output.outputType, "brand_criteria");
   assert.match(result.output.content, /Best-fit industries/);
 });
 
-test("content idea batch task produces saved output", () => {
+test("content idea batch task produces saved output", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -550,12 +624,12 @@ test("content idea batch task produces saved output", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.equal(result.output.outputType, "content_ideas");
   assert.equal(result.output.structuredContent.ideas.length, 10);
 });
 
-test("buildMaraExecutionContext reuses previous outputs", () => {
+test("buildMaraExecutionContext reuses previous outputs", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const positioningTask = createApprovedTaskIfPermissionAllows(db, {
@@ -567,7 +641,7 @@ test("buildMaraExecutionContext reuses previous outputs", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  runMaraTask({ db, taskId: positioningTask.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  await runMaraTask({ db, taskId: positioningTask.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   const pitchTask = createApprovedTaskIfPermissionAllows(db, {
     description: "Create first pitch template.",
     priority: "high",
@@ -581,7 +655,7 @@ test("buildMaraExecutionContext reuses previous outputs", () => {
   assert.ok(context.previousOutputs.some((output) => output.outputType === "creator_positioning"));
 });
 
-test("workspace includes latest outputs and runnable tasks", () => {
+test("workspace includes latest outputs and runnable tasks", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const completed = createApprovedTaskIfPermissionAllows(db, {
@@ -593,7 +667,7 @@ test("workspace includes latest outputs and runnable tasks", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  runMaraTask({ db, taskId: completed.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  await runMaraTask({ db, taskId: completed.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   createApprovedTaskIfPermissionAllows(db, {
     description: "Build follow-up sequence.",
     priority: "medium",
@@ -613,7 +687,7 @@ test("workspace includes latest outputs and runnable tasks", () => {
   assert.ok(workspace.runnableTasks.length > 0);
 });
 
-test("activity log records task execution and output creation", () => {
+test("activity log records task execution and output creation", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -625,7 +699,7 @@ test("activity log records task execution and output creation", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
 
   const events = db.prepare("SELECT event_type AS eventType FROM worker_activity_log WHERE user_id = ? AND worker_id = ?").all("user-1", MARA_WORKER_ID).map((row) => row.eventType);
   assert.ok(events.includes("task_execution_started"));
@@ -656,7 +730,7 @@ test("getMaraRelevantKnowledge returns relevant modules by task type", () => {
   assert.ok(!categories.includes("admin_tracking"));
 });
 
-test("pitch template execution includes outreach and pitch knowledge", () => {
+test("pitch template execution includes outreach and pitch knowledge", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -668,12 +742,12 @@ test("pitch template execution includes outreach and pitch knowledge", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.match(result.output.content, /Subject line options/);
   assert.match(result.output.content, /Personalization placeholders/);
 });
 
-test("content idea batch execution includes content strategy knowledge", () => {
+test("content idea batch execution includes content strategy knowledge", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -685,11 +759,11 @@ test("content idea batch execution includes content strategy knowledge", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.ok(result.output.structuredContent.ideas.some((idea) => /Problem-first|Why this works|Before you buy/.test(idea.hook)));
 });
 
-test("content idea batch execution uses private creator-search insights when present", () => {
+test("content idea batch execution uses private creator-search insights when present", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -701,7 +775,7 @@ test("content idea batch execution uses private creator-search insights when pre
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({
+  const result = await runMaraTask({
     db,
     taskId: created.id,
     userId: "user-1",
@@ -715,7 +789,7 @@ test("content idea batch execution uses private creator-search insights when pre
   assert.ok(result.output.structuredContent.privateContentGapsUsed.includes("ingredient education"));
 });
 
-test("brand fit criteria execution includes brand research knowledge", () => {
+test("brand fit criteria execution includes brand research knowledge", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -727,11 +801,11 @@ test("brand fit criteria execution includes brand research knowledge", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.match(result.output.content, /Bad-fit|Red flags|priority/i);
 });
 
-test("pasted brand message analysis detects missing usage payment and deliverable details", () => {
+test("pasted brand message analysis detects missing usage payment and deliverable details", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -743,7 +817,7 @@ test("pasted brand message analysis detects missing usage payment and deliverabl
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({
+  const result = await runMaraTask({
     db,
     taskId: created.id,
     userId: "user-1",
@@ -757,7 +831,7 @@ test("pasted brand message analysis detects missing usage payment and deliverabl
   assert.match(result.output.content, /Potential thing to clarify: whether usage rights/i);
 });
 
-test("draft brand reply includes approval reminder and clarification questions", () => {
+test("draft brand reply includes approval reminder and clarification questions", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -769,7 +843,7 @@ test("draft brand reply includes approval reminder and clarification questions",
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({
+  const result = await runMaraTask({
     db,
     taskId: created.id,
     userId: "user-1",
@@ -805,7 +879,7 @@ test("knowledge retrieval does not include every module unnecessarily", () => {
   assert.ok(modules.every((module) => ["ugc_basics", "follow_ups", "outreach", "admin_tracking"].includes(module.category)));
 });
 
-test("Mara outputs do not claim live research was performed", () => {
+test("Mara outputs do not claim live research was performed", async () => {
   const db = makeDb();
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
   const created = createApprovedTaskIfPermissionAllows(db, {
@@ -817,7 +891,7 @@ test("Mara outputs do not claim live research was performed", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({ db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.doesNotMatch(result.output.content, /I checked TikTok trends|Reddit/i);
 });
 
@@ -829,54 +903,27 @@ test("runMaraAutonomyCycle creates deliverables and research-backed tasks", asyn
     canUseConnectedIntegrations: true
   });
   db.prepare(
-    `CREATE TABLE office_email_threads (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      worker_slug TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      subject TEXT NOT NULL,
-      participants_json TEXT NOT NULL,
-      snippet TEXT NOT NULL,
-      received_at TEXT NOT NULL,
-      brand_related INTEGER NOT NULL DEFAULT 0,
-      category TEXT NOT NULL,
-      urgency TEXT NOT NULL,
-      confidence REAL NOT NULL DEFAULT 0,
-      reason TEXT NOT NULL,
-      brand_name TEXT NOT NULL,
-      contact_name TEXT NOT NULL,
-      contact_email TEXT NOT NULL,
-      source_message_count INTEGER NOT NULL DEFAULT 0,
-      thread_status TEXT NOT NULL,
-      raw_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )`
-  ).run();
-  db.prepare(
     `INSERT INTO office_email_threads
-      (id, user_id, worker_slug, provider, subject, participants_json, snippet, received_at, brand_related, category, urgency, confidence, reason, brand_name, contact_name, contact_email, source_message_count, thread_status, raw_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, user_id, worker_slug, subject, snippet, body_text, received_at, brand_related, category, urgency, confidence, reason,
+       brand_name, contact_name, contact_email, thread_status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     "thread-1",
     "user-1",
     MARA_WORKER_ID,
-    "gmail",
     "Glow Theory follow-up",
-    JSON.stringify(["brand@example.com"]),
     "Need revised deliverables and timing.",
+    "Hi Taylor — can you send revised deliverables by Friday? Payment terms and usage rights are still TBD.",
     new Date().toISOString(),
     1,
-    "outreach",
+    "revision_request",
     "high",
-    0.91,
-    "Likely brand thread",
+    0.9,
+    "brand thread",
     "Glow Theory",
     "Taylor",
     "brand@example.com",
-    2,
     "awaiting_reply",
-    "{}",
     new Date().toISOString(),
     new Date().toISOString()
   );
@@ -935,6 +982,7 @@ test("runMaraAutonomyCycle creates deliverables and research-backed tasks", asyn
     })
   });
 
+  assert.ok(summary.plannedActions.length > 0);
   assert.ok(summary.outputs.length > 0);
   assert.ok(listWorkerOutputs(db, "user-1", MARA_WORKER_ID).some((output) => output.title === "Daily brand research digest"));
   assert.ok(listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID).some((task) => /personalized pitch/i.test(task.title)));
@@ -953,4 +1001,101 @@ test("runMaraAutonomyCycle creates deliverables and research-backed tasks", asyn
   );
   const pitchTask = listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID).find((task) => /personalized pitch/i.test(task.title));
   assert.match(String(pitchTask?.description ?? ""), /strongest current angle|ingredient education|current fit/i);
+});
+
+test("brand content ideas task uses researched brand context in template fallback", async () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const brand = upsertWorkerBrand(db, {
+    brandName: "Glow Theory",
+    identitySummary: "Barrier-support skincare for sensitive skin.",
+    suggestedAngle: "Routine-first education",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Generate brand-specific content ideas.",
+    priority: "high",
+    requiredPermissions: [],
+    targetBrandId: brand.id,
+    taskType: "brand_content_ideas",
+    title: "Create content ideas for Glow Theory",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  const result = await runMaraTask({
+    db,
+    taskId: created.id,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders()
+  });
+
+  assert.equal(result.output.outputType, "content_ideas");
+  assert.equal(result.output.structuredContent.brandName, "Glow Theory");
+  assert.equal(result.output.structuredContent.ideas.length, 8);
+  assert.ok(result.output.structuredContent.ideas.every((idea) => /Glow Theory/i.test(idea.idea)));
+});
+
+test("personalized pitch task prefers LLM output when Anthropic is available", async () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const previousKey = process.env.ANTHROPIC_API_KEY;
+  process.env.ANTHROPIC_API_KEY = "test-key";
+  const brand = upsertWorkerBrand(db, {
+    brandName: "Glow Theory",
+    identitySummary: "Barrier-support skincare for sensitive skin.",
+    suggestedAngle: "Routine-first education",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const created = createApprovedTaskIfPermissionAllows(db, {
+    description: "Draft a personalized pitch for Glow Theory.",
+    priority: "high",
+    requiredPermissions: [],
+    targetBrandId: brand.id,
+    taskType: "personalized_pitch",
+    title: "Draft personalized pitch for Glow Theory",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  const result = await runMaraTask({
+    db,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                emailPitch: "Hi Glow Theory team,\n\nI create barrier-support skincare UGC.",
+                warmDmPitch: "Hey Glow Theory — I make sensitive-skin routine UGC.",
+                professionalVersion: "Hi Glow Theory, I create skincare UGC for sensitive-skin routines.",
+                casualVersion: "Hey — I make routine-first skincare UGC.",
+                subjectLineOptions: ["UGC concept for Glow Theory"],
+                fitReason: "Glow Theory's barrier-support angle matches my routine content.",
+                usageNotes: ["Approve before sending"]
+              })
+            }
+          ]
+        }),
+        { status: 200 }
+      ),
+    taskId: created.id,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders()
+  });
+
+  if (previousKey) {
+    process.env.ANTHROPIC_API_KEY = previousKey;
+  } else {
+    delete process.env.ANTHROPIC_API_KEY;
+  }
+
+  assert.equal(result.output.outputType, "pitch_draft");
+  assert.equal(result.output.structuredContent.generatedBy, "llm");
+  assert.match(result.output.structuredContent.emailPitch, /Glow Theory/i);
 });

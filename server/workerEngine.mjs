@@ -1,4 +1,13 @@
 import { randomUUID } from "node:crypto";
+import {
+  buildAutonomyPlannerContext,
+  computeNextRunAt,
+  isRecurringDue,
+  planMaraAutonomyActions
+} from "./maraAutonomyPlanner.mjs";
+import { tryGenerateMaraBrandContentIdeas, tryGenerateMaraPersonalizedPitch } from "./maraLlm.mjs";
+import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
+import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
 
 export const MARA_WORKER_ID = "mara-vale";
 
@@ -17,7 +26,7 @@ export const DEFAULT_MARA_PERMISSIONS = {
 };
 
 export const MARA_ROLE_DEFINITION =
-  "Mara is a junior UGC operations hire for creators. She helps creators organize workflow, research brand opportunities, draft outreach, track follow-ups, plan content, identify bottlenecks, and keep momentum. She is proactive, organized, direct, and practical. She asks for approval before sensitive actions.";
+  "Mara is an autonomous UGC operations hire for a specific creator and brand. She maintains positioning and brand-fit criteria, researches aligned brands, drafts personalized outreach, organizes Gmail into a living tracker, generates brand-specific content ideas, surfaces blockers and approval needs, and keeps working within daily limits until she hits a real stop condition.";
 
 const TASK_STATUS_MAP = {
   approved: "To Do",
@@ -43,13 +52,18 @@ const PRIORITY_RANK = {
 const INTERNAL_ONLY_PERMISSION_PATTERNS = /sendemail|external|inbox|integration/i;
 
 const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
+  "brand_content_ideas",
   "brand_fit_criteria",
   "content_idea_batch",
   "creator_positioning",
   "draft_brand_reply",
   "follow_up_sequence",
+  "ops_brief",
   "personalized_pitch",
-  "pitch_template"
+  "pitch_template",
+  "reddit_market_pulse",
+  "tiktok_trend_pulse",
+  "update_brand_tracker"
 ]);
 
 export const MARA_REDDIT_COMMUNITIES = [
@@ -81,7 +95,11 @@ const TASK_TYPE_OUTPUT_TYPE_MAP = {
   portfolio_recommendations: "recommendation",
   research_queue_summary: "summary",
   ugc_shot_list: "shot_list",
-  weekly_action_plan: "weekly_plan"
+  weekly_action_plan: "weekly_plan",
+  brand_content_ideas: "content_ideas",
+  ops_brief: "ops_brief",
+  reddit_market_pulse: "market_pulse",
+  update_brand_tracker: "tracker_structure"
 };
 
 const MARA_KNOWLEDGE_MODULES = [
@@ -466,6 +484,10 @@ export function inferMaraTaskType(title, source = "") {
   if (normalized.includes("shot list")) return "ugc_shot_list";
   if (normalized.includes("weekly action plan")) return "weekly_action_plan";
   if (normalized.includes("brand tracker structure") || normalized.includes("tracker structure")) return "brand_tracker_structure";
+  if (normalized.includes("update brand tracker") || normalized.includes("refresh brand tracker")) return "update_brand_tracker";
+  if (normalized.includes("brand content ideas") || normalized.includes("content ideas for")) return "brand_content_ideas";
+  if (normalized.includes("ops brief") || normalized.includes("status brief")) return "ops_brief";
+  if (normalized.includes("reddit pulse") || normalized.includes("market pulse")) return "reddit_market_pulse";
   if (normalized.includes("message analysis")) return "pasted_message_analysis";
   if (normalized.includes("draft brand reply") || normalized.includes("brand reply")) return "draft_brand_reply";
   if (normalized.includes("portfolio recommendation")) return "portfolio_recommendations";
@@ -603,9 +625,49 @@ export function initWorkerTables(db) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS worker_brands (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      website TEXT,
+      identity_summary TEXT NOT NULL DEFAULT '',
+      vibe_notes TEXT NOT NULL DEFAULT '',
+      suggested_angle TEXT NOT NULL DEFAULT '',
+      contact_email TEXT,
+      contact_name TEXT,
+      research_item_id TEXT,
+      last_content_ideas_at TEXT,
+      last_pitch_at TEXT,
+      normalized_name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, worker_id, normalized_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS worker_trend_snapshots (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      niche TEXT NOT NULL,
+      region TEXT NOT NULL DEFAULT 'US',
+      period_days INTEGER NOT NULL DEFAULT 7,
+      source TEXT NOT NULL,
+      source_url TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL,
+      content_gaps_json TEXT NOT NULL,
+      hashtags_json TEXT NOT NULL,
+      insights_json TEXT NOT NULL,
+      login_wall_encountered INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   ensureColumn(db, "worker_tasks", "task_type", "TEXT");
+  ensureColumn(db, "worker_tasks", "target_brand_id", "TEXT");
   seedMaraKnowledgeModules(db);
 }
 
@@ -825,7 +887,7 @@ export function listWorkerTasksForUserWorker(db, userId, workerId) {
     .prepare(
       `SELECT id, user_id AS userId, worker_id AS workerId, title, description, source, status, priority,
               due_at AS dueAt, required_permissions_json AS requiredPermissionsJson, evidence_used_json AS evidenceUsedJson,
-              output, task_type AS taskType, created_at AS createdAt, updated_at AS updatedAt
+              output, task_type AS taskType, target_brand_id AS targetBrandId, created_at AS createdAt, updated_at AS updatedAt
        FROM worker_tasks
        WHERE user_id = ? AND worker_id = ?
        ORDER BY created_at DESC`
@@ -865,8 +927,8 @@ export function createWorkerTask(db, task) {
 
   db.prepare(
     `INSERT INTO worker_tasks (id, user_id, worker_id, title, description, source, status, priority, due_at,
-      required_permissions_json, evidence_used_json, output, task_type, normalized_title, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      required_permissions_json, evidence_used_json, output, task_type, target_brand_id, normalized_title, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     task.userId,
@@ -881,6 +943,7 @@ export function createWorkerTask(db, task) {
     JSON.stringify(evidenceUsed),
     task.output ?? null,
     taskType,
+    task.targetBrandId ?? null,
     normalizedTitle,
     timestamp,
     timestamp
@@ -1142,18 +1205,31 @@ export function buildMaraExecutionContext({
     workerId
   });
 
+  const allResearch = listResearchItems(db, userId, workerId);
+  const evidenceIds = new Set(
+    (task.evidenceUsed || []).map((evidence) => String(evidence).trim().replace(/^research:/, ""))
+  );
+  let relatedResearch = allResearch.filter((item) => evidenceIds.has(item.id));
+  const targetBrand = task.targetBrandId ? getWorkerBrand(db, userId, workerId, task.targetBrandId) : null;
+  if (relatedResearch.length === 0 && targetBrand?.researchItemId) {
+    const linkedResearch = allResearch.find((item) => item.id === targetBrand.researchItemId);
+    if (linkedResearch) {
+      relatedResearch = [linkedResearch];
+    }
+  }
+
   return {
     accountContext: typeof readAccountContext === "function" ? readAccountContext(userId) : null,
     connectedIntegrations: typeof readConnectedIntegrations === "function" ? readConnectedIntegrations(userId, workerId) : [],
     currentTask: task,
+    db,
     fetchImpl: typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch,
     permissions: getWorkerPermissions(db, userId, workerId),
     previousOutputs: listWorkerOutputs(db, userId, workerId),
     privateInsights: typeof readPrivateInsights === "function" ? readPrivateInsights(userId, workerId) : null,
     relevantKnowledgeModules,
-    relatedResearch: listResearchItems(db, userId, workerId).filter((item) =>
-      (task.evidenceUsed || []).some((evidence) => String(evidence).trim() === `research:${item.id}`)
-    ),
+    relatedResearch,
+    targetBrand,
     recentActivity: db
       .prepare(
         `SELECT id, event_type AS eventType, title, description, created_at AS createdAt
@@ -1280,7 +1356,14 @@ function executeBrandFitCriteriaTask(context) {
   };
 }
 
-function executePitchTemplateTask(context) {
+async function executePitchTemplateTask(context) {
+  if (context.currentTask.taskType === "personalized_pitch") {
+    const llmResult = await tryGenerateMaraPersonalizedPitch(context);
+    if (llmResult) {
+      return llmResult;
+    }
+  }
+
   const profile = buildContextProfile(context);
   const outreachModule = getKnowledgeModule(context, "outreach");
   const pitchModule = getKnowledgeModule(context, "pitch_templates");
@@ -1303,7 +1386,8 @@ function executePitchTemplateTask(context) {
       ...getStructuredList(outreachModule, "principles", ["Personalize the first line", "Keep the value proposition clear"]).slice(0, 2),
       "Use the casual version for DMs and the professional version for email"
     ],
-    warmDmPitch: `Hey ${brandLabel} — I make ${profile.niche} UGC that feels straightforward and credible. ${fitReason} I had a couple of quick concept ideas if you'd want me to send them over.`
+    warmDmPitch: `Hey ${brandLabel} — I make ${profile.niche} UGC that feels straightforward and credible. ${fitReason} I had a couple of quick concept ideas if you'd want me to send them over.`,
+    generatedBy: context.currentTask.taskType === "personalized_pitch" ? "template" : undefined
   };
 
   return {
@@ -1448,32 +1532,211 @@ function executeWeeklyActionPlanTask(context) {
 }
 
 function executeBrandTrackerStructureTask(context) {
+  return executeUpdateBrandTrackerTask(context, { includeStructureGuide: true });
+}
+
+function executeUpdateBrandTrackerTask(context, { includeStructureGuide = false } = {}) {
   const trackingModule = getKnowledgeModule(context, "admin_tracking");
   const workflowModule = getKnowledgeModule(context, "campaign_workflow");
+  const leads = safeSelectAll(
+    context.db,
+    `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail,
+            lead_stage AS leadStage, summary, last_activity_at AS lastActivityAt
+     FROM office_leads
+     WHERE user_id = ? AND worker_slug = ?
+     ORDER BY coalesce(last_activity_at, updated_at, created_at) DESC
+     LIMIT 25`,
+    [context.userId, context.workerId]
+  );
+  const brands = listWorkerBrands(context.db, context.userId, context.workerId).slice(0, 15);
+
+  const liveRows = [
+    ...leads.map((lead) =>
+      `${lead.brandName} | ${lead.contactEmail || "no email"} | ${lead.leadStage || "unknown"} | ${String(lead.summary || "").slice(0, 80)}`
+    ),
+    ...brands
+      .filter((brand) => !leads.some((lead) => normalizeForComparison(lead.brandName) === normalizeForComparison(brand.brandName)))
+      .map((brand) => `${brand.brandName} | researched | target | ${String(brand.suggestedAngle || brand.identitySummary || "").slice(0, 80)}`)
+  ];
+
   const structuredContent = {
-    exampleRows: [
-      "Brand A | Warm prospect | Follow up Friday | Priority 8",
-      "Brand B | Waiting on brief | Review Monday | Priority 6"
-    ],
+    exampleRows: liveRows.length > 0 ? liveRows : ["No live tracker rows yet — connect Gmail or let Mara finish brand research."],
     followUpDateLogic: "Set next follow-up 3 days after first touch, then 7 days after second touch.",
+    liveRowCount: liveRows.length,
     pipelineStages: getStructuredList(workflowModule, "stages", ["Targeted", "Pitched", "Awaiting reply", "In conversation", "Brief received", "Closed"]),
     priorityScoringLogic: getStructuredList(trackingModule, "scoring", ["+3 niche fit", "+2 product fit", "+2 creator-friendly UGC usage", "-2 unclear scope"]),
     recommendedTrackerFields: getStructuredList(trackingModule, "fields", ["Brand", "Contact", "Category", "Status", "Last touch", "Next follow-up", "Priority score", "Notes"]),
     statusDefinitions: ["Targeted = worth reaching out", "Awaiting reply = first message sent", "In conversation = active back-and-forth"]
   };
 
-  return {
-    content: buildRichContent([
+  const sections = [];
+  if (includeStructureGuide) {
+    sections.push(
       { title: "Recommended tracker fields", value: structuredContent.recommendedTrackerFields },
       { title: "Pipeline stages", value: structuredContent.pipelineStages },
       { title: "Status definitions", value: structuredContent.statusDefinitions },
       { title: "Follow-up date logic", value: structuredContent.followUpDateLogic },
-      { title: "Priority scoring logic", value: structuredContent.priorityScoringLogic },
-      { title: "Example rows", value: structuredContent.exampleRows }
-    ]),
+      { title: "Priority scoring logic", value: structuredContent.priorityScoringLogic }
+    );
+  }
+  sections.push(
+    { title: "Live tracker rows", value: structuredContent.exampleRows },
+    { title: "Rows currently tracked", value: [`${structuredContent.liveRowCount} live row(s)`] }
+  );
+
+  return {
+    content: buildRichContent(sections),
     outputType: "tracker_structure",
     structuredContent,
-    title: "Brand tracker structure"
+    title: includeStructureGuide ? "Brand tracker structure" : "Updated brand tracker"
+  };
+}
+
+function executeBrandContentIdeasTaskTemplate(context) {
+  const profile = buildContextProfile(context);
+  const brand = context.targetBrand;
+  if (!brand) {
+    return {
+      blocked: true,
+      blockerReason: "Brand-specific content ideas need a researched brand on file.",
+      neededFromUser: "Let Mara research brands first or specify which brand to ideate for.",
+      suggestedNextStep: "Wait for the next brand research cycle or ask Mara to research a target brand."
+    };
+  }
+
+  const contentStrategyModule = getKnowledgeModule(context, "content_strategy");
+  const hookIdeas = getStructuredList(contentStrategyModule, "hookIdeas", ["Problem-first", "Why this works", "Before you buy"]);
+  const formats = getStructuredList(contentStrategyModule, "formats", ["Demo", "Routine", "Testimonial"]);
+  const identity = String(brand.identitySummary || brand.vibeNotes || brand.suggestedAngle || "").trim();
+  const ideas = Array.from({ length: 8 }, (_, index) => ({
+    brandName: brand.brandName,
+    difficultyLevel: index < 3 ? "Low" : "Medium",
+    format: formats[index % formats.length],
+    hook: `${hookIdeas[index % hookIdeas.length]} for ${brand.brandName}`,
+    idea: `${brand.brandName} concept ${index + 1}: ${brand.suggestedAngle || profile.niche} angle rooted in ${identity.slice(0, 120) || "the brand's current positioning"}`,
+    productFit: brand.suggestedAngle || profile.niche,
+    whyItWorks: `Uses ${brand.brandName}'s identity and the creator's ${profile.niche} positioning together instead of generic prompts.`
+  }));
+
+  return {
+    content: buildRichContent([
+      { title: `Content ideas for ${brand.brandName}`, value: ideas.map((idea) => `${idea.idea} | ${idea.hook} | ${idea.format}`) },
+      { title: "Brand identity Mara used", value: [identity || "Research summary pending"] },
+      { title: "Suggested angle", value: [brand.suggestedAngle || "Angle still forming from research"] }
+    ]),
+    outputType: "content_ideas",
+    structuredContent: { brandId: brand.id, brandName: brand.brandName, generatedBy: "template", ideas },
+    title: `Content ideas for ${brand.brandName}`
+  };
+}
+
+async function executeBrandContentIdeasTask(context) {
+  const llmResult = await tryGenerateMaraBrandContentIdeas(context);
+  if (llmResult) {
+    return llmResult;
+  }
+  return executeBrandContentIdeasTaskTemplate(context);
+}
+
+async function executeTikTokTrendPulseTask(context) {
+  const profile = buildContextProfile(context);
+  const insights = context.privateInsights;
+  const niche = String(insights?.niche || profile.niche).trim();
+  const contentGaps = extractPrivateInsightItems(insights).slice(0, 8);
+  const hashtags = Array.isArray(insights?.hashtags) ? insights.hashtags.slice(0, 8) : [];
+  const structuredContent = {
+    contentGapNotes: contentGaps,
+    matchedToNiche: Boolean(insights?.matchedToNiche),
+    niche,
+    notes: Array.isArray(insights?.notes) ? insights.notes : [],
+    region: insights?.region || "US",
+    sourceUpdatedAt: insights?.updatedAt || null,
+    takeaways: hashtags.map((item) => `${item.hashtag}: ${item.posts || "?"} posts / ${item.views || "?"} views`),
+    trendingHashtags: hashtags.map((item) => item.hashtag)
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Niche Mara scoped trends for", value: [niche] },
+      {
+        title: "TikTok hashtags matched to this creator",
+        value: structuredContent.takeaways.length > 0 ? structuredContent.takeaways : ["No niche-scoped TikTok trends are on file yet."]
+      },
+      {
+        title: "Content-gap angles to explore",
+        value: contentGaps.length > 0 ? contentGaps : ["Run a TikTok trend sync after updating the global Creative Center file."]
+      },
+      {
+        title: "What Mara is taking away",
+        value: structuredContent.notes.length > 0 ? structuredContent.notes : ["Use matched trends for pitches and content ideas tied to this niche."]
+      }
+    ]),
+    outputType: "market_pulse",
+    structuredContent,
+    title: "TikTok niche trend pulse"
+  };
+}
+
+async function executeRedditMarketPulseTask(context) {
+  const profile = buildContextProfile(context);
+  const redditSignals = await fetchRedditSignals({ fetchImpl: context.fetchImpl });
+  const insightGaps = extractPrivateInsightItems(context.privateInsights).slice(0, 5);
+  const structuredContent = {
+    communitySignals: redditSignals.slice(0, 6).map((signal) => `[r/${signal.community}] ${signal.title}`),
+    contentGapNotes: insightGaps,
+    niche: profile.niche,
+    takeaways: redditSignals.slice(0, 3).map((signal) => signal.summary || signal.title)
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "Niche Mara is learning for", value: [profile.niche] },
+      { title: "Fresh Reddit creator signals", value: structuredContent.communitySignals.length > 0 ? structuredContent.communitySignals : ["No Reddit pulls were available during this cycle."] },
+      { title: "TikTok creator-search content gaps", value: insightGaps.length > 0 ? insightGaps : ["No private creator-search insight file is loaded yet."] },
+      { title: "What Mara is taking away", value: structuredContent.takeaways.length > 0 ? structuredContent.takeaways : ["Continue monitoring creator communities for pitch angles and objections."] }
+    ]),
+    outputType: "market_pulse",
+    structuredContent,
+    title: "Creator market pulse"
+  };
+}
+
+function executeOpsStatusBriefTask(context) {
+  const approvals = listApprovalRequests(context.db, context.userId, context.workerId).filter((entry) => entry.status === "pending");
+  const blockedTasks = listWorkerTasksForUserWorker(context.db, context.userId, context.workerId).filter((entry) => entry.status === "blocked");
+  const runnableTasks = listWorkerTasksForUserWorker(context.db, context.userId, context.workerId).filter((entry) => entry.status === "approved");
+  const brands = listWorkerBrands(context.db, context.userId, context.workerId);
+  const inboxSnapshot = buildInboxLeadSnapshot(context.db, context.userId, context.workerId);
+  const researchToday = countBrandResearchItemsToday(context.db, context.userId, context.workerId);
+
+  const structuredContent = {
+    approvalQueue: approvals.map((entry) => entry.title),
+    blockedTasks: blockedTasks.map((entry) => entry.title),
+    brandsTracked: brands.length,
+    inboxSummary: inboxSnapshot.items?.slice(0, 4).map((item) => `${item.brandName}: ${item.status}`) ?? [],
+    nextRunnableTasks: runnableTasks.slice(0, 4).map((entry) => entry.title),
+    researchUsedToday: researchToday,
+    researchRemainingToday: Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - researchToday),
+    risks: [
+      approvals.length > 0 ? `${approvals.length} approval(s) are blocking external or sensitive work.` : null,
+      blockedTasks.length > 0 ? `${blockedTasks.length} task(s) are blocked on permissions or missing input.` : null,
+      inboxSnapshot.items?.length === 0 ? "No organized inbox or lead rows are available yet." : null
+    ].filter(Boolean)
+  };
+
+  return {
+    content: buildRichContent([
+      { title: "What needs approval", value: structuredContent.approvalQueue.length > 0 ? structuredContent.approvalQueue : ["Nothing waiting on approval right now."] },
+      { title: "Blocked work", value: structuredContent.blockedTasks.length > 0 ? structuredContent.blockedTasks : ["No blocked tasks."] },
+      { title: "Risks and stop conditions", value: structuredContent.risks.length > 0 ? structuredContent.risks : ["No major risks flagged in this brief."] },
+      { title: "Next runnable tasks", value: structuredContent.nextRunnableTasks.length > 0 ? structuredContent.nextRunnableTasks : ["Mara will create or queue the next safe internal task."] },
+      { title: "Inbox / lead snapshot", value: structuredContent.inboxSummary.length > 0 ? structuredContent.inboxSummary : ["Inbox organization pending or Gmail not connected."] },
+      { title: "Brand research budget today", value: [`${structuredContent.researchUsedToday} used · ${structuredContent.researchRemainingToday} remaining`] },
+      { title: "Brands on file", value: [`${structuredContent.brandsTracked} researched brand(s) in Mara's workspace`] }
+    ]),
+    outputType: "ops_brief",
+    structuredContent,
+    title: "Mara ops status brief"
   };
 }
 
@@ -1662,12 +1925,22 @@ function executeTaskByType(context) {
       return executeFollowUpSequenceTask(context);
     case "content_idea_batch":
       return executeContentIdeaBatchTask(context);
+    case "brand_content_ideas":
+      return executeBrandContentIdeasTask(context);
     case "ugc_shot_list":
       return executeUGCShotListTask(context);
     case "weekly_action_plan":
       return executeWeeklyActionPlanTask(context);
     case "brand_tracker_structure":
       return executeBrandTrackerStructureTask(context);
+    case "update_brand_tracker":
+      return executeUpdateBrandTrackerTask(context);
+    case "ops_brief":
+      return executeOpsStatusBriefTask(context);
+    case "reddit_market_pulse":
+      return executeRedditMarketPulseTask(context);
+    case "tiktok_trend_pulse":
+      return executeTikTokTrendPulseTask(context);
     case "pasted_message_analysis":
       return executePastedMessageAnalysisTask(context);
     case "draft_brand_reply":
@@ -1700,7 +1973,7 @@ function markTaskBlocked(db, userId, workerId, taskId, blocker) {
   return blocker;
 }
 
-export function runMaraTask({
+export async function runMaraTask({
   db,
   fetchImpl,
   readAccountContext,
@@ -1770,7 +2043,7 @@ export function runMaraTask({
     workerId
   });
 
-  const result = executeTaskByType(context);
+  const result = await Promise.resolve(executeTaskByType(context));
   if (result?.blocked) {
     return markTaskBlocked(db, userId, workerId, taskId, result);
   }
@@ -1792,6 +2065,16 @@ export function runMaraTask({
     type: savedOutput.outputType
   };
   completeWorkerTask(db, userId, workerId, taskId, JSON.stringify(previewPayload));
+
+  if (task.targetBrandId) {
+    if (savedOutput.outputType === "content_ideas") {
+      touchWorkerBrandActivity(db, userId, workerId, task.targetBrandId, "content");
+    }
+    if (savedOutput.outputType === "pitch_draft" || savedOutput.outputType === "pitch_template") {
+      touchWorkerBrandActivity(db, userId, workerId, task.targetBrandId, "pitch");
+    }
+  }
+
   createWorkerActivityLog(db, {
     createdAt: timestamp,
     description: `Finished ${task.title}.`,
@@ -1987,10 +2270,11 @@ function hasConnectedEmailIntegration(integrations) {
   );
 }
 
-function inferMaraNiche({ accountContext, workerKnowledge }) {
+function inferMaraNiche({ accountContext, maraAnswers = {}, workerKnowledge }) {
+  const onboardingNiche = String(maraAnswers.current_workflow || maraAnswers.email_volume || "").trim();
   const preferences = getMemoryItem(workerKnowledge, "Preferences");
   const nicheFromKnowledge = preferences.find((item) => /skincare|wellness|beauty|ugc|creator/i.test(String(item)));
-  return String(accountContext?.whatYouDo || nicheFromKnowledge || "UGC creator brands").trim();
+  return String(accountContext?.whatYouDo || onboardingNiche || nicheFromKnowledge || "UGC creator brands").trim();
 }
 
 function hasRecentOutputOfType(db, userId, workerId, outputType, maxAgeHours) {
@@ -2226,6 +2510,16 @@ async function runMaraBrandResearchCycle({
     });
     if (!research.duplicate && research.id) {
       createdResearchIds.push(research.id);
+      upsertWorkerBrand(db, {
+        brandName: brand.brandName,
+        identitySummary: brand.summary,
+        researchItemId: research.id,
+        suggestedAngle: brand.suggestedAngle || "",
+        userId,
+        vibeNotes: brand.fitSummary || "",
+        website: brand.website || brand.url || "",
+        workerId
+      });
       const pitchTask = convertResearchItemToTask(db, userId, workerId, research.id, {
         description: `Draft a personalized pitch using the brand's identity, site language, ${brand.suggestedAngle || "the strongest current angle"}, and current fit with ${niche}.`,
         priority: "high",
@@ -2263,7 +2557,7 @@ async function runMaraBrandResearchCycle({
   return { createdPitchTaskIds, createdResearchIds, createdSignalResearchIds, output };
 }
 
-function runMaraInboxOrganizationCycle({ db, userId, workerId }) {
+async function runMaraInboxOrganizationCycle({ db, fetchImpl, userId, workerId }) {
   const threads = db.prepare(
     `SELECT subject, brand_name AS brandName, contact_email AS contactEmail, thread_status AS threadStatus, urgency, snippet
      FROM office_email_threads
@@ -2276,27 +2570,412 @@ function runMaraInboxOrganizationCycle({ db, userId, workerId }) {
     return { note: "No inbox threads are available for organization yet." };
   }
 
+  const briefParse = await parseUnparsedInboxThreads(db, userId, workerId, { fetchImpl });
+  const opsSummary = buildInboxOpsSummary(db, userId, workerId);
   const statusCounts = threads.reduce((acc, thread) => {
     const key = String(thread.threadStatus || "unknown");
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
   const urgentThreads = threads.filter((thread) => String(thread.urgency).toLowerCase() === "high").slice(0, 5);
+  const campaignsWithGaps = opsSummary.campaignsWithGaps.slice(0, 6);
+
   const output = createWorkerOutput(db, {
     content: buildRichContent([
       { title: "Outreach status snapshot", value: Object.entries(statusCounts).map(([status, count]) => `${status}: ${count}`) },
+      { title: "Parsed briefs this cycle", value: [`${briefParse.parsedCount} email brief(s) parsed into campaign records.`] },
+      {
+        title: "Campaigns with missing fields",
+        value: campaignsWithGaps.length > 0
+          ? campaignsWithGaps.map((campaign) => `${campaign.brandName}: ${campaign.missingFields.join(", ")}`)
+          : ["No major campaign gaps detected in the latest parsed inbox work."]
+      },
+      {
+        title: "Upcoming deadlines",
+        value: opsSummary.upcomingDeadlines.length > 0
+          ? opsSummary.upcomingDeadlines.map((campaign) => `${campaign.brandName} — ${campaign.campaignName}`)
+          : ["No parsed deadlines on file yet."]
+      },
       { title: "Urgent threads", value: urgentThreads.length > 0 ? urgentThreads.map((thread) => `${thread.brandName || thread.subject} — ${thread.snippet}`) : ["No urgent outreach threads right now."] },
-      { title: "What Mara updated", value: ["Reviewed current outreach statuses", "Prepared the latest internal inbox snapshot", "Flagged urgent threads for approval or follow-up"] }
+      { title: "What Mara updated", value: ["Parsed brand email bodies into campaign records where possible", "Flagged missing payment, usage, deadline, or deliverable fields", "Prepared the latest internal inbox and campaign ops snapshot"] }
     ]),
     outputType: "summary",
     source: "autonomy_inbox",
-    structuredContent: { statusCounts, urgentThreads },
-    title: "Inbox outreach digest",
+    structuredContent: { briefParse, campaignsWithGaps, statusCounts, urgentThreads },
+    title: "Inbox and campaign ops digest",
     userId,
     workerId
   });
 
-  return { output };
+  return { output, parsedCount: briefParse.parsedCount };
+}
+
+function countOfficeLeads(db, userId, workerId) {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM office_leads
+       WHERE user_id = ? AND worker_slug = ?`
+    )
+    .get(userId, workerId);
+  return Number(row?.count || 0);
+}
+
+function markRecurringResponsibilityRun(db, recurring) {
+  const timestamp = new Date().toISOString();
+  const nextRunAt = computeNextRunAt(recurring.cadence, recurring.dayOfWeek, new Date(timestamp));
+  db.prepare(
+    `UPDATE worker_recurring_responsibilities
+     SET last_run_at = ?, next_run_at = ?, updated_at = ?
+     WHERE id = ? AND user_id = ? AND worker_id = ?`
+  ).run(timestamp, nextRunAt, timestamp, recurring.id, recurring.userId, recurring.workerId);
+}
+
+function createAndRunAutonomyTask(db, taskInput, readers, summary) {
+  const created = createApprovedTaskIfPermissionAllows(db, taskInput);
+  if (created.duplicate || !created.id) {
+    return null;
+  }
+  summary.createdTaskIds.push(created.id);
+  return created.id;
+}
+
+async function executeAutonomyPlannedAction(action, { db, fetchImpl, integrations, permissions, privateInsights, summary, userId, workerId, readers }) {
+  switch (action.kind) {
+    case "blocked":
+      summary.blockers.push(action.reason);
+      return;
+    case "ensure_starter_tasks": {
+      const onboarding = typeof readers.readMaraOnboarding === "function" ? readers.readMaraOnboarding(userId, workerId) : null;
+      const accountContext = typeof readers.readAccountContext === "function" ? readers.readAccountContext(userId) : null;
+      const starterTaskIds = createAutonomyStarterTasks({
+        accountContext,
+        db,
+        maraAnswers: onboarding?.answers || {},
+        userId,
+        workerId
+      });
+      summary.createdTaskIds.push(...starterTaskIds);
+      const starterResults = await autoExecuteSafeMaraTasks({
+        db,
+        fetchImpl,
+        taskIds: starterTaskIds,
+        userId,
+        workerId,
+        ...readers
+      });
+      for (const result of starterResults) {
+        if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+        if (result?.output) summary.outputs.push(result.output);
+      }
+      return;
+    }
+    case "maintain_artifact":
+    case "maintain_profile": {
+      if (action.kind === "maintain_profile") {
+        await executeAutonomyPlannedAction(
+          { kind: "maintain_artifact", reason: "Refresh creator positioning from the latest account context.", taskType: "creator_positioning", title: "Refresh creator positioning" },
+          { db, fetchImpl, integrations, permissions, privateInsights, readers, summary, userId, workerId }
+        );
+        await executeAutonomyPlannedAction(
+          { kind: "maintain_artifact", reason: "Refresh brand fit criteria from the latest account context.", taskType: "brand_fit_criteria", title: "Refresh brand fit criteria" },
+          { db, fetchImpl, integrations, permissions, privateInsights, readers, summary, userId, workerId }
+        );
+        if (action.recurringId) {
+          const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+          if (recurring) markRecurringResponsibilityRun(db, recurring);
+        }
+        return;
+      }
+      const taskId = createAndRunAutonomyTask(
+        db,
+        {
+          description: action.reason || `Maintain ${action.title}.`,
+          priority: "high",
+          requiredPermissions: [],
+          source: "autonomy_maintenance",
+          status: "approved",
+          taskType: action.taskType,
+          title: action.title,
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+      if (result?.output) summary.outputs.push(result.output);
+      return;
+    }
+    case "brand_research": {
+      if (!permissions.canRunResearch) {
+        summary.blockers.push("Research permission is disabled.");
+        return;
+      }
+      const accountContext = typeof readers.readAccountContext === "function" ? readers.readAccountContext(userId) : null;
+      const workerKnowledge = typeof readers.readWorkerKnowledge === "function" ? readers.readWorkerKnowledge(userId, workerId) : [];
+      const researchResult = await runMaraBrandResearchCycle({
+        accountContext,
+        db,
+        fetchImpl,
+        privateInsights,
+        userId,
+        workerId,
+        workerKnowledge
+      });
+      if (researchResult.output) summary.outputs.push(researchResult.output);
+      if (researchResult.createdPitchTaskIds?.length) {
+        summary.createdTaskIds.push(...researchResult.createdPitchTaskIds);
+        const pitchResults = await autoExecuteSafeMaraTasks({
+          db,
+          fetchImpl,
+          taskIds: researchResult.createdPitchTaskIds,
+          userId,
+          workerId,
+          ...readers
+        });
+        for (const result of pitchResults) {
+          if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+          if (result?.output) summary.outputs.push(result.output);
+        }
+      }
+      if (researchResult.note) summary.notes.push(researchResult.note);
+      if (action.recurringId) {
+        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+        if (recurring) markRecurringResponsibilityRun(db, recurring);
+      }
+      return;
+    }
+    case "personalized_pitch": {
+      const taskId = createAndRunAutonomyTask(
+        db,
+        {
+          description: `Draft a personalized pitch for ${action.brandName} using stored brand identity and research.`,
+          evidenceUsed: action.researchItemId ? [`research:${action.researchItemId}`] : [],
+          priority: "high",
+          requiredPermissions: [],
+          source: "autonomy_brand_pitch",
+          status: "approved",
+          targetBrandId: action.brandId,
+          taskType: "personalized_pitch",
+          title: `Draft personalized pitch for ${action.brandName}`,
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+      if (result?.output) summary.outputs.push(result.output);
+      return;
+    }
+    case "brand_content_ideas":
+    case "brand_content_ideas_batch": {
+      const brands = listWorkerBrands(db, userId, workerId);
+      const brand = action.brandId ? getWorkerBrand(db, userId, workerId, action.brandId) : brands[0];
+      if (!brand) {
+        summary.notes.push("Brand content ideas were skipped because no researched brands are on file yet.");
+        return;
+      }
+      const taskId = createAndRunAutonomyTask(
+        db,
+        {
+          description: `Generate content ideas tailored to ${brand.brandName}'s identity and the creator's positioning.`,
+          priority: "high",
+          requiredPermissions: [],
+          source: "autonomy_brand_content",
+          status: "approved",
+          targetBrandId: brand.id,
+          taskType: "brand_content_ideas",
+          title: `Create content ideas for ${brand.brandName}`,
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+      if (result?.output) summary.outputs.push(result.output);
+      if (action.recurringId) {
+        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+        if (recurring) markRecurringResponsibilityRun(db, recurring);
+      }
+      return;
+    }
+    case "inbox_organization": {
+      const inboxResult = await runMaraInboxOrganizationCycle({ db, fetchImpl, userId, workerId });
+      if (inboxResult.output) summary.outputs.push(inboxResult.output);
+      if (inboxResult.note) summary.notes.push(inboxResult.note);
+      return;
+    }
+    case "update_tracker": {
+      const taskId = createAndRunAutonomyTask(
+        db,
+        {
+          description: action.reason || "Refresh the internal brand tracker from inbox, leads, and research.",
+          priority: "medium",
+          requiredPermissions: [],
+          source: "autonomy_tracker",
+          status: "approved",
+          taskType: "update_brand_tracker",
+          title: "Update brand tracker",
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+      if (result?.output) summary.outputs.push(result.output);
+      if (action.recurringId) {
+        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+        if (recurring) markRecurringResponsibilityRun(db, recurring);
+      }
+      return;
+    }
+    case "weekly_plan": {
+      const taskId = createAndRunAutonomyTask(
+        db,
+        {
+          description: "Create the latest weekly action plan from current work, research, and blockers.",
+          priority: "high",
+          requiredPermissions: [],
+          source: "autonomy_weekly_planning",
+          status: "approved",
+          taskType: "weekly_action_plan",
+          title: "Create weekly action plan",
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+      if (result?.output) summary.outputs.push(result.output);
+      if (action.recurringId) {
+        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+        if (recurring) markRecurringResponsibilityRun(db, recurring);
+      }
+      return;
+    }
+    case "ops_brief": {
+      const taskId = createAndRunAutonomyTask(
+        db,
+        {
+          description: "Summarize blockers, risks, approvals, and the next safe work Mara can do.",
+          priority: "high",
+          requiredPermissions: [],
+          source: "autonomy_ops_brief",
+          status: "approved",
+          taskType: "ops_brief",
+          title: "Create Mara ops status brief",
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+      if (result?.output) summary.outputs.push(result.output);
+      if (action.recurringId) {
+        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+        if (recurring) markRecurringResponsibilityRun(db, recurring);
+      }
+      return;
+    }
+    case "reddit_pulse": {
+      const taskId = createAndRunAutonomyTask(
+        db,
+        {
+          description: action.reason || "Keep learning from creator communities and market signals.",
+          priority: "medium",
+          requiredPermissions: permissions.canRunResearch ? [] : ["canRunResearch"],
+          source: "autonomy_market_pulse",
+          status: "approved",
+          taskType: "reddit_market_pulse",
+          title: "Creator market pulse",
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+      if (result?.output) summary.outputs.push(result.output);
+      if (action.recurringId) {
+        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+        if (recurring) markRecurringResponsibilityRun(db, recurring);
+      }
+      return;
+    }
+    case "tiktok_trends": {
+      const syncResult = syncUserTrendInsightsFromGlobal({
+        db,
+        globalPath: resolveGlobalTrendInsightsPath(),
+        ...readers,
+        userId,
+        workerId
+      });
+      if (syncResult.note) summary.notes.push(syncResult.note);
+      const taskId = createAndRunAutonomyTask(
+        db,
+        {
+          description: action.reason || "Refresh niche-scoped TikTok trend insights for this creator.",
+          priority: "medium",
+          requiredPermissions: [],
+          source: "autonomy_tiktok_trends",
+          status: "approved",
+          taskType: "tiktok_trend_pulse",
+          title: "TikTok niche trend pulse",
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+      if (result?.output) summary.outputs.push(result.output);
+      if (action.recurringId) {
+        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+        if (recurring) markRecurringResponsibilityRun(db, recurring);
+      }
+      return;
+    }
+    case "drain_approved_queue": {
+      for (const taskId of (action.taskIds || []).slice(0, action.limit || 3)) {
+        try {
+          const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+          if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+          if (result?.output) summary.outputs.push(result.output);
+        } catch (error) {
+          summary.notes.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+      return;
+    }
+    default:
+      if (action.recurringId) {
+        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
+        if (recurring) markRecurringResponsibilityRun(db, recurring);
+      }
+      return;
+  }
 }
 
 export async function runMaraAutonomyCycle({
@@ -2316,135 +2995,70 @@ export async function runMaraAutonomyCycle({
   }
 
   const permissions = ensureWorkerPermissions(db, userId, workerId);
-  const accountContext = typeof readAccountContext === "function" ? readAccountContext(userId) : null;
   const onboarding = typeof readMaraOnboarding === "function" ? readMaraOnboarding(userId, workerId) : null;
   const integrations = typeof readConnectedIntegrations === "function" ? readConnectedIntegrations(userId, workerId) : [];
-  const workerKnowledge = typeof readWorkerKnowledge === "function" ? readWorkerKnowledge(userId, workerId) : [];
   const privateInsights = typeof readPrivateInsights === "function" ? readPrivateInsights(userId, workerId) : null;
+  const readers = {
+    readAccountContext,
+    readConnectedIntegrations,
+    readMaraOnboarding,
+    readMessages,
+    readPrivateInsights,
+    readWorkerKnowledge
+  };
   const summary = {
     createdTaskIds: [],
     executedTaskIds: [],
     notes: [],
     outputs: [],
-    blockers: []
+    blockers: [],
+    plannedActions: []
   };
 
-  if (!onboarding || onboarding.status !== "completed") {
-    summary.blockers.push("Mara needs completed onboarding before her autonomy loop can start.");
-    return summary;
-  }
-
-  const starterTaskIds = createAutonomyStarterTasks({
-    accountContext,
-    db,
-    maraAnswers: onboarding.answers || {},
-    userId,
-    workerId
+  const plannerContext = buildAutonomyPlannerContext({
+    approvals: listApprovalRequests(db, userId, workerId).filter((entry) => entry.status === "pending"),
+    blockedTasks: listWorkerTasksForUserWorker(db, userId, workerId).filter((entry) => entry.status === "blocked"),
+    brandResearchRemaining: Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - countBrandResearchItemsToday(db, userId, workerId)),
+    brands: listWorkerBrands(db, userId, workerId),
+    dueRecurring: listRecurringResponsibilities(db, userId, workerId).filter((entry) => isRecurringDue(entry)),
+    hasConnectedEmail: hasConnectedEmailIntegration(integrations),
+    integrations,
+    leadCount: countOfficeLeads(db, userId, workerId),
+    onboarding,
+    outputs: listWorkerOutputs(db, userId, workerId),
+    permissions,
+    tasks: listWorkerTasksForUserWorker(db, userId, workerId),
+    trendSnapshotUpdatedAt: getLatestTrendSnapshot(db, userId, workerId)?.updatedAt ?? null
   });
-  summary.createdTaskIds.push(...starterTaskIds);
 
-  const starterResults = autoExecuteSafeMaraTasks({
-    db,
-    fetchImpl,
-    readAccountContext,
-    readConnectedIntegrations,
-    readMessages,
-    readMaraOnboarding,
-    readPrivateInsights,
-    readWorkerKnowledge,
-    taskIds: starterTaskIds,
-    userId,
-    workerId
-  });
-  for (const result of starterResults) {
-    if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
-    if (result?.output) summary.outputs.push(result.output);
-  }
+  const plannedActions = planMaraAutonomyActions(plannerContext);
+  summary.plannedActions = plannedActions.map((action) => action.kind);
 
-  if (permissions.canRunResearch) {
-    const researchResult = await runMaraBrandResearchCycle({
-      accountContext,
+  for (const action of plannedActions) {
+    await executeAutonomyPlannedAction(action, {
       db,
       fetchImpl,
+      integrations,
+      permissions,
       privateInsights,
-      userId,
-      workerId,
-      workerKnowledge
-    });
-    if (researchResult.output) summary.outputs.push(researchResult.output);
-    if (researchResult.createdPitchTaskIds?.length) {
-      summary.createdTaskIds.push(...researchResult.createdPitchTaskIds);
-      const pitchResults = autoExecuteSafeMaraTasks({
-        db,
-        fetchImpl,
-        readAccountContext,
-        readConnectedIntegrations,
-        readMessages,
-        readMaraOnboarding,
-        readPrivateInsights,
-        readWorkerKnowledge,
-        taskIds: researchResult.createdPitchTaskIds,
-        userId,
-        workerId
-      });
-      for (const result of pitchResults) {
-        if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
-        if (result?.output) summary.outputs.push(result.output);
-      }
-    }
-    if (researchResult.note) summary.notes.push(researchResult.note);
-  } else {
-    summary.blockers.push("Research permission is disabled.");
-  }
-
-  if (permissions.canReadInbox && hasConnectedEmailIntegration(integrations)) {
-    const inboxResult = runMaraInboxOrganizationCycle({ db, userId, workerId });
-    if (inboxResult.output) summary.outputs.push(inboxResult.output);
-    if (inboxResult.note) summary.notes.push(inboxResult.note);
-  } else if (hasConnectedEmailIntegration(integrations)) {
-    summary.blockers.push("Inbox is connected but Mara still does not have inbox-read permission.");
-  }
-
-  if (!hasRecentOutputOfType(db, userId, workerId, "weekly_plan", 24 * 7)) {
-    const weeklyTask = createApprovedTaskIfPermissionAllows(db, {
-      description: "Create the latest weekly action plan from current work, research, and blockers.",
-      priority: "high",
-      requiredPermissions: [],
-      source: "autonomy_weekly_planning",
-      status: "approved",
-      taskType: "weekly_action_plan",
-      title: "Create weekly action plan",
+      readers,
+      summary,
       userId,
       workerId
     });
-    if (!weeklyTask.duplicate && weeklyTask.id) {
-      summary.createdTaskIds.push(weeklyTask.id);
-      const weeklyResult = runMaraTask({
-        db,
-        fetchImpl,
-        readAccountContext,
-        readConnectedIntegrations,
-        readMessages,
-        readMaraOnboarding,
-        readPrivateInsights,
-        readWorkerKnowledge,
-        taskId: weeklyTask.id,
-        userId,
-        workerId
-      });
-      if (weeklyResult?.task?.id) summary.executedTaskIds.push(weeklyResult.task.id);
-      if (weeklyResult?.output) summary.outputs.push(weeklyResult.output);
-    }
   }
 
+  summary.blockers.push(...plannerContext.blockers);
+
   createWorkerActivityLog(db, {
-    description: `Created ${summary.createdTaskIds.length} task(s), executed ${summary.executedTaskIds.length} task(s), and saved ${summary.outputs.length} deliverable(s).`,
+    description: `Planned ${plannedActions.length} action(s), created ${summary.createdTaskIds.length} task(s), executed ${summary.executedTaskIds.length} task(s), and saved ${summary.outputs.length} deliverable(s).`,
     eventType: "autonomy_cycle_completed",
     metadata: {
       blockers: summary.blockers,
       createdTaskIds: summary.createdTaskIds,
       executedTaskIds: summary.executedTaskIds,
-      outputIds: summary.outputs.map((output) => output.id)
+      outputIds: summary.outputs.map((output) => output.id),
+      plannedActions: summary.plannedActions
     },
     title: "Mara autonomy cycle",
     userId,
@@ -2454,11 +3068,11 @@ export async function runMaraAutonomyCycle({
   return summary;
 }
 
-export function runWorkerTask(db, userId, workerId, taskId, options = {}) {
+export async function runWorkerTask(db, userId, workerId, taskId, options = {}) {
   return runMaraTask({ db, taskId, userId, workerId, ...options });
 }
 
-export function autoExecuteSafeMaraTasks({
+export async function autoExecuteSafeMaraTasks({
   db,
   fetchImpl,
   readAccountContext,
@@ -2478,7 +3092,7 @@ export function autoExecuteSafeMaraTasks({
       continue;
     }
 
-    const result = runMaraTask({
+    const result = await runMaraTask({
       db,
       fetchImpl,
       readAccountContext,
@@ -2552,6 +3166,7 @@ export function createRecurringResponsibility(db, recurring) {
 
   const timestamp = recurring.createdAt || new Date().toISOString();
   const id = randomUUID();
+  const nextRunAt = recurring.nextRunAt ?? computeNextRunAt(recurring.cadence, recurring.dayOfWeek, new Date(timestamp));
   db.prepare(
     `INSERT INTO worker_recurring_responsibilities
       (id, user_id, worker_id, title, description, cadence, day_of_week, is_active, permission_required,
@@ -2568,7 +3183,7 @@ export function createRecurringResponsibility(db, recurring) {
     recurring.isActive === false ? 0 : 1,
     recurring.permissionRequired ?? null,
     recurring.lastRunAt ?? null,
-    recurring.nextRunAt ?? null,
+    nextRunAt,
     recurring.createdFrom,
     normalizeForComparison(recurring.title),
     timestamp,
@@ -2652,6 +3267,103 @@ export function createResearchItem(db, item) {
   });
 
   return { duplicate: false, id };
+}
+
+export function listWorkerBrands(db, userId, workerId) {
+  return db
+    .prepare(
+      `SELECT id, brand_name AS brandName, website, identity_summary AS identitySummary, vibe_notes AS vibeNotes,
+              suggested_angle AS suggestedAngle, contact_email AS contactEmail, contact_name AS contactName,
+              research_item_id AS researchItemId, last_content_ideas_at AS lastContentIdeasAt, last_pitch_at AS lastPitchAt,
+              created_at AS createdAt, updated_at AS updatedAt
+       FROM worker_brands
+       WHERE user_id = ? AND worker_id = ?
+       ORDER BY updated_at DESC`
+    )
+    .all(userId, workerId);
+}
+
+export function getWorkerBrand(db, userId, workerId, brandId) {
+  return (
+    db
+      .prepare(
+        `SELECT id, brand_name AS brandName, website, identity_summary AS identitySummary, vibe_notes AS vibeNotes,
+                suggested_angle AS suggestedAngle, contact_email AS contactEmail, contact_name AS contactName,
+                research_item_id AS researchItemId, last_content_ideas_at AS lastContentIdeasAt, last_pitch_at AS lastPitchAt,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM worker_brands
+         WHERE id = ? AND user_id = ? AND worker_id = ?`
+      )
+      .get(brandId, userId, workerId) ?? null
+  );
+}
+
+export function upsertWorkerBrand(db, brand) {
+  const normalizedName = normalizeForComparison(brand.brandName);
+  const timestamp = brand.updatedAt || new Date().toISOString();
+  const existing = db
+    .prepare(
+      `SELECT id
+       FROM worker_brands
+       WHERE user_id = ? AND worker_id = ? AND normalized_name = ?`
+    )
+    .get(brand.userId, brand.workerId, normalizedName);
+
+  if (existing) {
+    db.prepare(
+      `UPDATE worker_brands
+       SET brand_name = ?, website = ?, identity_summary = ?, vibe_notes = ?, suggested_angle = ?,
+           contact_email = coalesce(?, contact_email), contact_name = coalesce(?, contact_name),
+           research_item_id = coalesce(?, research_item_id), updated_at = ?
+       WHERE id = ?`
+    ).run(
+      brand.brandName,
+      brand.website ?? "",
+      brand.identitySummary ?? "",
+      brand.vibeNotes ?? "",
+      brand.suggestedAngle ?? "",
+      brand.contactEmail ?? null,
+      brand.contactName ?? null,
+      brand.researchItemId ?? null,
+      timestamp,
+      existing.id
+    );
+    return { id: existing.id, updated: true };
+  }
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO worker_brands
+      (id, user_id, worker_id, brand_name, website, identity_summary, vibe_notes, suggested_angle,
+       contact_email, contact_name, research_item_id, last_content_ideas_at, last_pitch_at, normalized_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`
+  ).run(
+    id,
+    brand.userId,
+    brand.workerId,
+    brand.brandName,
+    brand.website ?? "",
+    brand.identitySummary ?? "",
+    brand.vibeNotes ?? "",
+    brand.suggestedAngle ?? "",
+    brand.contactEmail ?? null,
+    brand.contactName ?? null,
+    brand.researchItemId ?? null,
+    normalizedName,
+    timestamp,
+    timestamp
+  );
+  return { id, updated: false };
+}
+
+export function touchWorkerBrandActivity(db, userId, workerId, brandId, field) {
+  const timestamp = new Date().toISOString();
+  const column = field === "pitch" ? "last_pitch_at" : "last_content_ideas_at";
+  db.prepare(
+    `UPDATE worker_brands
+     SET ${column} = ?, updated_at = ?
+     WHERE id = ? AND user_id = ? AND worker_id = ?`
+  ).run(timestamp, timestamp, brandId, userId, workerId);
 }
 
 export function listResearchItems(db, userId, workerId) {
@@ -2766,7 +3478,47 @@ export function listApprovalRequests(db, userId, workerId) {
     .map((row) => ({ ...row, payload: safeJsonParse(row.payloadJson, {}) }));
 }
 
-export function updateApprovalRequestStatus(db, userId, workerId, approvalId, status) {
+export async function executeApprovalFollowThrough(db, userId, workerId, approval, executionOptions = {}) {
+  if (!approval || String(approval.status).toLowerCase() !== "approved") {
+    return { executed: false };
+  }
+
+  const payload = approval.payload ?? safeJsonParse(approval.payloadJson, {});
+  const results = [];
+
+  if (approval.actionType === "use_integration" || payload.enableInboxPermissions) {
+    updateWorkerPermissions(db, userId, workerId, {
+      canReadInbox: true,
+      canUseConnectedIntegrations: true
+    });
+    results.push({ type: "permissions_updated" });
+  }
+
+  if (payload.taskId) {
+    const result = await runMaraTask({
+      db,
+      taskId: String(payload.taskId),
+      userId,
+      workerId,
+      ...executionOptions
+    });
+    results.push({ outputId: result?.output?.id ?? null, taskId: payload.taskId, type: "task_executed" });
+  }
+
+  if (payload.runAutonomy) {
+    const summary = await runMaraAutonomyCycle({
+      db,
+      userId,
+      workerId,
+      ...executionOptions
+    });
+    results.push({ plannedActions: summary.plannedActions, type: "autonomy_cycle" });
+  }
+
+  return { executed: results.length > 0, results };
+}
+
+export async function updateApprovalRequestStatus(db, userId, workerId, approvalId, status, executionOptions = null) {
   const nextStatus = String(status ?? "").trim().toLowerCase();
   if (!["approved", "rejected", "dismissed"].includes(nextStatus)) {
     throw new Error("Unsupported approval status.");
@@ -2774,7 +3526,7 @@ export function updateApprovalRequestStatus(db, userId, workerId, approvalId, st
 
   const approval = db
     .prepare(
-      `SELECT id, title, description, payload_json AS payloadJson
+      `SELECT id, action_type AS actionType, title, description, payload_json AS payloadJson
        FROM worker_approval_requests
        WHERE id = ? AND user_id = ? AND worker_id = ?`
     )
@@ -2827,12 +3579,21 @@ export function updateApprovalRequestStatus(db, userId, workerId, approvalId, st
       status: nextStatus,
       updatedAt: timestamp
     },
+    followThrough: executionOptions
+      ? await executeApprovalFollowThrough(
+          db,
+          userId,
+          workerId,
+          { ...approval, payload: safeJsonParse(approval.payloadJson, {}), status: nextStatus },
+          executionOptions
+        )
+      : null,
     ok: true
   };
 }
 
 export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
-  const niche = String(maraAnswers.target_niches || accountContext?.whatYouDo || "UGC creator work").trim();
+  const niche = inferMaraNiche({ accountContext, maraAnswers, workerKnowledge: [] });
   const workflowPain = String(maraAnswers.workflow_breakdowns || "Tracking follow-ups and brand conversations").trim();
   const adminBottleneck = String(maraAnswers.biggest_admin_drag || "Staying organized across outreach, ideas, and follow-ups").trim();
   const inboxPriorities = String(maraAnswers.email_volume || "brand emails, briefs, deadlines, and follow-ups").trim();
@@ -3088,7 +3849,7 @@ export function runMaraActionDetector({
     approvalRequests.push({
       actionType: "use_integration",
       description: "Mara needs approval before using inbox-connected tools or reading inbox data.",
-      payload: { requestedMessage: normalizedText },
+      payload: { enableInboxPermissions: true, requestedMessage: normalizedText },
       title: "Approve inbox or integration access"
     });
   }

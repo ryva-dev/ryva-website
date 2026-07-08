@@ -1,3 +1,4 @@
+import "./loadEnv.mjs";
 import cookieParser from "cookie-parser";
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -10,6 +11,9 @@ import Stripe from "stripe";
 import { fileURLToPath } from "node:url";
 import { db, ensureOfficeSchema } from "./db.mjs";
 import { sendTransactionalEmail } from "./mailer.mjs";
+import { extractGmailBodyText } from "./maraInboxParser.mjs";
+import { parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
+import { loadUserTrendInsights, resolveGlobalTrendInsightsPath, resolveStorageRoot, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
 import {
   autoExecuteSafeMaraTasks,
   buildMaraInitialWorkPlan,
@@ -44,11 +48,7 @@ const storageRoot =
   process.env.RAILWAY_VOLUME_MOUNT_PATH ||
   path.join(rootDir, "data");
 const uploadsDir = path.join(storageRoot, "office-uploads");
-const privateInsightsPath = process.env.MARA_PRIVATE_INSIGHTS_PATH
-  ? path.isAbsolute(process.env.MARA_PRIVATE_INSIGHTS_PATH)
-    ? process.env.MARA_PRIVATE_INSIGHTS_PATH
-    : path.resolve(rootDir, process.env.MARA_PRIVATE_INSIGHTS_PATH)
-  : path.join(storageRoot, "private", "mara-tiktok-creator-search-insights.json");
+const privateInsightsPath = resolveGlobalTrendInsightsPath();
 const sessionCookieName = "ryva_session";
 const googleStateCookieName = "ryva_google_oauth_state";
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 7;
@@ -1408,14 +1408,26 @@ function deriveBrandNameFromEmail(email, fallbackName = "") {
     .join(" ");
 }
 
-function classifyGmailThread({ emailAddress, from, snippet, subject }) {
+function classifyGmailThread({ bodyText = "", emailAddress, from, snippet, subject }) {
   const senderEmail = parseEmailAddress(from);
-  const lowerSnippet = `${subject} ${snippet}`.toLowerCase();
+  const lowerSnippet = `${subject} ${snippet} ${bodyText}`.toLowerCase();
   const fromSelf = Boolean(senderEmail) && senderEmail === emailAddress.toLowerCase();
   const brandRelated = !/@gmail\.com$/.test(senderEmail) && !/@yahoo\./.test(senderEmail) && !/@icloud\./.test(senderEmail);
   const urgency = /asap|urgent|today|deadline|tomorrow|eod|by friday|by monday/.test(lowerSnippet) ? "high" : /soon|follow up|follow-up/.test(lowerSnippet) ? "medium" : "low";
-  const category = /brief|deliverable|campaign|ugc|creator|product/.test(lowerSnippet) ? "outreach" : "general";
-  const threadStatus = fromSelf ? "outbound" : "awaiting_reply";
+  let category = "general";
+  if (/revision|revise|updated hook|revised cta/.test(lowerSnippet)) {
+    category = "revision_request";
+  } else if (/brief|deliverable|talking points|usage rights|campaign/.test(lowerSnippet)) {
+    category = "campaign_brief";
+  } else if (/brief|deliverable|campaign|ugc|creator|product/.test(lowerSnippet)) {
+    category = "outreach";
+  }
+  let threadStatus = fromSelf ? "outbound" : "awaiting_reply";
+  if (category === "campaign_brief") {
+    threadStatus = "brief_received";
+  } else if (category === "revision_request") {
+    threadStatus = "needs_follow_up";
+  }
   const reason = brandRelated
     ? "Likely brand-related thread from a non-personal domain."
     : "Captured from connected Gmail for inbox organization.";
@@ -1664,6 +1676,7 @@ function syncResearchToOfficeIntel(userId, workerSlug) {
 
 function syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights) {
   const hashtags = Array.isArray(privateInsights?.hashtags) ? privateInsights.hashtags : [];
+  const niche = String(privateInsights?.niche || "ugc").trim();
   let syncedCount = 0;
   for (const hashtag of hashtags.slice(0, 25)) {
     const title = String(hashtag?.hashtag || "").trim();
@@ -1674,7 +1687,7 @@ function syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsi
        WHERE user_id = ? AND worker_slug = ? AND title = ?
        LIMIT 1`
     ).get(userId, workerSlug, title);
-    const summary = `${title} has ${String(hashtag.posts || "")} posts and ${String(hashtag.views || "")} views in ${String(privateInsights?.region || "US")} over the last ${String(privateInsights?.periodDays || 7)} days.`.trim();
+    const summary = `${title} has ${String(hashtag.posts || "")} posts and ${String(hashtag.views || "")} views in ${String(privateInsights?.region || "US")} over the last ${String(privateInsights?.periodDays || 7)} days for ${niche}.`.trim();
     const examples = Array.isArray(hashtag.categories) ? hashtag.categories : [];
     if (existing) {
       db.prepare(
@@ -1691,7 +1704,7 @@ function syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsi
         randomUUID(),
         userId,
         workerSlug,
-        "ugc",
+        niche,
         "TikTok",
         "creator_search_hashtag",
         title,
@@ -1733,19 +1746,38 @@ function syncInboxThreadsToCampaigns(userId, workerSlug) {
     ).get(userId, workerSlug, thread.brandName || "Unknown brand", thread.contactEmail || "");
 
     if (existing) {
-      db.prepare(
-        `UPDATE office_campaigns
-         SET campaign_name = ?, campaign_status = ?, source_thread_id = ?, brief_text = ?, notes = ?, updated_at = ?
+      const existingCampaign = db.prepare(
+        `SELECT last_parsed_at AS lastParsedAt, deliverables_json AS deliverablesJson
+         FROM office_campaigns
          WHERE id = ?`
-      ).run(
-        thread.subject || `${thread.brandName || "Brand"} outreach`,
-        mapThreadStatusToCampaignStatus(thread.threadStatus),
-        thread.id,
-        thread.snippet || "",
-        `Synced from Gmail thread: ${thread.subject || thread.brandName || "Inbox thread"}`,
-        nowIso(),
-        existing.id
-      );
+      ).get(existing.id);
+      const hasParsedBrief = Boolean(existingCampaign?.lastParsedAt) || parseJson(existingCampaign?.deliverablesJson, []).length > 0;
+      if (hasParsedBrief) {
+        db.prepare(
+          `UPDATE office_campaigns
+           SET source_thread_id = ?, notes = ?, updated_at = ?
+           WHERE id = ?`
+        ).run(
+          thread.id,
+          `Linked to latest Gmail thread: ${thread.subject || thread.brandName || "Inbox thread"}`,
+          nowIso(),
+          existing.id
+        );
+      } else {
+        db.prepare(
+          `UPDATE office_campaigns
+           SET campaign_name = ?, campaign_status = ?, source_thread_id = ?, brief_text = ?, notes = ?, updated_at = ?
+           WHERE id = ?`
+        ).run(
+          thread.subject || `${thread.brandName || "Brand"} outreach`,
+          mapThreadStatusToCampaignStatus(thread.threadStatus),
+          thread.id,
+          thread.snippet || "",
+          `Synced from Gmail thread: ${thread.subject || thread.brandName || "Inbox thread"}`,
+          nowIso(),
+          existing.id
+        );
+      }
       syncedCount += 1;
       continue;
     }
@@ -1792,7 +1824,16 @@ function syncInboxThreadsToCampaigns(userId, workerSlug) {
 }
 
 function syncMaraOperationalRecords(userId, workerSlug) {
-  const privateInsights = readMaraPrivateInsights();
+  const privateInsights = loadUserTrendInsights({
+    db,
+    globalPath: privateInsightsPath,
+    readAccountContext: getUserOnboardingRecord,
+    readMaraOnboarding: readMaraOnboardingAnswers,
+    readWorkerKnowledge: readWorkerKnowledgeSections,
+    storageRoot: resolveStorageRoot(),
+    userId,
+    workerId: workerSlug
+  });
   const campaignLeadSync = syncCampaignsToLeadTracker(userId, workerSlug);
   const researchSync = syncResearchToOfficeIntel(userId, workerSlug);
   const trendSync = syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights);
@@ -1819,7 +1860,7 @@ async function syncGmailInbox(userId, workerSlug) {
   let syncedCount = 0;
 
   for (const message of messages) {
-    const detailResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Date`, {
+    const detailResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     if (!detailResponse.ok) continue;
@@ -1831,18 +1872,21 @@ async function syncGmailInbox(userId, workerSlug) {
     const senderEmail = parseEmailAddress(from);
     const senderName = String(from || "").replace(/<.*?>/g, "").trim();
     const snippet = String(detail.snippet ?? "").trim();
+    const bodyText = extractGmailBodyText(detail.payload);
     const receivedAt = extractHeaderValue(headers, "Date") ? new Date(extractHeaderValue(headers, "Date")).toISOString() : nowIso();
-    const classification = classifyGmailThread({ emailAddress, from, snippet, subject });
+    const classification = classifyGmailThread({ bodyText, emailAddress, from, snippet, subject });
     const brandName = deriveBrandNameFromEmail(senderEmail, senderName);
+    const gmailThreadId = String(detail.threadId || "");
 
     db.prepare(
       `INSERT INTO office_email_threads
-        (id, user_id, worker_slug, provider, subject, participants_json, snippet, received_at, brand_related, category, urgency, confidence, reason, brand_name, contact_name, contact_email, source_message_count, thread_status, raw_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, user_id, worker_slug, provider, subject, participants_json, snippet, body_text, received_at, brand_related, category, urgency, confidence, reason, brand_name, contact_name, contact_email, source_message_count, thread_status, gmail_thread_id, raw_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          subject = excluded.subject,
          participants_json = excluded.participants_json,
          snippet = excluded.snippet,
+         body_text = excluded.body_text,
          received_at = excluded.received_at,
          brand_related = excluded.brand_related,
          category = excluded.category,
@@ -1854,6 +1898,7 @@ async function syncGmailInbox(userId, workerSlug) {
          contact_email = excluded.contact_email,
          source_message_count = excluded.source_message_count,
          thread_status = excluded.thread_status,
+         gmail_thread_id = excluded.gmail_thread_id,
          raw_json = excluded.raw_json,
          updated_at = excluded.updated_at`
     ).run(
@@ -1864,6 +1909,7 @@ async function syncGmailInbox(userId, workerSlug) {
       subject,
       JSON.stringify([from, to].filter(Boolean)),
       snippet,
+      bodyText,
       receivedAt,
       classification.brandRelated ? 1 : 0,
       classification.category,
@@ -1875,6 +1921,7 @@ async function syncGmailInbox(userId, workerSlug) {
       senderEmail,
       1,
       classification.threadStatus,
+      gmailThreadId,
       JSON.stringify(detail),
       nowIso(),
       nowIso()
@@ -1884,8 +1931,14 @@ async function syncGmailInbox(userId, workerSlug) {
 
   insertMaraSyncJob(userId, "gmail", "gmail_inbox_sync", `Synced ${syncedCount} Gmail message${syncedCount === 1 ? "" : "s"} into Mara's inbox view.`);
   const campaignSync = syncInboxThreadsToCampaigns(userId, workerSlug);
+  const briefParse = await parseUnparsedInboxThreads(db, userId, workerSlug, { fetchImpl: fetch });
   const operationalSync = syncMaraOperationalRecords(userId, workerSlug);
-  return { campaignSyncCount: campaignSync.syncedCount, syncedCount, ...operationalSync };
+  return {
+    briefParseCount: briefParse.parsedCount,
+    campaignSyncCount: campaignSync.syncedCount,
+    syncedCount,
+    ...operationalSync
+  };
 }
 
 function extractDraftBrandLabel(...values) {
@@ -3101,13 +3154,17 @@ function readWorkerRecentMessages(userId, workerSlug) {
     .reverse();
 }
 
-function readMaraPrivateInsights() {
-  try {
-    const raw = readFileSync(privateInsightsPath, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+function readMaraPrivateInsights(userId, workerId) {
+  return loadUserTrendInsights({
+    db,
+    globalPath: privateInsightsPath,
+    readAccountContext: getUserOnboardingRecord,
+    readMaraOnboarding: readMaraOnboardingAnswers,
+    readWorkerKnowledge: readWorkerKnowledgeSections,
+    storageRoot: resolveStorageRoot(),
+    userId,
+    workerId
+  });
 }
 
 function buildMaraExecutionReaders() {
@@ -3827,7 +3884,7 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
   }
 
   try {
-    const result = runWorkerTask(db, req.user.id, workerSlug, taskId, {
+    const result = await runWorkerTask(db, req.user.id, workerSlug, taskId, {
       db,
       ...buildMaraExecutionReaders()
     });
@@ -3845,7 +3902,7 @@ app.post("/api/workers/mara/tasks/:taskId/run", assertOrigin, requireAuth, async
   const taskId = String(req.params.taskId ?? "").trim();
 
   try {
-    const result = runMaraTask({
+    const result = await runMaraTask({
       db,
       taskId,
       userId: req.user.id,
@@ -3924,7 +3981,21 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
   }
 
   try {
-    const result = updateApprovalRequestStatus(db, req.user.id, workerSlug, approvalId, status);
+    const result = await updateApprovalRequestStatus(
+      db,
+      req.user.id,
+      workerSlug,
+      approvalId,
+      status,
+      status === "approved" ? buildMaraExecutionReaders() : null
+    );
+    syncMaraOperationalRecords(req.user.id, workerSlug);
+    const outputIds = Array.isArray(result.followThrough?.results)
+      ? result.followThrough.results.map((entry) => entry.outputId).filter(Boolean)
+      : [];
+    if (outputIds.length > 0) {
+      await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
+    }
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not update approval request." });
@@ -3996,6 +4067,43 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
     });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not run Mara autonomy." });
+  }
+});
+
+app.post("/api/office/workers/:slug/sync-trends", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Trend sync is only available for Mara." });
+    return;
+  }
+
+  try {
+    const syncResult = syncUserTrendInsightsFromGlobal({
+      db,
+      globalPath: privateInsightsPath,
+      readAccountContext: getUserOnboardingRecord,
+      readMaraOnboarding: readMaraOnboardingAnswers,
+      readWorkerKnowledge: readWorkerKnowledgeSections,
+      storageRoot: resolveStorageRoot(),
+      userId: req.user.id,
+      workerId: workerSlug
+    });
+    syncMaraOperationalRecords(req.user.id, workerSlug);
+    res.json({
+      dashboard: getMaraDashboard(req.user.id),
+      insights: syncResult.insights ?? null,
+      niche: syncResult.niche ?? null,
+      ok: true,
+      synced: Boolean(syncResult.synced)
+    });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not sync TikTok trends." });
   }
 });
 

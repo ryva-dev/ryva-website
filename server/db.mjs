@@ -553,6 +553,12 @@ db.exec(`
   );
 `);
 
+  ensureColumn("office_email_threads", "gmail_thread_id", "TEXT");
+  ensureColumn("office_email_threads", "body_text", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_email_threads", "parsed_at", "TEXT");
+  ensureColumn("office_campaigns", "last_parsed_at", "TEXT");
+}
+
 ensureOfficeSchema();
 initWorkerTables(db);
 
