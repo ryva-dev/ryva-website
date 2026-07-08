@@ -6,7 +6,7 @@ import { WorkerMark } from "./WorkerMark";
 
 /* ============================================================
    Ryva Office — manager's command center
-   Tabs: Today · Chat · Approvals · Calendar · Team · Files · Settings
+   Tabs: Today · Assignments · Reviews · Workers · Calendar · Handbook · Settings
    All data is user-scoped via /api/office/* endpoints.
    ============================================================ */
 
@@ -223,8 +223,9 @@ const EMPTY_OVERLAYS: Overlays = {
   chats: [], tasks: [], suggestedActions: [], worklog: [], files: [], briefings: [], calendarEvents: [], globalSettings: null, integrations: [], onboarding: [],
 };
 
-type Tab = "today" | "chat" | "approvals" | "calendar" | "team" | "files" | "settings" | "worker-onboarding" | "desk";
-const WORKER_DEPENDENT: Tab[] = ["today", "chat", "approvals", "team", "files"];
+type Tab = "today" | "assignments" | "reviews" | "workers" | "calendar" | "handbook" | "settings" | "worker-onboarding";
+type WorkbenchSection = "desk" | "conversation" | "knowledge" | "history";
+const WORKER_DEPENDENT: Tab[] = ["today", "assignments", "reviews", "workers", "handbook"];
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -239,18 +240,39 @@ async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T>
   return payload as T;
 }
 
-function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null } {
+function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null; section: WorkbenchSection | null } {
   const parts = hash.replace(/^#/, "").replace(/^\/+/, "").split("/").filter(Boolean);
-  if (parts[0] !== "app" || parts[1] !== "office") return { tab: "today", workerSlug: null };
+  if (parts[0] !== "app" || parts[1] !== "office") return { tab: "today", workerSlug: null, section: null };
   if (parts[2] === "workers" && parts[3] && parts[4] === "onboarding") {
-    return { tab: "worker-onboarding", workerSlug: parts[3] };
+    return { tab: "worker-onboarding", workerSlug: parts[3], section: null };
+  }
+  if (parts[2] === "workers" && parts[3]) {
+    const rawSection = parts[4] as WorkbenchSection | undefined;
+    const section: WorkbenchSection = rawSection && (["desk", "conversation", "knowledge", "history"] as WorkbenchSection[]).includes(rawSection)
+      ? rawSection
+      : "desk";
+    return { tab: "workers", workerSlug: parts[3], section };
+  }
+  if (parts[2] === "chat" && parts[3]) {
+    return { tab: "workers", workerSlug: parts[3], section: "conversation" };
   }
   if (parts[2] === "desk" && parts[3]) {
-    return { tab: "desk", workerSlug: parts[3] };
+    return { tab: "workers", workerSlug: parts[3], section: "desk" };
   }
-  const raw = parts[2] as Tab | undefined;
-  const tab: Tab = (["today", "chat", "approvals", "calendar", "team", "files", "settings", "desk"] as Tab[]).includes(raw as Tab) ? (raw as Tab) : "today";
-  return { tab, workerSlug: parts[3] ?? null };
+  const aliases: Record<string, Tab> = {
+    approvals: "reviews",
+    assignments: "assignments",
+    calendar: "calendar",
+    files: "handbook",
+    handbook: "handbook",
+    reviews: "reviews",
+    settings: "settings",
+    team: "workers",
+    today: "today",
+    workers: "workers"
+  };
+  const tab = aliases[parts[2] ?? ""] ?? "today";
+  return { tab, workerSlug: null, section: null };
 }
 
 function timeAgo(iso: string): string {
@@ -521,11 +543,11 @@ function parseOnboardingSession(record: OverlayOnboarding | undefined): Onboardi
 
 const NAV_ITEMS: Array<{ tab: Tab; label: string; icon: JSX.Element }> = [
   { tab: "today", label: "Today", icon: <><path d="M3 12l9-8 9 8" /><path d="M5 10v10h14V10" /></> },
-  { tab: "chat", label: "Chat", icon: <path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z" /> },
-  { tab: "approvals", label: "Approvals", icon: <><path d="M9 12l2 2 4-5" /><circle cx="12" cy="12" r="9" /></> },
+  { tab: "assignments", label: "Assignments", icon: <><path d="M7 6h10" /><path d="M7 12h10" /><path d="M7 18h7" /><rect x="4" y="4" width="16" height="16" rx="2" /></> },
+  { tab: "reviews", label: "Reviews", icon: <><path d="M9 12l2 2 4-5" /><circle cx="12" cy="12" r="9" /></> },
   { tab: "calendar", label: "Calendar", icon: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v4M16 3v4" /></> },
-  { tab: "team", label: "Team", icon: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5" /><circle cx="17" cy="9" r="2.5" /><path d="M16 15.2c2.6.2 4.6 1.8 5.3 4.3" /></> },
-  { tab: "files", label: "Files", icon: <path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" /> },
+  { tab: "workers", label: "Workers", icon: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5" /><circle cx="17" cy="9" r="2.5" /><path d="M16 15.2c2.6.2 4.6 1.8 5.3 4.3" /></> },
+  { tab: "handbook", label: "Handbook", icon: <><path d="M6 4.5h11a2 2 0 0 1 2 2V19a1 1 0 0 1-1.4.9L14 18.2l-3.6 1.7A1 1 0 0 1 9 19V6.5a2 2 0 0 0-2-2Z" /><path d="M6 4.5A2.5 2.5 0 0 0 3.5 7V17A2.5 2.5 0 0 0 6 19.5h11" /></> },
 ];
 
 function lastActivityFor(slug: string, worklog: OverlayWorklog[]): string {
@@ -604,12 +626,30 @@ function TodayView({
     })
     .filter((entry) => entry.worker)
     .slice(0, 4);
-  const researchUpdates = desks
-    .flatMap((desk) => desk.researchToday.map((item) => ({ ...item, workerSlug: desk.workerSlug })))
-    .slice(0, 5);
-  const inboxUpdates = desks
-    .flatMap((desk) => desk.inboxLeads.map((item, index) => ({ ...item, id: `${desk.workerSlug}-${index}`, workerSlug: desk.workerSlug })))
-    .slice(0, 5);
+  const recentChanges = desks
+    .flatMap((desk) => {
+      const completed = desk.recentCompleted.slice(0, 2).map((item) => ({
+        createdAt: item.updatedAt,
+        id: `${desk.workerSlug}-${item.id}-done`,
+        label: `Shipped — ${item.title}`,
+        summary: item.summary,
+        workerSlug: desk.workerSlug
+      }));
+      const activity = desk.recentActivity.slice(0, 2).map((item) => ({
+        createdAt: item.createdAt,
+        id: `${desk.workerSlug}-${item.id}-activity`,
+        label: `${sentenceCase(item.title)} — ${item.summary}`,
+        summary: item.summary,
+        workerSlug: desk.workerSlug
+      }));
+      return [...completed, ...activity];
+    })
+    .sort((left, right) => +new Date(right.createdAt) - +new Date(left.createdAt))
+    .slice(0, 6);
+  const activeAssignments = desks
+    .flatMap((desk) => desk.workInMotion.map((item) => ({ ...item, workerSlug: desk.workerSlug })))
+    .slice(0, 6);
+  const idleWorkers = desks.filter((desk) => desk.workInMotion.length === 0 && desk.waitingOnUser.length === 0);
   const todayCalStart = 7;
   const todayCalEnd = 21;
   const todayCalHours = Array.from({ length: todayCalEnd - todayCalStart }, (_, index) => todayCalStart + index);
@@ -622,16 +662,18 @@ function TodayView({
     <div className="ro-main-scroll">
       <header className="ro-page-head">
         <h1>Good {today.getHours() < 12 ? "morning" : today.getHours() < 18 ? "afternoon" : "evening"}, {userName.split(" ")[0]}.</h1>
-        <p className="ro-page-meta">{dateLine} · {workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock</p>
+        <p className="ro-page-meta">
+          {dateLine} · {workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock · {attentionItems.length} item{attentionItems.length === 1 ? "" : "s"} need you
+        </p>
       </header>
 
       <section className="ro-sec ro-sec-lead">
         <div className="ro-sec-head">
-          <h2>Needs your attention</h2>
+          <h2>Needs you</h2>
           <div className="ro-sec-head-actions">
             <span className="ro-sec-n">{attentionItems.length === 0 ? "All clear" : attentionItems.length}</span>
             {attentionItems.length > 0 ? (
-              <button className="ro-textlink" type="button" onClick={onApprovalsClick}>Review queue</button>
+              <button className="ro-textlink" type="button" onClick={onApprovalsClick}>Open reviews</button>
             ) : null}
           </div>
         </div>
@@ -646,14 +688,34 @@ function TodayView({
                   <p>{item.summary}</p>
                 </div>
                 <div className="ro-row-end">
-                  <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
-                  <span className="ro-row-cta">Review</span>
+                  <span className="ro-row-aside">{nameFor(item.workerSlug)} · review</span>
                 </div>
               </button>
             ))}
           </div>
         )}
       </section>
+
+      {recentChanges.length > 0 ? (
+        <section className="ro-sec">
+          <div className="ro-sec-head">
+            <h2>Since you were away</h2>
+            <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/workers")}>View worker history</button>
+          </div>
+          <div className="ro-rows">
+            {recentChanges.map((item) => (
+              <button key={item.id} className="ro-row" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
+                <div className="ro-row-copy">
+                  <strong>{item.label}</strong>
+                </div>
+                <div className="ro-row-end">
+                  <span className="ro-row-aside">{nameFor(item.workerSlug)} · {clock(item.createdAt) || timeAgo(item.createdAt)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="ro-sec">
         <div className="ro-sec-head">
@@ -756,22 +818,21 @@ function TodayView({
 
       <section className="ro-sec">
         <div className="ro-sec-head">
-          <h2>What your team uncovered</h2>
-          <span className="ro-sec-n">{researchUpdates.length === 0 ? "Quiet" : researchUpdates.length}</span>
+          <h2>In motion</h2>
+          <span className="ro-sec-n">{activeAssignments.length === 0 ? "Quiet" : activeAssignments.length}</span>
         </div>
-        {researchUpdates.length === 0 ? (
-          <p className="ro-blank">Fresh research and lead work will show up here once your workers complete it.</p>
+        {activeAssignments.length === 0 ? (
+          <p className="ro-blank">No active assignments right now.</p>
         ) : (
           <div className="ro-rows">
-            {researchUpdates.map((item) => (
+            {activeAssignments.map((item) => (
               <button key={item.id} className="ro-row" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
                 <div className="ro-row-copy">
                   <strong>{item.title}</strong>
                   <p>{item.summary}</p>
                 </div>
                 <div className="ro-row-end">
-                  <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
-                  <span className="ro-row-cta">Open desk</span>
+                  <span className="ro-row-aside">{nameFor(item.workerSlug)} · {sentenceCase(item.status.replace(/_/g, " "))}</span>
                 </div>
               </button>
             ))}
@@ -779,31 +840,16 @@ function TodayView({
         )}
       </section>
 
-      <section className="ro-sec">
-        <div className="ro-sec-head">
-          <h2>Lead movement</h2>
-          <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/chat")}>Open chat</button>
-        </div>
-        {inboxUpdates.length === 0 ? (
-          <p className="ro-blank">Connected inbox work and lead status changes will show up here.</p>
-        ) : (
-          <div className="ro-rows">
-            {inboxUpdates.map((item) => (
-              <button key={item.id} className="ro-row" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
-                <div className="ro-row-copy">
-                  <strong>{item.brandName}</strong>
-                  <p>{item.status}{item.contactName ? ` · ${item.contactName}` : ""}</p>
-                  <p className="ro-worker-snapshot-sub">{item.snippet}</p>
-                </div>
-                <div className="ro-row-end">
-                  <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
-                  <span className="ro-row-cta">Open desk</span>
-                </div>
-              </button>
-            ))}
+      {idleWorkers.length > 0 ? (
+        <section className="ro-sec">
+          <div className="ro-sec-head">
+            <h2>Ready to delegate</h2>
           </div>
-        )}
-      </section>
+          <p className="ro-blank">
+            {workers.find((worker) => worker.slug === idleWorkers[0]?.workerSlug)?.name.split(" ")[0] || "A worker"} has capacity. Use the worker desk to assign the next piece of work.
+          </p>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -1231,7 +1277,7 @@ function ChatView({
             key={w.slug}
             className={`ro-thread${active?.slug === w.slug ? " on" : ""}`}
             type="button"
-            onClick={() => onNavigate(`#app/office/chat/${w.slug}`)}
+            onClick={() => onNavigate(`#app/office/workers/${w.slug}/conversation`)}
           >
             <WorkerMark seed={w.slug} size={34} active />
             <div><b>{w.name}</b><span>{w.title}</span></div>
@@ -1297,29 +1343,178 @@ function ChatView({
   );
 }
 
+function WorkbenchTabNav({
+  active,
+  onChange
+}: {
+  active: WorkbenchSection;
+  onChange: (section: WorkbenchSection) => void;
+}) {
+  const items: WorkbenchSection[] = ["desk", "conversation", "knowledge", "history"];
+  return (
+    <div className="ro-workbench-tabs" role="tablist" aria-label="Worker sections">
+      {items.map((item) => (
+        <button
+          key={item}
+          className={`ro-workbench-tab${active === item ? " on" : ""}`}
+          type="button"
+          onClick={() => onChange(item)}
+        >
+          {sentenceCase(item)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WorkerKnowledgeView({
+  activeWorker,
+  connectedTools,
+  desk,
+  onSeedCorrection
+}: {
+  activeWorker: Worker;
+  connectedTools: OverlayIntegration[];
+  desk: WorkerDesk;
+  onSeedCorrection: (prompt: string) => void;
+}) {
+  return (
+    <div className="ro-plain-list">
+      {desk.memory.length === 0 ? (
+        <p className="ro-blank">Nothing here yet. Workers add what they learn; you can correct anything in conversation.</p>
+      ) : (
+        desk.memory.map((item) => (
+          <div className="ro-plain-row" key={item.id}>
+            <strong>{item.text}</strong>
+            <div className="ro-handbook-meta">
+              <span>Learned while working with {activeWorker.name.split(" ")[0]}</span>
+              <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
+                Correct in conversation
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+
+      {connectedTools.length > 0 ? (
+        <>
+          <div className="ro-sec-gap" />
+          {connectedTools.map((tool) => (
+            <div className="ro-plain-row" key={`${tool.provider}-${tool.accountLabel}`}>
+              <strong>{tool.accountLabel || tool.provider}</strong>
+              <div className="ro-handbook-meta">
+                <span>{sentenceCase(tool.status)} · source</span>
+              </div>
+            </div>
+          ))}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkerHistoryView({ desk }: { desk: WorkerDesk }) {
+  return desk.recentActivity.length === 0 ? (
+    <p className="ro-blank">Nothing to show yet.</p>
+  ) : (
+    <div className="ro-rows">
+      {desk.recentActivity.map((item) => (
+        <div className="ro-row" key={item.id}>
+          <div className="ro-row-copy">
+            <strong>{sentenceCase(item.title)}</strong>
+            <p>{item.summary}</p>
+          </div>
+          <div className="ro-row-end">
+            <span className="ro-row-aside">{clock(item.createdAt) || timeAgo(item.createdAt)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WorkerDeskView({
   activeWorker,
   busyId,
   canUseEmail,
+  connectedTools,
   desk,
+  overlays,
   onApprove,
   onNavigate,
   onReject,
   onRunTask,
-  onSeedCorrection
+  onSeedCorrection,
+  onReload,
+  section
 }: {
   activeWorker: Worker;
   busyId: string | null;
   canUseEmail: boolean;
+  connectedTools: OverlayIntegration[];
   desk: WorkerDesk;
+  overlays: Overlays;
   onApprove: (approvalId: string) => Promise<void>;
   onNavigate: (hash: string) => void;
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
+  onReload: () => Promise<void>;
+  section: WorkbenchSection;
 }) {
   const [selectedDeliverable, setSelectedDeliverable] = useState<WorkerDeskDeliverable | null>(null);
   const nextRunnable = desk.workInMotion[0] ?? null;
+  const setSection = (nextSection: WorkbenchSection) => onNavigate(`#app/office/workers/${activeWorker.slug}/${nextSection}`);
+  let body: JSX.Element;
+
+  if (section === "conversation") {
+    body = (
+      <div className="ro-worker-page-main">
+        <ChatView
+          activeDesk={desk}
+          onOpenWorkerDetails={() => setSection("desk")}
+          workers={[activeWorker]}
+          overlays={overlays}
+          selectedSlug={activeWorker.slug}
+          onNavigate={onNavigate}
+          onReload={onReload}
+        />
+      </div>
+    );
+  } else if (section === "knowledge") {
+    body = (
+      <div className="ro-worker-page-main">
+        <WorkerKnowledgeView
+          activeWorker={activeWorker}
+          connectedTools={connectedTools}
+          desk={desk}
+          onSeedCorrection={onSeedCorrection}
+        />
+      </div>
+    );
+  } else if (section === "history") {
+    body = (
+      <div className="ro-worker-page-main">
+        <WorkerHistoryView desk={desk} />
+      </div>
+    );
+  } else {
+    body = (
+      <div className="ro-worker-page-main">
+        <WorkerDeskSections
+          activeWorker={activeWorker}
+          busyId={busyId}
+          canUseEmail={canUseEmail}
+          desk={desk}
+          onApprove={onApprove}
+          onReject={onReject}
+          onRunTask={onRunTask}
+          onSeedCorrection={onSeedCorrection}
+          onViewDeliverable={setSelectedDeliverable}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="ro-main-scroll ro-worker-desk-page">
@@ -1330,34 +1525,24 @@ function WorkerDeskView({
             <h1>{activeWorker.name}</h1>
             <p className="ro-worker-page-role">{activeWorker.title}</p>
             <p className="ro-worker-page-summary">{activeWorker.description}</p>
+            <p className="ro-worker-page-presence">{desk.currentFocus} · {desk.recentActivity[0] ? timeAgo(desk.recentActivity[0].createdAt) : "now"}</p>
           </div>
         </div>
         <div className="ro-worker-page-actions">
-          <button className="r-btn r-btn-ghost" type="button" onClick={() => onNavigate(`#app/office/chat/${activeWorker.slug}`)}>Message</button>
+          <button className="r-btn r-btn-ghost" type="button" onClick={() => setSection("conversation")}>Message</button>
           {isMaraWorker(activeWorker.slug) && nextRunnable ? (
             <button className="r-btn r-btn-accent" type="button" onClick={() => void onRunTask(nextRunnable.id)} disabled={busyId === nextRunnable.id}>
               {busyId === nextRunnable.id ? "Running..." : "Run next task"}
             </button>
           ) : (
-            <button className="r-btn r-btn-accent" type="button" onClick={() => onNavigate(`#app/office/chat/${activeWorker.slug}`)}>Assign work</button>
+            <button className="r-btn r-btn-accent" type="button" onClick={() => setSection("conversation")}>Assign work</button>
           )}
         </div>
       </header>
 
       <div className="ro-worker-page-layout">
-        <div className="ro-worker-page-main">
-          <WorkerDeskSections
-            activeWorker={activeWorker}
-            busyId={busyId}
-            canUseEmail={canUseEmail}
-            desk={desk}
-            onApprove={onApprove}
-            onReject={onReject}
-            onRunTask={onRunTask}
-            onSeedCorrection={onSeedCorrection}
-            onViewDeliverable={setSelectedDeliverable}
-          />
-        </div>
+        <WorkbenchTabNav active={section} onChange={setSection} />
+        {body}
       </div>
 
       {selectedDeliverable ? (
@@ -1403,8 +1588,8 @@ function ApprovalsView({
   return (
     <div className="ro-main-scroll">
       <header className="ro-page-head">
-        <h1>Approvals</h1>
-        <p className="ro-page-meta">{total === 0 ? "Nothing waiting on your sign-off" : `${total} item${total === 1 ? "" : "s"} waiting on you`}</p>
+        <h1>Reviews</h1>
+        <p className="ro-page-meta">{total === 0 ? "Nothing waiting on your sign-off" : `${total} item${total === 1 ? "" : "s"} · newest first`}</p>
       </header>
 
       {total === 0 ? (
@@ -1418,8 +1603,8 @@ function ApprovalsView({
               <p>{normalizeOfficeCopy(action.description)}</p>
               <p className="ro-appr-reason">{normalizeOfficeCopy(action.reason)}</p>
               <div className="ro-appr-actions">
-                <button className="r-btn r-btn-accent" type="button" onClick={() => onNavigate(`#app/office/chat/${action.workerSlug}`)}>Review</button>
-                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/chat/${action.workerSlug}`)}>Open worker</button>
+                <button className="r-btn r-btn-accent" type="button" onClick={() => onNavigate(`#app/office/workers/${action.workerSlug}/conversation`)}>Open conversation</button>
+                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${action.workerSlug}/desk`)}>Open worker</button>
               </div>
             </article>
           ))}
@@ -1430,8 +1615,8 @@ function ApprovalsView({
               <h3>{t.title}</h3>
               <p className="ro-appr-reason">{t.module}</p>
               <div className="ro-appr-actions">
-                <button className="r-btn r-btn-accent" type="button" disabled={busy === t.id} onClick={() => void approveTask(t)}>Approve</button>
-                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/chat/${t.workerSlug}`)}>Request changes</button>
+                <button className="r-btn r-btn-accent" type="button" disabled={busy === t.id} onClick={() => void approveTask(t)}>{busy === t.id ? "Saving..." : "Approve"}</button>
+                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${t.workerSlug}/conversation`)}>Request changes</button>
               </div>
             </article>
           ))}
@@ -1449,7 +1634,7 @@ function ApprovalsView({
                   </ul>
                 )}
                 <div className="ro-appr-actions">
-                  <button className="r-btn r-btn-accent" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "approve")}>Approve</button>
+                  <button className="r-btn r-btn-accent" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "approve")}>{busy === b.id ? "Saving..." : "Approve"}</button>
                   <button className="ro-textlink" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "followup")}>Send back</button>
                 </div>
               </article>
@@ -1459,6 +1644,183 @@ function ApprovalsView({
       )}
     </div>
   );
+}
+
+function AssignmentsView({
+  workers,
+  overlays,
+  onNavigate
+}: {
+  workers: Worker[];
+  overlays: Overlays;
+  onNavigate: (h: string) => void;
+}) {
+  const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
+  const tasks = overlays.tasks;
+  const groups = [
+    {
+      items: tasks.filter((task) => task.status === "Needs Review"),
+      label: "Needs you"
+    },
+    {
+      items: tasks.filter((task) => task.status !== "Completed" && task.status !== "Needs Review"),
+      label: "In motion"
+    },
+    {
+      items: tasks.filter((task) => task.status === "Completed").slice(0, 10),
+      label: "Done this week"
+    }
+  ].filter((group) => group.items.length > 0);
+
+  return (
+    <div className="ro-main-scroll">
+      <header className="ro-page-head">
+        <h1>Assignments</h1>
+        <p className="ro-page-meta">{tasks.length === 0 ? "No assignments yet" : `${tasks.length} assignment${tasks.length === 1 ? "" : "s"} across your office`}</p>
+      </header>
+      {tasks.length === 0 ? (
+        <p className="ro-blank">No assignments yet. Delegate your first piece of work from a worker conversation.</p>
+      ) : (
+        groups.map((group) => (
+          <section className="ro-sec" key={group.label}>
+            <div className="ro-sec-head">
+              <h2>{group.label}</h2>
+              <span className="ro-sec-n">{group.items.length}</span>
+            </div>
+            <div className="ro-rows">
+              {group.items.map((task) => (
+                <button
+                  key={task.id}
+                  className="ro-row"
+                  type="button"
+                  onClick={() => onNavigate(`#app/office/workers/${task.workerSlug}/desk`)}
+                >
+                  <div className="ro-row-copy">
+                    <strong>{task.title}</strong>
+                    <p>{task.module} · {sentenceCase(task.status.replace(/_/g, " "))}</p>
+                  </div>
+                  <div className="ro-row-end">
+                    <span className="ro-row-aside">{nameFor(task.workerSlug)}{task.dueDate ? ` · due ${task.dueDate}` : ""}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        ))
+      )}
+    </div>
+  );
+}
+
+function HandbookView({
+  desks,
+  overlays,
+  workers
+}: {
+  desks: WorkerDesk[];
+  overlays: Overlays;
+  workers: Worker[];
+}) {
+  const settings = useMemo(() => {
+    try {
+      return overlays.globalSettings ? JSON.parse(overlays.globalSettings.settingsJson) : {};
+    } catch {
+      return {};
+    }
+  }, [overlays.globalSettings]);
+
+  const decisions = overlays.briefings
+    .flatMap((briefing) => safeList(briefing.decisionsJson).map((decision, index) => ({
+      id: `${briefing.id}-${index}`,
+      label: decision,
+      source: `Decided in briefing · ${briefing.dateLabel}`
+    })))
+    .slice(0, 8);
+  const sources = overlays.integrations.slice(0, 12);
+
+  return (
+    <div className="ro-main-scroll">
+      <header className="ro-page-head">
+        <h1>Handbook</h1>
+        <p className="ro-page-meta">The standing context your workers read before they act.</p>
+      </header>
+
+      <section className="ro-sec">
+        <div className="ro-sec-head">
+          <h2>Business profile</h2>
+        </div>
+        <div className="ro-plain-list">
+          <div className="ro-plain-row">
+            <strong>{settings.brandContext || "Nothing here yet. Add your business context in settings."}</strong>
+            <div className="ro-handbook-meta"><span>Added in settings</span></div>
+          </div>
+          {settings.decisionStyle ? (
+            <div className="ro-plain-row">
+              <strong>{settings.decisionStyle}</strong>
+              <div className="ro-handbook-meta"><span>Decision style · settings</span></div>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="ro-sec">
+        <div className="ro-sec-head">
+          <h2>Workers</h2>
+        </div>
+        <div className="ro-plain-list">
+          {desks.flatMap((desk) => desk.memory.map((item) => ({ ...item, workerSlug: desk.workerSlug }))).slice(0, 12).map((item) => (
+            <div className="ro-plain-row" key={`${item.workerSlug}-${item.id}`}>
+              <strong>{item.text}</strong>
+              <div className="ro-handbook-meta"><span>{item.label} · {workersLabel(item.workerSlug)}</span></div>
+            </div>
+          ))}
+          {desks.every((desk) => desk.memory.length === 0) ? (
+            <p className="ro-blank">Nothing here yet. Workers add what they learn as you work together.</p>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="ro-sec">
+        <div className="ro-sec-head">
+          <h2>Decisions</h2>
+        </div>
+        {decisions.length === 0 ? (
+          <p className="ro-blank">Nothing here yet. Decisions made in reviews and briefings will collect here.</p>
+        ) : (
+          <div className="ro-plain-list">
+            {decisions.map((item) => (
+              <div className="ro-plain-row" key={item.id}>
+                <strong>{item.label}</strong>
+                <div className="ro-handbook-meta"><span>{item.source}</span></div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="ro-sec">
+        <div className="ro-sec-head">
+          <h2>Sources</h2>
+        </div>
+        {sources.length === 0 ? (
+          <p className="ro-blank">Nothing here yet. Connected tools and shared sources will show up here.</p>
+        ) : (
+          <div className="ro-plain-list">
+            {sources.map((source) => (
+              <div className="ro-plain-row" key={`${source.workerSlug}-${source.provider}`}>
+                <strong>{source.accountLabel || source.provider}</strong>
+                <div className="ro-handbook-meta"><span>{sentenceCase(source.status)} · scoped source</span></div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+
+  function workersLabel(workerSlug: string) {
+    return workers.find((worker) => worker.slug === workerSlug)?.name ?? "Worker";
+  }
 }
 
 function safeList(json: string): string[] {
@@ -1728,8 +2090,8 @@ function TeamView({
   return (
     <div className="ro-main-scroll">
       <header className="ro-page-head">
-        <h1>Team</h1>
-        <p className="ro-page-meta">{workers.length} {workers.length === 1 ? "person" : "people"} on payroll</p>
+        <h1>Workers</h1>
+        <p className="ro-page-meta">{workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock</p>
       </header>
 
       <div className="ro-rows">
@@ -1741,11 +2103,11 @@ function TeamView({
               key={w.slug}
               role="button"
               tabIndex={0}
-              onClick={() => onNavigate(`#app/office/desk/${w.slug}`)}
+              onClick={() => onNavigate(`#app/office/workers/${w.slug}/desk`)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  onNavigate(`#app/office/desk/${w.slug}`);
+                  onNavigate(`#app/office/workers/${w.slug}/desk`);
                 }
               }}
             >
@@ -1756,15 +2118,15 @@ function TeamView({
               </div>
               <div className="ro-row-end">
                 <span className="ro-row-aside">{w.salary}</span>
-                <button
-                  className="ro-textlink"
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNavigate(`#app/office/chat/${w.slug}`);
-                  }}
-                >
-                  Message
+                  <button
+                    className="ro-textlink"
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onNavigate(`#app/office/workers/${w.slug}/conversation`);
+                    }}
+                  >
+                    Message
                 </button>
               </div>
             </div>
@@ -1881,7 +2243,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
 
 /* ---------- shell ---------- */
 
-export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userName }: OfficeExperienceAppProps) {
+export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNotice, userName }: OfficeExperienceAppProps) {
   const [route, setRoute] = useState(() => parseOfficeRoute(window.location.hash));
   const [overlays, setOverlays] = useState<Overlays>(EMPTY_OVERLAYS);
   const [loading, setLoading] = useState(true);
@@ -1938,7 +2300,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
     };
   }, [hiredWorkers, overlays]);
 
-  const { tab, workerSlug } = route;
+  const { tab, workerSlug, section } = route;
   const hasWorkers = hiredWorkers.length > 0;
   const go = (hash: string) => onNavigate(hash);
   const onboardingByWorker = useMemo(
@@ -1970,7 +2332,11 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
   }, [firstIncompleteWorker, go, loading, tab, workerSlug]);
 
   const emptyLabels: Record<string, string> = {
-    today: "your day", chat: "your conversations", approvals: "work waiting on you", team: "your team", files: "shared files",
+    assignments: "office assignments",
+    handbook: "your handbook",
+    reviews: "work waiting on you",
+    today: "your day",
+    workers: "your workers"
   };
   const desks = useMemo(
     () =>
@@ -2034,7 +2400,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
           });
           await reload();
           onNotice(payload.generatedSummary.length > 0 ? payload.generatedSummary[0] : payload.worklogEntry.result);
-          go(`#app/office/chat/${worker.slug}`);
+          go(`#app/office/workers/${worker.slug}/conversation`);
         }}
         onSaveProgress={async (payload) => {
           await officeJson(`/api/office/workers/${worker.slug}/onboarding/save`, {
@@ -2044,7 +2410,7 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
         }}
         onStartFirstDay={(notice) => {
           onNotice(notice);
-          go(`#app/office/chat/${worker.slug}`);
+          go(`#app/office/workers/${worker.slug}/conversation`);
         }}
         session={session}
         worker={worker}
@@ -2054,55 +2420,44 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
     );
   } else {
     switch (tab) {
-      case "chat": {
-        main = (
-          <ChatView
-            activeDesk={activeDesk}
-            onOpenWorkerDetails={() => {
-              const slug = workerSlug || hiredWorkers[0]?.slug || null;
-              if (slug) go(`#app/office/desk/${slug}`);
-            }}
-            workers={hiredWorkers}
-            overlays={overlays}
-            selectedSlug={workerSlug}
-            onNavigate={go}
-            onReload={reload}
-          />
-        );
-        break;
-      }
-      case "approvals": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} onNavigate={go} onReload={reload} />; break;
+      case "assignments": main = <AssignmentsView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
+      case "reviews": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} onNavigate={go} onReload={reload} />; break;
       case "calendar": main = <CalendarView workers={hiredWorkers} overlays={overlays} onReload={reload} />; break;
-      case "team": main = <TeamView desks={desks} workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
-      case "files": main = <FilesView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
-      case "settings": main = <SettingsView overlays={overlays} onReload={reload} />; break;
-      case "desk": {
-        if (!activeWorker || !activeDesk) {
-          main = <div className="ro-main-scroll"><p className="ro-blank">This worker could not be found.</p></div>;
-          break;
+      case "workers": {
+        if (workerSlug && activeWorker && activeDesk) {
+          main = (
+            <WorkerDeskView
+              activeWorker={activeWorker}
+              busyId={workerActionBusy}
+              canUseEmail={overlays.integrations.some((integration) => integration.workerSlug === activeWorker.slug && integration.status === "connected")}
+              connectedTools={overlays.integrations.filter((integration) => integration.workerSlug === activeWorker.slug)}
+              desk={activeDesk}
+              overlays={overlays}
+              onApprove={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "approved")}
+              onNavigate={go}
+              onReject={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "rejected")}
+              onReload={reload}
+              onRunTask={(taskId) => runWorkerTask(activeWorker.slug, taskId)}
+              onSeedCorrection={(prompt) => {
+                go(`#app/office/workers/${activeWorker.slug}/conversation`);
+                window.setTimeout(() => {
+                  const event = new CustomEvent("ryva-office-seed-draft", { detail: { prompt } });
+                  window.dispatchEvent(event);
+                }, 0);
+              }}
+              section={section ?? "desk"}
+            />
+          );
+        } else {
+          const openRoles = allWorkers.filter((worker) => !hiredWorkers.some((hired) => hired.slug === worker.slug));
+          main = <TeamView desks={desks} workers={hiredWorkers} overlays={overlays} onNavigate={go} />;
+          void openRoles;
         }
-        main = (
-          <WorkerDeskView
-            activeWorker={activeWorker}
-            busyId={workerActionBusy}
-            canUseEmail={overlays.integrations.some((integration) => integration.workerSlug === activeWorker.slug && integration.status === "connected")}
-            desk={activeDesk}
-            onApprove={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "approved")}
-            onNavigate={go}
-            onReject={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "rejected")}
-            onRunTask={(taskId) => runWorkerTask(activeWorker.slug, taskId)}
-            onSeedCorrection={(prompt) => {
-              go(`#app/office/chat/${activeWorker.slug}`);
-              window.setTimeout(() => {
-                const event = new CustomEvent("ryva-office-seed-draft", { detail: { prompt } });
-                window.dispatchEvent(event);
-              }, 0);
-            }}
-          />
-        );
         break;
       }
-      default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/approvals")} onOpenWorkerDetails={(slug) => go(`#app/office/desk/${slug}`)} />;
+      case "handbook": main = <HandbookView desks={desks} overlays={overlays} workers={hiredWorkers} />; break;
+      case "settings": main = <SettingsView overlays={overlays} onReload={reload} />; break;
+      default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/reviews")} onOpenWorkerDetails={(slug) => go(`#app/office/workers/${slug}/desk`)} />;
     }
   }
 
@@ -2124,10 +2479,11 @@ export function OfficeExperienceApp({ hiredWorkers, onNavigate, onNotice, userNa
           <button key={item.tab} className={`ro-nav-item${tab === item.tab ? " on" : ""}`} type="button" onClick={() => go(`#app/office/${item.tab}`)} aria-label={item.label} title={item.label}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{item.icon}</svg>
             {!navCollapsed && item.label}
-            {!navCollapsed && item.tab === "approvals" && pendingCount > 0 && <span className="ro-count">{pendingCount}</span>}
+            {!navCollapsed && (item.tab === "reviews" || item.tab === "assignments") && pendingCount > 0 && <span className="ro-count">{pendingCount}</span>}
           </button>
         ))}
         <div className="ro-nav-foot">
+          {!navCollapsed && <div className="ro-command-hint">⌘K — delegate</div>}
           <button className={`ro-nav-item${tab === "settings" ? " on" : ""}`} type="button" onClick={() => go("#app/office/settings")} aria-label="Settings" title="Settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 13a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" /></svg>
             {!navCollapsed && "Settings"}
