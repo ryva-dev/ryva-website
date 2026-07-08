@@ -188,6 +188,17 @@ function isAdminUser(user) {
   return Boolean(user?.email && adminEmails.has(normalizeEmail(user.email)));
 }
 
+function getUserRecordById(userId) {
+  if (!userId) return null;
+  return db.prepare("SELECT * FROM users WHERE id = ?").get(userId) ?? null;
+}
+
+/** Admin accounts are for product ops — Mara should not run autonomously on them. */
+function isMaraAutonomyPausedForUser(userOrUserId) {
+  const user = typeof userOrUserId === "string" ? getUserRecordById(userOrUserId) : userOrUserId;
+  return isAdminUser(user);
+}
+
 function isGoogleAuthConfigured() {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
@@ -641,7 +652,7 @@ function syncWorkerAssignments(userId, workerSlug) {
       priority: String(task.priority || "medium"),
       rhythm: task.source === "recurring" ? "Recurring" : null,
       sourceId: task.id,
-      sourceLabel: workerSlug === MARA_SLUG ? formatTaskSourceLabel(task.source) || "In progress" : task.source || "worker_task",
+      sourceLabel: formatTaskSourceLabel(task.source) || "In progress",
       sourceType: "worker_task",
       status: mapWorkerTaskStatusToAssignmentStatus(task.status),
       summary: truncatePreview(task.description, 180),
@@ -658,7 +669,23 @@ function syncWorkerAssignments(userId, workerSlug) {
      WHERE user_id = ? AND worker_slug = ?`
   ).all(userId, workerSlug);
 
+  // Worker tasks are the source of truth. Office rows that mirror a worker
+  // task (same title) would render as duplicates — skip them, and clean up
+  // any duplicate assignment rows older syncs left behind.
+  const workerTaskTitles = new Set(workerTasks.map((task) => String(task.title).trim().toLowerCase()));
+
   for (const task of officeTasks) {
+    if (workerTaskTitles.has(String(task.title).trim().toLowerCase())) {
+      db.prepare(
+        `DELETE FROM office_assignments
+         WHERE user_id = ? AND worker_slug = ? AND source_type = 'office_task' AND source_id = ?`
+      ).run(userId, workerSlug, task.id);
+      continue;
+    }
+    const moduleLabel = String(task.moduleName ?? "").trim();
+    const readableModule = /^[a-z0-9]+([_-][a-z0-9]+)+$/i.test(moduleLabel)
+      ? formatTaskSourceLabel(moduleLabel) || sentenceCase(moduleLabel.replace(/[_-]+/g, " "))
+      : moduleLabel;
     upsertOfficeAssignment({
       artifactPreview: "",
       artifactRefId: null,
@@ -671,10 +698,10 @@ function syncWorkerAssignments(userId, workerSlug) {
       priority: String(task.priority || "Medium").toLowerCase(),
       rhythm: null,
       sourceId: task.id,
-      sourceLabel: "office_task",
+      sourceLabel: "Office task",
       sourceType: "office_task",
       status: mapOfficeTaskStatusToAssignmentStatus(task.status),
-      summary: truncatePreview(task.moduleName, 180),
+      summary: truncatePreview(readableModule, 180),
       title: task.title,
       updatedAt: task.createdAt,
       userId,
@@ -1223,31 +1250,9 @@ function getUserBrandContext(userId) {
   };
 }
 
-function buildMaraWorkerMemory(userId) {
-  const { brandName, nicheSummary } = getUserBrandContext(userId);
-  const lowerContext = nicheSummary.toLowerCase();
-  const preferredNiches = [
-    lowerContext.includes("fitness") ? "fitness" : null,
-    lowerContext.includes("wellness") ? "wellness" : null,
-    lowerContext.includes("beauty") || lowerContext.includes("skincare") ? "skincare" : null,
-    "creator tools"
-  ].filter(Boolean);
-
-  return {
-    brand_name: brandName,
-    business_summary: nicheSummary,
-    minimum_rate: 350,
-    accepts_gifted: false,
-    accepts_affiliate_only: false,
-    tone: "friendly_professional",
-    filming_days: ["Monday", "Wednesday"],
-    preferred_niches: preferredNiches.length > 0 ? preferredNiches : ["wellness", "fitness", "skincare"],
-    excluded_categories: ["diet teas", "fast fashion"],
-    daily_brand_discovery_limit: 5
-  };
-}
-
 function ensureMaraKnowledge(userId) {
+  // Worker memory must only ever contain things the manager actually said
+  // (onboarding answers, chat direction). Never seed invented preferences.
   if (!hasHiredWorker(userId, MARA_SLUG)) return;
   const existing = db
     .prepare(
@@ -1259,26 +1264,7 @@ function ensureMaraKnowledge(userId) {
 
   if (existing) return;
 
-  const memory = buildMaraWorkerMemory(userId);
-  const sections = [
-    {
-      title: "Creator preferences",
-      items: [
-        `Minimum rate: $${memory.minimum_rate}`,
-        `Accepts gifted only: ${memory.accepts_gifted ? "Yes" : "No"}`,
-        `Accepts affiliate only: ${memory.accepts_affiliate_only ? "Yes" : "No"}`,
-        `Tone: ${memory.tone.replace(/_/g, " ")}`
-      ]
-    },
-    {
-      title: "Preferred niches",
-      items: memory.preferred_niches
-    },
-    {
-      title: "Excluded categories",
-      items: memory.excluded_categories
-    }
-  ];
+  const sections = [];
 
   db.prepare(
     `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
@@ -2178,664 +2164,78 @@ function insertMaraSyncJob(userId, provider, jobName, summary, status = "complet
   ).run(randomUUID(), userId, MARA_SLUG, jobName, provider, status, summary, nowIso(), nowIso());
 }
 
-function seedMaraThreads(userId, provider = "gmail") {
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_email_threads
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
+/**
+ * Earlier builds seeded fictional demo data (SageHaus, Glow Theory, Kinfield
+ * threads, tasks, events, approvals) into real user offices. Scrub every
+ * trace at startup so no fabricated work ever appears again. Idempotent.
+ */
+function purgeLegacyDemoData() {
+  const fakeBrands = ["SageHaus", "Glow Theory", "Kinfield"];
+  const brandList = fakeBrands.map(() => "?").join(", ");
+  const likeClauses = fakeBrands.map(() => "title LIKE ?").join(" OR ");
+  const likeParams = fakeBrands.map((brand) => `%${brand}%`);
 
-  if (existing.length > 0) return;
-
-  const timestamp = nowIso();
-  const threads = [
-    {
-      subject: "Glow Theory UGC brief for August routine campaign",
-      snippet: "Sharing the brief, draft deadline, and required skincare talking points for next month's launch.",
-      receivedAt: new Date(Date.now() - 1000 * 60 * 42).toISOString(),
-      brandRelated: 1,
-      category: "campaign_brief",
-      urgency: "high",
-      confidence: 0.96,
-      reason: "Includes deliverables, timelines, and required talking points.",
-      brandName: "Glow Theory",
-      contactName: "Nina Patel",
-      contactEmail: "nina@glowtheory.co",
-      sourceMessageCount: 4,
-      threadStatus: "open",
-      participants: ["Nina Patel <nina@glowtheory.co>", "You"],
-      raw: { suggested_worker: MARA_SLUG, brand_related: true }
-    },
-    {
-      subject: "Can you send rates for three short-form wellness videos?",
-      snippet: "Brand asked for pricing but did not mention usage rights or payment timing.",
-      receivedAt: new Date(Date.now() - 1000 * 60 * 95).toISOString(),
-      brandRelated: 1,
-      category: "rate_request",
-      urgency: "medium",
-      confidence: 0.92,
-      reason: "Clear pricing request with missing usage details.",
-      brandName: "Forme Labs",
-      contactName: "Eli Brooks",
-      contactEmail: "eli@formelabs.com",
-      sourceMessageCount: 2,
-      threadStatus: "waiting_on_reply",
-      participants: ["Eli Brooks <eli@formelabs.com>", "You"],
-      raw: { suggested_worker: MARA_SLUG, brand_related: true }
-    },
-    {
-      subject: "A few edits before final approval",
-      snippet: "Brand wants one hook change and a cleaner product close before signing off.",
-      receivedAt: new Date(Date.now() - 1000 * 60 * 145).toISOString(),
-      brandRelated: 1,
-      category: "revision_request",
-      urgency: "high",
-      confidence: 0.94,
-      reason: "Explicit request for content revisions.",
-      brandName: "Kinfield",
-      contactName: "Mara Chen",
-      contactEmail: "mara@kinfield.com",
-      sourceMessageCount: 6,
-      threadStatus: "revision_open",
-      participants: ["Mara Chen <mara@kinfield.com>", "You"],
-      raw: { suggested_worker: MARA_SLUG, brand_related: true }
-    },
-    {
-      subject: "Checking in on invoice 1048",
-      snippet: "Payment team asked for a resend and did not confirm when funds will go out.",
-      receivedAt: new Date(Date.now() - 1000 * 60 * 210).toISOString(),
-      brandRelated: 1,
-      category: "payment_question",
-      urgency: "medium",
-      confidence: 0.9,
-      reason: "Payment conversation with unclear timing.",
-      brandName: "SageHaus",
-      contactName: "Ari Gomez",
-      contactEmail: "finance@sagehaus.com",
-      sourceMessageCount: 3,
-      threadStatus: "follow_up_needed",
-      participants: ["Ari Gomez <finance@sagehaus.com>", "You"],
-      raw: { suggested_worker: MARA_SLUG, brand_related: true }
-    }
+  const statements = [
+    [`DELETE FROM office_email_threads WHERE brand_name IN (${brandList})`, fakeBrands],
+    [`DELETE FROM office_campaigns WHERE brand_name IN (${brandList})`, fakeBrands],
+    [`DELETE FROM office_leads WHERE brand_name IN (${brandList})`, fakeBrands],
+    [`DELETE FROM office_custom_tasks WHERE ${likeClauses}`, likeParams],
+    [`DELETE FROM office_calendar_events WHERE ${likeClauses}`, likeParams],
+    [`DELETE FROM office_suggested_actions WHERE ${likeClauses}`, likeParams],
+    [`DELETE FROM office_brand_opportunities WHERE ${likeClauses.replace(/title/g, "brand_name")}`, likeParams],
+    [`DELETE FROM office_assignments WHERE ${likeClauses}`, likeParams],
+    [`DELETE FROM office_deliverables WHERE ${likeClauses}`, likeParams],
+    [
+      "DELETE FROM office_activity_logs WHERE result IN (?, ?, ?, ?)",
+      [
+        "Glow Theory and Kinfield campaigns organized",
+        "3 suggested actions waiting on you",
+        "5 aligned brands added to today's list",
+        "Prepared Mara's daily brief from email, campaigns, and brand signals."
+      ]
+    ]
   ];
 
-  for (const thread of threads) {
-    db.prepare(
-      `INSERT INTO office_email_threads
-        (id, user_id, worker_slug, provider, subject, participants_json, snippet, received_at, brand_related, category,
-         urgency, confidence, reason, brand_name, contact_name, contact_email, source_message_count, thread_status,
-         raw_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      userId,
-      MARA_SLUG,
-      provider,
-      thread.subject,
-      JSON.stringify(thread.participants),
-      thread.snippet,
-      thread.receivedAt,
-      thread.brandRelated,
-      thread.category,
-      thread.urgency,
-      thread.confidence,
-      thread.reason,
-      thread.brandName,
-      thread.contactName,
-      thread.contactEmail,
-      thread.sourceMessageCount,
-      thread.threadStatus,
-      JSON.stringify(thread.raw),
-      timestamp,
-      timestamp
-    );
-  }
-}
-
-function seedMaraCampaigns(userId) {
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_campaigns
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-
-  if (existing.length > 0) return;
-
-  const threads = db
-    .prepare(
-      `SELECT id, brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, subject, category
-       FROM office_email_threads
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-
-  const threadMap = new Map(threads.map((thread) => [thread.brandName, thread]));
-  const now = nowIso();
-  const campaigns = [
-    {
-      brandName: "Glow Theory",
-      brandWebsite: "https://glowtheory.co",
-      contactName: threadMap.get("Glow Theory")?.contactName ?? "Nina Patel",
-      contactEmail: threadMap.get("Glow Theory")?.contactEmail ?? "nina@glowtheory.co",
-      productName: "Barrier Repair Serum",
-      campaignName: "August Routine Launch",
-      campaignStatus: "brief_received",
-      sourceThreadId: threadMap.get("Glow Theory")?.id ?? null,
-      deliverables: ["2 TikTok videos", "1 Instagram Reel", "Story frame with link"],
-      briefText: "Brief includes talking points, draft timing, and disclosure requirements.",
-      draftDueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 2).toISOString(),
-      finalDueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5).toISOString(),
-      paymentAmount: "",
-      paymentStatus: "pending_terms",
-      usageRights: "",
-      usageRightsStatus: "unclear",
-      revisionLimit: "",
-      rawFootageRequired: 1,
-      missingFields: ["payment_amount_missing", "usage_rights_unclear", "revision_limit_missing"],
-      riskFlags: ["raw_footage_requested", "usage_rights_unclear"],
-      notes: "Draft clarification email prepared before filming starts."
-    },
-    {
-      brandName: "Kinfield",
-      brandWebsite: "https://kinfield.com",
-      contactName: threadMap.get("Kinfield")?.contactName ?? "Mara Chen",
-      contactEmail: threadMap.get("Kinfield")?.contactEmail ?? "mara@kinfield.com",
-      productName: "Trail Mist",
-      campaignName: "Summer Reset UGC",
-      campaignStatus: "revision_requested",
-      sourceThreadId: threadMap.get("Kinfield")?.id ?? null,
-      deliverables: ["1 short-form video", "1 revised CTA ending"],
-      briefText: "Revision requested on the existing draft. Brand wants hook and product close updated.",
-      draftDueDate: new Date(Date.now() + 1000 * 60 * 60 * 20).toISOString(),
-      finalDueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 3).toISOString(),
-      paymentAmount: "$1,200",
-      paymentStatus: "approved_pending_final",
-      usageRights: "90-day paid social",
-      usageRightsStatus: "confirmed",
-      revisionLimit: "2 rounds",
-      rawFootageRequired: 0,
-      missingFields: [],
-      riskFlags: ["deadline_missing"],
-      notes: "Needs revised hook and cleaner final CTA before approval."
+  let purged = 0;
+  for (const [sql, params] of statements) {
+    try {
+      purged += db.prepare(sql).run(...params).changes;
+    } catch {
+      /* table may not exist in older databases */
     }
-  ];
-
-  for (const campaign of campaigns) {
-    db.prepare(
-      `INSERT INTO office_campaigns
-        (id, user_id, worker_slug, brand_name, brand_website, contact_name, contact_email, product_name, campaign_name,
-         campaign_status, source_thread_id, deliverables_json, brief_text, draft_due_date, final_due_date, payment_amount,
-         payment_status, usage_rights, usage_rights_status, revision_limit, raw_footage_required, missing_fields_json,
-         risk_flags_json, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      userId,
-      MARA_SLUG,
-      campaign.brandName,
-      campaign.brandWebsite,
-      campaign.contactName,
-      campaign.contactEmail,
-      campaign.productName,
-      campaign.campaignName,
-      campaign.campaignStatus,
-      campaign.sourceThreadId,
-      JSON.stringify(campaign.deliverables),
-      campaign.briefText,
-      campaign.draftDueDate,
-      campaign.finalDueDate,
-      campaign.paymentAmount,
-      campaign.paymentStatus,
-      campaign.usageRights,
-      campaign.usageRightsStatus,
-      campaign.revisionLimit,
-      campaign.rawFootageRequired,
-      JSON.stringify(campaign.missingFields),
-      JSON.stringify(campaign.riskFlags),
-      campaign.notes,
-      now,
-      now
-    );
   }
-}
 
-function seedMaraTasks(userId) {
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_custom_tasks
-       WHERE user_id = ? AND worker_slug = ? AND module_name = ?`
-    )
-    .all(userId, MARA_SLUG, "Mara");
-
-  if (existing.length > 0) return;
-
-  const campaigns = db
-    .prepare(
-      `SELECT id, campaign_name AS campaignName, brand_name AS brandName
-       FROM office_campaigns
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-
-  const glow = campaigns.find((campaign) => campaign.brandName === "Glow Theory");
-  const kinfield = campaigns.find((campaign) => campaign.brandName === "Kinfield");
-  const tasks = [
-    {
-      title: "Clarify payment and usage rights with Glow Theory",
-      module: "Mara",
-      owner: "Worker",
-      priority: "High",
-      status: "Needs Review",
-      dueDate: "Today"
-    },
-    {
-      title: "Block filming time for August Routine Launch",
-      module: "Mara",
-      owner: "Worker",
-      priority: "Medium",
-      status: "To Do",
-      dueDate: "Tomorrow"
-    },
-    {
-      title: "Revise Kinfield draft hook and CTA",
-      module: "Mara",
-      owner: "Worker",
-      priority: "High",
-      status: "In Progress",
-      dueDate: "Today"
-    },
-    {
-      title: "Follow up on SageHaus invoice timing",
-      module: "Mara",
-      owner: "Worker",
-      priority: "Medium",
-      status: "To Do",
-      dueDate: "This week"
-    }
-  ];
-
-  for (const task of tasks) {
-    db.prepare(
-      `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), userId, MARA_SLUG, task.title, task.module, task.owner, task.priority, task.status, task.dueDate, nowIso());
-  }
-}
-
-function seedMaraCalendar(userId) {
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_calendar_events
-       WHERE user_id = ? AND worker_slug = ? AND event_type = ?`
-    )
-    .all(userId, MARA_SLUG, "Focus");
-
-  if (existing.length > 0) return;
-
-  const today = new Date();
-  const draftStart = new Date(today);
-  draftStart.setHours(11, 0, 0, 0);
-  const draftEnd = new Date(today);
-  draftEnd.setHours(12, 0, 0, 0);
-  const followupStart = new Date(today);
-  followupStart.setHours(15, 30, 0, 0);
-  const followupEnd = new Date(today);
-  followupEnd.setHours(16, 0, 0, 0);
-
-  const events = [
-    {
-      title: "Film block — Glow Theory draft",
-      startsAt: draftStart.toISOString(),
-      endsAt: draftEnd.toISOString(),
-      eventType: "Focus",
-      notes: "Reserved by Mara from the campaign draft timeline."
-    },
-    {
-      title: "Follow up — SageHaus invoice",
-      startsAt: followupStart.toISOString(),
-      endsAt: followupEnd.toISOString(),
-      eventType: "Review",
-      notes: "Suggested payment reminder window."
-    }
-  ];
-
-  for (const event of events) {
-    db.prepare(
-      `INSERT INTO office_calendar_events
-        (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), userId, MARA_SLUG, event.title, event.startsAt, event.endsAt, event.eventType, event.notes, nowIso(), nowIso());
-  }
-}
-
-function seedMaraSuggestedActions(userId) {
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_suggested_actions
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-
-  if (existing.length > 0) return;
-
-  const campaigns = db
-    .prepare(
-      `SELECT id, brand_name AS brandName, campaign_name AS campaignName
-       FROM office_campaigns
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-
-  const threads = db
-    .prepare(
-      `SELECT id, brand_name AS brandName
-       FROM office_email_threads
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-
-  const glowCampaign = campaigns.find((campaign) => campaign.brandName === "Glow Theory");
-  const glowThread = threads.find((thread) => thread.brandName === "Glow Theory");
-  const sageThread = threads.find((thread) => thread.brandName === "SageHaus");
-
-  const actions = [
-    {
-      actionType: "draft_email",
-      title: "Approve clarification reply to Glow Theory",
-      description: "I drafted a concise note asking for payment amount, usage duration, and revision limits before filming starts.",
-      reason: "The brief includes deadlines and deliverables, but compensation and rights are still unclear.",
-      relatedThreadId: glowThread?.id ?? null,
-      relatedCampaignId: glowCampaign?.id ?? null,
-      relatedBrandId: "Glow Theory",
-      payload: {
-        draftText:
-          "Thanks for sending this over. Before we block filming, could you confirm compensation, usage rights duration, and how many revision rounds are included?"
+  // Strip fabricated memory sections earlier builds invented ("Minimum
+  // rate: $350", filming days, excluded categories the user never stated).
+  try {
+    const knowledgeRows = db.prepare("SELECT id, knowledge_json AS knowledgeJson FROM office_worker_knowledge").all();
+    const fabricatedTitles = new Set(["Creator preferences", "Preferred niches", "Excluded categories"]);
+    for (const row of knowledgeRows) {
+      let sections;
+      try {
+        sections = JSON.parse(row.knowledgeJson);
+      } catch {
+        continue;
       }
-    },
-    {
-      actionType: "create_calendar_event",
-      title: "Approve Mara's filming block for Glow Theory",
-      description: "I reserved a one-hour filming block on the internal Ryva calendar so the draft deadline does not sneak up.",
-      reason: "The draft due date is close enough that it should already be protected on the calendar.",
-      relatedThreadId: glowThread?.id ?? null,
-      relatedCampaignId: glowCampaign?.id ?? null,
-      relatedBrandId: "Glow Theory",
-      payload: {
-        event: {
-          title: "Filming block — Glow Theory",
-          eventType: "Focus"
-        }
-      }
-    },
-    {
-      actionType: "draft_email",
-      title: "Approve SageHaus payment follow-up",
-      description: "I drafted a polite invoice reminder asking when payment will be released.",
-      reason: "The finance thread requested a resend but still did not confirm a payment date.",
-      relatedThreadId: sageThread?.id ?? null,
-      relatedCampaignId: null,
-      relatedBrandId: "SageHaus",
-      payload: {
-        draftText:
-          "Just checking in on invoice 1048. I resent the requested copy here and wanted to confirm the expected payment timing on your side."
-      }
+      if (!Array.isArray(sections)) continue;
+      const hasFabricatedFingerprint = sections.some(
+        (section) => Array.isArray(section?.items) && section.items.some((item) => String(item).startsWith("Minimum rate: $350"))
+      );
+      if (!hasFabricatedFingerprint) continue;
+      const cleaned = sections.filter((section) => !fabricatedTitles.has(String(section?.title ?? "")));
+      db.prepare("UPDATE office_worker_knowledge SET knowledge_json = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(cleaned), nowIso(), row.id);
+      purged += 1;
     }
-  ];
+  } catch {
+    /* table may not exist */
+  }
 
-  for (const action of actions) {
-    db.prepare(
-      `INSERT INTO office_suggested_actions
-        (id, user_id, worker_slug, action_type, title, description, reason, related_thread_id, related_campaign_id,
-         related_brand_id, payload_json, status, requires_approval, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      userId,
-      MARA_SLUG,
-      action.actionType,
-      action.title,
-      action.description,
-      action.reason,
-      action.relatedThreadId,
-      action.relatedCampaignId,
-      action.relatedBrandId,
-      JSON.stringify(action.payload),
-      "suggested",
-      1,
-      nowIso(),
-      nowIso()
-    );
+  if (purged > 0) {
+    console.log(`Purged ${purged} legacy demo record(s).`);
   }
 }
-
-function seedMaraOpportunities(userId) {
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_brand_opportunities
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-
-  if (existing.length > 0) return;
-
-  const opportunities = [
-    {
-      brandName: "Glow Habit",
-      website: "https://glowhabit.com",
-      category: "Skincare",
-      source: "Ryva market intelligence",
-      fitScore: 91,
-      ugcPotentialScore: 88,
-      riskScore: 23,
-      priority: "High",
-      contentGap: "Their paid social feels polished, but public creator content is still light on realistic routine demos.",
-      suggestedAngle: "Pitch a simple morning routine built around visible before-and-after texture shots.",
-      sourceNotes: "Brand site and public ad creative both point toward routine-first messaging.",
-      status: "new"
-    },
-    {
-      brandName: "Forme Labs",
-      website: "https://formelabs.com",
-      category: "Wellness",
-      source: "Brand research snapshot",
-      fitScore: 84,
-      ugcPotentialScore: 86,
-      riskScore: 31,
-      priority: "Medium",
-      contentGap: "Limited founder-facing testimonial content compared with product explainer creative.",
-      suggestedAngle: "Offer a testimonial-style workflow video tied to creator productivity.",
-      sourceNotes: "Brand posts often highlight product features more than day-in-the-life usage.",
-      status: "new"
-    },
-    {
-      brandName: "Twill Active",
-      website: "https://twillactive.com",
-      category: "Fitness",
-      source: "Opportunity monitoring",
-      fitScore: 79,
-      ugcPotentialScore: 83,
-      riskScore: 28,
-      priority: "Medium",
-      contentGap: "Strong product pages, but almost no creator-led gym locker room content.",
-      suggestedAngle: "Pitch a short changing-room to training-floor sequence with natural voiceover.",
-      sourceNotes: "Recent product launch suggests they are increasing content volume.",
-      status: "new"
-    },
-    {
-      brandName: "SageHaus",
-      website: "https://sagehaus.co",
-      category: "Home & Wellness",
-      source: "Creator chatter signal",
-      fitScore: 74,
-      ugcPotentialScore: 76,
-      riskScore: 57,
-      priority: "Low",
-      contentGap: "Lifestyle content is clean, but creator demos rarely show practical product setup.",
-      suggestedAngle: "Pitch a setup-to-use walkthrough with emphasis on calm daily routines.",
-      sourceNotes: "Public creator chatter suggests possible delayed payment concerns. Treat as caution, not confirmed proof.",
-      status: "new"
-    },
-    {
-      brandName: "Kinfield",
-      website: "https://kinfield.com",
-      category: "Outdoor skincare",
-      source: "Renewal signal",
-      fitScore: 88,
-      ugcPotentialScore: 82,
-      riskScore: 19,
-      priority: "High",
-      contentGap: "Their outdoor content is strong, but creator edit styles still skew polished over candid.",
-      suggestedAngle: "Propose a more candid routine format once the current revision cycle closes.",
-      sourceNotes: "Existing relationship makes this more of a renewal-ready opportunity than cold outreach.",
-      status: "new"
-    }
-  ];
-
-  for (const opportunity of opportunities) {
-    db.prepare(
-      `INSERT INTO office_brand_opportunities
-        (id, user_id, worker_slug, brand_name, website, category, source, fit_score, ugc_potential_score,
-         risk_score, priority, content_gap, suggested_angle, source_notes, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      userId,
-      MARA_SLUG,
-      opportunity.brandName,
-      opportunity.website,
-      opportunity.category,
-      opportunity.source,
-      opportunity.fitScore,
-      opportunity.ugcPotentialScore,
-      opportunity.riskScore,
-      opportunity.priority,
-      opportunity.contentGap,
-      opportunity.suggestedAngle,
-      opportunity.sourceNotes,
-      opportunity.status,
-      nowIso(),
-      nowIso()
-    );
-  }
-}
-
-function seedMaraTrendSignals(userId) {
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_trend_signals
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-
-  if (existing.length > 0) return;
-
-  const signals = [
-    {
-      niche: "wellness",
-      platform: "TikTok",
-      signalType: "hook_format",
-      title: "Routine-first hooks are still outperforming polished intros",
-      summary: "Creator-facing wellness content is leaning toward casual first lines before product explanation.",
-      hashtags: ["#morningsetup", "#realroutine"],
-      examples: ["Start on the mess before the product", "Lead with one line of friction before the result"],
-      confidence: "medium",
-      source: "Ryva market intelligence"
-    },
-    {
-      niche: "ugc",
-      platform: "Reddit-derived",
-      signalType: "brand_warning",
-      title: "Creators are asking harder questions about usage duration",
-      summary: "Public creator discussions are increasingly flagging vague paid-usage language as a source of scope creep.",
-      hashtags: [],
-      examples: ["Ask for duration before filming", "Treat raw footage requests as a separate scope conversation"],
-      confidence: "medium",
-      source: "Ryva creator chatter layer"
-    }
-  ];
-
-  for (const signal of signals) {
-    db.prepare(
-      `INSERT INTO office_trend_signals
-        (id, user_id, worker_slug, niche, platform, signal_type, title, summary, hashtags_json, examples_json,
-         confidence, source, detected_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      userId,
-      MARA_SLUG,
-      signal.niche,
-      signal.platform,
-      signal.signalType,
-      signal.title,
-      signal.summary,
-      JSON.stringify(signal.hashtags),
-      JSON.stringify(signal.examples),
-      signal.confidence,
-      signal.source,
-      nowIso()
-    );
-  }
-}
-
-function seedMaraRecentWork(userId, provider = "gmail") {
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_activity_logs
-       WHERE user_id = ? AND worker_slug = ? AND module_name = ?`
-    )
-    .all(userId, MARA_SLUG, "Mara");
-
-  if (existing.length > 0) return;
-
-  const worklog = [
-    ["Connected inbox.", "Mara", `${provider === "gmail" ? "Gmail" : "Outlook"} integration ready`],
-    ["Classified email threads.", "Mara", "4 brand-related conversations tagged"],
-    ["Created campaign drafts.", "Mara", "Glow Theory and Kinfield campaigns organized"],
-    ["Prepared approval queue.", "Mara", "3 suggested actions waiting on you"],
-    ["Found brand opportunities.", "Mara", "5 aligned brands added to today's list"]
-  ];
-
-  worklog.forEach(([action, module, result], index) => {
-    db.prepare(
-      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      userId,
-      MARA_SLUG,
-      action,
-      module,
-      result,
-      new Date(Date.now() - index * 1000 * 60 * 18).toISOString()
-    );
-  });
-}
-
-function ensureMaraWorkspaceData(userId, provider = "gmail") {
-  if (!hasHiredWorker(userId, MARA_SLUG)) return;
-  ensureMaraKnowledge(userId);
-  ensureMaraIntegrationRecord(userId, provider);
-  seedMaraThreads(userId, provider);
-  seedMaraCampaigns(userId);
-  seedMaraTasks(userId);
-  seedMaraCalendar(userId);
-  seedMaraSuggestedActions(userId);
-  seedMaraOpportunities(userId);
-  seedMaraTrendSignals(userId);
-  seedMaraRecentWork(userId, provider);
-  insertMaraSyncJob(userId, provider, "generate_daily_mara_brief", "Prepared Mara's daily brief from email, campaigns, and brand signals.");
-}
+purgeLegacyDemoData();
 
 function maraIntegrations(userId) {
   return db
@@ -3185,6 +2585,16 @@ function buildMaraExecutionReaders() {
 }
 
 async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generatedSummary, normalizedKnowledge }) {
+  if (isMaraAutonomyPausedForUser(userId)) {
+    return {
+      summary: { paused: true, reason: "admin_account" },
+      workspace: buildMaraWorkspace(db, userId, workerSlug, {
+        readKnowledgeSections: readWorkerKnowledgeSections,
+        readOfficeOverlays: readOfficeOverlaysForUser
+      })
+    };
+  }
+
   const accountContext = getUserOnboardingRecord(userId);
   const initialPlan = buildMaraInitialWorkPlan({
     accountContext,
@@ -3281,6 +2691,7 @@ async function runScheduledMaraAutonomy() {
       if (!hasRoleConfig(row.workerSlug)) continue;
       try {
         if (row.workerSlug === MARA_SLUG) {
+          if (isMaraAutonomyPausedForUser(row.userId)) continue;
           const gmail = getWorkerIntegration(row.userId, row.workerSlug, "gmail");
           if (gmail?.status === "connected") {
             await syncGmailInbox(row.userId, row.workerSlug);
@@ -4178,6 +3589,18 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
   try {
     let summary;
     if (isMaraWorker(workerSlug)) {
+      if (isMaraAutonomyPausedForUser(req.user)) {
+        res.json({
+          ok: true,
+          paused: true,
+          summary: { paused: true, reason: "admin_account" },
+          workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+            readKnowledgeSections: readWorkerKnowledgeSections,
+            readOfficeOverlays: readOfficeOverlaysForUser
+          })
+        });
+        return;
+      }
       // Fast interactive pass now; heavy work (research, inbox) continues in
       // the background so the request stays responsive.
       summary = await runMaraAutonomyCycle({
@@ -4239,6 +3662,16 @@ app.post("/api/office/workers/:slug/sync-trends", assertOrigin, requireAuth, asy
     return;
   }
 
+  if (isMaraAutonomyPausedForUser(req.user)) {
+    res.json({
+      dashboard: getMaraDashboard(req.user.id),
+      ok: true,
+      paused: true,
+      synced: false
+    });
+    return;
+  }
+
   try {
     const syncResult = syncUserTrendInsightsFromGlobal({
       db,
@@ -4273,6 +3706,11 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
 
   if (!isMaraWorker(workerSlug)) {
     res.status(400).json({ error: "Structured scans are not available for this worker." });
+    return;
+  }
+
+  if (isMaraAutonomyPausedForUser(req.user)) {
+    res.json({ dashboard: getMaraDashboard(req.user.id), ok: true, paused: true });
     return;
   }
 
@@ -4597,14 +4035,29 @@ app.get("/api/office/deliverables/:deliverableId", requireAuth, (req, res) => {
 
   const worker = WORKERS.find((entry) => entry.slug === deliverable.workerSlug);
 
-  if (deliverable.sourceType === "worker_output" && deliverable.contentRefId) {
-    const output = db
-      .prepare(
-        `SELECT output_type AS outputType, title, content, structured_content_json AS structuredContentJson
-         FROM worker_outputs
-         WHERE id = ? AND user_id = ? AND worker_id = ?`
-      )
-      .get(deliverable.contentRefId, req.user.id, deliverable.workerSlug);
+  if (deliverable.sourceType === "worker_output" || deliverable.contentRefId || deliverable.sourceId) {
+    // Resolve the full output through a fallback chain so the reader never
+    // silently degrades to a truncated summary: ref id → source id → title.
+    const outputQuery = `SELECT output_type AS outputType, title, content, structured_content_json AS structuredContentJson
+       FROM worker_outputs
+       WHERE id = ? AND user_id = ? AND worker_id = ?`;
+    let output = deliverable.contentRefId
+      ? db.prepare(outputQuery).get(deliverable.contentRefId, req.user.id, deliverable.workerSlug)
+      : null;
+    if (!output && deliverable.sourceId && deliverable.sourceId !== deliverable.contentRefId) {
+      output = db.prepare(outputQuery).get(deliverable.sourceId, req.user.id, deliverable.workerSlug);
+    }
+    if (!output) {
+      output = db
+        .prepare(
+          `SELECT output_type AS outputType, title, content, structured_content_json AS structuredContentJson
+           FROM worker_outputs
+           WHERE user_id = ? AND worker_id = ? AND title = ?
+           ORDER BY created_at DESC
+           LIMIT 1`
+        )
+        .get(req.user.id, deliverable.workerSlug, deliverable.title);
+    }
 
     if (output) {
       res.json({
@@ -4840,16 +4293,18 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
       canUseConnectedIntegrations: true
     });
     await syncGmailInbox(statePayload.userId, workerSlug);
-    const summary = await runMaraAutonomyCycle({
-      db,
-      userId: statePayload.userId,
-      workerId: workerSlug,
-      ...buildMaraExecutionReaders()
-    });
-    syncMaraOperationalRecords(statePayload.userId, workerSlug);
-    const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
-    if (outputIds.length > 0) {
-      await syncMaraGmailDraftsForOutputs(statePayload.userId, workerSlug, outputIds);
+    if (!isMaraAutonomyPausedForUser(statePayload.userId)) {
+      const summary = await runMaraAutonomyCycle({
+        db,
+        userId: statePayload.userId,
+        workerId: workerSlug,
+        ...buildMaraExecutionReaders()
+      });
+      syncMaraOperationalRecords(statePayload.userId, workerSlug);
+      const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+      if (outputIds.length > 0) {
+        await syncMaraGmailDraftsForOutputs(statePayload.userId, workerSlug, outputIds);
+      }
     }
     res.redirect(`${appUrl}/?notice=gmail-connected#app/office/desk/${workerSlug}`);
   } catch (error) {
@@ -5284,6 +4739,7 @@ function workerChatAuthor(worker, workerSlug) {
  */
 function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, triggerText) {
   if (!Array.isArray(taskIds) || taskIds.length === 0) return;
+  if (workerSlug === MARA_SLUG && isMaraAutonomyPausedForUser(userId)) return;
   void (async () => {
     try {
       const executedResults = [];
@@ -5507,13 +4963,15 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
       });
     }
 
-    const executedResults = await autoExecuteSafeMaraTasks({
-      db,
-      taskIds: createdChatTaskIds,
-      userId: req.user.id,
-      workerId: workerSlug,
-      ...buildMaraExecutionReaders()
-    });
+    const executedResults = isMaraAutonomyPausedForUser(req.user)
+      ? []
+      : await autoExecuteSafeMaraTasks({
+        db,
+        taskIds: createdChatTaskIds,
+        userId: req.user.id,
+        workerId: workerSlug,
+        ...buildMaraExecutionReaders()
+      });
     const executedOutputIds = executedResults.map((result) => result?.output?.id).filter(Boolean);
     if (executedOutputIds.length > 0) {
       await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, executedOutputIds);
@@ -6284,6 +5742,10 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       String(worklogEntry?.result ?? (workerSlug === MARA_SLUG ? "I captured your workflow and I'm setting up my desk." : "Worker prepared first-day setup")),
       timestamp
     );
+
+    if (shouldRunMaraOnboardingAutomation && isMaraAutonomyPausedForUser(req.user)) {
+      shouldRunMaraOnboardingAutomation = false;
+    }
 
     let maraAutomationResult = null;
     if (shouldRunMaraOnboardingAutomation) {
