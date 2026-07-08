@@ -964,6 +964,283 @@ function mapThreadStatusToCampaignStatus(threadStatus) {
   return "active_thread";
 }
 
+function mapThreadStatusToLeadStage(threadStatus) {
+  const status = String(threadStatus || "").toLowerCase();
+  if (status === "awaiting_reply") return "awaiting_reply";
+  if (status === "outbound") return "pitched";
+  if (status === "brief_received") return "in_conversation";
+  if (status === "needs_follow_up") return "follow_up_due";
+  return "active";
+}
+
+function upsertOfficeLead({
+  brandName,
+  contactEmail,
+  contactName = "",
+  lastActivityAt = null,
+  leadStage,
+  metadata = {},
+  sourceReferenceId = null,
+  sourceType,
+  summary,
+  userId,
+  workerSlug
+}) {
+  const safeBrandName = String(brandName || "").trim();
+  const safeEmail = String(contactEmail || "").trim();
+  if (!safeBrandName || !safeEmail) return null;
+
+  const existing = db.prepare(
+    `SELECT id, history_json AS historyJson, metadata_json AS metadataJson
+     FROM office_leads
+     WHERE user_id = ? AND worker_slug = ? AND brand_name = ? AND contact_email = ?
+     LIMIT 1`
+  ).get(userId, workerSlug, safeBrandName, safeEmail);
+
+  const timestamp = nowIso();
+  const historyEntry = {
+    at: timestamp,
+    leadStage,
+    sourceReferenceId,
+    sourceType,
+    summary
+  };
+
+  if (existing) {
+    const history = parseJson(existing.historyJson, []);
+    const nextHistory = Array.isArray(history) ? [historyEntry, ...history].slice(0, 25) : [historyEntry];
+    const nextMetadata = {
+      ...parseJson(existing.metadataJson, {}),
+      ...metadata
+    };
+    db.prepare(
+      `UPDATE office_leads
+       SET contact_name = ?, lead_stage = ?, source_type = ?, source_reference_id = ?, last_activity_at = ?,
+           summary = ?, history_json = ?, metadata_json = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      contactName,
+      leadStage,
+      sourceType,
+      sourceReferenceId,
+      lastActivityAt,
+      summary,
+      JSON.stringify(nextHistory),
+      JSON.stringify(nextMetadata),
+      timestamp,
+      existing.id
+    );
+    return existing.id;
+  }
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO office_leads
+      (id, user_id, worker_slug, brand_name, contact_name, contact_email, lead_stage, source_type, source_reference_id,
+       last_activity_at, next_follow_up_at, summary, history_json, metadata_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    userId,
+    workerSlug,
+    safeBrandName,
+    contactName,
+    safeEmail,
+    leadStage,
+    sourceType,
+    sourceReferenceId,
+    lastActivityAt,
+    null,
+    summary,
+    JSON.stringify([historyEntry]),
+    JSON.stringify(metadata),
+    timestamp,
+    timestamp
+  );
+  return id;
+}
+
+function syncCampaignsToLeadTracker(userId, workerSlug) {
+  const campaigns = db.prepare(
+    `SELECT id, brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail,
+            campaign_status AS campaignStatus, brief_text AS briefText, updated_at AS updatedAt
+     FROM office_campaigns
+     WHERE user_id = ? AND worker_slug = ?
+     ORDER BY updated_at DESC`
+  ).all(userId, workerSlug);
+
+  let syncedCount = 0;
+  for (const campaign of campaigns) {
+    const leadId = upsertOfficeLead({
+      brandName: campaign.brandName,
+      contactEmail: campaign.contactEmail,
+      contactName: campaign.contactName,
+      lastActivityAt: campaign.updatedAt,
+      leadStage: String(campaign.campaignStatus || "active"),
+      metadata: { campaignId: campaign.id },
+      sourceReferenceId: campaign.id,
+      sourceType: "campaign",
+      summary: campaign.briefText || `${campaign.brandName} campaign is in ${campaign.campaignStatus}.`,
+      userId,
+      workerSlug
+    });
+    if (leadId) syncedCount += 1;
+  }
+  return { syncedCount };
+}
+
+function syncResearchToOfficeIntel(userId, workerSlug) {
+  const researchItems = db.prepare(
+    `SELECT id, topic, source_type AS sourceType, summary, insights_json AS insightsJson, evidence_json AS evidenceJson, created_at AS createdAt
+     FROM worker_research_items
+     WHERE user_id = ? AND worker_id = ?
+     ORDER BY created_at DESC
+     LIMIT 50`
+  ).all(userId, workerSlug);
+
+  let opportunityCount = 0;
+  let trendSignalCount = 0;
+
+  for (const item of researchItems) {
+    const insights = parseJson(item.insightsJson, []);
+    const evidence = parseJson(item.evidenceJson, []);
+    if (item.sourceType === "web_brand") {
+      const existing = db.prepare(
+        `SELECT id
+         FROM office_brand_opportunities
+         WHERE user_id = ? AND worker_slug = ? AND brand_name = ?
+         LIMIT 1`
+      ).get(userId, workerSlug, item.topic);
+      const suggestedAngle = Array.isArray(insights)
+        ? String(insights.find((entry) => String(entry).startsWith("Suggested angle:")) || "").replace(/^Suggested angle:\s*/i, "").trim()
+        : "";
+      const contentGap = Array.isArray(insights)
+        ? String(insights.find((entry) => String(entry).startsWith("TikTok content gap signal:")) || "").replace(/^TikTok content gap signal:\s*/i, "").trim()
+        : "";
+      const sourceNotes = Array.isArray(insights)
+        ? insights.join(" | ").slice(0, 500)
+        : String(item.summary || "");
+      const website = String(evidence?.[0]?.url || "").trim();
+      const fitScore = Math.max(55, Math.min(95, 65 + (contentGap ? 10 : 0) + (suggestedAngle ? 8 : 0)));
+      const ugcPotentialScore = Math.max(50, Math.min(95, 60 + (suggestedAngle ? 12 : 0)));
+      const riskScore = /caution|warning|delayed payment|risk/i.test(sourceNotes) ? 58 : 24;
+      if (existing) {
+        db.prepare(
+          `UPDATE office_brand_opportunities
+           SET website = ?, fit_score = ?, ugc_potential_score = ?, risk_score = ?, content_gap = ?, suggested_angle = ?,
+               source_notes = ?, updated_at = ?
+           WHERE id = ?`
+        ).run(website, fitScore, ugcPotentialScore, riskScore, contentGap, suggestedAngle, sourceNotes, nowIso(), existing.id);
+      } else {
+        db.prepare(
+          `INSERT INTO office_brand_opportunities
+            (id, user_id, worker_slug, brand_name, website, category, source, fit_score, ugc_potential_score, risk_score,
+             priority, content_gap, suggested_angle, source_notes, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          randomUUID(),
+          userId,
+          workerSlug,
+          item.topic,
+          website,
+          "Brand research",
+          "Mara autonomy research",
+          fitScore,
+          ugcPotentialScore,
+          riskScore,
+          fitScore >= 85 ? "High" : fitScore >= 72 ? "Medium" : "Low",
+          contentGap,
+          suggestedAngle,
+          sourceNotes,
+          "new",
+          item.createdAt,
+          nowIso()
+        );
+      }
+      opportunityCount += 1;
+    }
+
+    if (item.sourceType === "reddit_signal") {
+      const existingSignal = db.prepare(
+        `SELECT id
+         FROM office_trend_signals
+         WHERE user_id = ? AND worker_slug = ? AND title = ?
+         LIMIT 1`
+      ).get(userId, workerSlug, item.topic);
+      if (!existingSignal) {
+        db.prepare(
+          `INSERT INTO office_trend_signals
+            (id, user_id, worker_slug, niche, platform, signal_type, title, summary, hashtags_json, examples_json, confidence, source, detected_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          randomUUID(),
+          userId,
+          workerSlug,
+          "ugc",
+          "Reddit",
+          "creator_chatter",
+          item.topic,
+          item.summary || item.topic,
+          JSON.stringify([]),
+          JSON.stringify(Array.isArray(insights) ? insights.slice(0, 3) : []),
+          "medium",
+          "Mara autonomy research",
+          item.createdAt
+        );
+      }
+      trendSignalCount += 1;
+    }
+  }
+
+  return { opportunityCount, trendSignalCount };
+}
+
+function syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights) {
+  const hashtags = Array.isArray(privateInsights?.hashtags) ? privateInsights.hashtags : [];
+  let syncedCount = 0;
+  for (const hashtag of hashtags.slice(0, 25)) {
+    const title = String(hashtag?.hashtag || "").trim();
+    if (!title) continue;
+    const existing = db.prepare(
+      `SELECT id
+       FROM office_trend_signals
+       WHERE user_id = ? AND worker_slug = ? AND title = ?
+       LIMIT 1`
+    ).get(userId, workerSlug, title);
+    const summary = `${title} has ${String(hashtag.posts || "")} posts and ${String(hashtag.views || "")} views in ${String(privateInsights?.region || "US")} over the last ${String(privateInsights?.periodDays || 7)} days.`.trim();
+    const examples = Array.isArray(hashtag.categories) ? hashtag.categories : [];
+    if (existing) {
+      db.prepare(
+        `UPDATE office_trend_signals
+         SET summary = ?, examples_json = ?, detected_at = ?
+         WHERE id = ?`
+      ).run(summary, JSON.stringify(examples), String(privateInsights?.updatedAt || nowIso()), existing.id);
+    } else {
+      db.prepare(
+        `INSERT INTO office_trend_signals
+          (id, user_id, worker_slug, niche, platform, signal_type, title, summary, hashtags_json, examples_json, confidence, source, detected_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        randomUUID(),
+        userId,
+        workerSlug,
+        "ugc",
+        "TikTok",
+        "creator_search_hashtag",
+        title,
+        summary,
+        JSON.stringify([title]),
+        JSON.stringify(examples),
+        privateInsights?.loginWallEncountered ? "medium" : "high",
+        "TikTok Creative Center",
+        String(privateInsights?.updatedAt || nowIso())
+      );
+    }
+    syncedCount += 1;
+  }
+  return { syncedCount };
+}
+
 function syncInboxThreadsToCampaigns(userId, workerSlug) {
   const brandThreads = db.prepare(
     `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, subject, snippet,
@@ -1047,6 +1324,18 @@ function syncInboxThreadsToCampaigns(userId, workerSlug) {
   return { syncedCount };
 }
 
+function syncMaraOperationalRecords(userId, workerSlug) {
+  const privateInsights = readMaraPrivateInsights();
+  const campaignLeadSync = syncCampaignsToLeadTracker(userId, workerSlug);
+  const researchSync = syncResearchToOfficeIntel(userId, workerSlug);
+  const trendSync = syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights);
+  return {
+    campaignLeadSyncCount: campaignLeadSync.syncedCount,
+    opportunitySyncCount: researchSync.opportunityCount,
+    trendSignalSyncCount: researchSync.trendSignalCount + trendSync.syncedCount
+  };
+}
+
 async function syncGmailInbox(userId, workerSlug) {
   const { accessToken, emailAddress } = await getFreshGoogleAccessToken(userId, workerSlug, "gmail");
   const listResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25&q=newer_than:60d", {
@@ -1127,7 +1416,8 @@ async function syncGmailInbox(userId, workerSlug) {
 
   insertMaraSyncJob(userId, "gmail", "gmail_inbox_sync", `Synced ${syncedCount} Gmail message${syncedCount === 1 ? "" : "s"} into Mara's inbox view.`);
   const campaignSync = syncInboxThreadsToCampaigns(userId, workerSlug);
-  return { campaignSyncCount: campaignSync.syncedCount, syncedCount };
+  const operationalSync = syncMaraOperationalRecords(userId, workerSlug);
+  return { campaignSyncCount: campaignSync.syncedCount, syncedCount, ...operationalSync };
 }
 
 function extractDraftBrandLabel(...values) {
@@ -2387,6 +2677,7 @@ async function runScheduledMaraAutonomy() {
           workerId: row.workerSlug,
           ...buildMaraExecutionReaders()
         });
+        syncMaraOperationalRecords(row.userId, row.workerSlug);
         const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
         if (outputIds.length > 0) {
           await syncMaraGmailDraftsForOutputs(row.userId, row.workerSlug, outputIds);
@@ -3072,6 +3363,7 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
       db,
       ...buildMaraExecutionReaders()
     });
+    syncMaraOperationalRecords(req.user.id, workerSlug);
     if (result?.output?.id) {
       await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, [result.output.id]);
     }
@@ -3092,6 +3384,7 @@ app.post("/api/workers/mara/tasks/:taskId/run", assertOrigin, requireAuth, async
       workerId: MARA_SLUG,
       ...buildMaraExecutionReaders()
     });
+    syncMaraOperationalRecords(req.user.id, MARA_SLUG);
     if (result?.output?.id) {
       await syncMaraGmailDraftsForOutputs(req.user.id, MARA_SLUG, [result.output.id]);
     }
@@ -3220,6 +3513,7 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
       workerId: workerSlug,
       ...buildMaraExecutionReaders()
     });
+    syncMaraOperationalRecords(req.user.id, workerSlug);
     const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
     if (outputIds.length > 0) {
       await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
@@ -3273,6 +3567,7 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
       workerId: workerSlug,
       ...buildMaraExecutionReaders()
     });
+    syncMaraOperationalRecords(req.user.id, workerSlug);
     const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
     if (outputIds.length > 0) {
       await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
@@ -3731,6 +4026,7 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
       workerId: workerSlug,
       ...buildMaraExecutionReaders()
     });
+    syncMaraOperationalRecords(statePayload.userId, workerSlug);
     const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
     if (outputIds.length > 0) {
       await syncMaraGmailDraftsForOutputs(statePayload.userId, workerSlug, outputIds);
@@ -4886,6 +5182,7 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
         workerId: workerSlug,
         ...buildMaraExecutionReaders()
       });
+      syncMaraOperationalRecords(req.user.id, workerSlug);
       const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
       if (outputIds.length > 0) {
         await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);

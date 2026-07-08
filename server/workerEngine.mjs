@@ -2046,6 +2046,39 @@ function buildResearchSnapshot(db, userId, workerId, researchItems) {
 }
 
 function buildInboxLeadSnapshot(db, userId, workerId) {
+  const trackedLeads = safeSelectAll(
+    db,
+    `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, lead_stage AS leadStage,
+            summary, last_activity_at AS lastActivityAt, metadata_json AS metadataJson
+     FROM office_leads
+     WHERE user_id = ? AND worker_slug = ?
+     ORDER BY coalesce(last_activity_at, updated_at, created_at) DESC
+     LIMIT 40`,
+    [userId, workerId]
+  );
+
+  if (trackedLeads.length > 0) {
+    const counts = trackedLeads.reduce((acc, lead) => {
+      const status = String(lead.leadStage || "unknown");
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      counts,
+      items: trackedLeads.slice(0, 5).map((lead) => ({
+        brandName: lead.brandName || "Unknown brand",
+        contactEmail: lead.contactEmail || "",
+        contactName: lead.contactName || "",
+        snippet: String(lead.summary || "").trim(),
+        status: String(lead.leadStage || "unknown"),
+        subject: "",
+        urgency: "low"
+      })),
+      urgentCount: 0
+    };
+  }
+
   const threads = safeSelectAll(
     db,
     `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, thread_status AS threadStatus,

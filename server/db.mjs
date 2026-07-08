@@ -285,6 +285,27 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS office_leads (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    brand_name TEXT NOT NULL,
+    contact_name TEXT NOT NULL,
+    contact_email TEXT NOT NULL,
+    lead_stage TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_reference_id TEXT,
+    last_activity_at TEXT,
+    next_follow_up_at TEXT,
+    summary TEXT NOT NULL,
+    history_json TEXT NOT NULL,
+    metadata_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_slug, brand_name, contact_email),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS office_suggested_actions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,

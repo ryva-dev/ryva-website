@@ -5,6 +5,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { chromium } from "playwright";
 
 const DEFAULT_OUTPUT_PATH = "/Users/allieball/Documents/Ryva/data/private/mara-tiktok-creator-search-insights.json";
+const DEFAULT_PROFILE_PATH = "/Users/allieball/Documents/Ryva/data/private/tiktok-creative-center-profile";
 const DEFAULT_REGION = "US";
 const DEFAULT_PERIOD = "7";
 const DEFAULT_LIMIT = 15;
@@ -16,6 +17,7 @@ function parseArgs(argv) {
     manualLogin: false,
     output: DEFAULT_OUTPUT_PATH,
     period: DEFAULT_PERIOD,
+    profile: DEFAULT_PROFILE_PATH,
     region: DEFAULT_REGION
   };
 
@@ -58,6 +60,12 @@ function parseArgs(argv) {
 
     if (arg === "--output" && next) {
       options.output = path.resolve(process.cwd(), next);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--profile" && next) {
+      options.profile = path.resolve(process.cwd(), next);
       index += 1;
     }
   }
@@ -180,15 +188,16 @@ function buildOutputPayload({ hashtags, loginWallEncountered, period, region, so
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const sourceUrl = buildTrendUrl(options.region, options.period);
-  const browser = await chromium.launch({
+  await mkdir(options.profile, { recursive: true });
+  const context = await chromium.launchPersistentContext(options.profile, {
     channel: "chrome",
-    headless: options.headless
+    headless: options.headless,
+    viewport: { width: 1440, height: 1600 }
   });
 
   try {
-    const page = await browser.newPage({
-      viewport: { width: 1440, height: 1600 }
-    });
+    const [existingPage] = context.pages();
+    const page = existingPage ?? await context.newPage();
 
     await page.goto(sourceUrl, {
       timeout: 120000,
@@ -223,7 +232,7 @@ async function main() {
 
     console.log(`Saved ${hashtags.length} TikTok hashtag trend rows to ${options.output}`);
   } finally {
-    await browser.close();
+    await context.close();
   }
 }
 
