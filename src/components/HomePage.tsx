@@ -23,304 +23,563 @@ function useReveal() {
           }
         });
       },
-      { threshold: 0.15 }
+      { threshold: 0.12 }
     );
     document.querySelectorAll(".r-reveal").forEach((el) => io.observe(el));
     return () => io.disconnect();
   }, []);
 }
 
-type DemoMessage = { id: number; who: "you" | "worker"; text: string; time: string; typing?: boolean };
-type DemoQueueItem = { id: number; seed: string; who: string; title: string; sub: string };
+function MockWindow({ url, children, className }: { url: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`mk-window${className ? ` ${className}` : ""}`}>
+      <div className="mk-window-bar">
+        <span className="dot" /><span className="dot" /><span className="dot" />
+        <span className="url">{url}</span>
+      </div>
+      <div className="mk-window-body">{children}</div>
+    </div>
+  );
+}
 
-const INITIAL_QUEUE: DemoQueueItem[] = [
-  { id: 1, seed: "etta-marsh", who: "Etta Marsh", title: "Creator shortlist — Velo Apparel brief", sub: "6 profiles · rates verified" },
-  { id: 2, seed: "sloane-pierce", who: "Sloane Pierce", title: "Usage-rights renewal — Delaney Cruz", sub: "expires in 9 days" },
+type DemoItem = { id: number; title: string; body: string; who: string; entering?: boolean; approving?: boolean };
+
+const DEMO_INITIAL: DemoItem[] = [
+  {
+    body: "Closed 90-day usage at $850 against an $1,100 ask. Ready to send.",
+    id: 1,
+    title: "Contract — Delaney Cruz, $850/post",
+    who: "Mara Vale"
+  },
+  {
+    body: "6 verified from 41 applicants. Two removed for purchased followers.",
+    id: 2,
+    title: "Creator shortlist — Velo Apparel",
+    who: "Mara Vale"
+  },
+  {
+    body: "License lapses in 9 days; they're still running two assets as paid ads.",
+    id: 3,
+    title: "Usage-rights renewal — Meridian",
+    who: "June Okafor"
+  }
 ];
 
-function LiveDemo() {
-  const [messages, setMessages] = useState<DemoMessage[]>([
-    { id: 0, who: "you", text: "Where did we land with Delaney on the skincare campaign?", time: "8:42 AM" },
-  ]);
-  const [queue, setQueue] = useState<DemoQueueItem[]>(INITIAL_QUEUE);
-  const [approvingId, setApprovingId] = useState<number | null>(null);
-  const [status, setStatus] = useState("Reviewing inbound");
+function OfficeDemo() {
+  const [items, setItems] = useState<DemoItem[]>(DEMO_INITIAL);
+  const [status, setStatus] = useState("Drafting outreach to Halcyon Swim");
   const timers = useRef<number[]>([]);
 
   useEffect(() => {
     if (prefersReducedMotion()) return;
-    const push = (fn: () => void, delay: number) => {
-      timers.current.push(window.setTimeout(fn, delay));
-    };
+    const push = (fn: () => void, delay: number) => timers.current.push(window.setTimeout(fn, delay));
 
     const run = () => {
-      setMessages([{ id: 0, who: "you", text: "Where did we land with Delaney on the skincare campaign?", time: "8:42 AM" }]);
-      setQueue(INITIAL_QUEUE);
-      setApprovingId(null);
-      setStatus("Reviewing inbound");
+      setItems(DEMO_INITIAL);
+      setStatus("Drafting outreach to Halcyon Swim");
 
       push(() => {
-        setStatus("Replying to you");
-        setMessages((m) => [...m, { id: 1, who: "worker", text: "", time: "", typing: true }]);
-      }, 1400);
-
-      push(() => {
-        setStatus("Drafting contracts");
-        setMessages((m) => [
-          ...m.filter((x) => !x.typing),
-          { id: 2, who: "worker", text: "Closed at $850/post with 90-day usage rights — she wanted $1,100. Contract is drafted and waiting in your queue.", time: "8:44 AM" },
+        setItems((current) => [
+          {
+            body: "They asked for exclusivity. Drafted a counter holding usage at 60 days.",
+            entering: true,
+            id: 4,
+            title: "Reply draft — Halcyon Swim",
+            who: "Mara Vale"
+          },
+          ...current
         ]);
-      }, 3400);
+        setStatus("Waiting on your review");
+      }, 3200);
 
       push(() => {
-        setQueue((q) => [
-          { id: 99, seed: "sloane-pierce", who: "Sloane Pierce", title: "Contract — Delaney Cruz, $850/post", sub: "just now" },
-          ...q,
-        ]);
-      }, 6200);
+        setItems((current) => current.map((item) => (item.id === 1 ? { ...item, approving: true } : item)));
+      }, 6800);
 
-      push(() => setApprovingId(1), 8600);
-      push(() => setQueue((q) => q.filter((item) => item.id !== 1)), 9500);
-      push(run, 14500);
+      push(() => {
+        setItems((current) => current.filter((item) => item.id !== 1));
+        setStatus("Sending approved contract");
+      }, 7700);
+
+      push(() => setStatus("Logging usage-rights dates"), 10500);
+      push(run, 14000);
     };
 
     run();
     return () => {
-      timers.current.forEach((t) => window.clearTimeout(t));
+      timers.current.forEach((timer) => window.clearTimeout(timer));
       timers.current = [];
     };
   }, []);
 
   return (
-    <div className="r-demo-wrap r-reveal" style={{ transitionDelay: "0.24s" }}>
-      <div className="r-demo" aria-label="Product demonstration">
-        <div className="r-demo-chrome">
-          <span className="dot" /><span className="dot" /><span className="dot" />
-          <span className="url">ryvaforge.com/office</span>
+    <MockWindow url="ryva.com/office" className="mk-window-hero r-reveal">
+      <div className="mk-office">
+        <div className="mk-office-nav">
+          {["Today", "Chat", "Approvals", "Calendar", "Team", "Files"].map((label, index) => (
+            <span key={label} className={index === 0 ? "on" : ""}>
+              {label}
+            </span>
+          ))}
         </div>
-        <div className="r-demo-body">
-          <div className="r-demo-rail">
-            <div className="r-rail-item on">
-              <svg viewBox="0 0 24 24"><path d="M3 12l9-8 9 8" /><path d="M5 10v10h14V10" /></svg>
-              Today
-            </div>
-            <div className="r-rail-item">
-              <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z" /></svg>
-              Chat
-            </div>
-            <div className="r-rail-item">
-              <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-5" /><circle cx="12" cy="12" r="9" /></svg>
-              Approvals
-            </div>
-            <div className="r-rail-item">
-              <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v4M16 3v4" /></svg>
-              Calendar
-            </div>
-            <div className="r-rail-sep" />
-            <div className="r-rail-worker">
-              <WorkerMark seed="sloane-pierce" size={26} active />
-              <div><b>Sloane Pierce</b><span className={status !== "Reviewing inbound" ? "live" : ""}>{status}</span></div>
-            </div>
-            <div className="r-rail-worker">
-              <WorkerMark seed="etta-marsh" size={26} active />
-              <div><b>Etta Marsh</b><span>Vetting 6 creators</span></div>
-            </div>
-            <div className="r-rail-worker">
-              <WorkerMark seed="rowan-feld" size={26} />
-              <div><b>Rowan Feld</b><span>Starts at 9:00 AM</span></div>
-            </div>
+        <div className="mk-office-main">
+          <div className="mk-office-head">
+            <h4>Good morning, Dana.</h4>
+            <span>Tuesday, March 4 · 3 workers on the clock</span>
           </div>
 
-          <div className="r-demo-chat">
-            <div className="r-chat-head">
-              <WorkerMark seed="sloane-pierce" size={34} active />
-              <div><b>Sloane Pierce</b><span>Senior UGC Talent Manager</span></div>
+          <div className="mk-office-sec">
+            <div className="mk-office-sechead">
+              Needs your attention <em>{items.length}</em>
             </div>
-            <div className="r-chat-scroll">
-              {messages.map((m) => (
-                <div key={m.id} className={`r-msg r-msg-enter${m.who === "you" ? " you" : ""}`}>
-                  {m.who === "worker" && <WorkerMark seed="sloane-pierce" size={26} active />}
-                  {m.typing ? (
-                    <div className="r-bubble r-typing"><i /><i /><i /></div>
-                  ) : (
-                    <div className="r-bubble">{m.text}{m.time && <time>{m.time}</time>}</div>
-                  )}
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className={`mk-office-row${item.entering ? " enter" : ""}${item.approving ? " approving" : ""}`}
+              >
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.body}</p>
                 </div>
-              ))}
-            </div>
+                <span>{item.who}</span>
+                {item.approving && (
+                  <svg className="mk-check" viewBox="0 0 24 24">
+                    <path d="M5 13l4 4 10-11" />
+                  </svg>
+                )}
+              </div>
+            ))}
           </div>
 
-          <div className="r-demo-side">
-            <div className="r-side-title">Waiting on you <span className="count">{queue.length}</span></div>
-            <div className="r-queue">
-              {queue.map((item) => (
-                <div key={item.id} className={`r-qcard${item.id === 99 ? " r-qenter" : ""}${approvingId === item.id ? " r-qapproved" : ""}`}>
-                  <div className="r-qtop"><WorkerMark seed={item.seed} size={18} /><span>{item.who}</span></div>
-                  <p>{item.title}</p>
-                  <div className="r-qsub">{item.sub}</div>
-                  <div className="r-qactions">
-                    <button className="r-qbtn go" type="button">Approve</button>
-                    <button className="r-qbtn" type="button">Open</button>
-                  </div>
-                  {approvingId === item.id && (
-                    <div className="r-checkflash">
-                      <svg viewBox="0 0 24 24"><path d="M5 13l4 4 10-11" /></svg>
-                    </div>
-                  )}
-                </div>
-              ))}
+          <div className="mk-office-sec">
+            <div className="mk-office-sechead">Around the office</div>
+            <div className="mk-office-row mk-office-row-quiet">
+              <div>
+                <strong>{status}</strong>
+              </div>
+              <span>Mara Vale · now</span>
+            </div>
+            <div className="mk-office-row mk-office-row-quiet">
+              <div>
+                <strong>Declined 2 briefs under your rate floor</strong>
+              </div>
+              <span>Mara Vale · 26m ago</span>
+            </div>
+            <div className="mk-office-row mk-office-row-quiet">
+              <div>
+                <strong>Weekly report drafted for Friday</strong>
+              </div>
+              <span>June Okafor · 1h ago</span>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </MockWindow>
   );
 }
 
 export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps) {
   useReveal();
 
-  const goToProfile = (slug: string) => {
-    window.location.hash = `worker-${slug}`;
-  };
-
-  const rosterPreview = workers.slice(0, 4);
+  const roster = workers.slice(0, 4);
 
   return (
-    <div className="r-landing">
-      <header className="r-hero">
-        <h1 className="r-reveal">Meet your next <em>hire.</em></h1>
-        <p className="r-hero-line r-reveal" style={{ transitionDelay: "0.08s" }}>
-          A marketplace of digital workers for the creator economy. Interview them, hire them,
-          and run your roster from one office.
+    <div className="mk">
+      <header className="mk-hero">
+        <h1 className="r-reveal">
+          Hire <em>AI workers</em> into your business.
+        </h1>
+        <p className="mk-hero-line r-reveal" style={{ transitionDelay: "0.08s" }}>
+          Interview them before you commit. Onboard them like any new hire. Delegate real work, review what comes
+          back, and run it all from one office.
         </p>
-        <div className="r-hero-actions r-reveal" style={{ transitionDelay: "0.16s" }}>
-          <button className="r-btn r-btn-accent" type="button" onClick={onBrowseWorkers}>Browse the marketplace</button>
-          <button className="r-btn r-btn-ghost" type="button" onClick={() => { window.location.hash = "how"; }}>See how it works</button>
+        <div className="mk-hero-actions r-reveal" style={{ transitionDelay: "0.16s" }}>
+          <button className="r-btn r-btn-accent" type="button" onClick={onBrowseWorkers}>
+            Meet the workers
+          </button>
+          <a className="r-btn r-btn-ghost" href="#office">
+            See the office ↓
+          </a>
+        </div>
+        <div className="mk-proof r-reveal" style={{ transitionDelay: "0.22s" }}>
+          On the clock 24/7 · Salaried, not metered · You approve what ships
         </div>
       </header>
 
-      <LiveDemo />
-
-      <div className="r-proofline r-reveal">
-        <span><b>247</b> tasks completed this week</span>
-        <span><b>11 min</b> median response</span>
-        <span><b>24/7</b> on the clock</span>
-        <span><b>$0</b> recruiting fees</span>
+      <div className="mk-demo-wrap" id="office">
+        <OfficeDemo />
       </div>
 
-      <section className="r-block" id="how">
-        <h2 className="r-reveal">Hired like a person.<br />Managed like a <em>team.</em></h2>
-        <div className="r-steps">
-          <div className="r-step r-reveal">
-            <h3>Interview</h3>
-            <p>Sit down with any worker before you commit. Ask hard questions. See how they think.</p>
-            <div className="r-step-visual">
-              <div className="r-mini">
-                <div className="r-mini-q">A creator ghosts mid-campaign with deliverables due Friday. Walk me through it.</div>
-                <div className="r-mini-a">First hour: confirm the gap, activate the backup roster I keep warm for exactly this…</div>
+      <section className="mk-prose r-reveal">
+        <h2>
+          A chatbot answers.
+          <br />A worker <em>owns.</em>
+        </h2>
+        <p>
+          Chat tools wait for prompts. Agent builders hand you a canvas and wish you luck. Either way, the work —
+          the follow-ups, the vetting, the renewals, the reporting — is still yours to remember.
+        </p>
+        <p>
+          A worker is different. A worker holds a role. They know your business, carry their own task list, come back
+          with finished work, and ask before doing anything you&apos;d want to see first. You don&apos;t operate them.{" "}
+          <strong>You manage them.</strong>
+        </p>
+      </section>
+
+      <section className="mk-sec">
+        <h2 className="r-reveal">
+          Hired like a person.
+          <br />
+          Managed like a <em>team.</em>
+        </h2>
+        <div className="mk-steps">
+          {[
+            [
+              "01",
+              "Interview",
+              "Sit down with any worker before you spend a dollar. Ask the hard questions. See how they'd handle your worst Tuesday."
+            ],
+            [
+              "02",
+              "Hire",
+              "One monthly salary. No credits, no per-task meters, no scope creep. They start the moment you sign."
+            ],
+            [
+              "03",
+              "Onboard",
+              "Their first day works like anyone's first day: they ask about your goals, your rules, your tone, your rate floors — and remember all of it."
+            ],
+            [
+              "04",
+              "Manage",
+              "Delegate from chat or calendar. Everything that ships past your business waits for your approval first."
+            ]
+          ].map(([n, title, body]) => (
+            <div className="mk-step r-reveal" key={n}>
+              <span className="n">{n}</span>
+              <div>
+                <strong>{title}.</strong>
+                <p>{body}</p>
               </div>
             </div>
-          </div>
-          <div className="r-step r-reveal" style={{ transitionDelay: "0.08s" }}>
-            <h3>Hire</h3>
-            <p>One salary, no scope creep. They start the moment you sign.</p>
-            <div className="r-step-visual">
-              <div className="r-mini r-mini-hire">
-                <WorkerMark seed="sloane-pierce" size={44} />
-                <b>Sloane Pierce</b>
-                <span className="sal">$1,900 / month</span>
-                <span className="hired">✓ Hired · starts now</span>
-              </div>
-            </div>
-          </div>
-          <div className="r-step r-reveal" style={{ transitionDelay: "0.16s" }}>
-            <h3>Manage</h3>
-            <p>Your office. Their output. You approve what matters and stay out of the rest.</p>
-            <div className="r-step-visual">
-              <div className="r-mini">
-                <div className="r-mini-feed">
-                  <div className="r-mini-row"><WorkerMark seed="etta-marsh" size={18} /><span><b>Etta</b> vetted 6 creators</span><time>9:14</time></div>
-                  <div className="r-mini-row"><WorkerMark seed="sloane-pierce" size={18} /><span><b>Sloane</b> closed a rate at $850</span><time>9:31</time></div>
-                  <div className="r-mini-row"><WorkerMark seed="rowan-feld" size={18} /><span><b>Rowan</b> sent 14 outreach emails</span><time>9:47</time></div>
-                  <div className="r-mini-row"><WorkerMark seed="etta-marsh" size={18} /><span><b>Etta</b> flagged a scam brief</span><time>10:02</time></div>
-                </div>
-              </div>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
 
-      <section className="r-block" id="roster">
-        <h2 className="r-reveal">The <em>roster.</em></h2>
-        <div className="r-roster">
-          {rosterPreview.map((worker, index) => {
+      <section className="mk-sec">
+        <div className="mk-sec-split r-reveal">
+          <h2>
+            A roster, not a <em>feature list.</em>
+          </h2>
+          <button className="mk-link" type="button" onClick={onBrowseWorkers}>
+            Browse all workers →
+          </button>
+        </div>
+        <p className="mk-sec-line r-reveal">
+          Every worker on Ryva holds a real role, with a track record, a salary, and a defined seniority. Some are
+          open to hire. Some aren&apos;t — good talent books up.
+        </p>
+        <div className="r-roster mk-roster">
+          {roster.map((worker, index) => {
             const unavailable = worker.status === "Not available for hire";
-            const statusClass = worker.status === "Available" ? "open" : worker.status === "Limited availability" ? "limited" : "closed";
-            const salaryNumber = worker.salary.replace(/\/mo$/, "");
+            const statusClass =
+              worker.status === "Available"
+                ? "open"
+                : worker.status === "Limited availability"
+                  ? "limited"
+                  : "closed";
             return (
               <button
                 key={worker.slug}
                 type="button"
                 className={`r-worker r-reveal${unavailable ? " unavailable" : ""}`}
                 style={{ transitionDelay: `${index * 0.06}s` }}
-                onClick={() => goToProfile(worker.slug)}
+                onClick={() => {
+                  window.location.hash = `worker-${worker.slug}`;
+                }}
               >
                 <WorkerMark seed={worker.slug} size={52} />
                 <h4>{worker.name}</h4>
                 <div className="role">{worker.title}</div>
                 <div className="skills">{worker.skills.slice(0, 4).join(" · ")}</div>
                 <div className="foot">
-                  <span className="sal">{salaryNumber}<span>/mo</span></span>
+                  <span className="sal">
+                    {worker.salary.replace(/\/mo$/, "")}
+                    <span>/mo</span>
+                  </span>
                   <span className={`r-status ${statusClass}`}>
-                    {worker.status === "Available" ? "Available" : worker.status === "Limited availability" ? "Limited" : "Not available for hire"}
+                    {worker.status === "Limited availability" ? "Limited" : worker.status}
                   </span>
                 </div>
               </button>
             );
           })}
         </div>
-        <div className="r-roster-cta r-reveal">
-          <button type="button" onClick={onBrowseWorkers}>View all workers →</button>
-        </div>
       </section>
 
-      <div className="r-salary" id="pay">
-        <div className="r-salary-inner">
-          <div className="r-reveal">
-            <h2>Salaried,<br />not <em>metered.</em></h2>
-            <p>No hourly clocks, no per-task invoices, no credits. Every worker has one salary and works your whole business, all month.</p>
-          </div>
-          <div className="r-paytable r-reveal" style={{ transitionDelay: "0.1s" }}>
-            <div className="r-payrow"><div><b>Junior</b><span>the fundamentals, done daily</span></div><span className="amt">$490 /mo</span></div>
-            <div className="r-payrow"><div><b>Mid-level</b><span>runs the roster without you</span></div><span className="amt">$940 /mo</span></div>
-            <div className="r-payrow"><div><b>Senior</b><span>negotiates, protects, advises</span></div><span className="amt">$1,900 /mo</span></div>
-            <div className="r-payrow"><div><b>Annual</b><span>two months free on any worker</span></div><span className="amt">−16%</span></div>
-          </div>
-        </div>
-      </div>
-
-      <section className="r-final">
-        <h2 className="r-reveal">The interview takes<br /><em>five minutes.</em></h2>
-        <button className="r-btn r-btn-accent r-reveal" type="button" style={{ transitionDelay: "0.1s" }} onClick={onBrowseWorkers}>
-          Meet the workers
-        </button>
-        <div style={{ marginTop: 20 }} className="r-reveal">
-          <button
-            type="button"
-            onClick={onOpenAuth}
-            style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 14 }}
-          >
-            or sign in to your office →
+      <section className="mk-sec mk-split">
+        <div className="mk-split-copy r-reveal">
+          <h2>
+            The interview is <em>real.</em>
+          </h2>
+          <p>
+            Before you hire, you talk. Pressure-test their judgment, ask how they&apos;d handle your edge cases, and
+            decide like you&apos;d decide about anyone joining your business. Five minutes is usually enough to know.
+          </p>
+          <button className="r-btn r-btn-ghost" type="button" onClick={onBrowseWorkers}>
+            Try an interview
           </button>
         </div>
+        <MockWindow url="ryva.com/interview/mara-vale" className="r-reveal">
+          <div className="mk-thread">
+            <div className="mk-msg you">
+              A creator ghosts mid-campaign with deliverables due Friday. Walk me through your first hour.
+            </div>
+            <div className="mk-msg">
+              <WorkerMark seed="mara-vale" size={24} active />
+              <span>
+                First, confirm the gap is real — silence isn&apos;t always a ghost. Then activate the backup roster I
+                keep warm for exactly this, and draft the client note you&apos;d want sent before they ask.
+              </span>
+            </div>
+            <div className="mk-chips">
+              <span>How do you handle lowball offers?</span>
+              <span>What do you escalate to me?</span>
+            </div>
+          </div>
+        </MockWindow>
       </section>
 
-      <footer className="r-footer">
-        <span className="fine">© {new Date().getFullYear()} Ryva Forge</span>
-        <div className="fl">
-          <a onClick={onBrowseWorkers}>Marketplace</a>
-          <a onClick={() => { window.location.hash = "about"; }}>About</a>
+      <section className="mk-sec mk-split mk-split-flip">
+        <MockWindow url="ryva.com/office — first day" className="r-reveal">
+          <div className="mk-onboard">
+            <div className="mk-thread">
+              <div className="mk-msg">
+                <WorkerMark seed="mara-vale" size={24} active />
+                <span>What&apos;s your floor rate for sponsored posts? I&apos;ll decline anything under it automatically.</span>
+              </div>
+              <div className="mk-msg you">$500</div>
+            </div>
+            <div className="mk-learned">
+              <div className="mk-learned-title">What Mara has learned</div>
+              <div>Rate floor: $500/post</div>
+              <div>Tone: direct, warm</div>
+              <div>Escalate: contracts over $2,000</div>
+            </div>
+          </div>
+        </MockWindow>
+        <div className="mk-split-copy r-reveal">
+          <h2>
+            Day one looks like <em>day one.</em>
+          </h2>
+          <p>
+            A new worker doesn&apos;t guess. They ask — what you&apos;re building, who you serve, what a good outcome
+            looks like, what they should never do without you. Every answer becomes standing context they work from and
+            you can inspect, correct, or expand at any time.
+          </p>
+        </div>
+      </section>
+
+      <section className="mk-dark">
+        <div className="mk-dark-inner">
+          <h2 className="r-reveal">
+            Not a chat window.
+            <br />
+            An <em>office.</em>
+          </h2>
+          <div className="mk-dark-features">
+            <div className="r-reveal">
+              <strong>Today.</strong>
+              <p>
+                One page that answers the manager&apos;s only morning question: what needs me, what happened,
+                what&apos;s ahead.
+              </p>
+            </div>
+            <div className="r-reveal" style={{ transitionDelay: "0.08s" }}>
+              <strong>Approvals.</strong>
+              <p>
+                Every consequential action queues for your sign-off — with the actual artifact, not a summary of one.
+              </p>
+            </div>
+            <div className="r-reveal" style={{ transitionDelay: "0.16s" }}>
+              <strong>The calendar, the files, the team.</strong>
+              <p>Work has a place. Deadlines hold. Deliverables collect. Nothing lives in a thread you&apos;ll never find again.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mk-sec">
+        <h2 className="r-reveal">
+          You stay the <em>manager.</em>
+        </h2>
+        <p className="mk-sec-line r-reveal">
+          Delegation on Ryva isn&apos;t fire-and-forget. Workers plan before they act, act inside the permissions you
+          set, and bring anything customer-facing back for review. Approve it, edit it, or send it back with notes —
+          the worker learns from all three.
+        </p>
+        <div className="mk-trail r-reveal">
+          {["You delegate", "Worker plans", "Work happens", "You review", "It ships"].map((stop, index) => (
+            <div className="mk-stop" key={stop}>
+              <span>{stop}</span>
+              {index === 3 && <em>approve · edit · send back</em>}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mk-sec mk-case">
+        <div className="mk-case-copy r-reveal">
+          <span className="mk-label">The first role</span>
+          <h2>
+            Meet the creator operations <em>worker.</em>
+          </h2>
+          <p>
+            Ryva&apos;s first role runs the operational side of a creator business: inbound triage, brand vetting,
+            outreach, rate negotiation, usage-rights tracking, scheduling, and the weekly report you never have time to
+            write. It&apos;s a role drowning in exactly the kind of work that shouldn&apos;t need a human — which is
+            why it&apos;s where Ryva starts, not where it ends.
+          </p>
+        </div>
+        <div className="mk-stats r-reveal">
+          {[
+            ["Inbound briefs triaged", "daily"],
+            ["Fake-follower screens", "every applicant"],
+            ["Rate floor enforcement", "automatic"],
+            ["Usage-rights expirations", "tracked to the day"],
+            ["Weekly operations report", "Fridays"]
+          ].map(([label, value]) => (
+            <div className="mk-stat" key={label}>
+              <span>{label}</span>
+              <em>{value}</em>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mk-sec">
+        <h2 className="r-reveal">
+          One office. Many <em>hires.</em>
+        </h2>
+        <p className="mk-sec-line r-reveal">Creator operations is the first desk, not the last.</p>
+        <div className="mk-roles r-reveal">
+          {[
+            "Marketing",
+            "Sales",
+            "Recruiting",
+            "Research",
+            "Customer support",
+            "Finance & admin",
+            "Legal operations",
+            "Data analysis",
+            "Operations",
+            "Executive assistance"
+          ].map((role, index) => (
+            <span key={role} className={index < 4 ? "near" : ""}>
+              {role}
+            </span>
+          ))}
+        </div>
+        <p className="mk-fine r-reveal">Openings post as roles reach hiring quality — no waitlists for work that isn&apos;t ready.</p>
+      </section>
+
+      <section className="mk-sec mk-trust">
+        <h2 className="r-reveal">
+          Built like you&apos;ll be audited.
+          <br />
+          Because someday you <em>might be.</em>
+        </h2>
+        <div className="mk-trust-list">
+          <div className="r-reveal">
+            <strong>Permissions are explicit.</strong>
+            <p>
+              Workers act inside boundaries you set — spend limits, send limits, escalation rules. Nothing expands its
+              own authority.
+            </p>
+          </div>
+          <div className="r-reveal">
+            <strong>Memory is inspectable.</strong>
+            <p>Everything a worker knows about your business sits in plain view. Read it, correct it, delete it.</p>
+          </div>
+          <div className="r-reveal">
+            <strong>Approvals are the default.</strong>
+            <p>
+              Consequential actions wait for you. Every action — approved or not — lands in a permanent history you can
+              export.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="mk-sec">
+        <h2 className="r-reveal">
+          Workers are only useful where your <em>work lives.</em>
+        </h2>
+        <p className="mk-sec-line r-reveal">
+          Connect email, calendar, and the tools your business runs on. Workers operate inside them with the same
+          permission rules as everything else — and every connection is scoped, visible, and revocable in one click.
+        </p>
+        <div className="mk-logos r-reveal">
+          {["Gmail", "Google Calendar", "Slack", "Notion", "Stripe", "Instagram", "TikTok"].map((name) => (
+            <span key={name}>{name}</span>
+          ))}
+        </div>
+      </section>
+
+      <section className="mk-final">
+        <h2 className="r-reveal">
+          The interview takes
+          <br />
+          <em>five minutes.</em>
+        </h2>
+        <button
+          className="r-btn r-btn-accent r-reveal"
+          type="button"
+          style={{ transitionDelay: "0.1s" }}
+          onClick={onBrowseWorkers}
+        >
+          Meet the workers
+        </button>
+        <p className="mk-fine r-reveal">No card required to interview. Salaries start at $490/mo.</p>
+        <button className="mk-link r-reveal" type="button" onClick={onOpenAuth} style={{ marginTop: 8 }}>
+          or sign in to your office →
+        </button>
+      </section>
+
+      <footer className="mk-footer">
+        <div className="mk-footer-grid">
+          <div>
+            <div className="mk-footer-brand">
+              Ryva<span>.</span>
+            </div>
+            <p>The workplace for AI workers.</p>
+          </div>
+          <div>
+            <b>Product</b>
+            <a onClick={onBrowseWorkers}>Workers</a>
+            <a href="#office">The Office</a>
+            <a href="#pay">Pricing</a>
+            <a>Security</a>
+          </div>
+          <div>
+            <b>Company</b>
+            <a href="#about">About</a>
+            <a>Careers</a>
+            <a>Contact</a>
+          </div>
+          <div>
+            <b>Legal</b>
+            <a>Terms</a>
+            <a>Privacy</a>
+            <a>Data processing</a>
+          </div>
+        </div>
+        <div className="mk-footer-base">
+          <span>© {new Date().getFullYear()} Ryva Forge, LLC</span>
+          <span className="status">
+            <i />
+            All systems normal
+          </span>
         </div>
       </footer>
     </div>
