@@ -174,7 +174,7 @@ export function buildMaraLlmBrief(context) {
   const positioningOutput = context.previousOutputs.find((output) => output.outputType === "creator_positioning");
   const brandFitOutput = context.previousOutputs.find((output) => output.outputType === "brand_criteria");
   const niche = String(
-    onboarding.whatYouDo || maraAnswers.current_workflow || preferences[0] || "skincare and wellness UGC"
+    onboarding.whatYouDo || maraAnswers.current_workflow || preferences[0] || "creator content"
   ).trim();
 
   return {

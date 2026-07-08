@@ -1,0 +1,87 @@
+{
+  "capturedAt": "2026-07-08T13:49:47.111Z",
+  "contentGaps": [
+    {
+      "gap": "#empirestatebuilding trending in Travel / News & Entertainment for skincare and wellness UGC",
+      "label": "empirestatebuilding"
+    },
+    {
+      "gap": "#happy4th trending in News & Entertainment for skincare and wellness UGC",
+      "label": "happy4th"
+    },
+    {
+      "gap": "#4thofjuly trending for skincare and wellness UGC",
+      "label": "4thofjuly"
+    }
+  ],
+  "hashtags": [
+    {
+      "categories": [
+        "Travel",
+        "News & Entertainment"
+      ],
+      "hashtag": "#empirestatebuilding",
+      "posts": "27.9K",
+      "rank": 1,
+      "rowText": "1#empirestatebuildingTravelNews & Entertainment27.9KPosts326.1MViews",
+      "views": "326.1M"
+    },
+    {
+      "categories": [
+        "News & Entertainment"
+      ],
+      "hashtag": "#happy4th",
+      "posts": "24.5K",
+      "rank": 2,
+      "rowText": "2#happy4thNews & Entertainment24.5KPosts28MViews",
+      "views": "28M"
+    },
+    {
+      "categories": [],
+      "hashtag": "#4thofjuly",
+      "posts": "899.8K",
+      "rank": 3,
+      "rowText": "3#4thofjuly899.8KPosts2BViews",
+      "views": "2B"
+    }
+  ],
+  "insights": [
+    {
+      "summary": "#empirestatebuilding is trending in Travel and News & Entertainment with 27.9K posts and 326.1M views.",
+      "title": "#empirestatebuilding"
+    },
+    {
+      "summary": "#happy4th is trending in News & Entertainment with 24.5K posts and 28M views.",
+      "title": "#happy4th"
+    },
+    {
+      "summary": "#4thofjuly is trending with 899.8K posts and 2B views.",
+      "title": "#4thofjuly"
+    }
+  ],
+  "loginWallEncountered": false,
+  "matchedToNiche": false,
+  "niche": "skincare and wellness UGC",
+  "nicheKeywords": [
+    "skincare",
+    "wellness",
+    "beauty",
+    "makeup",
+    "cosmetic",
+    "skin",
+    "health",
+    "supplement",
+    "selfcare",
+    "self-care"
+  ],
+  "notes": [
+    "No direct niche hashtag matches for skincare and wellness UGC; saved top regional trends for awareness."
+  ],
+  "periodDays": 7,
+  "platform": "tiktok",
+  "region": "US",
+  "source": "tiktok_creative_center",
+  "sourceUrl": "https://ads.tiktok.com/creative/creativeCenter/trends/hashtag?period=7&region=US",
+  "updatedAt": "2026-07-08T20:57:01.963Z",
+  "visibleCount": 3
+}

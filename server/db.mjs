@@ -151,6 +151,11 @@ export function ensureOfficeSchema() {
   ensureColumn("office_email_threads", "body_text", "TEXT NOT NULL DEFAULT ''");
   ensureColumn("office_email_threads", "parsed_at", "TEXT");
   ensureColumn("office_campaigns", "last_parsed_at", "TEXT");
+
+  // Subscription lifecycle: link hires to their Stripe subscription so firing
+  // a worker cancels billing and failed payments are visible.
+  ensureColumn("hired_workers", "stripe_subscription_id", "TEXT");
+  ensureColumn("hired_workers", "billing_status", "TEXT NOT NULL DEFAULT ''");
 }
 
 db.exec(`

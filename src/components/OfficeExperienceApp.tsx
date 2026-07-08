@@ -213,6 +213,7 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
   if (!workspace) {
     return {
       workerSlug: worker.slug,
+      llmConfigured: true,
       approvals: [],
       connectedTools: integrations.map((integration) => ({
         provider: integration.provider,
@@ -274,6 +275,7 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
 
   return {
     workerSlug: worker.slug,
+    llmConfigured: workspace.llmConfigured !== false,
     approvals,
     connectedTools: integrations.map((integration) => ({
       provider: integration.provider,
@@ -326,6 +328,7 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
 type MaraWorkspace = {
   blockedTasks: MaraWorkspaceTask[];
   currentFocus: string;
+  llmConfigured?: boolean;
   currentWork: MaraWorkspaceTask | null;
   inboxLeadSnapshot: {
     counts: Record<string, number>;
@@ -415,6 +418,7 @@ type WorkerDeskActivity = {
 
 type WorkerDesk = {
   workerSlug: string;
+  llmConfigured?: boolean;
   currentFocus: string;
   currentFocusReason: string;
   workInMotion: Array<{ id: string; title: string; summary: string; status: string }>;
@@ -525,6 +529,28 @@ function isMaraWorker(workerSlug: string | null | undefined) {
   return workerSlug === "mara-vale";
 }
 
+/** Workers backed by the role-config agent engine (all hireable employees). */
+const AGENT_WORKER_SLUGS = new Set([
+  "mara-vale",
+  "sloane-pierce",
+  "etta-marsh",
+  "rowan-feld",
+  "june-okafor",
+  "camille-roy"
+]);
+
+function isAgentWorker(workerSlug: string | null | undefined) {
+  return Boolean(workerSlug && AGENT_WORKER_SLUGS.has(workerSlug));
+}
+
+function deliverableGeneratedBy(structuredContent: unknown): string | null {
+  if (structuredContent && typeof structuredContent === "object" && "generatedBy" in structuredContent) {
+    const value = String((structuredContent as { generatedBy?: unknown }).generatedBy ?? "");
+    return value || null;
+  }
+  return null;
+}
+
 function usePersistentBoolean(key: string, fallback: boolean) {
   const [value, setValue] = useState<boolean>(() => {
     if (typeof window === "undefined") return fallback;
@@ -598,7 +624,7 @@ function buildWorkerDesk(
   onboarding: OverlayOnboarding | undefined,
   workspace: MaraWorkspace | null
 ): WorkerDesk {
-  if (isMaraWorker(worker.slug)) {
+  if (isMaraWorker(worker.slug) || (isAgentWorker(worker.slug) && workspace)) {
     return buildMaraDesk(worker, overlays, workspace);
   }
 
@@ -910,7 +936,6 @@ function TodayView({
   const activeAssignments = desks
     .flatMap((desk) => desk.workInMotion.map((item) => ({ ...item, workerSlug: desk.workerSlug })))
     .slice(0, 6);
-  const idleWorkers = desks.filter((desk) => desk.workInMotion.length === 0 && desk.waitingOnUser.length === 0);
   const todayCalStart = 7;
   const todayCalEnd = 21;
   const todayCalHours = Array.from({ length: todayCalEnd - todayCalStart }, (_, index) => todayCalStart + index);
@@ -1141,22 +1166,6 @@ function TodayView({
             )}
           </section>
 
-          <section className="ro-sec">
-            <div className="ro-sec-head">
-              <h2>Ready to move</h2>
-            </div>
-            {idleWorkers.length > 0 ? (
-              <div className="ro-rail-note">
-                <strong>{workers.find((worker) => worker.slug === idleWorkers[0]?.workerSlug)?.name.split(" ")[0] || "A worker"} has capacity.</strong>
-                <p>Open the desk and point the next piece of work where it should go.</p>
-              </div>
-            ) : (
-              <div className="ro-rail-note">
-                <strong>Your office is already in motion.</strong>
-                <p>Use reviews and worker desks to redirect work without slowing things down.</p>
-              </div>
-            )}
-          </section>
         </aside>
       </div>
     </div>
@@ -1192,6 +1201,15 @@ function WorkerDeskSections({
 
   return (
     <>
+      {desk.llmConfigured === false ? (
+        <section className="ro-limited-note">
+          <span className="ro-doc-kicker">Limited mode</span>
+          <p>
+            My reasoning engine isn't connected yet, so I can queue work but not produce finished deliverables.
+            Add the platform AI key to bring me fully online — I won't pass generic filler off as real work.
+          </p>
+        </section>
+      ) : null}
       <section className="ro-worker-drawer-section ro-desk-focus">
         <span className="ro-section-kicker">{isMara ? "What I'm focused on" : "Current focus"}</span>
         <h3>{busyId === "mara-autonomy" && isMara ? "I'm working through your queue right now…" : desk.currentFocus}</h3>
@@ -1440,45 +1458,104 @@ function WorkerDeskDeliverableModal({
     };
   }, [deliverable.id, deliverable.sourceLabel, deliverable.summary, deliverable.title, workerName]);
 
+  const generatedBy = deliverableGeneratedBy(detail?.structuredContent);
+  const documentDate = new Date(deliverable.updatedAt);
+  const dateLine = Number.isNaN(documentDate.getTime())
+    ? ""
+    : documentDate.toLocaleDateString([], { year: "numeric", month: "long", day: "numeric" });
+
   return (
-    <div className="ro-modal-scrim" onClick={onClose}>
-      <div className="ro-modal" onClick={(event) => event.stopPropagation()}>
-        <h3>{deliverable.title}</h3>
-        <div className="ro-field">
-          <span>Worker</span>
-          <div className="ro-artifact">{detail?.workerName || workerName}</div>
-        </div>
-        <div className="ro-field">
-          <span>Type</span>
-          <div className="ro-artifact">{detail?.type || deliverable.sourceLabel}</div>
-        </div>
-        <div className="ro-field">
-          <span>Summary</span>
-          <div className="ro-artifact">{detail?.summary || deliverable.summary}</div>
-        </div>
-        {detail?.previewText ? (
-          <div className="ro-field">
-            <span>Preview</span>
-            <div className="ro-artifact">{detail.previewText}</div>
+    <div className="ro-doc-scrim" onClick={onClose}>
+      <div className="ro-doc-sheet" role="document" onClick={(event) => event.stopPropagation()}>
+        <button className="ro-doc-close" type="button" aria-label="Close document" onClick={onClose}>×</button>
+
+        <header className="ro-doc-letterhead">
+          <span className="ro-doc-kicker">{detail?.type || deliverable.sourceLabel}</span>
+          <h1 className="ro-doc-title">{detail?.title || deliverable.title}</h1>
+          <div className="ro-doc-byline">
+            <span>{detail?.workerName || workerName}</span>
+            {dateLine ? <span>{dateLine}</span> : null}
           </div>
-        ) : null}
-        {detail?.content ? (
-          <div className="ro-field">
-            <span>Full output</span>
-            <div className="ro-artifact" style={{ whiteSpace: "pre-wrap" }}>{detail.content}</div>
-          </div>
-        ) : null}
+          {generatedBy && generatedBy !== "llm" ? (
+            <p className="ro-doc-provenance">
+              {generatedBy === "placeholder"
+                ? "Held — the finished version arrives once the reasoning engine is connected."
+                : "Working draft — re-run this task with AI connected for the version built on your brand."}
+            </p>
+          ) : null}
+        </header>
+
+        <div className="ro-doc-body">
+          {detail?.content ? (
+            renderDocumentBlocks(detail.content)
+          ) : detail?.summary || deliverable.summary ? (
+            <p>{detail?.summary || deliverable.summary}</p>
+          ) : (
+            <p className="ro-doc-muted">Retrieving the document…</p>
+          )}
+        </div>
+
         {detail?.downloadUrl ? (
-          <div className="ro-modal-actions">
-            <a className="r-btn r-btn-ghost" href={detail.downloadUrl}>Download file</a>
-          </div>
+          <footer className="ro-doc-footer">
+            <a className="ro-textlink" href={detail.downloadUrl}>Download original file</a>
+          </footer>
         ) : null}
-        <div className="ro-modal-actions">
-          <button className="r-btn r-btn-accent" type="button" onClick={onClose}>Close</button>
-        </div>
       </div>
     </div>
   );
+}
+
+/**
+ * Typeset plain deliverable text as a document: section headings, lists,
+ * and paragraphs — a one-pager, not a data dump.
+ */
+function renderDocumentBlocks(content: string) {
+  const lines = String(content).split("\n");
+  const blocks: JSX.Element[] = [];
+  let listItems: string[] = [];
+  let key = 0;
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      blocks.push(
+        <ul className="ro-doc-list" key={`list-${key++}`}>
+          {listItems.map((item, index) => <li key={index}>{item}</li>)}
+        </ul>
+      );
+      listItems = [];
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushList();
+      continue;
+    }
+    if (/^[-•]\s+/.test(trimmed)) {
+      listItems.push(trimmed.replace(/^[-•]\s+/, ""));
+      continue;
+    }
+    flushList();
+    if (/^.{2,80}:$/.test(trimmed)) {
+      blocks.push(<h3 className="ro-doc-heading" key={`h-${key++}`}>{trimmed.slice(0, -1)}</h3>);
+      continue;
+    }
+    const labelMatch = trimmed.match(/^([A-Z][^:]{1,48}):\s+(.+)$/);
+    if (labelMatch) {
+      blocks.push(
+        <p className="ro-doc-para" key={`p-${key++}`}>
+          <strong className="ro-doc-label">{labelMatch[1]}.</strong> {labelMatch[2]}
+        </p>
+      );
+      continue;
+    }
+    blocks.push(<p className="ro-doc-para" key={`p-${key++}`}>{trimmed}</p>);
+  }
+  flushList();
+
+  return blocks;
 }
 
 function ChatView({
@@ -1872,7 +1949,7 @@ function ApprovalsView({
   const approveTask = async (t: OverlayTask) => {
     setBusy(t.id);
     try {
-      if (isMaraWorker(t.workerSlug)) {
+      if (isAgentWorker(t.workerSlug)) {
         await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/approve`, { method: "POST", body: JSON.stringify({}) });
       } else {
         await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/status`, { method: "POST", body: JSON.stringify({ status: "Completed" }) });
@@ -1914,7 +1991,7 @@ function ApprovalsView({
       {total === 0 ? (
         <p className="ro-blank">You're all caught up.</p>
       ) : (
-        <div className="ro-review-layout">
+        <div className="ro-review-layout is-single">
           <section className="ro-appr-list">
             {suggestedApprovals.map((action) => (
               <article className="ro-appr" key={action.id}>
@@ -1963,33 +2040,6 @@ function ApprovalsView({
             })}
           </section>
 
-          <aside className="ro-review-rail">
-            <section className="ro-sec ro-sec-lead">
-              <div className="ro-sec-head">
-                <h2>What needs your eye</h2>
-              </div>
-              <div className="ro-rail-note">
-                <strong>{total} item{total === 1 ? "" : "s"} are waiting.</strong>
-                <p>Approvals here are the moments where a worker needs a real decision, not just a glance.</p>
-              </div>
-            </section>
-
-            <section className="ro-sec">
-              <div className="ro-sec-head">
-                <h2>How to clear the queue</h2>
-              </div>
-              <div className="ro-plain-list">
-                <div className="ro-plain-row">
-                  <strong>Approve what can move now.</strong>
-                  <p>Anything safe and ready should keep moving without another loop.</p>
-                </div>
-                <div className="ro-plain-row">
-                  <strong>Send back only with direction.</strong>
-                  <p>Workers do better when the revision point is explicit.</p>
-                </div>
-              </div>
-            </section>
-          </aside>
         </div>
       )}
     </div>
@@ -2034,7 +2084,7 @@ function AssignmentsView({
       {tasks.length === 0 ? (
         <p className="ro-blank">No assignments yet. Delegate your first piece of work from a worker conversation.</p>
       ) : (
-        <div className="ro-review-layout">
+        <div className="ro-review-layout is-single">
           <div>
             {groups.map((group) => (
               <section className="ro-sec" key={group.label}>
@@ -2065,27 +2115,6 @@ function AssignmentsView({
             ))}
           </div>
 
-          <aside className="ro-review-rail">
-            <section className="ro-sec ro-sec-lead">
-              <div className="ro-sec-head">
-                <h2>Work balance</h2>
-              </div>
-              <div className="ro-plain-list">
-                <div className="ro-plain-row">
-                  <strong>{needsYou.length} waiting on you</strong>
-                  <p>These are the items blocking a worker from moving forward cleanly.</p>
-                </div>
-                <div className="ro-plain-row">
-                  <strong>{inMotion.length} already moving</strong>
-                  <p>Active assignments should stay out of your way unless they hit review or a blocker.</p>
-                </div>
-                <div className="ro-plain-row">
-                  <strong>{doneThisWeek.length} recently finished</strong>
-                  <p>Completed work shows up here so the office feels cumulative, not fleeting.</p>
-                </div>
-              </div>
-            </section>
-          </aside>
         </div>
       )}
     </div>
@@ -2116,7 +2145,7 @@ function HandbookView({
         <h1>Handbook</h1>
         <p className="ro-page-meta">The standing context your workers read before they act.</p>
       </header>
-      <div className="ro-review-layout">
+      <div className="ro-review-layout is-single">
         <div>
           <section className="ro-sec ro-sec-lead">
             <div className="ro-sec-head">
@@ -2147,17 +2176,6 @@ function HandbookView({
           </section>
         </div>
 
-        <aside className="ro-review-rail">
-          <section className="ro-sec ro-sec-lead">
-            <div className="ro-sec-head">
-              <h2>How workers use this</h2>
-            </div>
-            <div className="ro-rail-note">
-              <strong>This is the standing office memory.</strong>
-              <p>Anything here should sound clean, durable, and reusable because workers read it before they make decisions.</p>
-            </div>
-          </section>
-        </aside>
       </div>
     </div>
   );
@@ -2477,7 +2495,7 @@ function TeamView({
         <h1>Workers</h1>
         <p className="ro-page-meta">{workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock</p>
       </header>
-      <div className="ro-review-layout">
+      <div className="ro-review-layout is-single">
         <div>
           <section className="ro-sec ro-sec-lead">
             <div className="ro-sec-head">
@@ -2558,20 +2576,6 @@ function TeamView({
           ) : null}
         </div>
 
-        <aside className="ro-review-rail">
-          <section className="ro-sec ro-sec-lead">
-            <div className="ro-sec-head">
-              <h2>Hiring</h2>
-            </div>
-            <div className="ro-rail-note">
-              <strong>Need another function covered?</strong>
-              <p>Add a new worker when the office needs a new lane of ownership, not just more volume in the same lane.</p>
-            </div>
-            <button className="ro-textlink ro-hire-link" type="button" onClick={() => onNavigate("#workers")}>
-              Hire from the marketplace →
-            </button>
-          </section>
-        </aside>
       </div>
     </div>
   );
@@ -2581,19 +2585,25 @@ function TeamView({
 
 function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void }) {
   const [selectedDeliverable, setSelectedDeliverable] = useState<WorkerDeskDeliverable | null>(null);
-  const groupedByWorker = workers
-    .map((worker) => ({
-      worker,
-      items: overlays.deliverables.filter((deliverable) => deliverable.workerSlug === worker.slug).slice(0, 6)
-    }))
-    .filter((group) => group.items.length > 0);
+  const [workerFilter, setWorkerFilter] = useState<string | null>(null);
+
+  const authors = workers.filter((worker) =>
+    overlays.deliverables.some((deliverable) => deliverable.workerSlug === worker.slug)
+  );
+  const items = overlays.deliverables
+    .filter((deliverable) => (workerFilter ? deliverable.workerSlug === workerFilter : true))
+    .slice()
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
 
   return (
     <div className="ro-main-scroll">
       <header className="ro-page-head">
         <h1>Deliverables</h1>
         <p className="ro-page-meta">
-          {overlays.deliverables.length === 0 ? "No finished work yet" : `${overlays.deliverables.length} deliverable${overlays.deliverables.length === 1 ? "" : "s"} saved by your workers`}
+          {overlays.deliverables.length === 0
+            ? "Finished work from your team will collect here"
+            : `${overlays.deliverables.length} document${overlays.deliverables.length === 1 ? "" : "s"} produced by your team`}
         </p>
       </header>
       {overlays.deliverables.length === 0 ? (
@@ -2602,55 +2612,53 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
           {workers.length === 0 && <> <button className="ro-textlink" type="button" onClick={() => onNavigate("#workers")}>Hire a worker to get started</button></>}
         </p>
       ) : (
-        <div className="ro-review-layout">
-          <div>
-            {groupedByWorker.map((group) => (
-              <section className="ro-sec" key={group.worker.slug}>
-                <div className="ro-sec-head">
-                  <h2>{group.worker.name}</h2>
-                  <span className="ro-sec-n">{group.items.length}</span>
-                </div>
-                <div className="ro-rows">
-                  {group.items.map((deliverable) => (
-                    <button
-                      className="ro-row ro-row-slim"
-                      key={deliverable.id}
-                      type="button"
-                      onClick={() => setSelectedDeliverable({
-                        id: deliverable.id,
-                        contentRefId: deliverable.contentRefId,
-                        sourceType: deliverable.sourceType,
-                        title: deliverable.title,
-                        summary: deliverable.summary || deliverable.previewText,
-                        sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
-                        updatedAt: deliverable.updatedAt,
-                        workerSlug: deliverable.workerSlug
-                      })}
-                    >
-                      <div className="ro-row-copy">
-                        <span className="ro-row-kicker">{sentenceCase(deliverable.deliverableType.replace(/_/g, " "))}</span>
-                        <strong>{deliverable.title}</strong>
-                        <p>{deliverable.summary || deliverable.previewText}</p>
-                      </div>
-                      <span className="ro-row-aside">{timeAgo(deliverable.updatedAt)}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
+        <div className="ro-library">
+          {authors.length > 1 ? (
+            <div className="ro-library-filters" role="tablist" aria-label="Filter by worker">
+              <button
+                className={`ro-library-filter${workerFilter === null ? " is-active" : ""}`}
+                type="button"
+                onClick={() => setWorkerFilter(null)}
+              >
+                All
+              </button>
+              {authors.map((worker) => (
+                <button
+                  className={`ro-library-filter${workerFilter === worker.slug ? " is-active" : ""}`}
+                  key={worker.slug}
+                  type="button"
+                  onClick={() => setWorkerFilter(worker.slug)}
+                >
+                  {worker.name.split(" ")[0]}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className="ro-library-list">
+            {items.map((deliverable) => (
+              <button
+                className="ro-library-row"
+                key={deliverable.id}
+                type="button"
+                onClick={() => setSelectedDeliverable({
+                  id: deliverable.id,
+                  contentRefId: deliverable.contentRefId,
+                  sourceType: deliverable.sourceType,
+                  title: deliverable.title,
+                  summary: deliverable.summary || deliverable.previewText,
+                  sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
+                  updatedAt: deliverable.updatedAt,
+                  workerSlug: deliverable.workerSlug
+                })}
+              >
+                <span className="ro-library-title">{deliverable.title}</span>
+                <span className="ro-library-meta">
+                  {nameFor(deliverable.workerSlug)} · {sentenceCase(deliverable.deliverableType.replace(/_/g, " "))}
+                </span>
+                <span className="ro-library-date">{timeAgo(deliverable.updatedAt)}</span>
+              </button>
             ))}
           </div>
-
-          <aside className="ro-review-rail">
-            <section className="ro-sec ro-sec-lead">
-              <div className="ro-sec-head">
-                <h2>What belongs here</h2>
-              </div>
-              <div className="ro-rail-note">
-                <strong>Finished work, not internal noise.</strong>
-                <p>Deliverables should feel like artifacts your office has produced, not a log of every background action.</p>
-              </div>
-            </section>
-          </aside>
         </div>
       )}
       {selectedDeliverable ? (
@@ -2768,7 +2776,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     let cancelled = false;
 
     const loadWorkspaces = async () => {
-      const maraWorkers = hiredWorkers.filter((worker) => isMaraWorker(worker.slug));
+      const maraWorkers = hiredWorkers.filter((worker) => isAgentWorker(worker.slug));
       if (maraWorkers.length === 0) {
         if (!cancelled) setMaraWorkspaces({});
         return;
@@ -2864,8 +2872,6 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   const activeDesk = desks.find((desk) => desk.workerSlug === activeWorkerSlug) ?? null;
   const activeWorker = hiredWorkers.find((worker) => worker.slug === activeWorkerSlug) ?? null;
 
-  const maraKickRef = useRef(0);
-
   const refreshMaraWorkspace = useCallback(async (workerSlugParam: string) => {
     const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/workspace`, { method: "GET" });
     setMaraWorkspaces((current) => ({ ...current, [workerSlugParam]: payload.workspace }));
@@ -2873,7 +2879,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   }, []);
 
   const runWorkerAutonomy = useCallback(async (workerSlugParam: string, options: { silent?: boolean } = {}) => {
-    if (!isMaraWorker(workerSlugParam)) return;
+    if (!isAgentWorker(workerSlugParam)) return;
     setWorkerActionBusy("mara-autonomy");
     try {
       const payload = await officeJson<MaraAutonomyRunResponse>(`/api/office/workers/${workerSlugParam}/autonomy/run`, {
@@ -2895,7 +2901,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   }, [onNotice, reload]);
 
   const runWorkerTask = useCallback(async (workerSlugParam: string, taskId: string) => {
-    if (!isMaraWorker(workerSlugParam)) return;
+    if (!isAgentWorker(workerSlugParam)) return;
     setWorkerActionBusy(taskId);
     try {
       const payload = await officeJson<{ workspace?: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/tasks/${taskId}/run`, {
@@ -2916,7 +2922,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   }, [onNotice, refreshMaraWorkspace, reload]);
 
   const approveWorkerTask = useCallback(async (workerSlugParam: string, taskId: string) => {
-    if (!isMaraWorker(workerSlugParam)) return;
+    if (!isAgentWorker(workerSlugParam)) return;
     setWorkerActionBusy(taskId);
     try {
       const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/tasks/${taskId}/approve`, {
@@ -2934,7 +2940,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   }, [onNotice, reload]);
 
   const updateWorkerApproval = useCallback(async (workerSlugParam: string, approvalId: string, status: "approved" | "rejected") => {
-    if (!isMaraWorker(workerSlugParam)) return;
+    if (!isAgentWorker(workerSlugParam)) return;
     setWorkerActionBusy(approvalId);
     try {
       const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/approval-requests/${approvalId}/status`, {
@@ -2951,17 +2957,21 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     }
   }, [onNotice, reload]);
 
+  // Background scheduler on the server does the autonomous work now.
+  // The client just keeps the office fresh: poll faster while a
+  // conversation is open, slower otherwise, and only when the tab is visible.
   useEffect(() => {
-    if (!isMaraWorker(activeWorkerSlug || "") || section !== "desk" || loading) {
-      return;
-    }
-    const now = Date.now();
-    if (now - maraKickRef.current < 45_000) {
-      return;
-    }
-    maraKickRef.current = now;
-    void runWorkerAutonomy(activeWorkerSlug!, { silent: true });
-  }, [activeWorkerSlug, loading, runWorkerAutonomy, section]);
+    if (loading) return;
+    const intervalMs = section === "conversation" ? 10_000 : 60_000;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void reload();
+      if (isAgentWorker(activeWorkerSlug || "")) {
+        void refreshMaraWorkspace(activeWorkerSlug!).catch(() => undefined);
+      }
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [activeWorkerSlug, loading, reload, refreshMaraWorkspace, section]);
 
   let main: JSX.Element;
   if (loading) {

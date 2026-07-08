@@ -6,7 +6,9 @@ import {
   isRecurringDue,
   planMaraAutonomyActions
 } from "./maraAutonomyPlanner.mjs";
-import { tryGenerateMaraBrandContentIdeas, tryGenerateMaraPersonalizedPitch } from "./maraLlm.mjs";
+import { isMaraLlmConfigured, tryGenerateMaraBrandContentIdeas, tryGenerateMaraPersonalizedPitch } from "./maraLlm.mjs";
+import { buildBrandContext, tryExecuteAgentTaskLlm } from "./agentLlm.mjs";
+import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
 import {
@@ -59,6 +61,67 @@ const PRIORITY_RANK = {
 };
 
 const INTERNAL_ONLY_PERMISSION_PATTERNS = /sendemail|external|inbox|integration/i;
+
+/**
+ * Task types where the LLM should draft the deliverable directly from the
+ * manager's brand context. Types that depend on live local data (trend
+ * snapshots, reddit signals, inbox leads) keep their data-driven executors,
+ * and pitch/content-idea types already have richer dedicated LLM paths.
+ */
+const LLM_FIRST_TASK_TYPES = new Set([
+  "creator_positioning",
+  "brand_fit_criteria",
+  "pitch_template",
+  "follow_up_sequence",
+  "content_idea_batch",
+  "weekly_action_plan",
+  "brand_tracker_structure",
+  "ugc_shot_list",
+  "portfolio_recommendations",
+  "outreach_strategy",
+  "pasted_message_analysis"
+]);
+
+async function tryExecuteLlmFirstMaraTask(context) {
+  const roleConfig = getRoleConfig(context.workerId);
+  if (!roleConfig) return null;
+
+  const brandContext = buildBrandContext({
+    accountOnboarding: context.accountContext,
+    workerOnboardingAnswers: context.workerOnboarding?.answers ?? {},
+    knowledgeSections: context.workerKnowledge,
+    recentOutputs: context.previousOutputs,
+    openTasks: context.relatedOpenTasks,
+    integrations: context.connectedIntegrations,
+    recentMessages: context.recentMessages
+  });
+
+  // Enrich the task with any linked brand/research context the engine has.
+  const extraContextLines = [];
+  if (context.targetBrand) {
+    extraContextLines.push(
+      `Target brand: ${context.targetBrand.brandName}${context.targetBrand.website ? ` (${context.targetBrand.website})` : ""}`,
+      context.targetBrand.identitySummary ? `Brand identity: ${context.targetBrand.identitySummary}` : "",
+      context.targetBrand.suggestedAngle ? `Suggested angle: ${context.targetBrand.suggestedAngle}` : ""
+    );
+  }
+  for (const research of (context.relatedResearch || []).slice(0, 3)) {
+    extraContextLines.push(`Research note — ${research.topic}: ${research.summary}`);
+  }
+  const task = {
+    ...context.currentTask,
+    description: [context.currentTask.description, ...extraContextLines.filter(Boolean)].filter(Boolean).join("\n")
+  };
+
+  return tryExecuteAgentTaskLlm({
+    db: context.db,
+    userId: context.userId,
+    roleConfig,
+    task,
+    brandContext,
+    fetchImpl: context.fetchImpl
+  });
+}
 
 const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "brand_content_ideas",
@@ -1202,7 +1265,7 @@ function buildContextProfile(context) {
     brandFitOutput,
     brandName: String(onboarding.brandName || "Your brand").trim(),
     goals,
-    niche: String(onboarding.whatYouDo || preferences[0] || "skincare and wellness UGC").trim(),
+    niche: String(onboarding.whatYouDo || preferences[0] || "creator content").trim(),
     painPoints,
     positioningOutput,
     preferences,
@@ -2080,7 +2143,17 @@ export async function runMaraTask({
     workerId
   });
 
-  const result = await Promise.resolve(executeTaskByType(context));
+  let result = null;
+  if (LLM_FIRST_TASK_TYPES.has(task.taskType) && isMaraLlmConfigured()) {
+    result = await tryExecuteLlmFirstMaraTask(context);
+  }
+  if (!result) {
+    result = await Promise.resolve(executeTaskByType(context));
+    // Label every non-LLM deliverable honestly so the UI can badge it.
+    if (result?.structuredContent && typeof result.structuredContent === "object" && !result.structuredContent.generatedBy) {
+      result.structuredContent.generatedBy = "template";
+    }
+  }
   if (result?.blocked) {
     return markTaskBlocked(db, userId, workerId, taskId, result);
   }
@@ -2236,13 +2309,17 @@ async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsight
   const queries = buildBrandResearchQueries({ niche, privateInsights, redditSignals });
   const candidates = [];
   const seenHosts = new Set();
+  let searchFetchFailures = 0;
+  let searchFetchSuccesses = 0;
 
   for (const query of queries) {
     if (candidates.length >= limit) break;
     let html = "";
     try {
       html = await fetchText(fetchImpl, `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+      searchFetchSuccesses += 1;
     } catch {
+      searchFetchFailures += 1;
       continue;
     }
 
@@ -2283,7 +2360,10 @@ async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsight
     }
   }
 
-  return candidates.slice(0, limit);
+  return {
+    candidates: candidates.slice(0, limit),
+    searchUnavailable: searchFetchSuccesses === 0 && searchFetchFailures > 0
+  };
 }
 
 async function fetchRedditSignals({ communities = MARA_REDDIT_COMMUNITIES, fetchImpl, limitPerCommunity = 2 }) {
@@ -2518,15 +2598,21 @@ async function runMaraBrandResearchCycle({
   const niche = inferMaraNiche({ accountContext, workerKnowledge });
   const redditSignals = await fetchRedditSignals({ fetchImpl });
   const privateContentGaps = extractPrivateInsightItems(privateInsights).slice(0, 6);
-  const brands = await discoverBrandCandidates({
+  const discovery = await discoverBrandCandidates({
     fetchImpl,
     limit: remaining,
     niche,
     privateInsights: privateContentGaps,
     redditSignals
   });
+  const brands = discovery.candidates;
   if (brands.length === 0) {
-    return { note: "No new brand candidates were found." };
+    if (discovery.searchUnavailable) {
+      return {
+        note: "Live brand search was unavailable this cycle (the search source blocked or failed every request). I did not fabricate research — I'll retry next cycle."
+      };
+    }
+    return { note: "Live search ran but no new brand candidates matched this cycle. Nothing was fabricated; I'll broaden queries next cycle." };
   }
 
   const createdResearchIds = [];
@@ -4188,6 +4274,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     completedWork: workerOutputs,
     currentFocus,
     currentWork,
+    llmConfigured: isMaraLlmConfigured(),
     inboxLeadSnapshot,
     latestOutputs,
     openTasks,

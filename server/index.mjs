@@ -41,6 +41,9 @@ import {
   updateApprovalRequestStatus,
   updateWorkerTaskStatus
 } from "./workerEngine.mjs";
+import { handleAgentChatMessage, runAgentAutonomyCycle, runAgentTask } from "./agentCore.mjs";
+import { isAgentLlmConfigured } from "./agentLlm.mjs";
+import { hasRoleConfig } from "./roles.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -3271,29 +3274,42 @@ async function runScheduledMaraAutonomy() {
        FROM hired_workers hw
        INNER JOIN office_onboarding_sessions os
          ON os.user_id = hw.user_id AND os.worker_slug = hw.worker_slug
-       WHERE hw.status = 'active' AND hw.worker_slug = ? AND os.status = 'completed'`
-    ).all(MARA_SLUG);
+       WHERE hw.status = 'active' AND os.status = 'completed'`
+    ).all();
 
     for (const row of workersToRun) {
+      if (!hasRoleConfig(row.workerSlug)) continue;
       try {
-        const gmail = getWorkerIntegration(row.userId, row.workerSlug, "gmail");
-        if (gmail?.status === "connected") {
-          await syncGmailInbox(row.userId, row.workerSlug);
-        }
-        const summary = await runMaraAutonomyCycle({
-          db,
-          mode: "interactive",
-          userId: row.userId,
-          workerId: row.workerSlug,
-          ...buildMaraExecutionReaders()
-        });
-        syncMaraOperationalRecords(row.userId, row.workerSlug);
-        const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
-        if (outputIds.length > 0) {
-          await syncMaraGmailDraftsForOutputs(row.userId, row.workerSlug, outputIds);
+        if (row.workerSlug === MARA_SLUG) {
+          const gmail = getWorkerIntegration(row.userId, row.workerSlug, "gmail");
+          if (gmail?.status === "connected") {
+            await syncGmailInbox(row.userId, row.workerSlug);
+          }
+          // Full mode: the scheduled loop is exactly where the heavy
+          // autonomous work (research, inbox organization) should happen.
+          const summary = await runMaraAutonomyCycle({
+            db,
+            mode: "full",
+            userId: row.userId,
+            workerId: row.workerSlug,
+            ...buildMaraExecutionReaders()
+          });
+          syncMaraOperationalRecords(row.userId, row.workerSlug);
+          const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+          if (outputIds.length > 0) {
+            await syncMaraGmailDraftsForOutputs(row.userId, row.workerSlug, outputIds);
+          }
+        } else {
+          await runAgentAutonomyCycle({
+            db,
+            userId: row.userId,
+            workerId: row.workerSlug,
+            readers: buildMaraExecutionReaders()
+          });
+          syncOfficeCanonicalRecords(row.userId, row.workerSlug);
         }
       } catch (error) {
-        console.error(`Scheduled Mara autonomy failed for ${row.userId}:`, error);
+        console.error(`Scheduled autonomy failed for ${row.userId}/${row.workerSlug}:`, error);
       }
     }
   } finally {
@@ -3963,19 +3979,31 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
     return;
   }
 
-  if (!isMaraWorker(workerSlug)) {
+  if (!hasRoleConfig(workerSlug)) {
     res.status(400).json({ error: "This worker cannot run internal task execution from office yet." });
     return;
   }
 
   try {
-    const result = await runWorkerTask(db, req.user.id, workerSlug, taskId, {
-      db,
-      ...buildMaraExecutionReaders()
-    });
-    syncMaraOperationalRecords(req.user.id, workerSlug);
-    if (result?.output?.id) {
-      await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, [result.output.id]);
+    let result;
+    if (isMaraWorker(workerSlug)) {
+      result = await runWorkerTask(db, req.user.id, workerSlug, taskId, {
+        db,
+        ...buildMaraExecutionReaders()
+      });
+      syncMaraOperationalRecords(req.user.id, workerSlug);
+      if (result?.output?.id) {
+        await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, [result.output.id]);
+      }
+    } else {
+      result = await runAgentTask({
+        db,
+        userId: req.user.id,
+        workerId: workerSlug,
+        taskId,
+        readers: buildMaraExecutionReaders()
+      });
+      syncOfficeCanonicalRecords(req.user.id, workerSlug);
     }
     res.json({
       ok: true,
@@ -4067,8 +4095,8 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
     return;
   }
 
-  if (!isMaraWorker(workerSlug)) {
-    res.status(400).json({ error: "Structured worker approvals are only available for Mara right now." });
+  if (!hasRoleConfig(workerSlug)) {
+    res.status(400).json({ error: "Structured worker approvals are not available for this worker yet." });
     return;
   }
 
@@ -4079,9 +4107,13 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
       workerSlug,
       approvalId,
       status,
-      status === "approved" ? buildMaraExecutionReaders() : null
+      isMaraWorker(workerSlug) && status === "approved" ? buildMaraExecutionReaders() : null
     );
-    syncMaraOperationalRecords(req.user.id, workerSlug);
+    if (isMaraWorker(workerSlug)) {
+      syncMaraOperationalRecords(req.user.id, workerSlug);
+    } else {
+      syncOfficeCanonicalRecords(req.user.id, workerSlug);
+    }
     const outputIds = Array.isArray(result.followThrough?.results)
       ? result.followThrough.results.map((entry) => entry.outputId).filter(Boolean)
       : [];
@@ -4138,20 +4170,42 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
     return;
   }
 
-  if (!isMaraWorker(workerSlug)) {
-    res.status(400).json({ error: "Autonomy runs are only available for Mara right now." });
+  if (!hasRoleConfig(workerSlug)) {
+    res.status(400).json({ error: "This worker does not support autonomy runs yet." });
     return;
   }
 
   try {
-    const summary = await runMaraAutonomyCycle({
-      db,
-      mode: "interactive",
-      userId: req.user.id,
-      workerId: workerSlug,
-      ...buildMaraExecutionReaders()
-    });
-    syncMaraOperationalRecords(req.user.id, workerSlug);
+    let summary;
+    if (isMaraWorker(workerSlug)) {
+      // Fast interactive pass now; heavy work (research, inbox) continues in
+      // the background so the request stays responsive.
+      summary = await runMaraAutonomyCycle({
+        db,
+        mode: "interactive",
+        userId: req.user.id,
+        workerId: workerSlug,
+        ...buildMaraExecutionReaders()
+      });
+      syncMaraOperationalRecords(req.user.id, workerSlug);
+      void runMaraAutonomyCycle({
+        db,
+        mode: "full",
+        userId: req.user.id,
+        workerId: workerSlug,
+        ...buildMaraExecutionReaders()
+      })
+        .then(() => syncMaraOperationalRecords(req.user.id, workerSlug))
+        .catch((error) => console.error("Background full autonomy run failed:", error));
+    } else {
+      summary = await runAgentAutonomyCycle({
+        db,
+        userId: req.user.id,
+        workerId: workerSlug,
+        readers: buildMaraExecutionReaders()
+      });
+      syncOfficeCanonicalRecords(req.user.id, workerSlug);
+    }
     const workspace = buildMaraWorkspace(db, req.user.id, workerSlug, {
       readKnowledgeSections: readWorkerKnowledgeSections,
       readOfficeOverlays: readOfficeOverlaysForUser
@@ -4162,13 +4216,13 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
       summary,
       workspace
     });
-    if (outputIds.length > 0) {
+    if (isMaraWorker(workerSlug) && outputIds.length > 0) {
       void syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds).catch((error) => {
         console.error("Mara Gmail draft sync failed after autonomy run:", error);
       });
     }
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "Could not run Mara autonomy." });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not run worker autonomy." });
   }
 });
 
@@ -5153,13 +5207,48 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
 
       if (checkoutId && userId && workerSlug) {
         db.prepare(
-          `INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
-           VALUES (?, ?, ?, ?, ?, ?)
+          `INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at, stripe_subscription_id, billing_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(user_id, worker_slug) DO UPDATE SET
              checkout_session_id = excluded.checkout_session_id,
              status = excluded.status,
-             hired_at = excluded.hired_at`
-        ).run(randomUUID(), userId, workerSlug, checkoutId, "active", nowIso());
+             hired_at = excluded.hired_at,
+             stripe_subscription_id = excluded.stripe_subscription_id,
+             billing_status = excluded.billing_status`
+        ).run(randomUUID(), userId, workerSlug, checkoutId, "active", nowIso(), session.subscription ? String(session.subscription) : null, "active");
+      }
+    }
+
+    if (event.type === "customer.subscription.deleted") {
+      const subscription = event.data.object;
+      db.prepare(
+        `UPDATE hired_workers
+         SET status = 'terminated', billing_status = 'cancelled'
+         WHERE stripe_subscription_id = ?`
+      ).run(String(subscription.id));
+    }
+
+    if (event.type === "invoice.payment_failed") {
+      const invoice = event.data.object;
+      const subscriptionId = invoice.subscription ? String(invoice.subscription) : null;
+      if (subscriptionId) {
+        db.prepare(
+          `UPDATE hired_workers
+           SET billing_status = 'past_due'
+           WHERE stripe_subscription_id = ?`
+        ).run(subscriptionId);
+      }
+    }
+
+    if (event.type === "invoice.payment_succeeded") {
+      const invoice = event.data.object;
+      const subscriptionId = invoice.subscription ? String(invoice.subscription) : null;
+      if (subscriptionId) {
+        db.prepare(
+          `UPDATE hired_workers
+           SET billing_status = 'active'
+           WHERE stripe_subscription_id = ? AND billing_status = 'past_due'`
+        ).run(subscriptionId);
       }
     }
 
@@ -5168,6 +5257,108 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
     res.status(400).send(error instanceof Error ? error.message : "Webhook verification failed.");
   }
 });
+
+function mergeChatMemories(userId, workerSlug, memories) {
+  for (const memory of memories) {
+    upsertWorkerKnowledge(userId, workerSlug, (knowledge) => {
+      const next = Array.isArray(knowledge) ? [...knowledge] : [];
+      const index = next.findIndex((section) => String(section?.title ?? "").trim() === memory.title);
+      const existingItems = index >= 0 && Array.isArray(next[index]?.items) ? next[index].items : [];
+      const mergedItems = normalizeTextList([...(memory.items ?? []), ...existingItems]);
+      const section = { title: memory.title, items: mergedItems };
+      if (index >= 0) next[index] = section;
+      else next.unshift(section);
+      return next;
+    });
+  }
+}
+
+function workerChatAuthor(worker, workerSlug) {
+  if (workerSlug === MARA_SLUG) return "Mara";
+  return worker?.name ? worker.name.split(" ")[0] : "Worker";
+}
+
+/**
+ * Execute chat-created tasks off the request path, then post a follow-up
+ * chat message with the results so the conversation stays honest and alive.
+ */
+function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, triggerText) {
+  if (!Array.isArray(taskIds) || taskIds.length === 0) return;
+  void (async () => {
+    try {
+      const executedResults = [];
+      if (workerSlug === MARA_SLUG) {
+        const results = await autoExecuteSafeMaraTasks({
+          db,
+          taskIds,
+          userId,
+          workerId: workerSlug,
+          ...buildMaraExecutionReaders()
+        });
+        executedResults.push(...results.filter(Boolean));
+        const outputIds = executedResults.map((result) => result?.output?.id).filter(Boolean);
+        if (outputIds.length > 0) {
+          await syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds);
+        }
+        syncMaraOperationalRecords(userId, workerSlug);
+      } else {
+        for (const taskId of taskIds) {
+          try {
+            const result = await runAgentTask({
+              db,
+              userId,
+              workerId: workerSlug,
+              taskId,
+              readers: buildMaraExecutionReaders()
+            });
+            if (result) executedResults.push(result);
+          } catch (error) {
+            console.error(`Background chat task failed for ${workerSlug}:`, error);
+          }
+        }
+        syncOfficeCanonicalRecords(userId, workerSlug);
+      }
+
+      const completed = executedResults.filter((result) => result?.output?.content && !result.blockerReason);
+      const blocked = executedResults.filter((result) => result?.blockerReason);
+      const replyParts = [];
+      for (const result of completed.slice(0, 2)) {
+        replyParts.push(`${result.output.title}\n\n${result.output.content}`);
+      }
+      for (const blockedResult of blocked.slice(0, 1)) {
+        replyParts.push(
+          `I couldn't complete that yet.\n\nReason: ${blockedResult.blockerReason}\nNeed from you: ${blockedResult.neededFromUser}\nNext: ${blockedResult.suggestedNextStep}`
+        );
+      }
+      if (completed.length > 2) {
+        replyParts.push(`Plus ${completed.length - 2} more deliverable(s) waiting on your desk.`);
+      }
+
+      if (replyParts.length > 0) {
+        db.prepare(
+          `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(randomUUID(), userId, workerSlug, workerChatAuthor(worker, workerSlug), replyParts.join("\n\n"), nowIso());
+      }
+
+      for (const result of executedResults) {
+        if (result?.task?.id) {
+          createWorkerActivityLog(db, {
+            description: triggerText,
+            eventType: "chat_task_executed",
+            metadata: { outputId: result.output?.id ?? null },
+            relatedTaskId: result.task.id,
+            title: result.task.title,
+            userId,
+            workerId: workerSlug
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`Background chat execution failed for ${workerSlug}:`, error);
+    }
+  })();
+}
 
 app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = req.params.slug;
@@ -5193,6 +5384,39 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
   ).run(randomUUID(), req.user.id, workerSlug, "You", text, createdAt);
   if (worker) {
     await rememberWorkerDirection(req.user.id, worker, text);
+  }
+
+  // LLM-first path for every role-config worker: interpret the message,
+  // reply in the worker's voice, queue typed tasks, execute in background.
+  if (worker && hasRoleConfig(workerSlug) && isAgentLlmConfigured()) {
+    try {
+      const agentResult = await handleAgentChatMessage({
+        db,
+        userId: req.user.id,
+        workerId: workerSlug,
+        message: text,
+        readers: buildMaraExecutionReaders()
+      });
+      if (agentResult) {
+        mergeChatMemories(req.user.id, workerSlug, agentResult.memoriesToSave);
+        db.prepare(
+          `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(
+          randomUUID(),
+          req.user.id,
+          workerSlug,
+          workerChatAuthor(worker, workerSlug),
+          agentResult.reply,
+          new Date(Date.now() + 1000).toISOString()
+        );
+        res.status(201).json({ ok: true, executing: agentResult.createdTaskIds.length > 0 });
+        executeChatTasksInBackground(req.user.id, workerSlug, worker, agentResult.createdTaskIds, text);
+        return;
+      }
+    } catch (error) {
+      console.error("Agent chat interpretation failed, falling back:", error);
+    }
   }
 
   if (workerSlug === MARA_SLUG && worker) {
@@ -5433,7 +5657,7 @@ app.post("/api/office/workers/:slug/tasks/:taskId/status", assertOrigin, require
     )
     .get(taskId, req.user.id, workerSlug);
 
-  if (workerTask && isMaraWorker(workerSlug)) {
+  if (workerTask && hasRoleConfig(workerSlug)) {
     const officeToEngine = {
       "To Do": "approved",
       "In Progress": "in_progress",
@@ -5455,6 +5679,8 @@ app.post("/api/office/workers/:slug/tasks/:taskId/status", assertOrigin, require
 
   if (isMaraWorker(workerSlug)) {
     syncMaraOperationalRecords(req.user.id, workerSlug);
+  } else if (hasRoleConfig(workerSlug)) {
+    syncOfficeCanonicalRecords(req.user.id, workerSlug);
   }
 
   res.json({ ok: true });
@@ -5469,17 +5695,30 @@ app.post("/api/office/workers/:slug/tasks/:taskId/approve", assertOrigin, requir
     return;
   }
 
-  if (!isMaraWorker(workerSlug)) {
-    res.status(400).json({ error: "Task approval is only available for Mara right now." });
+  if (!hasRoleConfig(workerSlug)) {
+    res.status(400).json({ error: "Task approval is not available for this worker yet." });
     return;
   }
 
   try {
-    const result = await approveWorkerProposedTask(db, req.user.id, workerSlug, taskId, {
-      db,
-      ...buildMaraExecutionReaders()
-    });
-    syncMaraOperationalRecords(req.user.id, workerSlug);
+    let result;
+    if (isMaraWorker(workerSlug)) {
+      result = await approveWorkerProposedTask(db, req.user.id, workerSlug, taskId, {
+        db,
+        ...buildMaraExecutionReaders()
+      });
+      syncMaraOperationalRecords(req.user.id, workerSlug);
+    } else {
+      updateWorkerTaskStatus(db, req.user.id, workerSlug, taskId, "approved");
+      result = await runAgentTask({
+        db,
+        userId: req.user.id,
+        workerId: workerSlug,
+        taskId,
+        readers: buildMaraExecutionReaders()
+      });
+      syncOfficeCanonicalRecords(req.user.id, workerSlug);
+    }
     res.json({
       ok: true,
       ...result,
@@ -5603,7 +5842,7 @@ app.post("/api/office/workers/:slug/fire", assertOrigin, requireAuth, async (req
 
   const worker = db
     .prepare(
-      `SELECT worker_slug
+      `SELECT worker_slug, stripe_subscription_id AS stripeSubscriptionId
        FROM hired_workers
        WHERE user_id = ? AND worker_slug = ? AND status = ?`
     )
@@ -5614,9 +5853,23 @@ app.post("/api/office/workers/:slug/fire", assertOrigin, requireAuth, async (req
     return;
   }
 
+  // Firing a worker must stop their salary: cancel the Stripe subscription.
+  if (worker.stripeSubscriptionId && process.env.STRIPE_SECRET_KEY) {
+    try {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      await stripe.subscriptions.cancel(worker.stripeSubscriptionId);
+    } catch (error) {
+      console.error(`Stripe subscription cancel failed for ${worker.stripeSubscriptionId}:`, error);
+      res.status(502).json({
+        error: "The worker was not removed because their subscription could not be cancelled. Please try again or contact support so you are not billed."
+      });
+      return;
+    }
+  }
+
   db.prepare(
     `UPDATE hired_workers
-     SET status = ?
+     SET status = ?, billing_status = 'cancelled'
      WHERE user_id = ? AND worker_slug = ? AND status = ?`
   ).run("terminated", req.user.id, workerSlug, "active");
 
@@ -6005,6 +6258,19 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       }
     } else if (workerSlug === MARA_SLUG && !maraHasOutputs) {
       shouldRunMaraOnboardingAutomation = true;
+    }
+
+    // Non-Mara role-config workers: kick a first autonomy cycle in the
+    // background so starter deliverables land on their desk right away.
+    if (workerSlug !== MARA_SLUG && hasRoleConfig(workerSlug)) {
+      void runAgentAutonomyCycle({
+        db,
+        userId: req.user.id,
+        workerId: workerSlug,
+        readers: buildMaraExecutionReaders()
+      })
+        .then(() => syncOfficeCanonicalRecords(req.user.id, workerSlug))
+        .catch((error) => console.error(`First-day agent cycle failed for ${workerSlug}:`, error));
     }
     db.prepare(
       `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
