@@ -315,7 +315,7 @@ export function buildOnboardingCompletionPayload(worker: Worker, answers: Record
         summary: "Mara documented your workflow, inbox priorities, and approval boundaries so she can operate as a real coordinator instead of a generic assistant.",
         title: "Operations Onboarding Briefing"
       },
-      firstDayNotice: "Mara has joined your office. She captured how you want campaign ops handled and is ready to work from your rules, with inbox access remaining optional.",
+      firstDayNotice: "I'm Mara. I captured how you run campaigns, what should stay manual, and what I can own — I'm already setting up my desk around your brand.",
       knowledge: [
         { title: "Current Workflow", items: normalizeSummaryItems(answer(answers, "current_workflow")) },
         { title: "Workflow Breakdowns", items: normalizeSummaryItems(answer(answers, "workflow_breakdowns")) },
@@ -326,14 +326,10 @@ export function buildOnboardingCompletionPayload(worker: Worker, answers: Record
         { title: "Operating Rules", items: [answer(answers, "deadline_style"), answer(answers, "approval_rules"), answer(answers, "daily_output")] }
       ],
       summary,
-      tasks: [
-        { dueDate: "Today", module: "Operations", owner: "Worker", priority: "High", status: "To Do", title: "Set up the first campaign operations checklist from onboarding notes" },
-        { dueDate: "Tomorrow", module: "Briefings", owner: "Worker", priority: "High", status: "To Do", title: "Prepare the first daily operations briefing" },
-        { dueDate: "Tomorrow", module: "Approvals", owner: "You", priority: "Medium", status: "Needs Review", title: "Review Mara's approval boundaries and inbox priorities" }
-      ],
+      tasks: [],
       worklogEntry: {
         module: "Onboarding",
-        result: "Operations preferences and optional inbox rules recorded"
+        result: "I learned your workflow, inbox priorities, and approval boundaries."
       }
     };
   }

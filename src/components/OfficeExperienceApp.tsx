@@ -151,7 +151,7 @@ type MaraWorkspaceOutput = MaraWorkspaceTask & {
 
 type MaraWorkspaceWaitingItem = {
   id: string;
-  kind: "approval" | "blocked_task";
+  kind: "approval" | "blocked_task" | "proposed_task";
   title: string;
   description: string;
   blockerReason?: string;
@@ -176,7 +176,7 @@ type MaraAutonomyRunResponse = {
 
 function formatMaraAutonomyNotice(summary: MaraAutonomySummary): string {
   if (summary.blockers?.length && !summary.outputs?.length && !summary.executedTaskIds?.length) {
-    return `Mara is blocked: ${summary.blockers[0]}`;
+    return `I'm blocked: ${summary.blockers[0]}`;
   }
 
   const parts: string[] = [];
@@ -184,21 +184,143 @@ function formatMaraAutonomyNotice(summary: MaraAutonomySummary): string {
     parts.push(`shipped ${summary.outputs.length} deliverable${summary.outputs.length === 1 ? "" : "s"}`);
   }
   if (summary.executedTaskIds?.length) {
-    parts.push(`ran ${summary.executedTaskIds.length} task${summary.executedTaskIds.length === 1 ? "" : "s"}`);
+    parts.push(`finished ${summary.executedTaskIds.length} task${summary.executedTaskIds.length === 1 ? "" : "s"}`);
   }
   if (summary.createdTaskIds?.length) {
     parts.push(`queued ${summary.createdTaskIds.length} new task${summary.createdTaskIds.length === 1 ? "" : "s"}`);
   }
 
   if (parts.length > 0) {
-    return `Mara ${parts.join(", ")}.`;
+    return `I ${parts.join(", ")}.`;
   }
 
   if (summary.blockers?.length) {
-    return `Mara finished but is waiting on: ${summary.blockers[0]}`;
+    return `I'm waiting on you: ${summary.blockers[0]}`;
   }
 
-  return "Mara finished her cycle. Check her desk for updates.";
+  return "I'm caught up for now. Check my desk for what's next.";
+}
+
+function maraDeskCopy(value: string, fallback = "") {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  return trimmed || fallback;
+}
+
+function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorkspace | null): WorkerDesk {
+  const integrations = overlays.integrations.filter((integration) => integration.workerSlug === worker.slug);
+  const workerDeliverables = overlays.deliverables.filter((deliverable) => deliverable.workerSlug === worker.slug);
+
+  if (!workspace) {
+    return {
+      workerSlug: worker.slug,
+      approvals: [],
+      connectedTools: integrations.map((integration) => ({
+        provider: integration.provider,
+        status: integration.status,
+        label: integration.accountLabel || integration.provider
+      })),
+      currentFocus: "I'm getting oriented on your brand.",
+      currentFocusReason: "Give me a moment while I set up my desk from your onboarding.",
+      inboxLeads: [],
+      inboxStatusCounts: {},
+      memory: [],
+      recentActivity: [],
+      recentCompleted: [],
+      redditSignals: [],
+      researchToday: [],
+      recommendedNext: null,
+      waitingOnUser: [],
+      workInMotion: []
+    };
+  }
+
+  const waitingOnUser = workspace.waitingOnUser.map((item) => ({
+    id: item.id,
+    kind: item.kind,
+    title: item.title,
+    summary: maraDeskCopy(item.nextStep || item.description || item.blockerReason || ""),
+    actionLabel: item.kind === "approval" || item.kind === "proposed_task" ? "Approve" : "Open"
+  }));
+  const approvals = workspace.pendingApprovals.map((request) => ({
+    id: request.id,
+    type: request.actionType || "approval",
+    title: request.title,
+    summary: maraDeskCopy(request.description),
+    reason: maraDeskCopy(request.description),
+    status: request.status
+  }));
+  const outputs = workspace.latestOutputs.map((output) => ({
+    id: output.id,
+    title: output.outputPreview?.title || output.title,
+    summary: output.outputPreview?.preview || maraDeskCopy(output.description || "", "Ready for you to review."),
+    contentRefId: output.id,
+    sourceType: "worker_output",
+    sourceLabel: "Deliverable",
+    updatedAt: output.dueAt || new Date().toISOString(),
+    workerSlug: worker.slug
+  }));
+  const inMotion = [
+    ...workspace.runnableTasks,
+    ...(workspace.currentWork && !workspace.runnableTasks.some((task) => task.id === workspace.currentWork?.id) ? [workspace.currentWork] : [])
+  ]
+    .filter((task, index, list) => list.findIndex((entry) => entry.id === task.id) === index)
+    .slice(0, 4)
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      summary: maraDeskCopy(task.description),
+      status: task.status
+    }));
+
+  return {
+    workerSlug: worker.slug,
+    approvals,
+    connectedTools: integrations.map((integration) => ({
+      provider: integration.provider,
+      status: integration.status,
+      label: integration.accountLabel || integration.provider
+    })),
+    currentFocus: workspace.currentFocus,
+    currentFocusReason: maraDeskCopy(
+      workspace.currentWork?.description || inMotion[0]?.summary || "I'm working through your queue in the order that moves your brand forward."
+    ),
+    inboxLeads: workspace.inboxLeadSnapshot?.items.map((item) => ({
+      brandName: item.brandName,
+      contactEmail: item.contactEmail,
+      contactName: item.contactName,
+      snippet: maraDeskCopy(item.snippet || item.subject),
+      status: sentenceCase(item.status.replace(/_/g, " ")),
+      urgency: item.urgency
+    })) ?? [],
+    inboxStatusCounts: workspace.inboxLeadSnapshot?.counts ?? {},
+    memory: workspace.whatMaraKnows.flatMap((section, index) =>
+      section.items.slice(0, 1).map((item) => ({
+        id: `${section.friendlyLabel}-${index}`,
+        label: section.friendlyLabel,
+        text: maraDeskCopy(item)
+      }))
+    ).slice(0, 5),
+    recentActivity: workspace.recentActivity.map((entry) => ({
+      id: entry.id,
+      title: entry.title,
+      summary: maraDeskCopy(entry.description),
+      createdAt: entry.createdAt
+    })).slice(0, 5),
+    recentCompleted: outputs.slice(0, 4),
+    redditSignals: workspace.researchSnapshot?.redditSignalsToday.map((item) => ({
+      id: item.id,
+      summary: maraDeskCopy(item.summary),
+      title: item.title
+    })) ?? [],
+    recommendedNext: workspace.recommendedNext?.label || waitingOnUser[0]?.title || inMotion[0]?.title || null,
+    researchToday: workspace.researchSnapshot?.brandsFoundToday.map((item) => ({
+      id: item.id,
+      summary: maraDeskCopy(item.summary),
+      title: item.title
+    })) ?? [],
+    waitingOnUser: waitingOnUser.slice(0, 5),
+    workInMotion: inMotion
+  };
 }
 
 type MaraWorkspace = {
@@ -296,7 +418,7 @@ type WorkerDesk = {
   currentFocus: string;
   currentFocusReason: string;
   workInMotion: Array<{ id: string; title: string; summary: string; status: string }>;
-  waitingOnUser: Array<{ id: string; title: string; summary: string; actionLabel?: string }>;
+  waitingOnUser: Array<{ id: string; title: string; summary: string; actionLabel?: string; kind?: string }>;
   recentCompleted: WorkerDeskDeliverable[];
   recentActivity: WorkerDeskActivity[];
   researchToday: Array<{ id: string; title: string; summary: string }>;
@@ -476,6 +598,10 @@ function buildWorkerDesk(
   onboarding: OverlayOnboarding | undefined,
   workspace: MaraWorkspace | null
 ): WorkerDesk {
+  if (isMaraWorker(worker.slug)) {
+    return buildMaraDesk(worker, overlays, workspace);
+  }
+
   const workerTasks = overlays.tasks.filter((task) => task.workerSlug === worker.slug);
   const workerActions = overlays.suggestedActions.filter((action) => action.workerSlug === worker.slug);
   const workerFiles = overlays.files.filter((file) => file.workerSlug === worker.slug);
@@ -1045,6 +1171,7 @@ function WorkerDeskSections({
   canUseEmail,
   desk,
   onApprove,
+  onApproveTask,
   onReject,
   onRunTask,
   onSeedCorrection,
@@ -1055,56 +1182,66 @@ function WorkerDeskSections({
   canUseEmail: boolean;
   desk: WorkerDesk;
   onApprove: (approvalId: string) => Promise<void>;
+  onApproveTask: (taskId: string) => Promise<void>;
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
   onViewDeliverable: (deliverable: WorkerDeskDeliverable) => void;
 }) {
-  const workerFirstName = activeWorker.name.split(" ")[0];
+  const isMara = isMaraWorker(activeWorker.slug);
 
   return (
     <>
       <section className="ro-worker-drawer-section ro-desk-focus">
-        <span className="ro-section-kicker">Current focus</span>
-        <h3>{desk.currentFocus}</h3>
+        <span className="ro-section-kicker">{isMara ? "What I'm focused on" : "Current focus"}</span>
+        <h3>{busyId === "mara-autonomy" && isMara ? "I'm working through your queue right now…" : desk.currentFocus}</h3>
         <p>{desk.currentFocusReason}</p>
       </section>
 
       <section className="ro-worker-drawer-section">
         <div className="ro-worker-drawer-row">
-          <strong>Waiting on you</strong>
+          <strong>{isMara ? "What I need from you" : "Waiting on you"}</strong>
           <span>{desk.waitingOnUser.length === 0 ? "All clear" : `${desk.waitingOnUser.length} items`}</span>
         </div>
         {desk.waitingOnUser.length > 0 ? (
           <div className="ro-plain-list">
-            {desk.waitingOnUser.slice(0, 3).map((item) => {
-              const approval = desk.approvals.find((entry) => entry.id === item.id);
-              return (
-                <div className="ro-plain-row" key={item.id}>
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>{item.summary}</p>
-                  </div>
-                  {approval && isMaraWorker(activeWorker.slug) ? (
-                    <div className="ro-inline-actions">
-                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>Deny</button>
-                      <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
-                        {busyId === approval.id ? "Saving..." : "Approve"}
-                      </button>
-                    </div>
-                  ) : null}
+            {desk.waitingOnUser.slice(0, 5).map((item) => (
+              <div className="ro-plain-row" key={item.id}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.summary}</p>
                 </div>
-              );
-            })}
+                {isMara ? (
+                  <div className="ro-inline-actions">
+                    {item.kind === "approval" ? (
+                      <>
+                        <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(item.id)} disabled={busyId === item.id}>Deny</button>
+                        <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(item.id)} disabled={busyId === item.id}>
+                          {busyId === item.id ? "Saving..." : "Approve"}
+                        </button>
+                      </>
+                    ) : item.kind === "proposed_task" ? (
+                      <button className="r-btn r-btn-accent" type="button" onClick={() => void onApproveTask(item.id)} disabled={busyId === item.id}>
+                        {busyId === item.id ? "Running..." : "Approve & run"}
+                      </button>
+                    ) : item.kind === "blocked_task" ? (
+                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
+                        {busyId === item.id ? "Running..." : "Try again"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ))}
           </div>
         ) : (
-          <p className="ro-worker-note">Nothing is blocked right now.</p>
+          <p className="ro-worker-note">{isMara ? "Nothing is blocking me right now." : "Nothing is blocked right now."}</p>
         )}
       </section>
 
       <section className="ro-worker-drawer-section">
         <div className="ro-worker-drawer-row">
-          <strong>On {workerFirstName}&apos;s plate</strong>
+          <strong>{isMara ? "What I'm working on" : `On ${activeWorker.name.split(" ")[0]}'s plate`}</strong>
           <span>{desk.workInMotion.length === 0 ? "Quiet" : `${desk.workInMotion.length} active`}</span>
         </div>
         {desk.workInMotion.length > 0 ? (
@@ -1124,13 +1261,13 @@ function WorkerDeskSections({
             ))}
           </div>
         ) : (
-          <p className="ro-worker-note">Ready for the next assignment.</p>
+          <p className="ro-worker-note">{isMara ? "My queue is clear — message me if you want me on something specific." : "Ready for the next assignment."}</p>
         )}
       </section>
 
       <section className="ro-worker-drawer-section">
         <div className="ro-worker-drawer-row">
-          <strong>{workerFirstName} just shipped</strong>
+          <strong>{isMara ? "What I just finished" : `${activeWorker.name.split(" ")[0]} just shipped`}</strong>
           <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} items`}</span>
         </div>
         {desk.recentCompleted.length > 0 ? (
@@ -1146,18 +1283,18 @@ function WorkerDeskSections({
             ))}
           </div>
         ) : (
-          <p className="ro-worker-note">No deliverables have been completed yet.</p>
+          <p className="ro-worker-note">{isMara ? "I haven't shipped anything yet — I'm still getting set up on your brand." : "No deliverables have been completed yet."}</p>
         )}
       </section>
 
       <section className="ro-worker-drawer-section">
         <div className="ro-worker-drawer-row">
-          <strong>Access and boundaries</strong>
-          <span>{isMaraWorker(activeWorker.slug) ? "Approval-aware" : "Role-based"}</span>
+          <strong>{isMara ? "My boundaries" : "Access and boundaries"}</strong>
+          <span>{isMara ? "From your onboarding rules" : isMaraWorker(activeWorker.slug) ? "Approval-aware" : "Role-based"}</span>
         </div>
         <p className="ro-worker-note">
-          {isMaraWorker(activeWorker.slug)
-            ? "External or sensitive actions stay behind approval. Safe internal work can move forward without extra prompting."
+          {isMara
+            ? "I keep moving on safe internal work automatically. Anything sensitive or external stays with you until you approve it."
             : "This worker operates within assigned permissions, tools, and review boundaries."}
         </p>
       </section>
@@ -1601,10 +1738,10 @@ function WorkerDeskView({
   desk,
   overlays,
   onApprove,
+  onApproveTask,
   onNavigate,
   onReject,
   onRunTask,
-  onRunAutonomy,
   onSeedCorrection,
   onReload,
   section
@@ -1616,10 +1753,10 @@ function WorkerDeskView({
   desk: WorkerDesk;
   overlays: Overlays;
   onApprove: (approvalId: string) => Promise<void>;
+  onApproveTask: (taskId: string) => Promise<void>;
   onNavigate: (hash: string) => void;
   onReject: (approvalId: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
-  onRunAutonomy: () => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
   onReload: () => Promise<void>;
   section: WorkbenchSection;
@@ -1669,6 +1806,7 @@ function WorkerDeskView({
           canUseEmail={canUseEmail}
           desk={desk}
           onApprove={onApprove}
+          onApproveTask={onApproveTask}
           onReject={onReject}
           onRunTask={onRunTask}
           onSeedCorrection={onSeedCorrection}
@@ -1691,23 +1829,12 @@ function WorkerDeskView({
           </div>
         </div>
         <div className="ro-worker-page-actions">
-          <button className="r-btn r-btn-ghost" type="button" onClick={() => setSection("conversation")}>Message</button>
-          {isMaraWorker(activeWorker.slug) ? (
-            <>
-              {nextRunnable ? (
-                <button className="r-btn r-btn-accent" type="button" onClick={() => void onRunTask(nextRunnable.id)} disabled={busyId === nextRunnable.id}>
-                  {busyId === nextRunnable.id ? "Running..." : "Run next task"}
-                </button>
-              ) : (
-                <button className="r-btn r-btn-accent" type="button" onClick={() => setSection("conversation")}>Assign work</button>
-              )}
-              <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunAutonomy()} disabled={busyId === "mara-autonomy"}>
-                {busyId === "mara-autonomy" ? "Running Mara..." : "Run Mara now"}
-              </button>
-            </>
-          ) : (
+          <button className="r-btn r-btn-ghost" type="button" onClick={() => setSection("conversation")}>
+            {isMaraWorker(activeWorker.slug) ? "Message me" : "Message"}
+          </button>
+          {!isMaraWorker(activeWorker.slug) ? (
             <button className="r-btn r-btn-accent" type="button" onClick={() => setSection("conversation")}>Assign work</button>
-          )}
+          ) : null}
         </div>
       </header>
 
@@ -1735,14 +1862,18 @@ function ApprovalsView({
   workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void; onReload: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
-  const pending = overlays.tasks.filter((t) => t.status === "Needs Review");
+  const pending = overlays.tasks.filter((t) => t.status === "Needs Review" || t.status === "Pending approval");
   const suggestedApprovals = overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval);
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
 
   const approveTask = async (t: OverlayTask) => {
     setBusy(t.id);
     try {
-      await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/status`, { method: "POST", body: JSON.stringify({ status: "Completed" }) });
+      if (isMaraWorker(t.workerSlug)) {
+        await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/approve`, { method: "POST", body: JSON.stringify({}) });
+      } else {
+        await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/status`, { method: "POST", body: JSON.stringify({ status: "Completed" }) });
+      }
       await onReload();
     } finally { setBusy(null); }
   };
@@ -2730,21 +2861,15 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   const activeDesk = desks.find((desk) => desk.workerSlug === activeWorkerSlug) ?? null;
   const activeWorker = hiredWorkers.find((worker) => worker.slug === activeWorkerSlug) ?? null;
 
-  const runWorkerTask = useCallback(async (workerSlugParam: string, taskId: string) => {
-    if (!isMaraWorker(workerSlugParam)) return;
-    setWorkerActionBusy(taskId);
-    try {
-      await officeJson(`/api/office/workers/${workerSlugParam}/tasks/${taskId}/run`, {
-        method: "POST",
-        body: JSON.stringify({})
-      });
-      await reload();
-    } finally {
-      setWorkerActionBusy(null);
-    }
-  }, [reload]);
+  const maraKickRef = useRef(0);
 
-  const runWorkerAutonomy = useCallback(async (workerSlugParam: string) => {
+  const refreshMaraWorkspace = useCallback(async (workerSlugParam: string) => {
+    const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/workspace`, { method: "GET" });
+    setMaraWorkspaces((current) => ({ ...current, [workerSlugParam]: payload.workspace }));
+    return payload.workspace;
+  }, []);
+
+  const runWorkerAutonomy = useCallback(async (workerSlugParam: string, options: { silent?: boolean } = {}) => {
     if (!isMaraWorker(workerSlugParam)) return;
     setWorkerActionBusy("mara-autonomy");
     try {
@@ -2754,9 +2879,52 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
       });
       setMaraWorkspaces((current) => ({ ...current, [workerSlugParam]: payload.workspace }));
       await reload();
-      onNotice(formatMaraAutonomyNotice(payload.summary));
+      if (!options.silent) {
+        onNotice(formatMaraAutonomyNotice(payload.summary));
+      }
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "Mara could not finish that run.");
+      if (!options.silent) {
+        onNotice(error instanceof Error ? error.message : "I couldn't finish that work pass.");
+      }
+    } finally {
+      setWorkerActionBusy(null);
+    }
+  }, [onNotice, reload]);
+
+  const runWorkerTask = useCallback(async (workerSlugParam: string, taskId: string) => {
+    if (!isMaraWorker(workerSlugParam)) return;
+    setWorkerActionBusy(taskId);
+    try {
+      const payload = await officeJson<{ workspace?: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/tasks/${taskId}/run`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      if (payload.workspace) {
+        setMaraWorkspaces((current) => ({ ...current, [workerSlugParam]: payload.workspace! }));
+      } else {
+        await refreshMaraWorkspace(workerSlugParam);
+      }
+      await reload();
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "I couldn't run that task.");
+    } finally {
+      setWorkerActionBusy(null);
+    }
+  }, [onNotice, refreshMaraWorkspace, reload]);
+
+  const approveWorkerTask = useCallback(async (workerSlugParam: string, taskId: string) => {
+    if (!isMaraWorker(workerSlugParam)) return;
+    setWorkerActionBusy(taskId);
+    try {
+      const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/tasks/${taskId}/approve`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      setMaraWorkspaces((current) => ({ ...current, [workerSlugParam]: payload.workspace }));
+      await reload();
+      onNotice("Got it — I'm on it.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "I couldn't approve that task.");
     } finally {
       setWorkerActionBusy(null);
     }
@@ -2766,15 +2934,31 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     if (!isMaraWorker(workerSlugParam)) return;
     setWorkerActionBusy(approvalId);
     try {
-      await officeJson(`/api/office/workers/${workerSlugParam}/approval-requests/${approvalId}/status`, {
+      const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/approval-requests/${approvalId}/status`, {
         method: "POST",
         body: JSON.stringify({ status })
       });
+      setMaraWorkspaces((current) => ({ ...current, [workerSlugParam]: payload.workspace }));
       await reload();
+      onNotice(status === "approved" ? "Thanks — I'll move forward." : "Understood — I won't do that.");
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "I couldn't save that approval.");
     } finally {
       setWorkerActionBusy(null);
     }
-  }, [reload]);
+  }, [onNotice, reload]);
+
+  useEffect(() => {
+    if (!isMaraWorker(activeWorkerSlug || "") || section !== "desk" || loading) {
+      return;
+    }
+    const now = Date.now();
+    if (now - maraKickRef.current < 45_000) {
+      return;
+    }
+    maraKickRef.current = now;
+    void runWorkerAutonomy(activeWorkerSlug!, { silent: true });
+  }, [activeWorkerSlug, loading, runWorkerAutonomy, section]);
 
   let main: JSX.Element;
   if (loading) {
@@ -2788,13 +2972,16 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     main = worker ? (
       <WorkerOnboardingPage
         onComplete={async (payload) => {
-          await officeJson(`/api/office/workers/${worker.slug}/onboarding/complete`, {
+          const result = await officeJson<{ ok: boolean; workspace?: MaraWorkspace | null }>(`/api/office/workers/${worker.slug}/onboarding/complete`, {
             method: "POST",
             body: JSON.stringify(payload)
           });
+          if (result.workspace && isMaraWorker(worker.slug)) {
+            setMaraWorkspaces((current) => ({ ...current, [worker.slug]: result.workspace! }));
+          }
           await reload();
-          onNotice(payload.generatedSummary.length > 0 ? payload.generatedSummary[0] : payload.worklogEntry.result);
-          go(`#app/office/workers/${worker.slug}/conversation`);
+          onNotice(isMaraWorker(worker.slug) ? "I'm on my desk and already working from what you told me." : (payload.generatedSummary[0] || payload.worklogEntry.result));
+          go(`#app/office/workers/${worker.slug}/desk`);
         }}
         onSaveProgress={async (payload) => {
           await officeJson(`/api/office/workers/${worker.slug}/onboarding/save`, {
@@ -2804,7 +2991,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
         }}
         onStartFirstDay={(notice) => {
           onNotice(notice);
-          go(`#app/office/workers/${worker.slug}/conversation`);
+          go(`#app/office/workers/${worker.slug}/desk`);
         }}
         session={session}
         worker={worker}
@@ -2828,10 +3015,10 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
               desk={activeDesk}
               overlays={overlays}
               onApprove={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "approved")}
+              onApproveTask={(taskId) => approveWorkerTask(activeWorker.slug, taskId)}
               onNavigate={go}
               onReject={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "rejected")}
               onReload={reload}
-              onRunAutonomy={() => runWorkerAutonomy(activeWorker.slug)}
               onRunTask={(taskId) => runWorkerTask(activeWorker.slug, taskId)}
               onSeedCorrection={(prompt) => {
                 go(`#app/office/workers/${activeWorker.slug}/conversation`);
@@ -2854,7 +3041,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   }
 
   const pendingCount =
-    overlays.tasks.filter((t) => t.status === "Needs Review").length +
+    overlays.tasks.filter((t) => t.status === "Needs Review" || t.status === "Pending approval").length +
     overlays.briefings.length +
     overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval).length;
 

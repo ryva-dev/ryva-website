@@ -191,7 +191,7 @@ export function planMaraAutonomyActions(context) {
   }
 
   if (permissions.canRunResearch && brandResearchRemaining === 0) {
-    actions.push({ kind: "reddit_pulse", reason: "Daily brand research cap reached; keep learning from creator communities." });
+    actions.push({ kind: "reddit_pulse", reason: "I'll scan creator communities for fresh angles while brand research cools down." });
   }
 
   if (isArtifactStale(trendSnapshotUpdatedAt, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.tiktok_trends)) {

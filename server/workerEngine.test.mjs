@@ -400,7 +400,7 @@ test("waiting on you includes pending approvals", () => {
 
   const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
   assert.equal(workspace.waitingOnUser[0].title, "Approve inbox access");
-  assert.match(workspace.waitingOnUser[0].blockerReason, /paused until you approve/i);
+  assert.match(workspace.waitingOnUser[0].blockerReason, /need your sign-off/i);
 });
 
 test("blocked tasks expose blocker reason and next step", () => {
@@ -419,7 +419,7 @@ test("blocked tasks expose blocker reason and next step", () => {
   const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
   assert.equal(workspace.blockedTasks[0].title, "Review inbox follow-ups");
   assert.match(workspace.blockedTasks[0].blockerReason, /inbox access is connected/i);
-  assert.match(workspace.blockedTasks[0].nextStep, /Connect Gmail or Outlook/i);
+  assert.match(workspace.blockedTasks[0].nextStep, /Connect Gmail/i);
 });
 
 test("current focus prefers highest-priority runnable task before lower-priority work", () => {
@@ -443,7 +443,7 @@ test("current focus prefers highest-priority runnable task before lower-priority
   });
 
   const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
-  assert.equal(workspace.currentFocus, "Create first pitch template");
+  assert.equal(workspace.currentFocus, "I'm picking up Create first pitch template next.");
   assert.equal(workspace.recommendedNextTaskToRun?.title, "Create first pitch template");
 });
 
@@ -452,7 +452,7 @@ test("workspace uses honest empty state when no real work exists", () => {
   ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
 
   const workspace = buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
-  assert.equal(workspace.currentFocus, "Mara is ready for her next assignment.");
+  assert.equal(workspace.currentFocus, "I'm getting oriented on your brand and setting up my first pieces of work.");
   assert.equal(workspace.runnableTasks.length, 0);
   assert.equal(workspace.latestOutputs.length, 0);
   assert.equal(workspace.pendingApprovals.length, 0);

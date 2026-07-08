@@ -9,6 +9,14 @@ import {
 import { tryGenerateMaraBrandContentIdeas, tryGenerateMaraPersonalizedPitch } from "./maraLlm.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
+import {
+  deriveMaraPermissionsFromOnboarding,
+  formatMaraActivityDescription,
+  formatMaraCurrentFocus,
+  formatTaskSourceLabel
+} from "./maraOfficeUtils.mjs";
+
+export { deriveMaraPermissionsFromOnboarding, formatTaskSourceLabel } from "./maraOfficeUtils.mjs";
 
 export const MARA_WORKER_ID = "mara-vale";
 
@@ -31,11 +39,11 @@ export const MARA_ROLE_DEFINITION =
 
 const TASK_STATUS_MAP = {
   approved: "To Do",
-  blocked: "Needs Review",
+  blocked: "Blocked",
   completed: "Completed",
   dismissed: "Completed",
   in_progress: "In Progress",
-  proposed: "Needs Review"
+  proposed: "Pending approval"
 };
 
 const PRIORITY_MAP = {
@@ -839,34 +847,34 @@ function describePermissionBlocker(permission) {
   switch (String(permission ?? "")) {
     case "canDraftOutreach":
       return {
-        blockerReason: "Mara needs outreach drafting permission before she can produce this work.",
-        nextStep: "Approve or enable outreach drafting so Mara can prepare the asset."
+        blockerReason: "I need outreach drafting permission before I can produce this.",
+        nextStep: "Enable outreach drafting in my boundaries so I can prepare the asset."
       };
     case "canRunResearch":
       return {
-        blockerReason: "Mara needs research permission before she can run this task.",
-        nextStep: "Approve research access or give Mara a different internal task."
+        blockerReason: "I need research permission before I can run this.",
+        nextStep: "Allow research in my boundaries, or point me at a different internal task."
       };
     case "canReadInbox":
       return {
-        blockerReason: "Mara cannot review inbox-based work until inbox access is connected.",
-        nextStep: "Connect Gmail or Outlook before asking Mara to review inbox follow-ups."
+        blockerReason: "I can't review inbox-based work until inbox access is connected.",
+        nextStep: "Connect Gmail when you're ready for me to work from your email."
       };
     case "canUseConnectedIntegrations":
       return {
-        blockerReason: "This work depends on a connected integration Mara cannot use yet.",
-        nextStep: "Connect the required tool or keep Mara on internal planning work for now."
+        blockerReason: "This depends on a connected tool I don't have access to yet.",
+        nextStep: "Connect the required tool, or keep me on internal planning for now."
       };
     case "canSendEmailsWithApproval":
     case "canSendEmailsWithoutApproval":
       return {
-        blockerReason: "This task depends on email sending permissions Mara does not have yet.",
-        nextStep: "Approve sending permissions before asking Mara to send or schedule emails."
+        blockerReason: "I don't have email-sending permission for this yet.",
+        nextStep: "Update my boundaries before asking me to send or schedule emails."
       };
     default:
       return {
-        blockerReason: "Mara is blocked until the required permission or input is provided.",
-        nextStep: "Give Mara the missing permission or redirect her to a safe internal task."
+        blockerReason: "I'm blocked until I have the permission or input I need.",
+        nextStep: "Adjust my boundaries or point me at a safe internal task."
       };
   }
 }
@@ -1000,6 +1008,34 @@ export function updateWorkerTaskStatus(db, userId, workerId, taskId, status) {
   ).run(TASK_STATUS_MAP[status] ?? "To Do", taskId, userId, workerId);
 
   return { ok: true };
+}
+
+export async function approveWorkerProposedTask(db, userId, workerId, taskId, executionOptions = {}) {
+  const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
+  if (!task) {
+    throw new Error("Worker task not found.");
+  }
+  if (task.status !== "proposed") {
+    throw new Error("Only proposed tasks can be approved this way.");
+  }
+
+  updateWorkerTaskStatus(db, userId, workerId, taskId, "approved");
+  const result = await runMaraTask({
+    db,
+    taskId,
+    userId,
+    workerId,
+    ...executionOptions
+  });
+  createWorkerActivityLog(db, {
+    description: `You approved ${task.title}, so I ran it.`,
+    eventType: "task_auto_executed",
+    relatedTaskId: taskId,
+    title: task.title,
+    userId,
+    workerId
+  });
+  return result;
 }
 
 export function dismissWorkerTask(db, userId, workerId, taskId) {
@@ -3077,7 +3113,7 @@ export async function runMaraAutonomyCycle({
   summary.blockers.push(...plannerContext.blockers);
 
   createWorkerActivityLog(db, {
-    description: `Planned ${plannedActions.length} action(s), created ${summary.createdTaskIds.length} task(s), executed ${summary.executedTaskIds.length} task(s), and saved ${summary.outputs.length} deliverable(s).`,
+    description: `I planned ${plannedActions.length} move(s), finished ${summary.executedTaskIds.length} task(s), and shipped ${summary.outputs.length} deliverable(s).`,
     eventType: "autonomy_cycle_completed",
     metadata: {
       blockers: summary.blockers,
@@ -3928,7 +3964,11 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     .all(userId, workerId)
     .map((row) => ({ ...row, metadata: safeJsonParse(row.metadataJson, {}) }))
     .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "task_execution_started", "task_execution_completed", "task_execution_blocked", "worker_output_created", "task_auto_executed", "chat_task_created", "chat_task_executed", "recurring_responsibility_created", "autonomy_cycle_completed"].includes(row.eventType))
-    .slice(0, 5);
+    .slice(0, 5)
+    .map((row) => ({
+      ...row,
+      description: formatMaraActivityDescription(row.eventType, row.title, row.description)
+    }));
   const openTasks = tasks.filter((task) => ["approved", "in_progress"].includes(task.status));
   const proposedTasks = tasks.filter((task) => task.status === "proposed");
   const completedTasks = tasks.filter((task) => task.status === "completed");
@@ -3953,18 +3993,26 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
       kind: "approval",
       title: request.title,
       description: request.description,
-      blockerReason: "Mara is paused until you approve or reject this request.",
-      nextStep: "Review this request so Mara can continue."
+      blockerReason: "I need your sign-off before I move forward.",
+      nextStep: "Approve or deny so I can keep going."
+    })),
+    ...proposedTasks.map((task) => ({
+      id: task.id,
+      kind: "proposed_task",
+      title: task.title,
+      description: task.description,
+      blockerReason: "I'd like your okay before I run this.",
+      nextStep: "Approve it and I'll take it from here."
     })),
     ...blockedTaskDetails.map((task) => ({
       id: task.id,
       kind: "blocked_task",
       title: task.title,
-      description: task.description || "This task is blocked until you provide the next input.",
+      description: task.description || "I need one more input before I can finish this.",
       blockerReason: task.blockerReason,
       nextStep: task.nextStep
     }))
-  ].slice(0, 3);
+  ].slice(0, 5);
   const latestOutputs = workerOutputs
     .map((output) => ({
       ...output,
@@ -4049,7 +4097,7 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     recommendedNext = {
       actionLabel: "Approve",
       approvalId: approvals[0].id,
-      description: "Mara is paused until you approve or reject this request.",
+      description: "I'm paused until you approve or reject this request.",
       dismissible: false,
       kind: "approval",
       label: approvals[0].title
@@ -4125,13 +4173,14 @@ export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections
     || approvals.length > 0
     || researchItems.length > 0
     || recurringResponsibilities.length > 0;
-  const currentFocus =
-    runningTask?.title
-    || inProgressTask?.title
-    || highestPriorityRunnableTask?.title
-    || waitingOnUser[0]?.title
-    || (hasTrackedWork ? recommendedNextActions[0] : null)
-    || "Mara is ready for her next assignment.";
+  const currentFocus = formatMaraCurrentFocus({
+    runningTask,
+    inProgressTask,
+    runnableTask: highestPriorityRunnableTask,
+    waitingItem: waitingOnUser[0] ?? null,
+    recommendedLabel: hasTrackedWork ? recommendedNextActions[0] ?? null : null,
+    hasTrackedWork
+  });
 
   return {
     blockedTasks: blockedTaskDetails,

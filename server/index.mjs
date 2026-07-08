@@ -13,8 +13,10 @@ import { db, ensureOfficeSchema } from "./db.mjs";
 import { sendTransactionalEmail } from "./mailer.mjs";
 import { extractGmailBodyText } from "./maraInboxParser.mjs";
 import { parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
+import { deriveMaraPermissionsFromOnboarding, formatTaskSourceLabel, safeList, sentenceCase } from "./maraOfficeUtils.mjs";
 import { loadUserTrendInsights, resolveGlobalTrendInsightsPath, resolveStorageRoot, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
 import {
+  approveWorkerProposedTask,
   autoExecuteSafeMaraTasks,
   buildMaraInitialWorkPlan,
   buildMaraWorkspace,
@@ -36,7 +38,8 @@ import {
   runMaraTask,
   runWorkerTask,
   updateWorkerPermissions,
-  updateApprovalRequestStatus
+  updateApprovalRequestStatus,
+  updateWorkerTaskStatus
 } from "./workerEngine.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -441,21 +444,6 @@ function truncatePreview(value, max = 240) {
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
-function sentenceCase(value) {
-  const trimmed = String(value ?? "").replace(/\s+/g, " ").trim();
-  if (!trimmed) return "";
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-}
-
-function safeList(json) {
-  try {
-    const parsed = JSON.parse(json);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
 function mapWorkerTaskStatusToAssignmentStatus(status) {
   const normalized = String(status ?? "").trim().toLowerCase();
   if (normalized === "completed" || normalized === "dismissed") return "done";
@@ -650,7 +638,7 @@ function syncWorkerAssignments(userId, workerSlug) {
       priority: String(task.priority || "medium"),
       rhythm: task.source === "recurring" ? "Recurring" : null,
       sourceId: task.id,
-      sourceLabel: task.source || "worker_task",
+      sourceLabel: workerSlug === MARA_SLUG ? formatTaskSourceLabel(task.source) || "In progress" : task.source || "worker_task",
       sourceType: "worker_task",
       status: mapWorkerTaskStatusToAssignmentStatus(task.status),
       summary: truncatePreview(task.description, 180),
@@ -3193,6 +3181,87 @@ function buildMaraExecutionReaders() {
   };
 }
 
+async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generatedSummary, normalizedKnowledge }) {
+  const accountContext = getUserOnboardingRecord(userId);
+  const initialPlan = buildMaraInitialWorkPlan({
+    accountContext,
+    maraAnswers: answers
+  });
+  const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
+  replaceWorkerKnowledge(userId, workerSlug, mergedKnowledge);
+  const createdTaskIds = [];
+
+  for (const task of initialPlan.tasks) {
+    const created = createApprovedTaskIfPermissionAllows(db, {
+      description: task.description,
+      dueAt: task.priority === "high" ? "This week" : "Next 7 days",
+      evidenceUsed: generatedSummary,
+      priority: task.priority,
+      requiredPermissions: [],
+      source: "onboarding_generated",
+      title: task.title,
+      userId,
+      workerId: workerSlug
+    });
+    if (created.id) {
+      if (!created.duplicate) {
+        createdTaskIds.push(created.id);
+      } else {
+        const existingTask = listWorkerTasksForUserWorker(db, userId, workerSlug).find((entry) => entry.id === created.id);
+        if (existingTask && ["approved", "in_progress"].includes(existingTask.status)) {
+          createdTaskIds.push(created.id);
+        }
+      }
+    }
+  }
+
+  for (const recurring of initialPlan.recurringResponsibilities) {
+    createRecurringResponsibility(db, {
+      cadence: recurring.cadence,
+      createdFrom: "onboarding",
+      dayOfWeek: recurring.dayOfWeek,
+      description: recurring.description,
+      permissionRequired: recurring.permissionRequired ?? null,
+      title: recurring.title,
+      userId,
+      workerId: workerSlug
+    });
+  }
+
+  const starterResults = await autoExecuteSafeMaraTasks({
+    db,
+    taskIds: createdTaskIds,
+    userId,
+    workerId: workerSlug,
+    ...buildMaraExecutionReaders()
+  });
+  const starterOutputIds = starterResults.map((result) => result?.output?.id).filter(Boolean);
+  if (starterOutputIds.length > 0) {
+    await syncMaraGmailDraftsForOutputs(userId, workerSlug, starterOutputIds);
+  }
+
+  const summary = await runMaraAutonomyCycle({
+    db,
+    mode: "interactive",
+    userId,
+    workerId: workerSlug,
+    ...buildMaraExecutionReaders()
+  });
+  syncMaraOperationalRecords(userId, workerSlug);
+  const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+  if (outputIds.length > 0) {
+    await syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds);
+  }
+
+  return {
+    summary,
+    workspace: buildMaraWorkspace(db, userId, workerSlug, {
+      readKnowledgeSections: readWorkerKnowledgeSections,
+      readOfficeOverlays: readOfficeOverlaysForUser
+    })
+  };
+}
+
 async function runScheduledMaraAutonomy() {
   if (maraAutonomyRunning) return;
   maraAutonomyRunning = true;
@@ -3213,6 +3282,7 @@ async function runScheduledMaraAutonomy() {
         }
         const summary = await runMaraAutonomyCycle({
           db,
+          mode: "interactive",
           userId: row.userId,
           workerId: row.workerSlug,
           ...buildMaraExecutionReaders()
@@ -3907,7 +3977,14 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
     if (result?.output?.id) {
       await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, [result.output.id]);
     }
-    res.json({ ok: true, ...result });
+    res.json({
+      ok: true,
+      ...result,
+      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+        readKnowledgeSections: readWorkerKnowledgeSections,
+        readOfficeOverlays: readOfficeOverlaysForUser
+      })
+    });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not run worker task." });
   }
@@ -4011,7 +4088,13 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
     if (outputIds.length > 0) {
       await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
     }
-    res.json(result);
+    res.json({
+      ...result,
+      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+        readKnowledgeSections: readWorkerKnowledgeSections,
+        readOfficeOverlays: readOfficeOverlaysForUser
+      })
+    });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not update approval request." });
   }
@@ -5244,7 +5327,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
         db.prepare(
           `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(randomUUID(), req.user.id, workerSlug, "Worker", replyParts.join("\n\n"), replyCreatedAt);
+        ).run(randomUUID(), req.user.id, workerSlug, "Mara", replyParts.join("\n\n"), replyCreatedAt);
         res.status(201).json({ ok: true });
         return;
       }
@@ -5264,11 +5347,12 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
       console.error("Office worker reply generation failed:", error);
     }
   }
+  const chatAuthor = workerSlug === MARA_SLUG ? "Mara" : "Worker";
   const replyCreatedAt = new Date(Date.now() + 1000).toISOString();
   db.prepare(
     `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Worker", replyText, replyCreatedAt);
+  ).run(randomUUID(), req.user.id, workerSlug, chatAuthor, replyText, replyCreatedAt);
 
   res.status(201).json({ ok: true });
 });
@@ -5322,7 +5406,8 @@ app.post("/api/office/workers/:slug/tasks/:taskId/status", assertOrigin, require
     return;
   }
 
-  if (!["To Do", "In Progress", "Needs Review", "Completed"].includes(status)) {
+  const allowedStatuses = ["To Do", "In Progress", "Needs Review", "Pending approval", "Blocked", "Completed"];
+  if (!allowedStatuses.includes(status)) {
     res.status(400).json({ error: "Unsupported task status." });
     return;
   }
@@ -5340,12 +5425,72 @@ app.post("/api/office/workers/:slug/tasks/:taskId/status", assertOrigin, require
     return;
   }
 
+  const workerTask = db
+    .prepare(
+      `SELECT id, status
+       FROM worker_tasks
+       WHERE id = ? AND user_id = ? AND worker_id = ?`
+    )
+    .get(taskId, req.user.id, workerSlug);
+
+  if (workerTask && isMaraWorker(workerSlug)) {
+    const officeToEngine = {
+      "To Do": "approved",
+      "In Progress": "in_progress",
+      "Needs Review": "proposed",
+      "Pending approval": "proposed",
+      Blocked: "blocked",
+      Completed: "completed"
+    };
+    const nextStatus = officeToEngine[status];
+    if (nextStatus) {
+      updateWorkerTaskStatus(db, req.user.id, workerSlug, taskId, nextStatus);
+    }
+  }
+
   db.prepare(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(randomUUID(), req.user.id, workerSlug, "Updated task status.", "Tasks", `${taskId} -> ${status}`, nowIso());
 
+  if (isMaraWorker(workerSlug)) {
+    syncMaraOperationalRecords(req.user.id, workerSlug);
+  }
+
   res.json({ ok: true });
+});
+
+app.post("/api/office/workers/:slug/tasks/:taskId/approve", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const taskId = String(req.params.taskId ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Task approval is only available for Mara right now." });
+    return;
+  }
+
+  try {
+    const result = await approveWorkerProposedTask(db, req.user.id, workerSlug, taskId, {
+      db,
+      ...buildMaraExecutionReaders()
+    });
+    syncMaraOperationalRecords(req.user.id, workerSlug);
+    res.json({
+      ok: true,
+      ...result,
+      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+        readKnowledgeSections: readWorkerKnowledgeSections,
+        readOfficeOverlays: readOfficeOverlaysForUser
+      })
+    });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not approve task." });
+  }
 });
 
 app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin, requireAuth, async (req, res) => {
@@ -5793,6 +5938,15 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
     replaceWorkerKnowledge(req.user.id, workerSlug, normalizedKnowledge);
 
     ensureWorkerPermissions(db, req.user.id, workerSlug);
+    if (workerSlug === MARA_SLUG) {
+      const gmail = getWorkerIntegration(req.user.id, workerSlug, "gmail");
+      updateWorkerPermissions(
+        db,
+        req.user.id,
+        workerSlug,
+        deriveMaraPermissionsFromOnboarding(answers, { inboxConnected: gmail?.status === "connected" })
+      );
+    }
 
     let shouldRunMaraOnboardingAutomation = false;
     const maraHasOutputs =
@@ -5809,25 +5963,27 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
         : true;
 
     if (existing?.status !== "completed") {
-      for (const task of tasks) {
-        db.prepare(
-          `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-        randomUUID(),
-        req.user.id,
-        workerSlug,
-        String(task.title ?? "First task"),
-        String(task.module ?? "Onboarding"),
-        task.owner === "You" ? "You" : "Worker",
-        task.priority === "Low" || task.priority === "Medium" || task.priority === "High" ? task.priority : "Medium",
-        ["To Do", "In Progress", "Needs Review", "Completed"].includes(String(task.status)) ? String(task.status) : "To Do",
-        String(task.dueDate ?? "Today"),
-        timestamp
-      );
-    }
+      if (workerSlug !== MARA_SLUG) {
+        for (const task of tasks) {
+          db.prepare(
+            `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(
+            randomUUID(),
+            req.user.id,
+            workerSlug,
+            String(task.title ?? "First task"),
+            String(task.module ?? "Onboarding"),
+            task.owner === "You" ? "You" : "Worker",
+            task.priority === "Low" || task.priority === "Medium" || task.priority === "High" ? task.priority : "Medium",
+            ["To Do", "In Progress", "Needs Review", "Completed"].includes(String(task.status)) ? String(task.status) : "To Do",
+            String(task.dueDate ?? "Today"),
+            timestamp
+          );
+        }
+      }
 
-    db.prepare(
+      db.prepare(
       `INSERT INTO office_custom_briefings
        (id, user_id, worker_slug, title, date_label, summary, agenda_json, decisions_json, actions_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -5859,102 +6015,49 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       workerSlug,
       "Completed new hire onboarding.",
       "Onboarding",
-      String(worklogEntry?.result ?? "Worker prepared first-day setup"),
+      String(worklogEntry?.result ?? (workerSlug === MARA_SLUG ? "I captured your workflow and I'm setting up my desk." : "Worker prepared first-day setup")),
       timestamp
     );
 
-    syncOfficeCanonicalRecords(req.user.id, workerSlug);
-
-    res.json({ ok: true });
-
+    let maraAutomationResult = null;
     if (shouldRunMaraOnboardingAutomation) {
-      void (async () => {
-        try {
-          const accountContext = getUserOnboardingRecord(req.user.id);
-          const initialPlan = buildMaraInitialWorkPlan({
-            accountContext,
-            maraAnswers: answers
-          });
-          const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
-          replaceWorkerKnowledge(req.user.id, workerSlug, mergedKnowledge);
-          const createdTaskIds = [];
-
-          for (const task of initialPlan.tasks) {
-            const created = createApprovedTaskIfPermissionAllows(db, {
-              description: task.description,
-              dueAt: task.priority === "high" ? "This week" : "Next 7 days",
-              evidenceUsed: generatedSummary,
-              priority: task.priority,
-              requiredPermissions: [],
-              source: "onboarding_generated",
-              title: task.title,
-              userId: req.user.id,
-              workerId: workerSlug
-            });
-            if (created.id) {
-              if (!created.duplicate) {
-                createdTaskIds.push(created.id);
-              } else {
-                const existingTask = listWorkerTasksForUserWorker(db, req.user.id, workerSlug).find((entry) => entry.id === created.id);
-                if (existingTask && ["approved", "in_progress"].includes(existingTask.status)) {
-                  createdTaskIds.push(created.id);
-                }
-              }
-            }
-          }
-
-          for (const recurring of initialPlan.recurringResponsibilities) {
-            createRecurringResponsibility(db, {
-              cadence: recurring.cadence,
-              createdFrom: "onboarding",
-              dayOfWeek: recurring.dayOfWeek,
-              description: recurring.description,
-              permissionRequired: recurring.permissionRequired ?? null,
-              title: recurring.title,
-              userId: req.user.id,
-              workerId: workerSlug
-            });
-          }
-
-          const starterResults = await autoExecuteSafeMaraTasks({
-            db,
-            taskIds: createdTaskIds,
-            userId: req.user.id,
-            workerId: workerSlug,
-            ...buildMaraExecutionReaders()
-          });
-          const starterOutputIds = starterResults.map((result) => result?.output?.id).filter(Boolean);
-          if (starterOutputIds.length > 0) {
-            await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, starterOutputIds);
-          }
-
-          const summary = await runMaraAutonomyCycle({
-            db,
-            userId: req.user.id,
-            workerId: workerSlug,
-            ...buildMaraExecutionReaders()
-          });
-          syncMaraOperationalRecords(req.user.id, workerSlug);
-          const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
-          if (outputIds.length > 0) {
-            await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
-          }
-        } catch (error) {
-          console.error("Mara onboarding automation failed:", error);
-          createWorkerActivityLog(db, {
-            description: "Onboarding completed, but the first automation pass needs another run.",
-            eventType: "onboarding_automation_failed",
-            metadata: { message: error instanceof Error ? error.message : String(error) },
-            relatedTaskId: null,
-            title: "Onboarding follow-up",
-            userId: req.user.id,
-            workerId: workerSlug
-          });
-        } finally {
-          syncOfficeCanonicalRecords(req.user.id, workerSlug);
-        }
-      })();
+      try {
+        maraAutomationResult = await runMaraFirstDayAutomation({
+          userId: req.user.id,
+          workerSlug,
+          answers,
+          generatedSummary: Array.isArray(generatedSummary) ? generatedSummary : [],
+          normalizedKnowledge
+        });
+      } catch (error) {
+        console.error("Mara onboarding automation failed:", error);
+        createWorkerActivityLog(db, {
+          description: "I finished onboarding, but my first work pass needs another try.",
+          eventType: "onboarding_automation_failed",
+          metadata: { message: error instanceof Error ? error.message : String(error) },
+          relatedTaskId: null,
+          title: "First-day follow-up",
+          userId: req.user.id,
+          workerId: workerSlug
+        });
+      } finally {
+        syncOfficeCanonicalRecords(req.user.id, workerSlug);
+      }
+    } else {
+      syncOfficeCanonicalRecords(req.user.id, workerSlug);
     }
+
+    res.json({
+      ok: true,
+      workspace:
+        maraAutomationResult?.workspace ??
+        (workerSlug === MARA_SLUG
+          ? buildMaraWorkspace(db, req.user.id, workerSlug, {
+              readKnowledgeSections: readWorkerKnowledgeSections,
+              readOfficeOverlays: readOfficeOverlaysForUser
+            })
+          : null)
+    });
   } catch (error) {
     console.error("Worker onboarding completion failed:", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Unable to complete onboarding." });
