@@ -205,6 +205,16 @@ export function planMaraAutonomyActions(context) {
   return actions;
 }
 
+const HEAVY_AUTONOMY_ACTION_KINDS = new Set(["brand_research", "inbox_organization", "reddit_pulse"]);
+
+export function filterPlannedActionsForMode(plannedActions, mode = "full") {
+  if (mode !== "interactive") {
+    return plannedActions;
+  }
+
+  return plannedActions.filter((action) => !HEAVY_AUTONOMY_ACTION_KINDS.has(action.kind));
+}
+
 function isArtifactStale(lastCreatedAt, maxAgeHours) {
   if (!lastCreatedAt) {
     return true;

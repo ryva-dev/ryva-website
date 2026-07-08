@@ -158,6 +158,49 @@ type MaraWorkspaceWaitingItem = {
   nextStep?: string;
 };
 
+type MaraAutonomySummary = {
+  blockers?: string[];
+  createdTaskIds?: string[];
+  executedTaskIds?: string[];
+  mode?: string;
+  notes?: string[];
+  outputs?: Array<{ id?: string; title?: string }>;
+  plannedActions?: string[];
+};
+
+type MaraAutonomyRunResponse = {
+  ok: boolean;
+  summary: MaraAutonomySummary;
+  workspace: MaraWorkspace;
+};
+
+function formatMaraAutonomyNotice(summary: MaraAutonomySummary): string {
+  if (summary.blockers?.length && !summary.outputs?.length && !summary.executedTaskIds?.length) {
+    return `Mara is blocked: ${summary.blockers[0]}`;
+  }
+
+  const parts: string[] = [];
+  if (summary.outputs?.length) {
+    parts.push(`shipped ${summary.outputs.length} deliverable${summary.outputs.length === 1 ? "" : "s"}`);
+  }
+  if (summary.executedTaskIds?.length) {
+    parts.push(`ran ${summary.executedTaskIds.length} task${summary.executedTaskIds.length === 1 ? "" : "s"}`);
+  }
+  if (summary.createdTaskIds?.length) {
+    parts.push(`queued ${summary.createdTaskIds.length} new task${summary.createdTaskIds.length === 1 ? "" : "s"}`);
+  }
+
+  if (parts.length > 0) {
+    return `Mara ${parts.join(", ")}.`;
+  }
+
+  if (summary.blockers?.length) {
+    return `Mara finished but is waiting on: ${summary.blockers[0]}`;
+  }
+
+  return "Mara finished her cycle. Check her desk for updates.";
+}
+
 type MaraWorkspace = {
   blockedTasks: MaraWorkspaceTask[];
   currentFocus: string;
@@ -1659,7 +1702,7 @@ function WorkerDeskView({
                 <button className="r-btn r-btn-accent" type="button" onClick={() => setSection("conversation")}>Assign work</button>
               )}
               <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunAutonomy()} disabled={busyId === "mara-autonomy"}>
-                {busyId === "mara-autonomy" ? "Refreshing..." : "Run Mara now"}
+                {busyId === "mara-autonomy" ? "Running Mara..." : "Run Mara now"}
               </button>
             </>
           ) : (
@@ -2705,15 +2748,19 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     if (!isMaraWorker(workerSlugParam)) return;
     setWorkerActionBusy("mara-autonomy");
     try {
-      await officeJson(`/api/office/workers/${workerSlugParam}/autonomy/run`, {
+      const payload = await officeJson<MaraAutonomyRunResponse>(`/api/office/workers/${workerSlugParam}/autonomy/run`, {
         method: "POST",
         body: JSON.stringify({})
       });
+      setMaraWorkspaces((current) => ({ ...current, [workerSlugParam]: payload.workspace }));
       await reload();
+      onNotice(formatMaraAutonomyNotice(payload.summary));
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "Mara could not finish that run.");
     } finally {
       setWorkerActionBusy(null);
     }
-  }, [reload]);
+  }, [onNotice, reload]);
 
   const updateWorkerApproval = useCallback(async (workerSlugParam: string, approvalId: string, status: "approved" | "rejected") => {
     if (!isMaraWorker(workerSlugParam)) return;

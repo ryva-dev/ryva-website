@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   buildAutonomyPlannerContext,
   computeNextRunAt,
+  filterPlannedActionsForMode,
   isRecurringDue,
   planMaraAutonomyActions
 } from "./maraAutonomyPlanner.mjs";
@@ -2124,6 +2125,18 @@ function isAllowedBrandResearchUrl(url) {
   return !/(reddit\.com|linkedin\.com|instagram\.com|tiktok\.com|youtube\.com|duckduckgo\.com)/i.test(host);
 }
 
+export function createFetchWithTimeout(fetchImpl = globalThis.fetch, timeoutMs = 8000) {
+  return async (url, options = {}) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetchImpl(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
 async function fetchText(fetchImpl, url, headers = {}) {
   const response = await fetchImpl(url, {
     headers: {
@@ -2991,6 +3004,7 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
 export async function runMaraAutonomyCycle({
   db,
   fetchImpl = globalThis.fetch,
+  mode = "full",
   readAccountContext,
   readConnectedIntegrations,
   readMessages,
@@ -3041,13 +3055,15 @@ export async function runMaraAutonomyCycle({
     trendSnapshotUpdatedAt: getLatestTrendSnapshot(db, userId, workerId)?.updatedAt ?? null
   });
 
-  const plannedActions = planMaraAutonomyActions(plannerContext);
+  const timedFetchImpl = createFetchWithTimeout(fetchImpl);
+  const plannedActions = filterPlannedActionsForMode(planMaraAutonomyActions(plannerContext), mode);
   summary.plannedActions = plannedActions.map((action) => action.kind);
+  summary.mode = mode;
 
   for (const action of plannedActions) {
     await executeAutonomyPlannedAction(action, {
       db,
-      fetchImpl,
+      fetchImpl: timedFetchImpl,
       integrations,
       permissions,
       privateInsights,

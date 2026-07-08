@@ -4048,23 +4048,27 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
   try {
     const summary = await runMaraAutonomyCycle({
       db,
+      mode: "interactive",
       userId: req.user.id,
       workerId: workerSlug,
       ...buildMaraExecutionReaders()
     });
     syncMaraOperationalRecords(req.user.id, workerSlug);
+    const workspace = buildMaraWorkspace(db, req.user.id, workerSlug, {
+      readKnowledgeSections: readWorkerKnowledgeSections,
+      readOfficeOverlays: readOfficeOverlaysForUser
+    });
     const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
-    if (outputIds.length > 0) {
-      await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
-    }
     res.json({
       ok: true,
       summary,
-      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
-        readKnowledgeSections: readWorkerKnowledgeSections,
-        readOfficeOverlays: readOfficeOverlaysForUser
-      })
+      workspace
     });
+    if (outputIds.length > 0) {
+      void syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds).catch((error) => {
+        console.error("Mara Gmail draft sync failed after autonomy run:", error);
+      });
+    }
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not run Mara autonomy." });
   }

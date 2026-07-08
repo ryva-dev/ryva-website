@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildAutonomyPlannerContext,
   computeNextRunAt,
+  filterPlannedActionsForMode,
   isRecurringDue,
   planMaraAutonomyActions
 } from "./maraAutonomyPlanner.mjs";
@@ -63,4 +64,17 @@ test("isRecurringDue respects next_run_at", () => {
     nextRunAt: new Date(Date.now() - 60_000).toISOString()
   });
   assert.equal(due, true);
+});
+
+test("interactive mode skips heavy network autonomy actions", () => {
+  const actions = [
+    { kind: "ensure_starter_tasks" },
+    { kind: "brand_research", limit: 3 },
+    { kind: "reddit_pulse" },
+    { kind: "inbox_organization" },
+    { kind: "ops_brief" }
+  ];
+
+  const filtered = filterPlannedActionsForMode(actions, "interactive");
+  assert.deepEqual(filtered.map((action) => action.kind), ["ensure_starter_tasks", "ops_brief"]);
 });
