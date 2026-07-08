@@ -571,6 +571,43 @@ test("autoExecuteSafeMaraTasks executes safe onboarding tasks", async () => {
   assert.equal(listWorkerOutputs(db, "user-1", MARA_WORKER_ID).length, 2);
 });
 
+test("runMaraAutonomyCycle executes existing approved starter tasks", async () => {
+  const db = makeDb();
+  ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  createApprovedTaskIfPermissionAllows(db, {
+    description: "Define creator positioning.",
+    priority: "high",
+    requiredPermissions: [],
+    title: "Define creator positioning",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  createApprovedTaskIfPermissionAllows(db, {
+    description: "Build brand fit criteria.",
+    priority: "high",
+    requiredPermissions: [],
+    title: "Build brand fit criteria",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+
+  const summary = await runMaraAutonomyCycle({
+    db,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders({
+      readMaraOnboarding: () => ({
+        answers: {},
+        generatedSummary: [],
+        status: "completed"
+      })
+    })
+  });
+
+  assert.ok(summary.executedTaskIds.length >= 2);
+  assert.ok(listWorkerOutputs(db, "user-1", MARA_WORKER_ID).length >= 2);
+});
+
 test("task type inference works for onboarding-generated tasks", () => {
   assert.equal(inferMaraTaskType("Define creator positioning", "onboarding_generated"), "creator_positioning");
   assert.equal(inferMaraTaskType("Build brand fit criteria", "onboarding_generated"), "brand_fit_criteria");

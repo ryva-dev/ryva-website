@@ -5181,7 +5181,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
       });
     }
 
-    const executedResults = autoExecuteSafeMaraTasks({
+    const executedResults = await autoExecuteSafeMaraTasks({
       db,
       taskIds: createdChatTaskIds,
       userId: req.user.id,
@@ -5776,6 +5776,18 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
     ensureWorkerPermissions(db, req.user.id, workerSlug);
 
     let shouldRunMaraOnboardingAutomation = false;
+    const maraHasOutputs =
+      workerSlug === MARA_SLUG
+        ? Number(
+            db
+              .prepare(
+                `SELECT COUNT(*) AS count
+                 FROM worker_outputs
+                 WHERE user_id = ? AND worker_id = ?`
+              )
+              .get(req.user.id, workerSlug)?.count || 0
+          ) > 0
+        : true;
 
     if (existing?.status !== "completed") {
       for (const task of tasks) {
@@ -5816,6 +5828,8 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       if (workerSlug === MARA_SLUG) {
         shouldRunMaraOnboardingAutomation = true;
       }
+    } else if (workerSlug === MARA_SLUG && !maraHasOutputs) {
+      shouldRunMaraOnboardingAutomation = true;
     }
     db.prepare(
       `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
@@ -5858,8 +5872,15 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
               userId: req.user.id,
               workerId: workerSlug
             });
-            if (!created.duplicate && created.id) {
-              createdTaskIds.push(created.id);
+            if (created.id) {
+              if (!created.duplicate) {
+                createdTaskIds.push(created.id);
+              } else {
+                const existingTask = listWorkerTasksForUserWorker(db, req.user.id, workerSlug).find((entry) => entry.id === created.id);
+                if (existingTask && ["approved", "in_progress"].includes(existingTask.status)) {
+                  createdTaskIds.push(created.id);
+                }
+              }
             }
           }
 
@@ -5876,7 +5897,7 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
             });
           }
 
-          const starterResults = autoExecuteSafeMaraTasks({
+          const starterResults = await autoExecuteSafeMaraTasks({
             db,
             taskIds: createdTaskIds,
             userId: req.user.id,

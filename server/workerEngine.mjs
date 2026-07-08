@@ -2406,11 +2406,19 @@ function buildInboxLeadSnapshot(db, userId, workerId) {
 function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, workerId }) {
   const plan = buildMaraInitialWorkPlan({ accountContext, maraAnswers });
   const existingTasks = listWorkerTasksForUserWorker(db, userId, workerId);
-  const existingTitles = new Set(existingTasks.map((task) => normalizeForComparison(task.title)));
-  const createdTaskIds = [];
+  const existingByTitle = new Map(existingTasks.map((task) => [normalizeForComparison(task.title), task]));
+  const taskIdsToExecute = [];
 
   for (const task of plan.tasks) {
-    if (existingTitles.has(normalizeForComparison(task.title))) continue;
+    const normalizedTitle = normalizeForComparison(task.title);
+    const existing = existingByTitle.get(normalizedTitle);
+    if (existing) {
+      if (["approved", "in_progress"].includes(existing.status)) {
+        taskIdsToExecute.push(existing.id);
+      }
+      continue;
+    }
+
     const created = createApprovedTaskIfPermissionAllows(db, {
       description: task.description,
       dueAt: task.priority === "high" ? "This week" : "Next 7 days",
@@ -2422,7 +2430,9 @@ function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, w
       userId,
       workerId
     });
-    if (!created.duplicate && created.id) createdTaskIds.push(created.id);
+    if (created.id) {
+      taskIdsToExecute.push(created.id);
+    }
   }
 
   for (const recurring of plan.recurringResponsibilities) {
@@ -2438,7 +2448,7 @@ function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, w
     });
   }
 
-  return createdTaskIds;
+  return [...new Set(taskIdsToExecute)];
 }
 
 async function runMaraBrandResearchCycle({
