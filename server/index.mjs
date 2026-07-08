@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import Stripe from "stripe";
 import { fileURLToPath } from "node:url";
-import { db } from "./db.mjs";
+import { db, ensureOfficeSchema } from "./db.mjs";
 import { sendTransactionalEmail } from "./mailer.mjs";
 import {
   autoExecuteSafeMaraTasks,
@@ -4199,19 +4199,25 @@ app.post("/api/office/workers/:slug/opportunities/:opportunityId", assertOrigin,
 });
 
 app.get("/api/office/overlays", requireAuth, (req, res) => {
-  const workerRows = db
-    .prepare(
-      `SELECT worker_slug AS workerSlug
-       FROM hired_workers
-       WHERE user_id = ? AND status = 'active'`
-    )
-    .all(req.user.id);
+  try {
+    ensureOfficeSchema();
+    const workerRows = db
+      .prepare(
+        `SELECT worker_slug AS workerSlug
+         FROM hired_workers
+         WHERE user_id = ? AND status = 'active'`
+      )
+      .all(req.user.id);
 
-  for (const row of workerRows) {
-    syncOfficeCanonicalRecords(req.user.id, row.workerSlug);
+    for (const row of workerRows) {
+      syncOfficeCanonicalRecords(req.user.id, row.workerSlug);
+    }
+
+    res.json(readOfficeOverlaysForUser(req.user.id));
+  } catch (error) {
+    console.error("Office overlays load failed:", error);
+    res.status(500).json({ error: "The office could not finish loading right now." });
   }
-
-  res.json(readOfficeOverlaysForUser(req.user.id));
 });
 
 app.post("/api/office/calendar/events", assertOrigin, requireAuth, (req, res) => {
@@ -5597,67 +5603,80 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
     );
 
     if (workerSlug === MARA_SLUG) {
-      const accountContext = getUserOnboardingRecord(req.user.id);
-      const initialPlan = buildMaraInitialWorkPlan({
-        accountContext,
-        maraAnswers: answers
-      });
-      const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
-      replaceWorkerKnowledge(req.user.id, workerSlug, mergedKnowledge);
-      const createdTaskIds = [];
-
-      for (const task of initialPlan.tasks) {
-        const created = createApprovedTaskIfPermissionAllows(db, {
-          description: task.description,
-          dueAt: task.priority === "high" ? "This week" : "Next 7 days",
-          evidenceUsed: generatedSummary,
-          priority: task.priority,
-          requiredPermissions: [],
-          source: "onboarding_generated",
-          title: task.title,
-          userId: req.user.id,
-          workerId: workerSlug
+      try {
+        const accountContext = getUserOnboardingRecord(req.user.id);
+        const initialPlan = buildMaraInitialWorkPlan({
+          accountContext,
+          maraAnswers: answers
         });
-        if (!created.duplicate && created.id) {
-          createdTaskIds.push(created.id);
+        const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
+        replaceWorkerKnowledge(req.user.id, workerSlug, mergedKnowledge);
+        const createdTaskIds = [];
+
+        for (const task of initialPlan.tasks) {
+          const created = createApprovedTaskIfPermissionAllows(db, {
+            description: task.description,
+            dueAt: task.priority === "high" ? "This week" : "Next 7 days",
+            evidenceUsed: generatedSummary,
+            priority: task.priority,
+            requiredPermissions: [],
+            source: "onboarding_generated",
+            title: task.title,
+            userId: req.user.id,
+            workerId: workerSlug
+          });
+          if (!created.duplicate && created.id) {
+            createdTaskIds.push(created.id);
+          }
         }
-      }
 
-      for (const recurring of initialPlan.recurringResponsibilities) {
-        createRecurringResponsibility(db, {
-          cadence: recurring.cadence,
-          createdFrom: "onboarding",
-          dayOfWeek: recurring.dayOfWeek,
-          description: recurring.description,
-          permissionRequired: recurring.permissionRequired ?? null,
-          title: recurring.title,
+        for (const recurring of initialPlan.recurringResponsibilities) {
+          createRecurringResponsibility(db, {
+            cadence: recurring.cadence,
+            createdFrom: "onboarding",
+            dayOfWeek: recurring.dayOfWeek,
+            description: recurring.description,
+            permissionRequired: recurring.permissionRequired ?? null,
+            title: recurring.title,
+            userId: req.user.id,
+            workerId: workerSlug
+          });
+        }
+
+        const starterResults = autoExecuteSafeMaraTasks({
+          db,
+          taskIds: createdTaskIds,
+          userId: req.user.id,
+          workerId: workerSlug,
+          ...buildMaraExecutionReaders()
+        });
+        const starterOutputIds = starterResults.map((result) => result?.output?.id).filter(Boolean);
+        if (starterOutputIds.length > 0) {
+          await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, starterOutputIds);
+        }
+
+        const summary = await runMaraAutonomyCycle({
+          db,
+          userId: req.user.id,
+          workerId: workerSlug,
+          ...buildMaraExecutionReaders()
+        });
+        syncMaraOperationalRecords(req.user.id, workerSlug);
+        const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+        if (outputIds.length > 0) {
+          await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
+        }
+      } catch (error) {
+        console.error("Mara onboarding automation failed:", error);
+        createWorkerActivityLog(db, {
+          description: "Onboarding completed, but the first automation pass needs another run.",
+          eventType: "onboarding_automation_failed",
+          metadata: { message: error instanceof Error ? error.message : String(error) },
+          relatedTaskId: null,
+          title: "Onboarding follow-up",
           userId: req.user.id,
           workerId: workerSlug
         });
-      }
-
-      const starterResults = autoExecuteSafeMaraTasks({
-        db,
-        taskIds: createdTaskIds,
-        userId: req.user.id,
-        workerId: workerSlug,
-        ...buildMaraExecutionReaders()
-      });
-      const starterOutputIds = starterResults.map((result) => result?.output?.id).filter(Boolean);
-      if (starterOutputIds.length > 0) {
-        await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, starterOutputIds);
-      }
-
-      const summary = await runMaraAutonomyCycle({
-        db,
-        userId: req.user.id,
-        workerId: workerSlug,
-        ...buildMaraExecutionReaders()
-      });
-      syncMaraOperationalRecords(req.user.id, workerSlug);
-      const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
-      if (outputIds.length > 0) {
-        await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
       }
     }
   }

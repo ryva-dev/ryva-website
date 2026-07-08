@@ -30,6 +30,124 @@ if (isProduction && !hasRailwayVolume && !hasAbsoluteDatabasePath && !hasAbsolut
 export const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 
+function ensureColumn(tableName, columnName, columnDefinition) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  if (!columns.some((column) => column.name === columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+}
+
+export function ensureOfficeSchema() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS office_onboarding_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_slug TEXT NOT NULL,
+      status TEXT NOT NULL,
+      answers_json TEXT NOT NULL,
+      generated_summary_json TEXT NOT NULL,
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, worker_slug),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS office_assignments (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_slug TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_label TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      status TEXT NOT NULL,
+      priority TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      rhythm TEXT,
+      blocked_reason TEXT NOT NULL,
+      due_at TEXT,
+      artifact_type TEXT NOT NULL,
+      artifact_ref_id TEXT,
+      artifact_title TEXT NOT NULL,
+      artifact_preview TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, worker_slug, source_type, source_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS office_deliverables (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      worker_slug TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      deliverable_type TEXT NOT NULL,
+      preview_text TEXT NOT NULL,
+      content_ref_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, worker_slug, source_type, source_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS office_handbook_entries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      section TEXT NOT NULL,
+      subsection TEXT NOT NULL,
+      worker_slug TEXT,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_label TEXT NOT NULL,
+      statement TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(user_id, section, subsection, worker_slug, source_type, source_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  ensureColumn("office_onboarding_sessions", "completed_at", "TEXT");
+  ensureColumn("office_onboarding_sessions", "created_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_onboarding_sessions", "updated_at", "TEXT NOT NULL DEFAULT ''");
+
+  ensureColumn("office_assignments", "source_label", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_assignments", "summary", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_assignments", "status", "TEXT NOT NULL DEFAULT 'queued'");
+  ensureColumn("office_assignments", "priority", "TEXT NOT NULL DEFAULT 'medium'");
+  ensureColumn("office_assignments", "kind", "TEXT NOT NULL DEFAULT 'one_off'");
+  ensureColumn("office_assignments", "rhythm", "TEXT");
+  ensureColumn("office_assignments", "blocked_reason", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_assignments", "due_at", "TEXT");
+  ensureColumn("office_assignments", "artifact_type", "TEXT NOT NULL DEFAULT 'none'");
+  ensureColumn("office_assignments", "artifact_ref_id", "TEXT");
+  ensureColumn("office_assignments", "artifact_title", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_assignments", "artifact_preview", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_assignments", "created_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_assignments", "updated_at", "TEXT NOT NULL DEFAULT ''");
+
+  ensureColumn("office_deliverables", "summary", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_deliverables", "deliverable_type", "TEXT NOT NULL DEFAULT 'file'");
+  ensureColumn("office_deliverables", "preview_text", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_deliverables", "content_ref_id", "TEXT");
+  ensureColumn("office_deliverables", "created_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_deliverables", "updated_at", "TEXT NOT NULL DEFAULT ''");
+
+  ensureColumn("office_handbook_entries", "subsection", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_handbook_entries", "worker_slug", "TEXT");
+  ensureColumn("office_handbook_entries", "source_type", "TEXT NOT NULL DEFAULT 'manual'");
+  ensureColumn("office_handbook_entries", "source_id", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_handbook_entries", "source_label", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_handbook_entries", "statement", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_handbook_entries", "created_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("office_handbook_entries", "updated_at", "TEXT NOT NULL DEFAULT ''");
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -435,6 +553,7 @@ db.exec(`
   );
 `);
 
+ensureOfficeSchema();
 initWorkerTables(db);
 
 db.exec(`

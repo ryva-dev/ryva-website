@@ -690,15 +690,17 @@ function TodayView({
       const completed = desk.recentCompleted.slice(0, 2).map((item) => ({
         createdAt: item.updatedAt,
         id: `${desk.workerSlug}-${item.id}-done`,
-        label: `Shipped — ${item.title}`,
+        kind: "Shipped",
+        title: item.title,
         summary: item.summary,
         workerSlug: desk.workerSlug
       }));
       const activity = desk.recentActivity.slice(0, 2).map((item) => ({
         createdAt: item.createdAt,
         id: `${desk.workerSlug}-${item.id}-activity`,
-        label: `${sentenceCase(item.title)} — ${item.summary}`,
-        summary: item.summary,
+        kind: sentenceCase(item.title),
+        title: item.summary,
+        summary: "",
         workerSlug: desk.workerSlug
       }));
       return [...completed, ...activity];
@@ -714,7 +716,9 @@ function TodayView({
   const todayCalHours = Array.from({ length: todayCalEnd - todayCalStart }, (_, index) => todayCalStart + index);
   const nowHour = today.getHours() + today.getMinutes() / 60;
   const hourLabel = (h: number) => (h === 0 ? "12 AM" : h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`);
-
+  const leadAttention = attentionItems[0] ?? null;
+  const secondaryAttention = attentionItems.slice(1, 4);
+  const nextEvent = todaysEvents[0] ?? null;
   const dateLine = today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
 
   return (
@@ -726,189 +730,233 @@ function TodayView({
         </p>
       </header>
 
-      <section className="ro-sec ro-sec-lead">
-        <div className="ro-sec-head">
-          <h2>Needs you</h2>
-          <div className="ro-sec-head-actions">
-            <span className="ro-sec-n">{attentionItems.length === 0 ? "All clear" : attentionItems.length}</span>
-            {attentionItems.length > 0 ? (
-              <button className="ro-textlink" type="button" onClick={onApprovalsClick}>Open reviews</button>
-            ) : null}
-          </div>
-        </div>
-        {attentionItems.length === 0 ? (
-          <p className="ro-blank">Nothing is waiting on you right now.</p>
-        ) : (
-          <div className="ro-rows">
-            {attentionItems.map((item) => (
-              <button key={item.id} className="ro-row ro-row-lead" type="button" onClick={onApprovalsClick}>
-                <div className="ro-row-copy">
-                  <strong>{item.title}</strong>
-                  <p>{item.summary}</p>
-                </div>
-                <div className="ro-row-end">
-                  <span className="ro-row-aside">{nameFor(item.workerSlug)} · review</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {recentChanges.length > 0 ? (
-        <section className="ro-sec">
-          <div className="ro-sec-head">
-            <h2>Since you were away</h2>
-            <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/workers")}>View worker history</button>
-          </div>
-          <div className="ro-rows">
-            {recentChanges.map((item) => (
-              <button key={item.id} className="ro-row" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
-                <div className="ro-row-copy">
-                  <strong>{item.label}</strong>
-                </div>
-                <div className="ro-row-end">
-                  <span className="ro-row-aside">{nameFor(item.workerSlug)} · {clock(item.createdAt) || timeAgo(item.createdAt)}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="ro-sec">
-        <div className="ro-sec-head">
-          <h2>Today</h2>
-          <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/calendar")}>Open calendar</button>
-        </div>
-        {todaysEvents.length === 0 ? (
-          <p className="ro-blank">Nothing on the calendar today.</p>
-        ) : (
-          <div className="ro-today-calendar" onClick={() => onNavigate("#app/office/calendar")} role="button" tabIndex={0} onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              onNavigate("#app/office/calendar");
-            }
-          }}>
-            <div className="ro-cal-days ro-cal-days-day">
-              <div className="ro-cal-sidehead" />
-              <div className="ro-cal-dayhead is-today">
-                <span>{todayStart.toLocaleDateString([], { weekday: "short" })}</span>
-                <strong>{todayStart.getDate()}</strong>
+      <div className="ro-today-layout">
+        <div className="ro-today-main">
+          <section className="ro-sec ro-sec-lead">
+            <div className="ro-sec-head">
+              <h2>Needs you</h2>
+              <div className="ro-sec-head-actions">
+                <span className="ro-sec-n">{attentionItems.length === 0 ? "All clear" : attentionItems.length}</span>
+                <button className="ro-textlink" type="button" onClick={onApprovalsClick}>
+                  {attentionItems.length === 0 ? "Open office" : "Open reviews"}
+                </button>
               </div>
             </div>
-            <div className="ro-today-calendar-scroll">
-              <div className="ro-cal-grid ro-cal-grid-day" style={{ height: (todayCalEnd - todayCalStart) * HOUR_PX }}>
-                {todayCalHours.map((h) => (
-                  <div className="ro-cal-row" key={h} style={{ height: HOUR_PX }}>
-                    <span className="ro-cal-hour">{hourLabel(h)}</span>
-                    <div className="ro-cal-row-days">
-                      <div className="ro-cal-lane" />
+            {leadAttention ? (
+              <div className="ro-attention-hero">
+                <button className="ro-attention-hero-main" type="button" onClick={onApprovalsClick}>
+                  <span className="ro-section-kicker">Needs a decision</span>
+                  <strong>{leadAttention.title}</strong>
+                  <p>{leadAttention.summary}</p>
+                  <div className="ro-attention-meta">
+                    <span>{nameFor(leadAttention.workerSlug)}</span>
+                    <span>Open review</span>
+                  </div>
+                </button>
+                {secondaryAttention.length > 0 ? (
+                  <div className="ro-attention-list">
+                    {secondaryAttention.map((item) => (
+                      <button key={item.id} className="ro-row ro-row-slim" type="button" onClick={onApprovalsClick}>
+                        <div className="ro-row-copy">
+                          <strong>{item.title}</strong>
+                          <p>{item.summary}</p>
+                        </div>
+                        <div className="ro-row-end">
+                          <span className="ro-row-aside">{nameFor(item.workerSlug)}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="ro-blank">Nothing is waiting on you right now.</p>
+            )}
+          </section>
+
+          {recentChanges.length > 0 ? (
+            <section className="ro-sec">
+              <div className="ro-sec-head">
+                <h2>Since you were away</h2>
+                <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/workers")}>View worker history</button>
+              </div>
+              <div className="ro-rows">
+                {recentChanges.map((item) => (
+                  <button key={item.id} className="ro-row ro-row-activity" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
+                    <div className="ro-row-copy">
+                      <span className="ro-row-kicker">{item.kind}</span>
+                      <strong>{item.title}</strong>
+                      {item.summary ? <p>{item.summary}</p> : null}
+                    </div>
+                    <div className="ro-row-end">
+                      <span className="ro-row-aside">{nameFor(item.workerSlug)} · {clock(item.createdAt) || timeAgo(item.createdAt)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="ro-sec">
+            <div className="ro-sec-head">
+              <h2>Around the office</h2>
+              {workerSnapshots.length > 0 ? (
+                <span className="ro-sec-n">{workerSnapshots.length} on the floor</span>
+              ) : null}
+            </div>
+            {workerSnapshots.length === 0 ? (
+              <p className="ro-blank">Quiet so far. Work your team does will show up here.</p>
+            ) : (
+              <div className="ro-worker-floor">
+                {workerSnapshots.map((entry) => (
+                  <button
+                    key={entry.desk.workerSlug}
+                    className="ro-worker-floor-row"
+                    type="button"
+                    onClick={() => onOpenWorkerDetails(entry.desk.workerSlug)}
+                  >
+                    <div className="ro-worker-floor-mark">
+                      <WorkerMark seed={entry.desk.workerSlug} size={42} active />
+                    </div>
+                    <div className="ro-worker-floor-copy">
+                      <div className="ro-worker-floor-head">
+                        <strong>{entry.worker?.name}</strong>
+                        <span>{entry.worker?.title}</span>
+                      </div>
+                      <p>{entry.desk.currentFocus}</p>
+                      <div className="ro-worker-floor-notes">
+                        {entry.activeTask ? <span>On deck: {entry.activeTask.title}</span> : null}
+                        {entry.recentWin ? <span>Shipped: {entry.recentWin.title}</span> : null}
+                      </div>
+                    </div>
+                    <div className="ro-worker-floor-side">
+                      <span>{entry.recentMove ? timeAgo(entry.recentMove.createdAt) : "Open desk"}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="ro-sec">
+            <div className="ro-sec-head">
+              <h2>In motion</h2>
+              <span className="ro-sec-n">{activeAssignments.length === 0 ? "Quiet" : activeAssignments.length}</span>
+            </div>
+            {activeAssignments.length === 0 ? (
+              <p className="ro-blank">No active assignments right now.</p>
+            ) : (
+              <div className="ro-rows">
+                {activeAssignments.slice(0, 4).map((item) => (
+                  <button key={item.id} className="ro-row" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
+                    <div className="ro-row-copy">
+                      <span className="ro-row-kicker">{nameFor(item.workerSlug)}</span>
+                      <strong>{item.title}</strong>
+                      <p>{item.summary}</p>
+                    </div>
+                    <div className="ro-row-end">
+                      <span className="ro-row-aside">{sentenceCase(item.status.replace(/_/g, " "))}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <aside className="ro-today-rail">
+          <section className="ro-sec ro-sec-lead">
+            <div className="ro-sec-head">
+              <h2>Today</h2>
+              <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/calendar")}>Open calendar</button>
+            </div>
+            {todaysEvents.length === 0 ? (
+              <p className="ro-blank">Nothing on the calendar today.</p>
+            ) : (
+              <>
+                {nextEvent ? (
+                  <div className="ro-day-brief">
+                    <span className="ro-section-kicker">Next up</span>
+                    <strong>{nextEvent.title}</strong>
+                    <p>{clock(nextEvent.startsAt)} · {nextEvent.workerSlug ? nameFor(nextEvent.workerSlug) : "Office"}</p>
+                  </div>
+                ) : null}
+                <div className="ro-today-calendar" onClick={() => onNavigate("#app/office/calendar")} role="button" tabIndex={0} onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onNavigate("#app/office/calendar");
+                  }
+                }}>
+                  <div className="ro-cal-days ro-cal-days-day">
+                    <div className="ro-cal-sidehead" />
+                    <div className="ro-cal-dayhead is-today">
+                      <span>{todayStart.toLocaleDateString([], { weekday: "short" })}</span>
+                      <strong>{todayStart.getDate()}</strong>
                     </div>
                   </div>
-                ))}
+                  <div className="ro-today-calendar-scroll">
+                    <div className="ro-cal-grid ro-cal-grid-day" style={{ height: (todayCalEnd - todayCalStart) * HOUR_PX }}>
+                      {todayCalHours.map((h) => (
+                        <div className="ro-cal-row" key={h} style={{ height: HOUR_PX }}>
+                          <span className="ro-cal-hour">{hourLabel(h)}</span>
+                          <div className="ro-cal-row-days">
+                            <div className="ro-cal-lane" />
+                          </div>
+                        </div>
+                      ))}
 
-                {todaysEvents.map((e) => {
-                  const top = (hourOf(e.startsAt) - todayCalStart) * HOUR_PX;
-                  const height = Math.max(28, (hourOf(e.endsAt) - hourOf(e.startsAt)) * HOUR_PX - 4);
-                  return (
-                    <button
-                      key={e.id}
-                      className={`ro-evt type-${e.eventType.toLowerCase()}`}
-                      style={{ top, height, left: 66, right: 10 }}
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onNavigate("#app/office/calendar");
-                      }}
-                    >
-                      <span className="ro-evt-title">{e.title}</span>
-                      <small>{e.workerSlug ? nameFor(e.workerSlug) : clock(e.startsAt)}</small>
-                    </button>
-                  );
-                })}
+                      {todaysEvents.map((e) => {
+                        const top = (hourOf(e.startsAt) - todayCalStart) * HOUR_PX;
+                        const height = Math.max(28, (hourOf(e.endsAt) - hourOf(e.startsAt)) * HOUR_PX - 4);
+                        return (
+                          <button
+                            key={e.id}
+                            className={`ro-evt type-${e.eventType.toLowerCase()}`}
+                            style={{ top, height, left: 66, right: 10 }}
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onNavigate("#app/office/calendar");
+                            }}
+                          >
+                            <span className="ro-evt-title">{e.title}</span>
+                            <small>{e.workerSlug ? nameFor(e.workerSlug) : clock(e.startsAt)}</small>
+                          </button>
+                        );
+                      })}
 
-                {nowHour >= todayCalStart && nowHour <= todayCalEnd && (
-                  <div
-                    className="ro-nowline"
-                    style={{ top: (nowHour - todayCalStart) * HOUR_PX, left: 58, right: 10 }}
-                    data-time={today.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                  />
-                )}
-              </div>
+                      {nowHour >= todayCalStart && nowHour <= todayCalEnd && (
+                        <div
+                          className="ro-nowline"
+                          style={{ top: (nowHour - todayCalStart) * HOUR_PX, left: 58, right: 10 }}
+                          data-time={today.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="ro-sec">
+            <div className="ro-sec-head">
+              <h2>Ready to move</h2>
             </div>
-          </div>
-        )}
-      </section>
-
-      <section className="ro-sec">
-        <div className="ro-sec-head">
-          <h2>Around the office</h2>
-        </div>
-        {workerSnapshots.length === 0 ? (
-          <p className="ro-blank">Quiet so far. Work your team does will show up here.</p>
-        ) : (
-          <div className="ro-rows">
-            {workerSnapshots.map((entry) => (
-              <button
-                key={entry.desk.workerSlug}
-                className="ro-row ro-row-worker"
-                type="button"
-                onClick={() => onOpenWorkerDetails(entry.desk.workerSlug)}
-              >
-                <div className="ro-worker-snapshot-mark">
-                  <WorkerMark seed={entry.desk.workerSlug} size={40} active />
-                </div>
-                <div className="ro-row-copy">
-                  <strong>{entry.worker?.name}</strong>
-                  <p>{entry.desk.currentFocus}</p>
-                  {entry.activeTask ? <p className="ro-worker-snapshot-sub">In progress: {entry.activeTask.title}</p> : null}
-                  {entry.recentWin ? <p className="ro-worker-snapshot-sub">While you were gone: {entry.recentWin.title}</p> : null}
-                </div>
-                <div className="ro-row-end">
-                  <span className="ro-row-aside">{entry.recentMove ? timeAgo(entry.recentMove.createdAt) : "Open desk"}</span>
-                  <span className="ro-row-cta">Open desk</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="ro-sec">
-        <div className="ro-sec-head">
-          <h2>In motion</h2>
-          <span className="ro-sec-n">{activeAssignments.length === 0 ? "Quiet" : activeAssignments.length}</span>
-        </div>
-        {activeAssignments.length === 0 ? (
-          <p className="ro-blank">No active assignments right now.</p>
-        ) : (
-          <div className="ro-rows">
-            {activeAssignments.map((item) => (
-              <button key={item.id} className="ro-row" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
-                <div className="ro-row-copy">
-                  <strong>{item.title}</strong>
-                  <p>{item.summary}</p>
-                </div>
-                <div className="ro-row-end">
-                  <span className="ro-row-aside">{nameFor(item.workerSlug)} · {sentenceCase(item.status.replace(/_/g, " "))}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {idleWorkers.length > 0 ? (
-        <section className="ro-sec">
-          <div className="ro-sec-head">
-            <h2>Ready to delegate</h2>
-          </div>
-          <p className="ro-blank">
-            {workers.find((worker) => worker.slug === idleWorkers[0]?.workerSlug)?.name.split(" ")[0] || "A worker"} has capacity. Use the worker desk to assign the next piece of work.
-          </p>
-        </section>
-      ) : null}
+            {idleWorkers.length > 0 ? (
+              <div className="ro-rail-note">
+                <strong>{workers.find((worker) => worker.slug === idleWorkers[0]?.workerSlug)?.name.split(" ")[0] || "A worker"} has capacity.</strong>
+                <p>Open the desk and point the next piece of work where it should go.</p>
+              </div>
+            ) : (
+              <div className="ro-rail-note">
+                <strong>Your office is already in motion.</strong>
+                <p>Use reviews and worker desks to redirect work without slowing things down.</p>
+              </div>
+            )}
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -939,207 +987,212 @@ function WorkerDeskSections({
   const connectedLabel = canUseEmail
     ? "Connected tools are available."
     : "No connected tools yet.";
+  const workerFirstName = activeWorker.name.split(" ")[0];
 
   return (
-    <>
-      <section className="ro-worker-drawer-section">
-        <span className="ro-section-kicker">Current focus</span>
-        <h3>{desk.currentFocus}</h3>
-        <p>{desk.currentFocusReason}</p>
-      </section>
+    <div className="ro-desk-layout">
+      <div className="ro-desk-main">
+        <section className="ro-worker-drawer-section ro-desk-focus">
+          <span className="ro-section-kicker">Current focus</span>
+          <h3>{desk.currentFocus}</h3>
+          <p>{desk.currentFocusReason}</p>
+        </section>
 
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>Responsibilities</strong>
-          <span>{activeWorker.profile.responsibilities.length} areas</span>
-        </div>
-        <div className="ro-plain-list">
-          {activeWorker.profile.responsibilities.slice(0, 4).map((item) => (
-            <div className="ro-plain-row" key={item}>
-              <strong>{item}</strong>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>Connected access</strong>
-          <span>{connectedLabel}</span>
-        </div>
-        {desk.connectedTools.length > 0 ? (
-          <div className="ro-plain-list">
-            {desk.connectedTools.map((tool) => (
-              <div className="ro-plain-row" key={`${tool.provider}-${tool.label}`}>
-                <strong>{tool.label}</strong>
-                <p>{sentenceCase(tool.status)}</p>
-              </div>
-            ))}
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Waiting on you</strong>
+            <span>{desk.waitingOnUser.length === 0 ? "All clear" : `${desk.waitingOnUser.length} items`}</span>
           </div>
-        ) : (
-          <p className="ro-worker-note">This worker can still plan, draft, and organize work without connected tools.</p>
-        )}
-      </section>
+          {desk.waitingOnUser.length > 0 ? (
+            <div className="ro-plain-list">
+              {desk.waitingOnUser.map((item) => {
+                const approval = desk.approvals.find((entry) => entry.id === item.id);
+                return (
+                  <div className="ro-plain-row" key={item.id}>
+                    <div>
+                      <strong>{item.title}</strong>
+                      <p>{item.summary}</p>
+                    </div>
+                    {approval && isMaraWorker(activeWorker.slug) ? (
+                      <div className="ro-inline-actions">
+                        <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>Deny</button>
+                        <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
+                          {busyId === approval.id ? "Saving..." : "Approve"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="ro-worker-note">Nothing is blocked right now.</p>
+          )}
+        </section>
 
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>Waiting on you</strong>
-          <span>{desk.waitingOnUser.length === 0 ? "All clear" : `${desk.waitingOnUser.length} item${desk.waitingOnUser.length === 1 ? "" : "s"}`}</span>
-        </div>
-        {desk.waitingOnUser.length > 0 ? (
-          <div className="ro-plain-list">
-            {desk.waitingOnUser.map((item) => {
-              const approval = desk.approvals.find((entry) => entry.id === item.id);
-              return (
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>On {workerFirstName}&apos;s plate</strong>
+            <span>{desk.workInMotion.length === 0 ? "Quiet" : `${desk.workInMotion.length} active`}</span>
+          </div>
+          {desk.workInMotion.length > 0 ? (
+            <div className="ro-plain-list">
+              {desk.workInMotion.map((item) => (
                 <div className="ro-plain-row" key={item.id}>
                   <div>
                     <strong>{item.title}</strong>
                     <p>{item.summary}</p>
                   </div>
-                  {approval && isMaraWorker(activeWorker.slug) ? (
-                    <div className="ro-inline-actions">
-                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>Deny</button>
-                      <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
-                        {busyId === approval.id ? "Saving..." : "Approve"}
-                      </button>
-                    </div>
+                  {isMaraWorker(activeWorker.slug) ? (
+                    <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
+                      {busyId === item.id ? "Running..." : "Run"}
+                    </button>
                   ) : null}
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="ro-worker-note">Nothing is blocked right now.</p>
-        )}
-      </section>
+              ))}
+            </div>
+          ) : (
+            <p className="ro-worker-note">Ready for the next assignment.</p>
+          )}
+        </section>
 
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>Current work</strong>
-          <span>{desk.workInMotion.length === 0 ? "Quiet" : `${desk.workInMotion.length} active`}</span>
-        </div>
-        {desk.workInMotion.length > 0 ? (
-          <div className="ro-plain-list">
-            {desk.workInMotion.map((item) => (
-              <div className="ro-plain-row" key={item.id}>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.summary}</p>
-                </div>
-                {isMaraWorker(activeWorker.slug) ? (
-                  <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
-                    {busyId === item.id ? "Running..." : "Run"}
-                  </button>
-                ) : null}
-              </div>
-            ))}
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>{workerFirstName} just shipped</strong>
+            <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} items`}</span>
           </div>
-        ) : (
-          <p className="ro-worker-note">Ready for the next assignment.</p>
-        )}
-      </section>
-
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>Research completed today</strong>
-          <span>{desk.researchToday.length === 0 ? "Nothing yet" : `${desk.researchToday.length} found`}</span>
-        </div>
-        {desk.researchToday.length > 0 ? (
-          <div className="ro-plain-list">
-            {desk.researchToday.map((item) => (
-              <div className="ro-plain-row" key={item.id}>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.summary}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="ro-worker-note">No fresh research findings have been saved yet today.</p>
-        )}
-      </section>
-
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>Lead status</strong>
-          <span>{desk.inboxLeads.length === 0 ? "No inbox map yet" : `${desk.inboxLeads.length} tracked`}</span>
-        </div>
-        {desk.inboxLeads.length > 0 ? (
-          <div className="ro-plain-list">
-            {desk.inboxLeads.map((item) => (
-              <div className="ro-plain-row" key={`${item.brandName}-${item.contactEmail || item.contactName}`}>
-                <div>
-                  <strong>{item.brandName}</strong>
-                  <p>{item.status}{item.contactName ? ` · ${item.contactName}` : ""}</p>
-                  <p>{item.snippet}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="ro-worker-note">Connect Gmail and let Mara sync inbox work to organize lead status here.</p>
-        )}
-      </section>
-
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>Recent output</strong>
-          <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} item${desk.recentCompleted.length === 1 ? "" : "s"}`}</span>
-        </div>
-        {desk.recentCompleted.length > 0 ? (
-          <div className="ro-plain-list">
-            {desk.recentCompleted.map((item) => (
-              <button className="ro-plain-row ro-plain-row-button" type="button" key={item.id} onClick={() => onViewDeliverable(item)}>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.summary}</p>
-                </div>
-                <span>{timeAgo(item.updatedAt)}</span>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="ro-worker-note">No deliverables have been completed yet.</p>
-        )}
-      </section>
-
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>What {activeWorker.name.split(" ")[0]} knows</strong>
-          <span>{desk.memory.length === 0 ? "Learning" : `${desk.memory.length} notes`}</span>
-        </div>
-        {desk.memory.length > 0 ? (
-          <div className="ro-plain-list">
-            {desk.memory.map((item) => (
-              <div className="ro-plain-row" key={item.id}>
-                <div>
-                  <strong>{item.label}</strong>
-                  <p>{item.text}</p>
-                </div>
-                <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
-                  Correct in chat
+          {desk.recentCompleted.length > 0 ? (
+            <div className="ro-plain-list">
+              {desk.recentCompleted.map((item) => (
+                <button className="ro-plain-row ro-plain-row-button" type="button" key={item.id} onClick={() => onViewDeliverable(item)}>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.summary}</p>
+                  </div>
+                  <span>{timeAgo(item.updatedAt)}</span>
                 </button>
+              ))}
+            </div>
+          ) : (
+            <p className="ro-worker-note">No deliverables have been completed yet.</p>
+          )}
+        </section>
+
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Research completed today</strong>
+            <span>{desk.researchToday.length === 0 ? "Nothing yet" : `${desk.researchToday.length} found`}</span>
+          </div>
+          {desk.researchToday.length > 0 ? (
+            <div className="ro-plain-list">
+              {desk.researchToday.map((item) => (
+                <div className="ro-plain-row" key={item.id}>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.summary}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ro-worker-note">No fresh research findings have been saved yet today.</p>
+          )}
+        </section>
+
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Lead status</strong>
+            <span>{desk.inboxLeads.length === 0 ? "No inbox map yet" : `${desk.inboxLeads.length} tracked`}</span>
+          </div>
+          {desk.inboxLeads.length > 0 ? (
+            <div className="ro-plain-list">
+              {desk.inboxLeads.map((item) => (
+                <div className="ro-plain-row" key={`${item.brandName}-${item.contactEmail || item.contactName}`}>
+                  <div>
+                    <strong>{item.brandName}</strong>
+                    <p>{item.status}{item.contactName ? ` · ${item.contactName}` : ""}</p>
+                    <p>{item.snippet}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ro-worker-note">Connect Gmail and let Mara sync inbox work to organize lead status here.</p>
+          )}
+        </section>
+      </div>
+
+      <aside className="ro-desk-rail">
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Responsibilities</strong>
+            <span>{activeWorker.profile.responsibilities.length} areas</span>
+          </div>
+          <div className="ro-plain-list">
+            {activeWorker.profile.responsibilities.slice(0, 4).map((item) => (
+              <div className="ro-plain-row" key={item}>
+                <strong>{item}</strong>
               </div>
             ))}
           </div>
-        ) : (
-          <p className="ro-worker-note">This worker will learn more as you work together.</p>
-        )}
-      </section>
+        </section>
 
-      <section className="ro-worker-drawer-section">
-        <div className="ro-worker-drawer-row">
-          <strong>Access and boundaries</strong>
-          <span>{isMaraWorker(activeWorker.slug) ? "Approval-aware" : "Role-based"}</span>
-        </div>
-        <p className="ro-worker-note">
-          {isMaraWorker(activeWorker.slug)
-            ? "External or sensitive actions stay behind approval. Safe internal work can move forward without extra prompting."
-            : "This worker operates within assigned permissions, tools, and review boundaries."}
-        </p>
-      </section>
-    </>
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Connected access</strong>
+            <span>{connectedLabel}</span>
+          </div>
+          {desk.connectedTools.length > 0 ? (
+            <div className="ro-plain-list">
+              {desk.connectedTools.map((tool) => (
+                <div className="ro-plain-row" key={`${tool.provider}-${tool.label}`}>
+                  <strong>{tool.label}</strong>
+                  <p>{sentenceCase(tool.status)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ro-worker-note">This worker can still plan, draft, and organize work without connected tools.</p>
+          )}
+        </section>
+
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>What {workerFirstName} knows</strong>
+            <span>{desk.memory.length === 0 ? "Learning" : `${desk.memory.length} notes`}</span>
+          </div>
+          {desk.memory.length > 0 ? (
+            <div className="ro-plain-list">
+              {desk.memory.map((item) => (
+                <div className="ro-plain-row" key={item.id}>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <p>{item.text}</p>
+                  </div>
+                  <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
+                    Correct in chat
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ro-worker-note">This worker will learn more as you work together.</p>
+          )}
+        </section>
+
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Access and boundaries</strong>
+            <span>{isMaraWorker(activeWorker.slug) ? "Approval-aware" : "Role-based"}</span>
+          </div>
+          <p className="ro-worker-note">
+            {isMaraWorker(activeWorker.slug)
+              ? "External or sensitive actions stay behind approval. Safe internal work can move forward without extra prompting."
+              : "This worker operates within assigned permissions, tools, and review boundaries."}
+          </p>
+        </section>
+      </aside>
+    </div>
   );
 }
 
@@ -1654,51 +1707,82 @@ function ApprovalsView({
       {total === 0 ? (
         <p className="ro-blank">You're all caught up.</p>
       ) : (
-        <div className="ro-appr-list">
-          {suggestedApprovals.map((action) => (
-            <article className="ro-appr" key={action.id}>
-              <div className="ro-appr-meta">{nameFor(action.workerSlug)} · {sentenceCase(action.actionType.replace(/_/g, " "))} · {timeAgo(action.createdAt)}</div>
-              <h3>{action.title}</h3>
-              <p>{normalizeOfficeCopy(action.description)}</p>
-              <p className="ro-appr-reason">{normalizeOfficeCopy(action.reason)}</p>
-              <div className="ro-appr-actions">
-                <button className="r-btn r-btn-accent" type="button" onClick={() => onNavigate(`#app/office/workers/${action.workerSlug}/conversation`)}>Open conversation</button>
-                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${action.workerSlug}/desk`)}>Open worker</button>
-              </div>
-            </article>
-          ))}
-
-          {pending.map((t) => (
-            <article className="ro-appr" key={t.id}>
-              <div className="ro-appr-meta">{nameFor(t.workerSlug)} · Review requested · due {t.dueDate}</div>
-              <h3>{t.title}</h3>
-              <p className="ro-appr-reason">{t.module}</p>
-              <div className="ro-appr-actions">
-                <button className="r-btn r-btn-accent" type="button" disabled={busy === t.id} onClick={() => void approveTask(t)}>{busy === t.id ? "Saving..." : "Approve"}</button>
-                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${t.workerSlug}/conversation`)}>Request changes</button>
-              </div>
-            </article>
-          ))}
-
-          {overlays.briefings.map((b) => {
-            const decisions = safeList(b.decisionsJson);
-            return (
-              <article className="ro-appr" key={b.id}>
-                <div className="ro-appr-meta">{nameFor(b.workerSlug)} · Briefing · {b.dateLabel}</div>
-                <h3>{b.title}</h3>
-                <p>{normalizeOfficeCopy(b.summary || "Ready for your review.")}</p>
-                {decisions.length > 0 && (
-                  <ul className="ro-appr-points">
-                    {decisions.map((d, i) => <li key={i}>{d}</li>)}
-                  </ul>
-                )}
+        <div className="ro-review-layout">
+          <section className="ro-appr-list">
+            {suggestedApprovals.map((action) => (
+              <article className="ro-appr" key={action.id}>
+                <div className="ro-appr-meta">{nameFor(action.workerSlug)} · {sentenceCase(action.actionType.replace(/_/g, " "))} · {timeAgo(action.createdAt)}</div>
+                <h3>{action.title}</h3>
+                <p>{normalizeOfficeCopy(action.description)}</p>
+                <p className="ro-appr-reason">{normalizeOfficeCopy(action.reason)}</p>
                 <div className="ro-appr-actions">
-                  <button className="r-btn r-btn-accent" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "approve")}>{busy === b.id ? "Saving..." : "Approve"}</button>
-                  <button className="ro-textlink" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "followup")}>Send back</button>
+                  <button className="r-btn r-btn-accent" type="button" onClick={() => onNavigate(`#app/office/workers/${action.workerSlug}/conversation`)}>Open conversation</button>
+                  <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${action.workerSlug}/desk`)}>Open worker</button>
                 </div>
               </article>
-            );
-          })}
+            ))}
+
+            {pending.map((t) => (
+              <article className="ro-appr" key={t.id}>
+                <div className="ro-appr-meta">{nameFor(t.workerSlug)} · Review requested · due {t.dueDate}</div>
+                <h3>{t.title}</h3>
+                <p>Ready for sign-off.</p>
+                <p className="ro-appr-reason">{t.module}</p>
+                <div className="ro-appr-actions">
+                  <button className="r-btn r-btn-accent" type="button" disabled={busy === t.id} onClick={() => void approveTask(t)}>{busy === t.id ? "Saving..." : "Approve"}</button>
+                  <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${t.workerSlug}/conversation`)}>Request changes</button>
+                </div>
+              </article>
+            ))}
+
+            {overlays.briefings.map((b) => {
+              const decisions = safeList(b.decisionsJson);
+              return (
+                <article className="ro-appr" key={b.id}>
+                  <div className="ro-appr-meta">{nameFor(b.workerSlug)} · Briefing · {b.dateLabel}</div>
+                  <h3>{b.title}</h3>
+                  <p>{normalizeOfficeCopy(b.summary || "Ready for your review.")}</p>
+                  {decisions.length > 0 && (
+                    <ul className="ro-appr-points">
+                      {decisions.map((d, i) => <li key={i}>{d}</li>)}
+                    </ul>
+                  )}
+                  <div className="ro-appr-actions">
+                    <button className="r-btn r-btn-accent" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "approve")}>{busy === b.id ? "Saving..." : "Approve"}</button>
+                    <button className="ro-textlink" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "followup")}>Send back</button>
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+
+          <aside className="ro-review-rail">
+            <section className="ro-sec ro-sec-lead">
+              <div className="ro-sec-head">
+                <h2>What needs your eye</h2>
+              </div>
+              <div className="ro-rail-note">
+                <strong>{total} item{total === 1 ? "" : "s"} are waiting.</strong>
+                <p>Approvals here are the moments where a worker needs a real decision, not just a glance.</p>
+              </div>
+            </section>
+
+            <section className="ro-sec">
+              <div className="ro-sec-head">
+                <h2>How to clear the queue</h2>
+              </div>
+              <div className="ro-plain-list">
+                <div className="ro-plain-row">
+                  <strong>Approve what can move now.</strong>
+                  <p>Anything safe and ready should keep moving without another loop.</p>
+                </div>
+                <div className="ro-plain-row">
+                  <strong>Send back only with direction.</strong>
+                  <p>Workers do better when the revision point is explicit.</p>
+                </div>
+              </div>
+            </section>
+          </aside>
         </div>
       )}
     </div>
@@ -1716,17 +1800,20 @@ function AssignmentsView({
 }) {
   const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
   const tasks = overlays.assignments;
+  const needsYou = tasks.filter((task) => task.status === "in_review" || task.status === "blocked");
+  const inMotion = tasks.filter((task) => task.status === "queued" || task.status === "in_progress");
+  const doneThisWeek = tasks.filter((task) => task.status === "done").slice(0, 10);
   const groups = [
     {
-      items: tasks.filter((task) => task.status === "in_review" || task.status === "blocked"),
+      items: needsYou,
       label: "Needs you"
     },
     {
-      items: tasks.filter((task) => task.status === "queued" || task.status === "in_progress"),
+      items: inMotion,
       label: "In motion"
     },
     {
-      items: tasks.filter((task) => task.status === "done").slice(0, 10),
+      items: doneThisWeek,
       label: "Done this week"
     }
   ].filter((group) => group.items.length > 0);
@@ -1740,32 +1827,59 @@ function AssignmentsView({
       {tasks.length === 0 ? (
         <p className="ro-blank">No assignments yet. Delegate your first piece of work from a worker conversation.</p>
       ) : (
-        groups.map((group) => (
-          <section className="ro-sec" key={group.label}>
-            <div className="ro-sec-head">
-              <h2>{group.label}</h2>
-              <span className="ro-sec-n">{group.items.length}</span>
-            </div>
-            <div className="ro-rows">
-              {group.items.map((task) => (
-                <button
-                  key={task.id}
-                  className="ro-row"
-                  type="button"
-                  onClick={() => onNavigate(`#app/office/workers/${task.workerSlug}/desk`)}
-                >
-                  <div className="ro-row-copy">
-                    <strong>{task.title}</strong>
-                    <p>{task.summary || sentenceCase(task.sourceLabel.replace(/_/g, " "))}</p>
-                  </div>
-                  <div className="ro-row-end">
-                    <span className="ro-row-aside">{nameFor(task.workerSlug)}{task.dueAt ? ` · due ${task.dueAt}` : ""}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-        ))
+        <div className="ro-review-layout">
+          <div>
+            {groups.map((group) => (
+              <section className="ro-sec" key={group.label}>
+                <div className="ro-sec-head">
+                  <h2>{group.label}</h2>
+                  <span className="ro-sec-n">{group.items.length}</span>
+                </div>
+                <div className="ro-rows">
+                  {group.items.map((task) => (
+                    <button
+                      key={task.id}
+                      className="ro-row"
+                      type="button"
+                      onClick={() => onNavigate(`#app/office/workers/${task.workerSlug}/desk`)}
+                    >
+                      <div className="ro-row-copy">
+                        <span className="ro-row-kicker">{nameFor(task.workerSlug)}</span>
+                        <strong>{task.title}</strong>
+                        <p>{task.summary || sentenceCase(task.sourceLabel.replace(/_/g, " "))}</p>
+                      </div>
+                      <div className="ro-row-end">
+                        <span className="ro-row-aside">{task.dueAt ? `due ${task.dueAt}` : sentenceCase(task.status.replace(/_/g, " "))}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <aside className="ro-review-rail">
+            <section className="ro-sec ro-sec-lead">
+              <div className="ro-sec-head">
+                <h2>Work balance</h2>
+              </div>
+              <div className="ro-plain-list">
+                <div className="ro-plain-row">
+                  <strong>{needsYou.length} waiting on you</strong>
+                  <p>These are the items blocking a worker from moving forward cleanly.</p>
+                </div>
+                <div className="ro-plain-row">
+                  <strong>{inMotion.length} already moving</strong>
+                  <p>Active assignments should stay out of your way unless they hit review or a blocker.</p>
+                </div>
+                <div className="ro-plain-row">
+                  <strong>{doneThisWeek.length} recently finished</strong>
+                  <p>Completed work shows up here so the office feels cumulative, not fleeting.</p>
+                </div>
+              </div>
+            </section>
+          </aside>
+        </div>
       )}
     </div>
   );
@@ -1795,34 +1909,49 @@ function HandbookView({
         <h1>Handbook</h1>
         <p className="ro-page-meta">The standing context your workers read before they act.</p>
       </header>
+      <div className="ro-review-layout">
+        <div>
+          <section className="ro-sec ro-sec-lead">
+            <div className="ro-sec-head">
+              <h2>Business profile</h2>
+            </div>
+            <HandbookEntryList entries={grouped.get("business_profile") ?? []} empty="Nothing here yet. Add your business context in settings." workers={workers} />
+          </section>
 
-      <section className="ro-sec">
-        <div className="ro-sec-head">
-          <h2>Business profile</h2>
-        </div>
-        <HandbookEntryList entries={grouped.get("business_profile") ?? []} empty="Nothing here yet. Add your business context in settings." workers={workers} />
-      </section>
+          <section className="ro-sec">
+            <div className="ro-sec-head">
+              <h2>Workers</h2>
+            </div>
+            <HandbookEntryList entries={grouped.get("workers") ?? []} empty="Nothing here yet. Workers add what they learn as you work together." workers={workers} />
+          </section>
 
-      <section className="ro-sec">
-        <div className="ro-sec-head">
-          <h2>Workers</h2>
-        </div>
-        <HandbookEntryList entries={grouped.get("workers") ?? []} empty="Nothing here yet. Workers add what they learn as you work together." workers={workers} />
-      </section>
+          <section className="ro-sec">
+            <div className="ro-sec-head">
+              <h2>Decisions</h2>
+            </div>
+            <HandbookEntryList entries={grouped.get("decisions") ?? []} empty="Nothing here yet. Decisions made in reviews and briefings will collect here." workers={workers} />
+          </section>
 
-      <section className="ro-sec">
-        <div className="ro-sec-head">
-          <h2>Decisions</h2>
+          <section className="ro-sec">
+            <div className="ro-sec-head">
+              <h2>Sources</h2>
+            </div>
+            <HandbookEntryList entries={grouped.get("sources") ?? []} empty="Nothing here yet. Connected tools and shared sources will show up here." workers={workers} />
+          </section>
         </div>
-        <HandbookEntryList entries={grouped.get("decisions") ?? []} empty="Nothing here yet. Decisions made in reviews and briefings will collect here." workers={workers} />
-      </section>
 
-      <section className="ro-sec">
-        <div className="ro-sec-head">
-          <h2>Sources</h2>
-        </div>
-        <HandbookEntryList entries={grouped.get("sources") ?? []} empty="Nothing here yet. Connected tools and shared sources will show up here." workers={workers} />
-      </section>
+        <aside className="ro-review-rail">
+          <section className="ro-sec ro-sec-lead">
+            <div className="ro-sec-head">
+              <h2>How workers use this</h2>
+            </div>
+            <div className="ro-rail-note">
+              <strong>This is the standing office memory.</strong>
+              <p>Anything here should sound clean, durable, and reusable because workers read it before they make decisions.</p>
+            </div>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -2123,84 +2252,107 @@ function TeamView({
   overlays: Overlays;
   onNavigate: (h: string) => void;
 }) {
+  const activeWorkers = workers.map((worker) => ({
+    worker,
+    desk: desks.find((desk) => desk.workerSlug === worker.slug) ?? null,
+    focus: desks.find((desk) => desk.workerSlug === worker.slug)?.currentFocus || lastActivityFor(worker.slug, overlays.worklog)
+  }));
+
   return (
     <div className="ro-main-scroll">
       <header className="ro-page-head">
         <h1>Workers</h1>
         <p className="ro-page-meta">{workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock</p>
       </header>
-
-      <div className="ro-rows">
-        {workers.map((w) => {
-          const focus = desks.find((desk) => desk.workerSlug === w.slug)?.currentFocus || lastActivityFor(w.slug, overlays.worklog);
-          return (
-            <div
-              className="ro-row ro-row-person"
-              key={w.slug}
-              role="button"
-              tabIndex={0}
-              onClick={() => onNavigate(`#app/office/workers/${w.slug}/desk`)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onNavigate(`#app/office/workers/${w.slug}/desk`);
-                }
-              }}
-            >
-              <WorkerMark seed={w.slug} size={44} active />
-              <div className="ro-row-copy">
-                <strong>{w.name}</strong>
-                <p>{w.title} · {focus}</p>
-              </div>
-              <div className="ro-row-end">
-                <span className="ro-row-aside">{w.salary}</span>
-                  <button
-                    className="ro-textlink"
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onNavigate(`#app/office/workers/${w.slug}/conversation`);
-                    }}
-                  >
-                    Message
-                </button>
-              </div>
+      <div className="ro-review-layout">
+        <div>
+          <section className="ro-sec ro-sec-lead">
+            <div className="ro-sec-head">
+              <h2>On the floor</h2>
             </div>
-          );
-        })}
+            <div className="ro-worker-floor">
+              {activeWorkers.map(({ worker, desk, focus }) => (
+                <button
+                  className="ro-worker-floor-row"
+                  key={worker.slug}
+                  type="button"
+                  onClick={() => onNavigate(`#app/office/workers/${worker.slug}/desk`)}
+                >
+                  <div className="ro-worker-floor-mark">
+                    <WorkerMark seed={worker.slug} size={42} active />
+                  </div>
+                  <div className="ro-worker-floor-copy">
+                    <div className="ro-worker-floor-head">
+                      <strong>{worker.name}</strong>
+                      <span>{worker.title}</span>
+                    </div>
+                    <p>{focus}</p>
+                    <div className="ro-worker-floor-notes">
+                      {desk?.recentCompleted[0] ? <span>Recently shipped: {desk.recentCompleted[0].title}</span> : null}
+                    </div>
+                  </div>
+                  <div className="ro-worker-floor-side">
+                    <span>{worker.salary}</span>
+                    <button
+                      className="ro-textlink"
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onNavigate(`#app/office/workers/${worker.slug}/conversation`);
+                      }}
+                    >
+                      Message
+                    </button>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {openRoles.length > 0 ? (
+            <section className="ro-sec">
+              <div className="ro-sec-head">
+                <h2>Open roles</h2>
+              </div>
+              <div className="ro-rows">
+                {openRoles.slice(0, 6).map((worker) => (
+                  <button
+                    className="ro-row ro-row-person"
+                    key={worker.slug}
+                    type="button"
+                    onClick={() => onNavigate(`#worker-${worker.slug}`)}
+                  >
+                    <WorkerMark seed={worker.slug} size={44} active={false} />
+                    <div className="ro-row-copy">
+                      <strong>{worker.name}</strong>
+                      <p>{worker.title} · {worker.status}</p>
+                    </div>
+                    <div className="ro-row-end">
+                      <span className="ro-row-aside">{worker.salary}</span>
+                      <span className="ro-textlink">Interview</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        <aside className="ro-review-rail">
+          <section className="ro-sec ro-sec-lead">
+            <div className="ro-sec-head">
+              <h2>Hiring</h2>
+            </div>
+            <div className="ro-rail-note">
+              <strong>Need another function covered?</strong>
+              <p>Add a new worker when the office needs a new lane of ownership, not just more volume in the same lane.</p>
+            </div>
+            <button className="ro-textlink ro-hire-link" type="button" onClick={() => onNavigate("#workers")}>
+              Hire from the marketplace →
+            </button>
+          </section>
+        </aside>
       </div>
-
-      <button className="ro-textlink ro-hire-link" type="button" onClick={() => onNavigate("#workers")}>
-        Hire from the marketplace →
-      </button>
-
-      {openRoles.length > 0 ? (
-        <section className="ro-sec">
-          <div className="ro-sec-head">
-            <h2>Open roles</h2>
-          </div>
-          <div className="ro-rows">
-            {openRoles.slice(0, 6).map((worker) => (
-              <button
-                className="ro-row ro-row-person"
-                key={worker.slug}
-                type="button"
-                onClick={() => onNavigate(`#worker-${worker.slug}`)}
-              >
-                <WorkerMark seed={worker.slug} size={44} active={false} />
-                <div className="ro-row-copy">
-                  <strong>{worker.name}</strong>
-                  <p>{worker.title} · {worker.status}</p>
-                </div>
-                <div className="ro-row-end">
-                  <span className="ro-row-aside">{worker.salary}</span>
-                  <span className="ro-textlink">Interview</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -2208,7 +2360,13 @@ function TeamView({
 /* ---------- Deliverables ---------- */
 
 function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void }) {
-  const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
+  const groupedByWorker = workers
+    .map((worker) => ({
+      worker,
+      items: overlays.deliverables.filter((deliverable) => deliverable.workerSlug === worker.slug).slice(0, 6)
+    }))
+    .filter((group) => group.items.length > 0);
+
   return (
     <div className="ro-main-scroll">
       <header className="ro-page-head">
@@ -2223,21 +2381,46 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
           {workers.length === 0 && <> <button className="ro-textlink" type="button" onClick={() => onNavigate("#workers")}>Hire a worker to get started</button></>}
         </p>
       ) : (
-        <div className="ro-rows">
-          {overlays.deliverables.map((deliverable) => (
-            <button
-              className="ro-row ro-row-slim"
-              key={deliverable.id}
-              type="button"
-              onClick={() => onNavigate(`#app/office/workers/${deliverable.workerSlug}/desk`)}
-            >
-              <div className="ro-row-copy">
-                <strong>{deliverable.title}</strong>
-                <p>{deliverable.summary || deliverable.previewText}</p>
+        <div className="ro-review-layout">
+          <div>
+            {groupedByWorker.map((group) => (
+              <section className="ro-sec" key={group.worker.slug}>
+                <div className="ro-sec-head">
+                  <h2>{group.worker.name}</h2>
+                  <span className="ro-sec-n">{group.items.length}</span>
+                </div>
+                <div className="ro-rows">
+                  {group.items.map((deliverable) => (
+                    <button
+                      className="ro-row ro-row-slim"
+                      key={deliverable.id}
+                      type="button"
+                      onClick={() => onNavigate(`#app/office/workers/${deliverable.workerSlug}/desk`)}
+                    >
+                      <div className="ro-row-copy">
+                        <span className="ro-row-kicker">{sentenceCase(deliverable.deliverableType.replace(/_/g, " "))}</span>
+                        <strong>{deliverable.title}</strong>
+                        <p>{deliverable.summary || deliverable.previewText}</p>
+                      </div>
+                      <span className="ro-row-aside">{timeAgo(deliverable.updatedAt)}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <aside className="ro-review-rail">
+            <section className="ro-sec ro-sec-lead">
+              <div className="ro-sec-head">
+                <h2>What belongs here</h2>
               </div>
-              <span className="ro-row-aside">{nameFor(deliverable.workerSlug)} · {timeAgo(deliverable.updatedAt)}</span>
-            </button>
-          ))}
+              <div className="ro-rail-note">
+                <strong>Finished work, not internal noise.</strong>
+                <p>Deliverables should feel like artifacts your office has produced, not a log of every background action.</p>
+              </div>
+            </section>
+          </aside>
         </div>
       )}
     </div>
@@ -2321,6 +2504,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   const [route, setRoute] = useState(() => parseOfficeRoute(window.location.hash));
   const [overlays, setOverlays] = useState<Overlays>(EMPTY_OVERLAYS);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [navCollapsed, setNavCollapsed] = usePersistentBoolean("ryva.office.nav-collapsed", false);
   const [maraWorkspaces, setMaraWorkspaces] = useState<Record<string, MaraWorkspace | null>>({});
   const [workerActionBusy, setWorkerActionBusy] = useState<string | null>(null);
@@ -2335,8 +2519,9 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     try {
       const data = await officeJson<Partial<Overlays>>("/api/office/overlays", { method: "GET" });
       setOverlays({ ...EMPTY_OVERLAYS, ...data });
-    } catch {
-      setOverlays(EMPTY_OVERLAYS);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not load the office right now.");
     }
   }, []);
 
@@ -2390,7 +2575,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
   );
 
   useEffect(() => {
-    if (loading || !firstIncompleteWorker) {
+    if (loading || loadError || !firstIncompleteWorker) {
       return;
     }
 
@@ -2403,7 +2588,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     }
 
     go(`#app/office/workers/${firstIncompleteWorker.slug}/onboarding`);
-  }, [firstIncompleteWorker, go, loading, tab, workerSlug]);
+  }, [firstIncompleteWorker, go, loadError, loading, tab, workerSlug]);
 
   const emptyLabels: Record<string, string> = {
     assignments: "office assignments",
@@ -2566,7 +2751,16 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
         </div>
       </aside>
 
-      <main className="ro-main">{main}</main>
+      <main className="ro-main">
+        {loadError ? (
+          <div className="ro-page-alert">
+            <strong>The office did not finish loading.</strong>
+            <p>{loadError}</p>
+            <button className="ro-textlink" type="button" onClick={() => void reload()}>Try again</button>
+          </div>
+        ) : null}
+        {main}
+      </main>
     </div>
   );
 }
