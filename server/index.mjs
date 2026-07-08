@@ -5636,6 +5636,8 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
 
   ensureWorkerPermissions(db, req.user.id, workerSlug);
 
+  let shouldRunMaraOnboardingAutomation = false;
+
   if (existing?.status !== "completed") {
     for (const task of tasks) {
       db.prepare(
@@ -5673,6 +5675,29 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
     );
 
     if (workerSlug === MARA_SLUG) {
+      shouldRunMaraOnboardingAutomation = true;
+    }
+  }
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    req.user.id,
+    workerSlug,
+    "Completed new hire onboarding.",
+    "Onboarding",
+    String(worklogEntry?.result ?? "Worker prepared first-day setup"),
+    timestamp
+  );
+
+  syncOfficeCanonicalRecords(req.user.id, workerSlug);
+
+  res.json({ ok: true });
+
+  if (shouldRunMaraOnboardingAutomation) {
+    void (async () => {
       try {
         const accountContext = getUserOnboardingRecord(req.user.id);
         const initialPlan = buildMaraInitialWorkPlan({
@@ -5747,26 +5772,11 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
           userId: req.user.id,
           workerId: workerSlug
         });
+      } finally {
+        syncOfficeCanonicalRecords(req.user.id, workerSlug);
       }
-    }
+    })();
   }
-
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    req.user.id,
-    workerSlug,
-    "Completed new hire onboarding.",
-    "Onboarding",
-    String(worklogEntry?.result ?? "Worker prepared first-day setup"),
-    timestamp
-  );
-
-  syncOfficeCanonicalRecords(req.user.id, workerSlug);
-
-  res.json({ ok: true });
 });
 
 app.use(express.static(distDir));
