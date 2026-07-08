@@ -447,6 +447,15 @@ function sentenceCase(value) {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
+function safeList(json) {
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 function mapWorkerTaskStatusToAssignmentStatus(status) {
   const normalized = String(status ?? "").trim().toLowerCase();
   if (normalized === "completed" || normalized === "dismissed") return "done";
