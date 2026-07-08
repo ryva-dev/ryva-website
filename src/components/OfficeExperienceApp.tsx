@@ -786,7 +786,7 @@ function TodayView({
                     <div className="ro-row-copy">
                       <span className="ro-row-kicker">{item.kind}</span>
                       <strong>{item.title}</strong>
-                      {item.summary ? <p>{item.summary}</p> : null}
+                      {item.summary ? <p>{truncatePreview(item.summary, 120)}</p> : null}
                     </div>
                     <div className="ro-row-end">
                       <span className="ro-row-aside">{nameFor(item.workerSlug)} · {clock(item.createdAt) || timeAgo(item.createdAt)}</span>
@@ -984,215 +984,108 @@ function WorkerDeskSections({
   onSeedCorrection: (prompt: string) => void;
   onViewDeliverable: (deliverable: WorkerDeskDeliverable) => void;
 }) {
-  const connectedLabel = canUseEmail
-    ? "Connected tools are available."
-    : "No connected tools yet.";
   const workerFirstName = activeWorker.name.split(" ")[0];
 
   return (
-    <div className="ro-desk-layout">
-      <div className="ro-desk-main">
-        <section className="ro-worker-drawer-section ro-desk-focus">
-          <span className="ro-section-kicker">Current focus</span>
-          <h3>{desk.currentFocus}</h3>
-          <p>{desk.currentFocusReason}</p>
-        </section>
+    <>
+      <section className="ro-worker-drawer-section ro-desk-focus">
+        <span className="ro-section-kicker">Current focus</span>
+        <h3>{desk.currentFocus}</h3>
+        <p>{desk.currentFocusReason}</p>
+      </section>
 
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>Waiting on you</strong>
-            <span>{desk.waitingOnUser.length === 0 ? "All clear" : `${desk.waitingOnUser.length} items`}</span>
-          </div>
-          {desk.waitingOnUser.length > 0 ? (
-            <div className="ro-plain-list">
-              {desk.waitingOnUser.map((item) => {
-                const approval = desk.approvals.find((entry) => entry.id === item.id);
-                return (
-                  <div className="ro-plain-row" key={item.id}>
-                    <div>
-                      <strong>{item.title}</strong>
-                      <p>{item.summary}</p>
-                    </div>
-                    {approval && isMaraWorker(activeWorker.slug) ? (
-                      <div className="ro-inline-actions">
-                        <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>Deny</button>
-                        <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
-                          {busyId === approval.id ? "Saving..." : "Approve"}
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="ro-worker-note">Nothing is blocked right now.</p>
-          )}
-        </section>
-
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>On {workerFirstName}&apos;s plate</strong>
-            <span>{desk.workInMotion.length === 0 ? "Quiet" : `${desk.workInMotion.length} active`}</span>
-          </div>
-          {desk.workInMotion.length > 0 ? (
-            <div className="ro-plain-list">
-              {desk.workInMotion.map((item) => (
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Waiting on you</strong>
+          <span>{desk.waitingOnUser.length === 0 ? "All clear" : `${desk.waitingOnUser.length} items`}</span>
+        </div>
+        {desk.waitingOnUser.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.waitingOnUser.slice(0, 3).map((item) => {
+              const approval = desk.approvals.find((entry) => entry.id === item.id);
+              return (
                 <div className="ro-plain-row" key={item.id}>
                   <div>
                     <strong>{item.title}</strong>
                     <p>{item.summary}</p>
                   </div>
-                  {isMaraWorker(activeWorker.slug) ? (
-                    <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
-                      {busyId === item.id ? "Running..." : "Run"}
-                    </button>
+                  {approval && isMaraWorker(activeWorker.slug) ? (
+                    <div className="ro-inline-actions">
+                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(approval.id)} disabled={busyId === approval.id}>Deny</button>
+                      <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(approval.id)} disabled={busyId === approval.id}>
+                        {busyId === approval.id ? "Saving..." : "Approve"}
+                      </button>
+                    </div>
                   ) : null}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="ro-worker-note">Ready for the next assignment.</p>
-          )}
-        </section>
-
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>{workerFirstName} just shipped</strong>
-            <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} items`}</span>
+              );
+            })}
           </div>
-          {desk.recentCompleted.length > 0 ? (
-            <div className="ro-plain-list">
-              {desk.recentCompleted.map((item) => (
-                <button className="ro-plain-row ro-plain-row-button" type="button" key={item.id} onClick={() => onViewDeliverable(item)}>
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>{item.summary}</p>
-                  </div>
-                  <span>{timeAgo(item.updatedAt)}</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="ro-worker-note">No deliverables have been completed yet.</p>
-          )}
-        </section>
+        ) : (
+          <p className="ro-worker-note">Nothing is blocked right now.</p>
+        )}
+      </section>
 
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>Research completed today</strong>
-            <span>{desk.researchToday.length === 0 ? "Nothing yet" : `${desk.researchToday.length} found`}</span>
-          </div>
-          {desk.researchToday.length > 0 ? (
-            <div className="ro-plain-list">
-              {desk.researchToday.map((item) => (
-                <div className="ro-plain-row" key={item.id}>
-                  <div>
-                    <strong>{item.title}</strong>
-                    <p>{item.summary}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="ro-worker-note">No fresh research findings have been saved yet today.</p>
-          )}
-        </section>
-
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>Lead status</strong>
-            <span>{desk.inboxLeads.length === 0 ? "No inbox map yet" : `${desk.inboxLeads.length} tracked`}</span>
-          </div>
-          {desk.inboxLeads.length > 0 ? (
-            <div className="ro-plain-list">
-              {desk.inboxLeads.map((item) => (
-                <div className="ro-plain-row" key={`${item.brandName}-${item.contactEmail || item.contactName}`}>
-                  <div>
-                    <strong>{item.brandName}</strong>
-                    <p>{item.status}{item.contactName ? ` · ${item.contactName}` : ""}</p>
-                    <p>{item.snippet}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="ro-worker-note">Connect Gmail and let Mara sync inbox work to organize lead status here.</p>
-          )}
-        </section>
-      </div>
-
-      <aside className="ro-desk-rail">
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>Responsibilities</strong>
-            <span>{activeWorker.profile.responsibilities.length} areas</span>
-          </div>
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>On {workerFirstName}&apos;s plate</strong>
+          <span>{desk.workInMotion.length === 0 ? "Quiet" : `${desk.workInMotion.length} active`}</span>
+        </div>
+        {desk.workInMotion.length > 0 ? (
           <div className="ro-plain-list">
-            {activeWorker.profile.responsibilities.slice(0, 4).map((item) => (
-              <div className="ro-plain-row" key={item}>
-                <strong>{item}</strong>
+            {desk.workInMotion.map((item) => (
+              <div className="ro-plain-row" key={item.id}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.summary}</p>
+                </div>
+                {isMaraWorker(activeWorker.slug) ? (
+                  <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
+                    {busyId === item.id ? "Running..." : "Run"}
+                  </button>
+                ) : null}
               </div>
             ))}
           </div>
-        </section>
+        ) : (
+          <p className="ro-worker-note">Ready for the next assignment.</p>
+        )}
+      </section>
 
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>Connected access</strong>
-            <span>{connectedLabel}</span>
-          </div>
-          {desk.connectedTools.length > 0 ? (
-            <div className="ro-plain-list">
-              {desk.connectedTools.map((tool) => (
-                <div className="ro-plain-row" key={`${tool.provider}-${tool.label}`}>
-                  <strong>{tool.label}</strong>
-                  <p>{sentenceCase(tool.status)}</p>
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>{workerFirstName} just shipped</strong>
+          <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} items`}</span>
+        </div>
+        {desk.recentCompleted.length > 0 ? (
+          <div className="ro-plain-list">
+            {desk.recentCompleted.slice(0, 4).map((item) => (
+              <button className="ro-plain-row ro-plain-row-button" type="button" key={item.id} onClick={() => onViewDeliverable(item)}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.summary}</p>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="ro-worker-note">This worker can still plan, draft, and organize work without connected tools.</p>
-          )}
-        </section>
-
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>What {workerFirstName} knows</strong>
-            <span>{desk.memory.length === 0 ? "Learning" : `${desk.memory.length} notes`}</span>
+                <span>{timeAgo(item.updatedAt)}</span>
+              </button>
+            ))}
           </div>
-          {desk.memory.length > 0 ? (
-            <div className="ro-plain-list">
-              {desk.memory.map((item) => (
-                <div className="ro-plain-row" key={item.id}>
-                  <div>
-                    <strong>{item.label}</strong>
-                    <p>{item.text}</p>
-                  </div>
-                  <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
-                    Correct in chat
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="ro-worker-note">This worker will learn more as you work together.</p>
-          )}
-        </section>
+        ) : (
+          <p className="ro-worker-note">No deliverables have been completed yet.</p>
+        )}
+      </section>
 
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>Access and boundaries</strong>
-            <span>{isMaraWorker(activeWorker.slug) ? "Approval-aware" : "Role-based"}</span>
-          </div>
-          <p className="ro-worker-note">
-            {isMaraWorker(activeWorker.slug)
-              ? "External or sensitive actions stay behind approval. Safe internal work can move forward without extra prompting."
-              : "This worker operates within assigned permissions, tools, and review boundaries."}
-          </p>
-        </section>
-      </aside>
-    </div>
+      <section className="ro-worker-drawer-section">
+        <div className="ro-worker-drawer-row">
+          <strong>Access and boundaries</strong>
+          <span>{isMaraWorker(activeWorker.slug) ? "Approval-aware" : "Role-based"}</span>
+        </div>
+        <p className="ro-worker-note">
+          {isMaraWorker(activeWorker.slug)
+            ? "External or sensitive actions stay behind approval. Safe internal work can move forward without extra prompting."
+            : "This worker operates within assigned permissions, tools, and review boundaries."}
+        </p>
+      </section>
+    </>
   );
 }
 
@@ -1491,36 +1384,69 @@ function WorkerKnowledgeView({
   onSeedCorrection: (prompt: string) => void;
 }) {
   return (
-    <div className="ro-plain-list">
-      {desk.memory.length === 0 ? (
-        <p className="ro-blank">Nothing here yet. Workers add what they learn; you can correct anything in conversation.</p>
-      ) : (
-        desk.memory.map((item) => (
-          <div className="ro-plain-row" key={item.id}>
-            <strong>{item.text}</strong>
-            <div className="ro-handbook-meta">
-              <span>Learned while working with {activeWorker.name.split(" ")[0]}</span>
-              <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
-                Correct in conversation
-              </button>
-            </div>
+    <div className="ro-review-layout">
+      <div>
+        <section className="ro-sec ro-sec-lead">
+          <div className="ro-sec-head">
+            <h2>What {activeWorker.name.split(" ")[0]} knows</h2>
+            <span className="ro-sec-n">{desk.memory.length === 0 ? "Learning" : `${desk.memory.length} notes`}</span>
           </div>
-        ))
-      )}
-
-      {connectedTools.length > 0 ? (
-        <>
-          <div className="ro-sec-gap" />
-          {connectedTools.map((tool) => (
-            <div className="ro-plain-row" key={`${tool.provider}-${tool.accountLabel}`}>
-              <strong>{tool.accountLabel || tool.provider}</strong>
-              <div className="ro-handbook-meta">
-                <span>{sentenceCase(tool.status)} · source</span>
-              </div>
+          {desk.memory.length === 0 ? (
+            <p className="ro-blank">Nothing here yet. Workers add what they learn; you can correct anything in conversation.</p>
+          ) : (
+            <div className="ro-plain-list">
+              {desk.memory.map((item) => (
+                <div className="ro-plain-row" key={item.id}>
+                  <strong>{item.text}</strong>
+                  <div className="ro-handbook-meta">
+                    <span>Learned while working with {activeWorker.name.split(" ")[0]}</span>
+                    <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
+                      Correct in conversation
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </>
-      ) : null}
+          )}
+        </section>
+      </div>
+
+      <aside className="ro-review-rail">
+        <section className="ro-sec ro-sec-lead">
+          <div className="ro-sec-head">
+            <h2>Responsibilities</h2>
+            <span className="ro-sec-n">{activeWorker.profile.responsibilities.length} areas</span>
+          </div>
+          <div className="ro-plain-list">
+            {activeWorker.profile.responsibilities.slice(0, 6).map((item) => (
+              <div className="ro-plain-row" key={item}>
+                <strong>{item}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="ro-sec">
+          <div className="ro-sec-head">
+            <h2>Connected access</h2>
+            <span className="ro-sec-n">{connectedTools.length === 0 ? "None yet" : `${connectedTools.length} source${connectedTools.length === 1 ? "" : "s"}`}</span>
+          </div>
+          {connectedTools.length > 0 ? (
+            <div className="ro-plain-list">
+              {connectedTools.map((tool) => (
+                <div className="ro-plain-row" key={`${tool.provider}-${tool.accountLabel}`}>
+                  <strong>{tool.accountLabel || tool.provider}</strong>
+                  <div className="ro-handbook-meta">
+                    <span>{sentenceCase(tool.status)} · source</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="ro-blank">No connected tools yet.</p>
+          )}
+        </section>
+      </aside>
     </div>
   );
 }
@@ -1984,6 +1910,12 @@ function HandbookEntryList({
       ))}
     </div>
   );
+}
+
+function truncatePreview(value: string, max = 160) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
 function safeList(json: string): string[] {
@@ -2573,6 +2505,19 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     () => hiredWorkers.find((worker) => onboardingByWorker.get(worker.slug)?.status !== "completed") ?? null,
     [hiredWorkers, onboardingByWorker]
   );
+  const hasUsableOfficeData = useMemo(
+    () =>
+      overlays.assignments.length > 0 ||
+      overlays.deliverables.length > 0 ||
+      overlays.chats.length > 0 ||
+      overlays.calendarEvents.length > 0 ||
+      overlays.handbookEntries.length > 0 ||
+      overlays.worklog.length > 0 ||
+      overlays.tasks.length > 0 ||
+      overlays.suggestedActions.length > 0 ||
+      overlays.briefings.length > 0,
+    [overlays]
+  );
 
   useEffect(() => {
     if (loading || loadError || !firstIncompleteWorker) {
@@ -2752,7 +2697,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
       </aside>
 
       <main className="ro-main">
-        {loadError ? (
+        {loadError && !hasUsableOfficeData ? (
           <div className="ro-page-alert">
             <strong>The office did not finish loading.</strong>
             <p>{loadError}</p>
