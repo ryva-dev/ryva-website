@@ -1308,6 +1308,7 @@ function WorkerDetailDrawer({
   canUseEmail,
   desk,
   onApprove,
+  onApproveTask,
   onClose,
   onOpenChat,
   onReject,
@@ -1320,6 +1321,7 @@ function WorkerDetailDrawer({
   canUseEmail: boolean;
   desk: WorkerDesk;
   onApprove: (approvalId: string) => Promise<void>;
+  onApproveTask: (taskId: string) => Promise<void>;
   onClose: () => void;
   onOpenChat: () => void;
   onReject: (approvalId: string) => Promise<void>;
@@ -1348,6 +1350,7 @@ function WorkerDetailDrawer({
             canUseEmail={canUseEmail}
             desk={desk}
             onApprove={onApprove}
+            onApproveTask={onApproveTask}
             onReject={onReject}
             onRunTask={onRunTask}
             onSeedCorrection={onSeedCorrection}
