@@ -775,28 +775,53 @@ function syncHandbookEntries(userId, workerSlug) {
      FROM office_worker_knowledge
      WHERE user_id = ? AND worker_slug = ?`
   ).get(userId, workerSlug);
-  const knowledge = parseJson(knowledgeRow?.knowledgeJson, {});
-  Object.entries(knowledge || {}).slice(0, 12).forEach(([key, value], index) => {
-    const items = Array.isArray(value) ? value : [value];
-    items
-      .map((item) => String(item ?? "").trim())
-      .filter(Boolean)
-      .slice(0, 2)
-      .forEach((statement, itemIndex) => {
-        upsertHandbookEntry({
-          createdAt: timestamp,
-          section: "workers",
-          sourceId: `${workerSlug}-knowledge-${index}-${itemIndex}`,
-          sourceLabel: `${workerSlug} knowledge`,
-          sourceType: "worker_knowledge",
-          statement: truncatePreview(statement, 220),
-          subsection: sentenceCase(String(key).replace(/_/g, " ")),
-          updatedAt: timestamp,
-          userId,
-          workerSlug
+  const knowledge = parseJson(knowledgeRow?.knowledgeJson, []);
+  if (Array.isArray(knowledge)) {
+    knowledge.slice(0, 12).forEach((section, index) => {
+      const title = String(section?.title ?? "").trim();
+      const items = Array.isArray(section?.items) ? section.items : [];
+      items
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .forEach((statement, itemIndex) => {
+          upsertHandbookEntry({
+            createdAt: timestamp,
+            section: "workers",
+            sourceId: `${workerSlug}-knowledge-${index}-${itemIndex}`,
+            sourceLabel: `${workerSlug} knowledge`,
+            sourceType: "worker_knowledge",
+            statement: truncatePreview(statement, 220),
+            subsection: sentenceCase(title || "Knowledge"),
+            updatedAt: timestamp,
+            userId,
+            workerSlug
+          });
         });
-      });
-  });
+    });
+  } else {
+    Object.entries(knowledge || {}).slice(0, 12).forEach(([key, value], index) => {
+      const items = Array.isArray(value) ? value : [value];
+      items
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .forEach((statement, itemIndex) => {
+          upsertHandbookEntry({
+            createdAt: timestamp,
+            section: "workers",
+            sourceId: `${workerSlug}-knowledge-${index}-${itemIndex}`,
+            sourceLabel: `${workerSlug} knowledge`,
+            sourceType: "worker_knowledge",
+            statement: truncatePreview(statement, 220),
+            subsection: sentenceCase(String(key).replace(/_/g, " ")),
+            updatedAt: timestamp,
+            userId,
+            workerSlug
+          });
+        });
+    });
+  }
 
   const decisions = db.prepare(
     `SELECT id, date_label AS dateLabel, decisions_json AS decisionsJson
@@ -5535,115 +5560,121 @@ app.post("/api/office/settings", assertOrigin, requireAuth, async (req, res) => 
 });
 
 app.post("/api/office/workers/:slug/onboarding/save", assertOrigin, requireAuth, async (req, res) => {
-  const workerSlug = req.params.slug;
-  const answers = req.body?.answers;
-  const generatedSummary = req.body?.generatedSummary;
+  try {
+    const workerSlug = req.params.slug;
+    const answers = req.body?.answers;
+    const generatedSummary = req.body?.generatedSummary;
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
-    res.status(404).json({ error: "Hired worker not found." });
-    return;
+    if (!hasHiredWorker(req.user.id, workerSlug)) {
+      res.status(404).json({ error: "Hired worker not found." });
+      return;
+    }
+
+    if (!answers || typeof answers !== "object") {
+      res.status(400).json({ error: "Onboarding answers are required." });
+      return;
+    }
+
+    db.prepare(
+      `INSERT INTO office_onboarding_sessions
+       (id, user_id, worker_slug, status, answers_json, generated_summary_json, completed_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+       ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+         status = excluded.status,
+         answers_json = excluded.answers_json,
+         generated_summary_json = excluded.generated_summary_json,
+         updated_at = excluded.updated_at`
+    ).run(
+      randomUUID(),
+      req.user.id,
+      workerSlug,
+      "in_progress",
+      JSON.stringify(answers),
+      JSON.stringify(Array.isArray(generatedSummary) ? generatedSummary : []),
+      nowIso(),
+      nowIso()
+    );
+
+    syncHandbookEntries(req.user.id, workerSlug);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Worker onboarding save failed:", error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "Unable to save onboarding progress." });
   }
-
-  if (!answers || typeof answers !== "object") {
-    res.status(400).json({ error: "Onboarding answers are required." });
-    return;
-  }
-
-  db.prepare(
-    `INSERT INTO office_onboarding_sessions
-     (id, user_id, worker_slug, status, answers_json, generated_summary_json, completed_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
-     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
-       status = excluded.status,
-       answers_json = excluded.answers_json,
-       generated_summary_json = excluded.generated_summary_json,
-       updated_at = excluded.updated_at`
-  ).run(
-    randomUUID(),
-    req.user.id,
-    workerSlug,
-    "in_progress",
-    JSON.stringify(answers),
-    JSON.stringify(Array.isArray(generatedSummary) ? generatedSummary : []),
-    nowIso(),
-    nowIso()
-  );
-
-  syncHandbookEntries(req.user.id, workerSlug);
-
-  res.json({ ok: true });
 });
 
 app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireAuth, async (req, res) => {
-  const workerSlug = req.params.slug;
-  const answers = req.body?.answers;
-  const generatedSummary = req.body?.generatedSummary;
-  const knowledge = req.body?.knowledge;
-  const tasks = req.body?.tasks;
-  const briefing = req.body?.briefing;
-  const worklogEntry = req.body?.worklogEntry;
+  try {
+    const workerSlug = req.params.slug;
+    const answers = req.body?.answers;
+    const generatedSummary = req.body?.generatedSummary;
+    const knowledge = req.body?.knowledge;
+    const tasks = req.body?.tasks;
+    const briefing = req.body?.briefing;
+    const worklogEntry = req.body?.worklogEntry;
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
-    res.status(404).json({ error: "Hired worker not found." });
-    return;
-  }
+    if (!hasHiredWorker(req.user.id, workerSlug)) {
+      res.status(404).json({ error: "Hired worker not found." });
+      return;
+    }
 
-  if (!answers || typeof answers !== "object" || !Array.isArray(knowledge) || !Array.isArray(tasks) || !briefing) {
-    res.status(400).json({ error: "Onboarding payload is incomplete." });
-    return;
-  }
+    if (!answers || typeof answers !== "object" || !Array.isArray(knowledge) || !Array.isArray(tasks) || !briefing) {
+      res.status(400).json({ error: "Onboarding payload is incomplete." });
+      return;
+    }
 
-  const existing = db
-    .prepare(
-      `SELECT status
-       FROM office_onboarding_sessions
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .get(req.user.id, workerSlug);
+    const existing = db
+      .prepare(
+        `SELECT status
+         FROM office_onboarding_sessions
+         WHERE user_id = ? AND worker_slug = ?`
+      )
+      .get(req.user.id, workerSlug);
 
-  const timestamp = nowIso();
+    const timestamp = nowIso();
 
-  db.prepare(
-    `INSERT INTO office_onboarding_sessions
-     (id, user_id, worker_slug, status, answers_json, generated_summary_json, completed_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
-       status = excluded.status,
-       answers_json = excluded.answers_json,
-       generated_summary_json = excluded.generated_summary_json,
-       completed_at = excluded.completed_at,
-       updated_at = excluded.updated_at`
-  ).run(
-    randomUUID(),
-    req.user.id,
-    workerSlug,
-    "completed",
-    JSON.stringify(answers),
-    JSON.stringify(Array.isArray(generatedSummary) ? generatedSummary : []),
-    timestamp,
-    timestamp,
-    timestamp
-  );
+    db.prepare(
+      `INSERT INTO office_onboarding_sessions
+       (id, user_id, worker_slug, status, answers_json, generated_summary_json, completed_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+         status = excluded.status,
+         answers_json = excluded.answers_json,
+         generated_summary_json = excluded.generated_summary_json,
+         completed_at = excluded.completed_at,
+         updated_at = excluded.updated_at`
+    ).run(
+      randomUUID(),
+      req.user.id,
+      workerSlug,
+      "completed",
+      JSON.stringify(answers),
+      JSON.stringify(Array.isArray(generatedSummary) ? generatedSummary : []),
+      timestamp,
+      timestamp,
+      timestamp
+    );
 
-  const normalizedKnowledge = knowledge
-    .map((section) => ({
-      items: normalizeTextList(section?.items),
-      title: String(section?.title ?? "").trim()
-    }))
-    .filter((section) => section.title && section.items.length > 0);
+    const normalizedKnowledge = knowledge
+      .map((section) => ({
+        items: normalizeTextList(section?.items),
+        title: String(section?.title ?? "").trim()
+      }))
+      .filter((section) => section.title && section.items.length > 0);
 
-  replaceWorkerKnowledge(req.user.id, workerSlug, normalizedKnowledge);
+    replaceWorkerKnowledge(req.user.id, workerSlug, normalizedKnowledge);
 
-  ensureWorkerPermissions(db, req.user.id, workerSlug);
+    ensureWorkerPermissions(db, req.user.id, workerSlug);
 
-  let shouldRunMaraOnboardingAutomation = false;
+    let shouldRunMaraOnboardingAutomation = false;
 
-  if (existing?.status !== "completed") {
-    for (const task of tasks) {
-      db.prepare(
-        `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
+    if (existing?.status !== "completed") {
+      for (const task of tasks) {
+        db.prepare(
+          `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
         randomUUID(),
         req.user.id,
         workerSlug,
@@ -5674,108 +5705,111 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       timestamp
     );
 
-    if (workerSlug === MARA_SLUG) {
-      shouldRunMaraOnboardingAutomation = true;
-    }
-  }
-
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    req.user.id,
-    workerSlug,
-    "Completed new hire onboarding.",
-    "Onboarding",
-    String(worklogEntry?.result ?? "Worker prepared first-day setup"),
-    timestamp
-  );
-
-  syncOfficeCanonicalRecords(req.user.id, workerSlug);
-
-  res.json({ ok: true });
-
-  if (shouldRunMaraOnboardingAutomation) {
-    void (async () => {
-      try {
-        const accountContext = getUserOnboardingRecord(req.user.id);
-        const initialPlan = buildMaraInitialWorkPlan({
-          accountContext,
-          maraAnswers: answers
-        });
-        const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
-        replaceWorkerKnowledge(req.user.id, workerSlug, mergedKnowledge);
-        const createdTaskIds = [];
-
-        for (const task of initialPlan.tasks) {
-          const created = createApprovedTaskIfPermissionAllows(db, {
-            description: task.description,
-            dueAt: task.priority === "high" ? "This week" : "Next 7 days",
-            evidenceUsed: generatedSummary,
-            priority: task.priority,
-            requiredPermissions: [],
-            source: "onboarding_generated",
-            title: task.title,
-            userId: req.user.id,
-            workerId: workerSlug
-          });
-          if (!created.duplicate && created.id) {
-            createdTaskIds.push(created.id);
-          }
-        }
-
-        for (const recurring of initialPlan.recurringResponsibilities) {
-          createRecurringResponsibility(db, {
-            cadence: recurring.cadence,
-            createdFrom: "onboarding",
-            dayOfWeek: recurring.dayOfWeek,
-            description: recurring.description,
-            permissionRequired: recurring.permissionRequired ?? null,
-            title: recurring.title,
-            userId: req.user.id,
-            workerId: workerSlug
-          });
-        }
-
-        const starterResults = autoExecuteSafeMaraTasks({
-          db,
-          taskIds: createdTaskIds,
-          userId: req.user.id,
-          workerId: workerSlug,
-          ...buildMaraExecutionReaders()
-        });
-        const starterOutputIds = starterResults.map((result) => result?.output?.id).filter(Boolean);
-        if (starterOutputIds.length > 0) {
-          await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, starterOutputIds);
-        }
-
-        const summary = await runMaraAutonomyCycle({
-          db,
-          userId: req.user.id,
-          workerId: workerSlug,
-          ...buildMaraExecutionReaders()
-        });
-        syncMaraOperationalRecords(req.user.id, workerSlug);
-        const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
-        if (outputIds.length > 0) {
-          await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
-        }
-      } catch (error) {
-        console.error("Mara onboarding automation failed:", error);
-        createWorkerActivityLog(db, {
-          description: "Onboarding completed, but the first automation pass needs another run.",
-          eventType: "onboarding_automation_failed",
-          metadata: { message: error instanceof Error ? error.message : String(error) },
-          relatedTaskId: null,
-          title: "Onboarding follow-up",
-          userId: req.user.id,
-          workerId: workerSlug
-        });
-      } finally {
-        syncOfficeCanonicalRecords(req.user.id, workerSlug);
+      if (workerSlug === MARA_SLUG) {
+        shouldRunMaraOnboardingAutomation = true;
       }
-    })();
+    }
+    db.prepare(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      req.user.id,
+      workerSlug,
+      "Completed new hire onboarding.",
+      "Onboarding",
+      String(worklogEntry?.result ?? "Worker prepared first-day setup"),
+      timestamp
+    );
+
+    syncOfficeCanonicalRecords(req.user.id, workerSlug);
+
+    res.json({ ok: true });
+
+    if (shouldRunMaraOnboardingAutomation) {
+      void (async () => {
+        try {
+          const accountContext = getUserOnboardingRecord(req.user.id);
+          const initialPlan = buildMaraInitialWorkPlan({
+            accountContext,
+            maraAnswers: answers
+          });
+          const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
+          replaceWorkerKnowledge(req.user.id, workerSlug, mergedKnowledge);
+          const createdTaskIds = [];
+
+          for (const task of initialPlan.tasks) {
+            const created = createApprovedTaskIfPermissionAllows(db, {
+              description: task.description,
+              dueAt: task.priority === "high" ? "This week" : "Next 7 days",
+              evidenceUsed: generatedSummary,
+              priority: task.priority,
+              requiredPermissions: [],
+              source: "onboarding_generated",
+              title: task.title,
+              userId: req.user.id,
+              workerId: workerSlug
+            });
+            if (!created.duplicate && created.id) {
+              createdTaskIds.push(created.id);
+            }
+          }
+
+          for (const recurring of initialPlan.recurringResponsibilities) {
+            createRecurringResponsibility(db, {
+              cadence: recurring.cadence,
+              createdFrom: "onboarding",
+              dayOfWeek: recurring.dayOfWeek,
+              description: recurring.description,
+              permissionRequired: recurring.permissionRequired ?? null,
+              title: recurring.title,
+              userId: req.user.id,
+              workerId: workerSlug
+            });
+          }
+
+          const starterResults = autoExecuteSafeMaraTasks({
+            db,
+            taskIds: createdTaskIds,
+            userId: req.user.id,
+            workerId: workerSlug,
+            ...buildMaraExecutionReaders()
+          });
+          const starterOutputIds = starterResults.map((result) => result?.output?.id).filter(Boolean);
+          if (starterOutputIds.length > 0) {
+            await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, starterOutputIds);
+          }
+
+          const summary = await runMaraAutonomyCycle({
+            db,
+            userId: req.user.id,
+            workerId: workerSlug,
+            ...buildMaraExecutionReaders()
+          });
+          syncMaraOperationalRecords(req.user.id, workerSlug);
+          const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
+          if (outputIds.length > 0) {
+            await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
+          }
+        } catch (error) {
+          console.error("Mara onboarding automation failed:", error);
+          createWorkerActivityLog(db, {
+            description: "Onboarding completed, but the first automation pass needs another run.",
+            eventType: "onboarding_automation_failed",
+            metadata: { message: error instanceof Error ? error.message : String(error) },
+            relatedTaskId: null,
+            title: "Onboarding follow-up",
+            userId: req.user.id,
+            workerId: workerSlug
+          });
+        } finally {
+          syncOfficeCanonicalRecords(req.user.id, workerSlug);
+        }
+      })();
+    }
+  } catch (error) {
+    console.error("Worker onboarding completion failed:", error);
+    res.status(500).json({ error: error instanceof Error ? error.message : "Unable to complete onboarding." });
   }
 });
 
