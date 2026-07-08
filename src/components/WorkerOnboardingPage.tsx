@@ -61,19 +61,8 @@ function workerQuestionPrompt(worker: Worker, question: FlatQuestion) {
   return `${question.label}${helper}${options}`;
 }
 
-function introMessage(worker: Worker) {
-  const shortName = worker.name.split(" ")[0];
-  return `Let's set up how we'll work together. I’ll ask a few onboarding questions here the same way I would in Slack so I can build the right memory, rules, and first-week plan for you.`;
-}
-
 function buildThread(worker: Worker, questions: FlatQuestion[], answers: Record<string, string>, activeIndex: number, isSummary: boolean) {
-  const thread: ThreadMessage[] = [
-    {
-      id: `${worker.slug}-onboarding-intro`,
-      role: "system",
-      text: introMessage(worker)
-    }
-  ];
+  const thread: ThreadMessage[] = [];
 
   questions.forEach((question, index) => {
     const answer = answers[question.id]?.trim();
@@ -435,17 +424,6 @@ export function WorkerOnboardingPage({
             </div>
           </section>
 
-          <section className="office-panel onboarding-rail-section">
-            <div className="office-panel-head">
-              <h3>What this sets up</h3>
-            </div>
-            <ul className="office-simple-list">
-              <li>Persistent worker memory</li>
-              <li>Approval rules and preferences</li>
-              <li>First tasks and briefing structure</li>
-              <li>How this worker should operate by default</li>
-            </ul>
-          </section>
         </aside>
       </div>
     </div>
