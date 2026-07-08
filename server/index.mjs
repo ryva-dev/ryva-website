@@ -441,6 +441,12 @@ function truncatePreview(value, max = 240) {
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 }
 
+function sentenceCase(value) {
+  const trimmed = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!trimmed) return "";
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
 function mapWorkerTaskStatusToAssignmentStatus(status) {
   const normalized = String(status ?? "").trim().toLowerCase();
   if (normalized === "completed" || normalized === "dismissed") return "done";
