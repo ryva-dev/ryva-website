@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 
 const DEFAULT_OUTPUT_PATH = "/Users/allieball/Documents/Ryva/data/private/mara-tiktok-creator-search-insights.json";
 const DEFAULT_PROFILE_PATH = "/Users/allieball/Documents/Ryva/data/private/tiktok-creative-center-profile";
+const DEBUG_OUTPUT_DIR = "/Users/allieball/Documents/Ryva/data/private/tiktok-sync-debug";
 const DEFAULT_REGION = "US";
 const DEFAULT_PERIOD = "7";
 const DEFAULT_LIMIT = 15;
@@ -82,6 +83,31 @@ async function waitForManualLogin() {
   }
 }
 
+async function waitForTrendRows(page) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const count = await page
+      .locator("button:has-text('See analytics'), [role='button']:has-text('See analytics')")
+      .count();
+    if (count > 0) return count;
+    await page.waitForTimeout(1000);
+  }
+  return 0;
+}
+
+async function captureDebugArtifacts(page, label) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const baseName = `${label}-${timestamp}`;
+  await mkdir(DEBUG_OUTPUT_DIR, { recursive: true });
+
+  const screenshotPath = path.join(DEBUG_OUTPUT_DIR, `${baseName}.png`);
+  const htmlPath = path.join(DEBUG_OUTPUT_DIR, `${baseName}.html`);
+
+  await page.screenshot({ fullPage: true, path: screenshotPath }).catch(() => {});
+  await writeFile(htmlPath, await page.content(), "utf8").catch(() => {});
+
+  return { htmlPath, screenshotPath };
+}
+
 function cleanText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -98,7 +124,9 @@ async function expandList(page, targetCount) {
   let loginWallEncountered = false;
 
   while (true) {
-    const currentCount = await page.locator("button:has-text('See analytics')").count();
+    const currentCount = await page
+      .locator("button:has-text('See analytics'), [role='button']:has-text('See analytics')")
+      .count();
     if (currentCount >= targetCount) {
       return { loginWallEncountered, visibleCount: currentCount };
     }
@@ -121,12 +149,12 @@ async function expandList(page, targetCount) {
 async function scrapeHashtagRows(page, limit) {
   return page.evaluate((maxItems) => {
     const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
-    const rowNodes = Array.from(document.querySelectorAll("button"))
-      .filter((button) => clean(button.textContent) === "See analytics")
+    const actionNodes = Array.from(document.querySelectorAll("button, [role='button']"))
+      .filter((button) => /see analytics/i.test(clean(button.textContent)))
       .map((button) => button.closest("div.grid"))
       .filter(Boolean);
 
-    return rowNodes.slice(0, maxItems).map((rowNode) => {
+    return actionNodes.slice(0, maxItems).map((rowNode) => {
       const children = Array.from(rowNode.children);
       const rankColumn = children[0];
       const detailColumn = children[1];
@@ -208,14 +236,23 @@ async function main() {
     if (options.manualLogin) {
       console.log("Manual login mode is enabled.");
       await waitForManualLogin();
-      await page.waitForTimeout(1500);
+      await page.goto(sourceUrl, {
+        timeout: 120000,
+        waitUntil: "domcontentloaded"
+      });
+      await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(5000);
     }
     await page.getByText("Browse what's trending now in").waitFor({ timeout: 20000 });
+    await waitForTrendRows(page);
     const expansion = await expandList(page, options.limit);
 
     const hashtags = await scrapeHashtagRows(page, options.limit);
     if (hashtags.length === 0) {
-      throw new Error("No hashtag rows were captured from TikTok Creative Center.");
+      const debugPaths = await captureDebugArtifacts(page, "no-hashtag-rows");
+      throw new Error(
+        `No hashtag rows were captured from TikTok Creative Center. Debug files saved to ${debugPaths.screenshotPath} and ${debugPaths.htmlPath}.`
+      );
     }
 
     const payload = buildOutputPayload({
