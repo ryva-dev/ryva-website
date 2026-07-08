@@ -325,6 +325,64 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS office_assignments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    source_label TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    status TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    rhythm TEXT,
+    blocked_reason TEXT NOT NULL,
+    due_at TEXT,
+    artifact_type TEXT NOT NULL,
+    artifact_ref_id TEXT,
+    artifact_title TEXT NOT NULL,
+    artifact_preview TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_slug, source_type, source_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_deliverables (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    worker_slug TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    deliverable_type TEXT NOT NULL,
+    preview_text TEXT NOT NULL,
+    content_ref_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_slug, source_type, source_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS office_handbook_entries (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    section TEXT NOT NULL,
+    subsection TEXT NOT NULL,
+    worker_slug TEXT,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    source_label TEXT NOT NULL,
+    statement TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, section, subsection, worker_slug, source_type, source_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS office_brand_opportunities (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,

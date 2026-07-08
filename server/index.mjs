@@ -303,6 +303,17 @@ function hasHiredWorker(userId, workerSlug) {
 
 function readOfficeOverlaysForUser(userId) {
   return {
+    assignments: db
+      .prepare(
+        `SELECT id, worker_slug AS workerSlug, source_type AS sourceType, source_id AS sourceId, source_label AS sourceLabel,
+                title, summary, status, priority, kind, rhythm, blocked_reason AS blockedReason, due_at AS dueAt,
+                artifact_type AS artifactType, artifact_ref_id AS artifactRefId, artifact_title AS artifactTitle,
+                artifact_preview AS artifactPreview, created_at AS createdAt, updated_at AS updatedAt
+         FROM office_assignments
+         WHERE user_id = ?
+         ORDER BY updated_at DESC, created_at DESC`
+      )
+      .all(userId),
     briefings: db
       .prepare(
         `SELECT worker_slug AS workerSlug, id, title, date_label AS dateLabel, summary,
@@ -368,6 +379,16 @@ function readOfficeOverlaysForUser(userId) {
          ORDER BY uploaded_at DESC`
       )
       .all(userId),
+    deliverables: db
+      .prepare(
+        `SELECT id, worker_slug AS workerSlug, source_type AS sourceType, source_id AS sourceId, title, summary,
+                deliverable_type AS deliverableType, preview_text AS previewText, content_ref_id AS contentRefId,
+                created_at AS createdAt, updated_at AS updatedAt
+         FROM office_deliverables
+         WHERE user_id = ?
+         ORDER BY updated_at DESC, created_at DESC`
+      )
+      .all(userId),
     calendarEvents: db
       .prepare(
         `SELECT id, worker_slug AS workerSlug, title, starts_at AS startsAt, ends_at AS endsAt,
@@ -401,8 +422,429 @@ function readOfficeOverlaysForUser(userId) {
          WHERE user_id = ?
          ORDER BY worker_slug ASC, provider ASC`
       )
+      .all(userId),
+    handbookEntries: db
+      .prepare(
+        `SELECT id, section, subsection, worker_slug AS workerSlug, source_type AS sourceType, source_id AS sourceId,
+                source_label AS sourceLabel, statement, created_at AS createdAt, updated_at AS updatedAt
+         FROM office_handbook_entries
+         WHERE user_id = ?
+         ORDER BY section ASC, subsection ASC, updated_at DESC, created_at DESC`
+      )
       .all(userId)
   };
+}
+
+function truncatePreview(value, max = 240) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
+function mapWorkerTaskStatusToAssignmentStatus(status) {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  if (normalized === "completed" || normalized === "dismissed") return "done";
+  if (normalized === "blocked") return "blocked";
+  if (normalized === "in_progress") return "in_progress";
+  if (normalized === "proposed") return "in_review";
+  return "queued";
+}
+
+function mapOfficeTaskStatusToAssignmentStatus(status) {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  if (normalized === "completed") return "done";
+  if (normalized === "needs review") return "in_review";
+  if (normalized === "blocked") return "blocked";
+  if (normalized === "in progress") return "in_progress";
+  return "queued";
+}
+
+function inferArtifactTypeFromOutputType(outputType) {
+  const normalized = String(outputType ?? "").toLowerCase();
+  if (normalized.includes("reply") || normalized.includes("pitch") || normalized.includes("follow_up")) return "email";
+  if (normalized.includes("ideas") || normalized.includes("shot_list") || normalized.includes("criteria")) return "list";
+  if (normalized.includes("plan") || normalized.includes("strategy") || normalized.includes("positioning")) return "doc";
+  return "report";
+}
+
+function upsertOfficeAssignment(record) {
+  const existing = db.prepare(
+    `SELECT id
+     FROM office_assignments
+     WHERE user_id = ? AND worker_slug = ? AND source_type = ? AND source_id = ?`
+  ).get(record.userId, record.workerSlug, record.sourceType, record.sourceId);
+
+  if (existing) {
+    db.prepare(
+      `UPDATE office_assignments
+       SET source_label = ?, title = ?, summary = ?, status = ?, priority = ?, kind = ?, rhythm = ?, blocked_reason = ?,
+           due_at = ?, artifact_type = ?, artifact_ref_id = ?, artifact_title = ?, artifact_preview = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      record.sourceLabel,
+      record.title,
+      record.summary,
+      record.status,
+      record.priority,
+      record.kind,
+      record.rhythm ?? null,
+      record.blockedReason ?? "",
+      record.dueAt ?? null,
+      record.artifactType ?? "none",
+      record.artifactRefId ?? null,
+      record.artifactTitle ?? "",
+      record.artifactPreview ?? "",
+      record.updatedAt,
+      existing.id
+    );
+    return existing.id;
+  }
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO office_assignments
+      (id, user_id, worker_slug, source_type, source_id, source_label, title, summary, status, priority, kind, rhythm,
+       blocked_reason, due_at, artifact_type, artifact_ref_id, artifact_title, artifact_preview, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    record.userId,
+    record.workerSlug,
+    record.sourceType,
+    record.sourceId,
+    record.sourceLabel,
+    record.title,
+    record.summary,
+    record.status,
+    record.priority,
+    record.kind,
+    record.rhythm ?? null,
+    record.blockedReason ?? "",
+    record.dueAt ?? null,
+    record.artifactType ?? "none",
+    record.artifactRefId ?? null,
+    record.artifactTitle ?? "",
+    record.artifactPreview ?? "",
+    record.createdAt,
+    record.updatedAt
+  );
+  return id;
+}
+
+function upsertOfficeDeliverable(record) {
+  const existing = db.prepare(
+    `SELECT id
+     FROM office_deliverables
+     WHERE user_id = ? AND worker_slug = ? AND source_type = ? AND source_id = ?`
+  ).get(record.userId, record.workerSlug, record.sourceType, record.sourceId);
+
+  if (existing) {
+    db.prepare(
+      `UPDATE office_deliverables
+       SET title = ?, summary = ?, deliverable_type = ?, preview_text = ?, content_ref_id = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      record.title,
+      record.summary,
+      record.deliverableType,
+      record.previewText,
+      record.contentRefId ?? null,
+      record.updatedAt,
+      existing.id
+    );
+    return existing.id;
+  }
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO office_deliverables
+      (id, user_id, worker_slug, source_type, source_id, title, summary, deliverable_type, preview_text, content_ref_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    record.userId,
+    record.workerSlug,
+    record.sourceType,
+    record.sourceId,
+    record.title,
+    record.summary,
+    record.deliverableType,
+    record.previewText,
+    record.contentRefId ?? null,
+    record.createdAt,
+    record.updatedAt
+  );
+  return id;
+}
+
+function upsertHandbookEntry(record) {
+  const existing = db.prepare(
+    `SELECT id
+     FROM office_handbook_entries
+     WHERE user_id = ? AND section = ? AND subsection = ? AND COALESCE(worker_slug, '') = COALESCE(?, '') AND source_type = ? AND source_id = ?`
+  ).get(record.userId, record.section, record.subsection, record.workerSlug ?? null, record.sourceType, record.sourceId);
+
+  if (existing) {
+    db.prepare(
+      `UPDATE office_handbook_entries
+       SET source_label = ?, statement = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(record.sourceLabel, record.statement, record.updatedAt, existing.id);
+    return existing.id;
+  }
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO office_handbook_entries
+      (id, user_id, section, subsection, worker_slug, source_type, source_id, source_label, statement, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    record.userId,
+    record.section,
+    record.subsection,
+    record.workerSlug ?? null,
+    record.sourceType,
+    record.sourceId,
+    record.sourceLabel,
+    record.statement,
+    record.createdAt,
+    record.updatedAt
+  );
+  return id;
+}
+
+function syncWorkerAssignments(userId, workerSlug) {
+  const workerTasks = db.prepare(
+    `SELECT id, title, description, source, status, priority, due_at AS dueAt, output, task_type AS taskType, updated_at AS updatedAt, created_at AS createdAt
+     FROM worker_tasks
+     WHERE user_id = ? AND worker_id = ?`
+  ).all(userId, workerSlug);
+
+  for (const task of workerTasks) {
+    const parsedOutput = parseJson(task.output, null);
+    upsertOfficeAssignment({
+      artifactPreview: truncatePreview(parsedOutput?.preview || parsedOutput?.content || task.output || ""),
+      artifactRefId: null,
+      artifactTitle: parsedOutput?.title || "",
+      artifactType: parsedOutput?.type || (task.taskType ? inferArtifactTypeFromOutputType(task.taskType) : "none"),
+      blockedReason: mapWorkerTaskStatusToAssignmentStatus(task.status) === "blocked" ? truncatePreview(task.description, 180) : "",
+      createdAt: task.createdAt,
+      dueAt: task.dueAt,
+      kind: task.source === "recurring" ? "recurring" : "one_off",
+      priority: String(task.priority || "medium"),
+      rhythm: task.source === "recurring" ? "Recurring" : null,
+      sourceId: task.id,
+      sourceLabel: task.source || "worker_task",
+      sourceType: "worker_task",
+      status: mapWorkerTaskStatusToAssignmentStatus(task.status),
+      summary: truncatePreview(task.description, 180),
+      title: task.title,
+      updatedAt: task.updatedAt,
+      userId,
+      workerSlug
+    });
+  }
+
+  const officeTasks = db.prepare(
+    `SELECT id, title, module_name AS moduleName, priority, status, due_date AS dueDate, created_at AS createdAt
+     FROM office_custom_tasks
+     WHERE user_id = ? AND worker_slug = ?`
+  ).all(userId, workerSlug);
+
+  for (const task of officeTasks) {
+    upsertOfficeAssignment({
+      artifactPreview: "",
+      artifactRefId: null,
+      artifactTitle: "",
+      artifactType: "none",
+      blockedReason: "",
+      createdAt: task.createdAt,
+      dueAt: task.dueDate,
+      kind: "one_off",
+      priority: String(task.priority || "Medium").toLowerCase(),
+      rhythm: null,
+      sourceId: task.id,
+      sourceLabel: "office_task",
+      sourceType: "office_task",
+      status: mapOfficeTaskStatusToAssignmentStatus(task.status),
+      summary: truncatePreview(task.moduleName, 180),
+      title: task.title,
+      updatedAt: task.createdAt,
+      userId,
+      workerSlug
+    });
+  }
+}
+
+function syncWorkerDeliverables(userId, workerSlug) {
+  const outputs = listWorkerOutputs(db, userId, workerSlug);
+  for (const output of outputs) {
+    upsertOfficeDeliverable({
+      contentRefId: output.id,
+      createdAt: output.createdAt,
+      deliverableType: output.outputType,
+      previewText: truncatePreview(output.content || output.structuredContent?.preview || "", 260),
+      sourceId: output.id,
+      sourceType: "worker_output",
+      summary: truncatePreview(output.content || output.title, 160),
+      title: output.title,
+      updatedAt: output.updatedAt,
+      userId,
+      workerSlug
+    });
+  }
+
+  const uploadedFiles = db.prepare(
+    `SELECT id, name, type, uploaded_at AS uploadedAt
+     FROM office_uploaded_files
+     WHERE user_id = ? AND worker_slug = ?`
+  ).all(userId, workerSlug);
+
+  for (const file of uploadedFiles) {
+    upsertOfficeDeliverable({
+      contentRefId: file.id,
+      createdAt: file.uploadedAt,
+      deliverableType: file.type || "file",
+      previewText: `${file.type} uploaded to the office files.`,
+      sourceId: file.id,
+      sourceType: "uploaded_file",
+      summary: `${file.type} available to open or download.`,
+      title: file.name,
+      updatedAt: file.uploadedAt,
+      userId,
+      workerSlug
+    });
+  }
+}
+
+function syncHandbookEntries(userId, workerSlug) {
+  const timestamp = nowIso();
+  const settingsRow = db.prepare(
+    `SELECT settings_json AS settingsJson
+     FROM office_global_settings
+     WHERE user_id = ?`
+  ).get(userId);
+  const settings = parseJson(settingsRow?.settingsJson, {});
+  const baseEntries = [
+    ["business_profile", "company", "global_settings", "brand_context", String(settings.brandContext || "").trim(), "Added in settings"],
+    ["voice_and_tone", "decision_style", "global_settings", "decision_style", String(settings.decisionStyle || "").trim(), "Decision style · settings"],
+    ["rules", "review_cadence", "global_settings", "review_cadence", String(settings.reviewCadence || "").trim(), "Review cadence · settings"],
+    ["rules", "quiet_hours", "global_settings", "quiet_hours", String(settings.quietHours || "").trim(), "Quiet hours · settings"]
+  ];
+
+  for (const [section, subsection, sourceType, sourceId, statement, sourceLabel] of baseEntries) {
+    if (!statement) continue;
+    upsertHandbookEntry({
+      createdAt: timestamp,
+      section,
+      sourceId,
+      sourceLabel,
+      sourceType,
+      statement,
+      subsection,
+      updatedAt: timestamp,
+      userId,
+      workerSlug: null
+    });
+  }
+
+  const onboarding = db.prepare(
+    `SELECT generated_summary_json AS generatedSummaryJson
+     FROM office_onboarding_sessions
+     WHERE user_id = ? AND worker_slug = ?`
+  ).get(userId, workerSlug);
+  const generatedSummary = normalizeTextList(parseJson(onboarding?.generatedSummaryJson, []), 12);
+  generatedSummary.forEach((statement, index) => {
+    upsertHandbookEntry({
+      createdAt: timestamp,
+      section: "workers",
+      sourceId: `${workerSlug}-onboarding-${index}`,
+      sourceLabel: `Learned during ${workerSlug} onboarding`,
+      sourceType: "worker_onboarding",
+      statement: truncatePreview(statement, 220),
+      subsection: "learned_context",
+      updatedAt: timestamp,
+      userId,
+      workerSlug
+    });
+  });
+
+  const knowledgeRow = db.prepare(
+    `SELECT knowledge_json AS knowledgeJson
+     FROM office_worker_knowledge
+     WHERE user_id = ? AND worker_slug = ?`
+  ).get(userId, workerSlug);
+  const knowledge = parseJson(knowledgeRow?.knowledgeJson, {});
+  Object.entries(knowledge || {}).slice(0, 12).forEach(([key, value], index) => {
+    const items = Array.isArray(value) ? value : [value];
+    items
+      .map((item) => String(item ?? "").trim())
+      .filter(Boolean)
+      .slice(0, 2)
+      .forEach((statement, itemIndex) => {
+        upsertHandbookEntry({
+          createdAt: timestamp,
+          section: "workers",
+          sourceId: `${workerSlug}-knowledge-${index}-${itemIndex}`,
+          sourceLabel: `${workerSlug} knowledge`,
+          sourceType: "worker_knowledge",
+          statement: truncatePreview(statement, 220),
+          subsection: sentenceCase(String(key).replace(/_/g, " ")),
+          updatedAt: timestamp,
+          userId,
+          workerSlug
+        });
+      });
+  });
+
+  const decisions = db.prepare(
+    `SELECT id, date_label AS dateLabel, decisions_json AS decisionsJson
+     FROM office_custom_briefings
+     WHERE user_id = ? AND worker_slug = ?`
+  ).all(userId, workerSlug);
+  decisions.forEach((briefing) => {
+    safeList(briefing.decisionsJson).slice(0, 6).forEach((statement, index) => {
+      upsertHandbookEntry({
+        createdAt: timestamp,
+        section: "decisions",
+        sourceId: `${briefing.id}-${index}`,
+        sourceLabel: `Decided in briefing · ${briefing.dateLabel}`,
+        sourceType: "briefing_decision",
+        statement: truncatePreview(statement, 220),
+        subsection: "review_decisions",
+        updatedAt: timestamp,
+        userId,
+        workerSlug
+      });
+    });
+  });
+
+  const integrations = db.prepare(
+    `SELECT provider, status, account_label AS accountLabel
+     FROM office_worker_integrations
+     WHERE user_id = ? AND worker_slug = ?`
+  ).all(userId, workerSlug);
+  integrations.forEach((integration) => {
+    upsertHandbookEntry({
+      createdAt: timestamp,
+      section: "sources",
+      sourceId: `${workerSlug}-${integration.provider}`,
+      sourceLabel: sentenceCase(integration.status),
+      sourceType: "integration",
+      statement: `${integration.accountLabel || integration.provider} is connected for ${workerSlug}.`,
+      subsection: "connected_tools",
+      updatedAt: timestamp,
+      userId,
+      workerSlug
+    });
+  });
+}
+
+function syncOfficeCanonicalRecords(userId, workerSlug) {
+  syncWorkerAssignments(userId, workerSlug);
+  syncWorkerDeliverables(userId, workerSlug);
+  syncHandbookEntries(userId, workerSlug);
 }
 
 function makeWorkerReply(name) {
@@ -1329,6 +1771,7 @@ function syncMaraOperationalRecords(userId, workerSlug) {
   const campaignLeadSync = syncCampaignsToLeadTracker(userId, workerSlug);
   const researchSync = syncResearchToOfficeIntel(userId, workerSlug);
   const trendSync = syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights);
+  syncOfficeCanonicalRecords(userId, workerSlug);
   return {
     campaignLeadSyncCount: campaignLeadSync.syncedCount,
     opportunitySyncCount: researchSync.opportunityCount,
@@ -3756,6 +4199,18 @@ app.post("/api/office/workers/:slug/opportunities/:opportunityId", assertOrigin,
 });
 
 app.get("/api/office/overlays", requireAuth, (req, res) => {
+  const workerRows = db
+    .prepare(
+      `SELECT worker_slug AS workerSlug
+       FROM hired_workers
+       WHERE user_id = ? AND status = 'active'`
+    )
+    .all(req.user.id);
+
+  for (const row of workerRows) {
+    syncOfficeCanonicalRecords(req.user.id, row.workerSlug);
+  }
+
   res.json(readOfficeOverlaysForUser(req.user.id));
 });
 
@@ -4869,6 +5324,8 @@ app.post("/api/office/workers/:slug/files", assertOrigin, requireAuth, async (re
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(randomUUID(), req.user.id, workerSlug, "Uploaded a file.", "Files", name, nowIso());
 
+  syncOfficeCanonicalRecords(req.user.id, workerSlug);
+
   res.status(201).json({ ok: true });
 });
 
@@ -4906,6 +5363,8 @@ app.post("/api/office/workers/:slug/files/:fileId/delete", assertOrigin, require
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(randomUUID(), req.user.id, workerSlug, "Removed a file.", "Files", file.name, nowIso());
+
+  syncOfficeCanonicalRecords(req.user.id, workerSlug);
 
   res.json({ ok: true });
 });
@@ -4981,9 +5440,20 @@ app.post("/api/office/settings", assertOrigin, requireAuth, async (req, res) => 
     `INSERT INTO office_global_settings (user_id, settings_json, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
-       settings_json = excluded.settings_json,
-       updated_at = excluded.updated_at`
+      settings_json = excluded.settings_json,
+      updated_at = excluded.updated_at`
   ).run(req.user.id, JSON.stringify(normalizedSettings), nowIso());
+
+  const workerRows = db
+    .prepare(
+      `SELECT worker_slug AS workerSlug
+       FROM hired_workers
+       WHERE user_id = ? AND status = 'active'`
+    )
+    .all(req.user.id);
+  for (const row of workerRows) {
+    syncHandbookEntries(req.user.id, row.workerSlug);
+  }
 
   res.json({ ok: true });
 });
@@ -5022,6 +5492,8 @@ app.post("/api/office/workers/:slug/onboarding/save", assertOrigin, requireAuth,
     nowIso(),
     nowIso()
   );
+
+  syncHandbookEntries(req.user.id, workerSlug);
 
   res.json({ ok: true });
 });
@@ -5202,6 +5674,8 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
     String(worklogEntry?.result ?? "Worker prepared first-day setup"),
     timestamp
   );
+
+  syncOfficeCanonicalRecords(req.user.id, workerSlug);
 
   res.json({ ok: true });
 });

@@ -24,6 +24,52 @@ type OverlayChat = { workerSlug: string; id: string; author: "You" | "Worker"; t
 type OverlayTask = { workerSlug: string; id: string; title: string; module: string; owner: string; priority: string; status: string; dueDate: string };
 type OverlayWorklog = { workerSlug: string; id: string; action: string; module: string; result: string; timestamp: string };
 type OverlayFile = { workerSlug: string; id: string; name: string; type: string; updatedAt: string };
+type OverlayAssignment = {
+  id: string;
+  workerSlug: string;
+  sourceType: string;
+  sourceId: string;
+  sourceLabel: string;
+  title: string;
+  summary: string;
+  status: string;
+  priority: string;
+  kind: string;
+  rhythm: string | null;
+  blockedReason: string;
+  dueAt: string | null;
+  artifactType: string;
+  artifactRefId: string | null;
+  artifactTitle: string;
+  artifactPreview: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type OverlayDeliverable = {
+  id: string;
+  workerSlug: string;
+  sourceType: string;
+  sourceId: string;
+  title: string;
+  summary: string;
+  deliverableType: string;
+  previewText: string;
+  contentRefId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+type OverlayHandbookEntry = {
+  id: string;
+  section: string;
+  subsection: string;
+  workerSlug: string | null;
+  sourceType: string;
+  sourceId: string;
+  sourceLabel: string;
+  statement: string;
+  createdAt: string;
+  updatedAt: string;
+};
 type OverlayBriefing = { workerSlug: string; id: string; title: string; dateLabel: string; summary: string; agendaJson: string; decisionsJson: string; actionsJson: string };
 type OverlayCalendarEvent = { id: string; workerSlug: string | null; title: string; startsAt: string; endsAt: string; eventType: string; notes: string; updatedAt: string };
 type OverlaySuggestedAction = {
@@ -208,11 +254,14 @@ type WorkerDesk = {
 
 type Overlays = {
   chats: OverlayChat[];
+  assignments: OverlayAssignment[];
   tasks: OverlayTask[];
   suggestedActions: OverlaySuggestedAction[];
   worklog: OverlayWorklog[];
   files: OverlayFile[];
+  deliverables: OverlayDeliverable[];
   briefings: OverlayBriefing[];
+  handbookEntries: OverlayHandbookEntry[];
   calendarEvents: OverlayCalendarEvent[];
   globalSettings: OverlayGlobalSettings;
   integrations: OverlayIntegration[];
@@ -220,12 +269,12 @@ type Overlays = {
 };
 
 const EMPTY_OVERLAYS: Overlays = {
-  chats: [], tasks: [], suggestedActions: [], worklog: [], files: [], briefings: [], calendarEvents: [], globalSettings: null, integrations: [], onboarding: [],
+  chats: [], assignments: [], tasks: [], suggestedActions: [], worklog: [], files: [], deliverables: [], briefings: [], handbookEntries: [], calendarEvents: [], globalSettings: null, integrations: [], onboarding: [],
 };
 
-type Tab = "today" | "assignments" | "reviews" | "workers" | "calendar" | "handbook" | "settings" | "worker-onboarding";
+type Tab = "today" | "assignments" | "reviews" | "workers" | "deliverables" | "calendar" | "handbook" | "settings" | "worker-onboarding";
 type WorkbenchSection = "desk" | "conversation" | "knowledge" | "history";
-const WORKER_DEPENDENT: Tab[] = ["today", "assignments", "reviews", "workers", "handbook"];
+const WORKER_DEPENDENT: Tab[] = ["today", "assignments", "reviews", "workers", "deliverables"];
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     credentials: "include",
@@ -263,7 +312,8 @@ function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null; 
     approvals: "reviews",
     assignments: "assignments",
     calendar: "calendar",
-    files: "handbook",
+    deliverables: "deliverables",
+    files: "deliverables",
     handbook: "handbook",
     reviews: "reviews",
     settings: "settings",
@@ -372,6 +422,7 @@ function buildWorkerDesk(
   const workerTasks = overlays.tasks.filter((task) => task.workerSlug === worker.slug);
   const workerActions = overlays.suggestedActions.filter((action) => action.workerSlug === worker.slug);
   const workerFiles = overlays.files.filter((file) => file.workerSlug === worker.slug);
+  const workerDeliverables = overlays.deliverables.filter((deliverable) => deliverable.workerSlug === worker.slug);
   const workerEvents = overlays.calendarEvents.filter((event) => event.workerSlug === worker.slug);
   const workerActivity = overlays.worklog.filter((entry) => entry.workerSlug === worker.slug);
   const integrations = overlays.integrations.filter((integration) => integration.workerSlug === worker.slug);
@@ -417,6 +468,13 @@ function buildWorkerDesk(
       summary: output.outputPreview?.preview || normalizeOfficeCopy(output.description || "", "Output ready to review."),
       sourceLabel: "Deliverable",
       updatedAt: output.dueAt || new Date().toISOString()
+    })) ??
+    workerDeliverables.slice(0, 5).map((deliverable) => ({
+      id: deliverable.id,
+      title: deliverable.title,
+      summary: deliverable.summary || deliverable.previewText,
+      sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
+      updatedAt: deliverable.updatedAt
     })) ??
     workerFiles.slice(0, 3).map((file) => ({
       id: file.id,
@@ -545,6 +603,7 @@ const NAV_ITEMS: Array<{ tab: Tab; label: string; icon: JSX.Element }> = [
   { tab: "today", label: "Today", icon: <><path d="M3 12l9-8 9 8" /><path d="M5 10v10h14V10" /></> },
   { tab: "assignments", label: "Assignments", icon: <><path d="M7 6h10" /><path d="M7 12h10" /><path d="M7 18h7" /><rect x="4" y="4" width="16" height="16" rx="2" /></> },
   { tab: "reviews", label: "Reviews", icon: <><path d="M9 12l2 2 4-5" /><circle cx="12" cy="12" r="9" /></> },
+  { tab: "deliverables", label: "Deliverables", icon: <><path d="M7 4h7l3 3v13H7z" /><path d="M14 4v4h4" /><path d="M10 12h4" /><path d="M10 16h4" /></> },
   { tab: "calendar", label: "Calendar", icon: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v4M16 3v4" /></> },
   { tab: "workers", label: "Workers", icon: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5" /><circle cx="17" cy="9" r="2.5" /><path d="M16 15.2c2.6.2 4.6 1.8 5.3 4.3" /></> },
   { tab: "handbook", label: "Handbook", icon: <><path d="M6 4.5h11a2 2 0 0 1 2 2V19a1 1 0 0 1-1.4.9L14 18.2l-3.6 1.7A1 1 0 0 1 9 19V6.5a2 2 0 0 0-2-2Z" /><path d="M6 4.5A2.5 2.5 0 0 0 3.5 7V17A2.5 2.5 0 0 0 6 19.5h11" /></> },
@@ -1656,18 +1715,18 @@ function AssignmentsView({
   onNavigate: (h: string) => void;
 }) {
   const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
-  const tasks = overlays.tasks;
+  const tasks = overlays.assignments;
   const groups = [
     {
-      items: tasks.filter((task) => task.status === "Needs Review"),
+      items: tasks.filter((task) => task.status === "in_review" || task.status === "blocked"),
       label: "Needs you"
     },
     {
-      items: tasks.filter((task) => task.status !== "Completed" && task.status !== "Needs Review"),
+      items: tasks.filter((task) => task.status === "queued" || task.status === "in_progress"),
       label: "In motion"
     },
     {
-      items: tasks.filter((task) => task.status === "Completed").slice(0, 10),
+      items: tasks.filter((task) => task.status === "done").slice(0, 10),
       label: "Done this week"
     }
   ].filter((group) => group.items.length > 0);
@@ -1697,10 +1756,10 @@ function AssignmentsView({
                 >
                   <div className="ro-row-copy">
                     <strong>{task.title}</strong>
-                    <p>{task.module} · {sentenceCase(task.status.replace(/_/g, " "))}</p>
+                    <p>{task.summary || sentenceCase(task.sourceLabel.replace(/_/g, " "))}</p>
                   </div>
                   <div className="ro-row-end">
-                    <span className="ro-row-aside">{nameFor(task.workerSlug)}{task.dueDate ? ` · due ${task.dueDate}` : ""}</span>
+                    <span className="ro-row-aside">{nameFor(task.workerSlug)}{task.dueAt ? ` · due ${task.dueAt}` : ""}</span>
                   </div>
                 </button>
               ))}
@@ -1713,30 +1772,22 @@ function AssignmentsView({
 }
 
 function HandbookView({
-  desks,
   overlays,
   workers
 }: {
-  desks: WorkerDesk[];
   overlays: Overlays;
   workers: Worker[];
 }) {
-  const settings = useMemo(() => {
-    try {
-      return overlays.globalSettings ? JSON.parse(overlays.globalSettings.settingsJson) : {};
-    } catch {
-      return {};
+  const grouped = useMemo(() => {
+    const buckets = new Map<string, OverlayHandbookEntry[]>();
+    for (const entry of overlays.handbookEntries) {
+      const key = entry.section;
+      const current = buckets.get(key) ?? [];
+      current.push(entry);
+      buckets.set(key, current);
     }
-  }, [overlays.globalSettings]);
-
-  const decisions = overlays.briefings
-    .flatMap((briefing) => safeList(briefing.decisionsJson).map((decision, index) => ({
-      id: `${briefing.id}-${index}`,
-      label: decision,
-      source: `Decided in briefing · ${briefing.dateLabel}`
-    })))
-    .slice(0, 8);
-  const sources = overlays.integrations.slice(0, 12);
+    return buckets;
+  }, [overlays.handbookEntries]);
 
   return (
     <div className="ro-main-scroll">
@@ -1749,78 +1800,61 @@ function HandbookView({
         <div className="ro-sec-head">
           <h2>Business profile</h2>
         </div>
-        <div className="ro-plain-list">
-          <div className="ro-plain-row">
-            <strong>{settings.brandContext || "Nothing here yet. Add your business context in settings."}</strong>
-            <div className="ro-handbook-meta"><span>Added in settings</span></div>
-          </div>
-          {settings.decisionStyle ? (
-            <div className="ro-plain-row">
-              <strong>{settings.decisionStyle}</strong>
-              <div className="ro-handbook-meta"><span>Decision style · settings</span></div>
-            </div>
-          ) : null}
-        </div>
+        <HandbookEntryList entries={grouped.get("business_profile") ?? []} empty="Nothing here yet. Add your business context in settings." workers={workers} />
       </section>
 
       <section className="ro-sec">
         <div className="ro-sec-head">
           <h2>Workers</h2>
         </div>
-        <div className="ro-plain-list">
-          {desks.flatMap((desk) => desk.memory.map((item) => ({ ...item, workerSlug: desk.workerSlug }))).slice(0, 12).map((item) => (
-            <div className="ro-plain-row" key={`${item.workerSlug}-${item.id}`}>
-              <strong>{item.text}</strong>
-              <div className="ro-handbook-meta"><span>{item.label} · {workersLabel(item.workerSlug)}</span></div>
-            </div>
-          ))}
-          {desks.every((desk) => desk.memory.length === 0) ? (
-            <p className="ro-blank">Nothing here yet. Workers add what they learn as you work together.</p>
-          ) : null}
-        </div>
+        <HandbookEntryList entries={grouped.get("workers") ?? []} empty="Nothing here yet. Workers add what they learn as you work together." workers={workers} />
       </section>
 
       <section className="ro-sec">
         <div className="ro-sec-head">
           <h2>Decisions</h2>
         </div>
-        {decisions.length === 0 ? (
-          <p className="ro-blank">Nothing here yet. Decisions made in reviews and briefings will collect here.</p>
-        ) : (
-          <div className="ro-plain-list">
-            {decisions.map((item) => (
-              <div className="ro-plain-row" key={item.id}>
-                <strong>{item.label}</strong>
-                <div className="ro-handbook-meta"><span>{item.source}</span></div>
-              </div>
-            ))}
-          </div>
-        )}
+        <HandbookEntryList entries={grouped.get("decisions") ?? []} empty="Nothing here yet. Decisions made in reviews and briefings will collect here." workers={workers} />
       </section>
 
       <section className="ro-sec">
         <div className="ro-sec-head">
           <h2>Sources</h2>
         </div>
-        {sources.length === 0 ? (
-          <p className="ro-blank">Nothing here yet. Connected tools and shared sources will show up here.</p>
-        ) : (
-          <div className="ro-plain-list">
-            {sources.map((source) => (
-              <div className="ro-plain-row" key={`${source.workerSlug}-${source.provider}`}>
-                <strong>{source.accountLabel || source.provider}</strong>
-                <div className="ro-handbook-meta"><span>{sentenceCase(source.status)} · scoped source</span></div>
-              </div>
-            ))}
-          </div>
-        )}
+        <HandbookEntryList entries={grouped.get("sources") ?? []} empty="Nothing here yet. Connected tools and shared sources will show up here." workers={workers} />
       </section>
     </div>
   );
+}
 
-  function workersLabel(workerSlug: string) {
-    return workers.find((worker) => worker.slug === workerSlug)?.name ?? "Worker";
+function HandbookEntryList({
+  entries,
+  empty,
+  workers
+}: {
+  entries: OverlayHandbookEntry[];
+  empty: string;
+  workers: Worker[];
+}) {
+  if (entries.length === 0) {
+    return <p className="ro-blank">{empty}</p>;
   }
+
+  return (
+    <div className="ro-plain-list">
+      {entries.map((entry) => (
+        <div className="ro-plain-row" key={entry.id}>
+          <strong>{entry.statement}</strong>
+          <div className="ro-handbook-meta">
+            <span>
+              {entry.sourceLabel}
+              {entry.workerSlug ? ` · ${workers.find((worker) => worker.slug === entry.workerSlug)?.name ?? "Worker"}` : ""}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function safeList(json: string): string[] {
@@ -2078,11 +2112,13 @@ function EventForm({
 
 function TeamView({
   desks,
+  openRoles,
   workers,
   overlays,
   onNavigate
 }: {
   desks: WorkerDesk[];
+  openRoles: Worker[];
   workers: Worker[];
   overlays: Overlays;
   onNavigate: (h: string) => void;
@@ -2137,32 +2173,70 @@ function TeamView({
       <button className="ro-textlink ro-hire-link" type="button" onClick={() => onNavigate("#workers")}>
         Hire from the marketplace →
       </button>
+
+      {openRoles.length > 0 ? (
+        <section className="ro-sec">
+          <div className="ro-sec-head">
+            <h2>Open roles</h2>
+          </div>
+          <div className="ro-rows">
+            {openRoles.slice(0, 6).map((worker) => (
+              <button
+                className="ro-row ro-row-person"
+                key={worker.slug}
+                type="button"
+                onClick={() => onNavigate(`#worker-${worker.slug}`)}
+              >
+                <WorkerMark seed={worker.slug} size={44} active={false} />
+                <div className="ro-row-copy">
+                  <strong>{worker.name}</strong>
+                  <p>{worker.title} · {worker.status}</p>
+                </div>
+                <div className="ro-row-end">
+                  <span className="ro-row-aside">{worker.salary}</span>
+                  <span className="ro-textlink">Interview</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
 
-/* ---------- Files ---------- */
+/* ---------- Deliverables ---------- */
 
-function FilesView({ workers, overlays, onNavigate }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void }) {
+function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void }) {
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
   return (
     <div className="ro-main-scroll">
       <header className="ro-page-head">
-        <h1>Files</h1>
-        <p className="ro-page-meta">{overlays.files.length === 0 ? "Nothing shared yet" : `${overlays.files.length} file${overlays.files.length === 1 ? "" : "s"}`}</p>
+        <h1>Deliverables</h1>
+        <p className="ro-page-meta">
+          {overlays.deliverables.length === 0 ? "No finished work yet" : `${overlays.deliverables.length} deliverable${overlays.deliverables.length === 1 ? "" : "s"} saved by your workers`}
+        </p>
       </header>
-      {overlays.files.length === 0 ? (
+      {overlays.deliverables.length === 0 ? (
         <p className="ro-blank">
-          Files you share with your workers — and deliverables they produce — will collect here.
+          Deliverables your workers create automatically will collect here.
           {workers.length === 0 && <> <button className="ro-textlink" type="button" onClick={() => onNavigate("#workers")}>Hire a worker to get started</button></>}
         </p>
       ) : (
         <div className="ro-rows">
-          {overlays.files.map((f) => (
-            <a className="ro-row ro-row-slim" key={f.id} href={`/api/office/files/${f.id}/download`}>
-              <div className="ro-row-copy"><strong>{f.name}</strong></div>
-              <span className="ro-row-aside">{nameFor(f.workerSlug)} · {timeAgo(f.updatedAt)}</span>
-            </a>
+          {overlays.deliverables.map((deliverable) => (
+            <button
+              className="ro-row ro-row-slim"
+              key={deliverable.id}
+              type="button"
+              onClick={() => onNavigate(`#app/office/workers/${deliverable.workerSlug}/desk`)}
+            >
+              <div className="ro-row-copy">
+                <strong>{deliverable.title}</strong>
+                <p>{deliverable.summary || deliverable.previewText}</p>
+              </div>
+              <span className="ro-row-aside">{nameFor(deliverable.workerSlug)} · {timeAgo(deliverable.updatedAt)}</span>
+            </button>
           ))}
         </div>
       )}
@@ -2333,6 +2407,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
 
   const emptyLabels: Record<string, string> = {
     assignments: "office assignments",
+    deliverables: "your deliverables",
     handbook: "your handbook",
     reviews: "work waiting on you",
     today: "your day",
@@ -2450,12 +2525,12 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
           );
         } else {
           const openRoles = allWorkers.filter((worker) => !hiredWorkers.some((hired) => hired.slug === worker.slug));
-          main = <TeamView desks={desks} workers={hiredWorkers} overlays={overlays} onNavigate={go} />;
-          void openRoles;
+          main = <TeamView desks={desks} openRoles={openRoles} workers={hiredWorkers} overlays={overlays} onNavigate={go} />;
         }
         break;
       }
-      case "handbook": main = <HandbookView desks={desks} overlays={overlays} workers={hiredWorkers} />; break;
+      case "deliverables": main = <DeliverablesView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
+      case "handbook": main = <HandbookView overlays={overlays} workers={hiredWorkers} />; break;
       case "settings": main = <SettingsView overlays={overlays} onReload={reload} />; break;
       default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/reviews")} onOpenWorkerDetails={(slug) => go(`#app/office/workers/${slug}/desk`)} />;
     }
