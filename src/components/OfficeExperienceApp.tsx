@@ -13,6 +13,7 @@ import { WorkerMark } from "./WorkerMark";
 type OfficeExperienceAppProps = {
   allWorkers: Worker[];
   hiredWorkers: Worker[];
+  isAdmin?: boolean;
   onCheckoutWorker: (workerSlug: string) => Promise<void>;
   onNavigate: (hash: string) => void;
   onNotice: (message: string) => void;
@@ -1770,12 +1771,14 @@ function WorkerKnowledgeView({
   activeWorker,
   connectedTools,
   desk,
+  isAdmin = false,
   onSeedCorrection,
   onReload
 }: {
   activeWorker: Worker;
   connectedTools: OverlayIntegration[];
   desk: WorkerDesk;
+  isAdmin?: boolean;
   onSeedCorrection: (prompt: string) => void;
   onReload?: () => Promise<void>;
 }) {
@@ -1807,14 +1810,15 @@ function WorkerKnowledgeView({
   return (
     <div className="ro-review-layout">
       <div>
-        {isMaraWorker(activeWorker.slug) ? (
+        {isAdmin && isMaraWorker(activeWorker.slug) ? (
           <section className="ro-sec ro-sec-lead">
             <div className="ro-sec-head">
-              <h2>This week's TikTok trends</h2>
+              <h2>Weekly trend intake</h2>
+              <span className="ro-sec-n">Ops only — invisible to users</span>
             </div>
             <p className="ro-page-meta">
-              Paste trend notes from TikTok Creative Center or Creator Search Insights — hashtags, view counts,
-              gaps you noticed. I'll turn them into a hashtag plan for every video you make this week.
+              Paste this week's TikTok trend data once. It becomes the global source: every user's Mara scopes it
+              to their own niche automatically and presents it as her own research.
             </p>
             <textarea
               className="ro-trend-paste"
@@ -1922,6 +1926,7 @@ function WorkerDeskView({
   canUseEmail,
   connectedTools,
   desk,
+  isAdmin = false,
   overlays,
   onApprove,
   onApproveTask,
@@ -1937,6 +1942,7 @@ function WorkerDeskView({
   canUseEmail: boolean;
   connectedTools: OverlayIntegration[];
   desk: WorkerDesk;
+  isAdmin?: boolean;
   overlays: Overlays;
   onApprove: (approvalId: string) => Promise<void>;
   onApproveTask: (taskId: string) => Promise<void>;
@@ -2010,6 +2016,7 @@ function WorkerDeskView({
           activeWorker={activeWorker}
           connectedTools={connectedTools}
           desk={desk}
+          isAdmin={isAdmin}
           onSeedCorrection={onSeedCorrection}
           onReload={onReload}
         />
@@ -2949,7 +2956,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
 
 /* ---------- shell ---------- */
 
-export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNotice, userName }: OfficeExperienceAppProps) {
+export function OfficeExperienceApp({ allWorkers, hiredWorkers, isAdmin = false, onNavigate, onNotice, userName }: OfficeExperienceAppProps) {
   const [route, setRoute] = useState(() => parseOfficeRoute(window.location.hash));
   const [overlays, setOverlays] = useState<Overlays>(EMPTY_OVERLAYS);
   const [loading, setLoading] = useState(true);
@@ -3233,6 +3240,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
             <WorkerDeskView
               activeWorker={activeWorker}
               busyId={workerActionBusy}
+              isAdmin={isAdmin}
               canUseEmail={overlays.integrations.some((integration) => integration.workerSlug === activeWorker.slug && integration.status === "connected")}
               connectedTools={overlays.integrations.filter((integration) => integration.workerSlug === activeWorker.slug)}
               desk={activeDesk}

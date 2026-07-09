@@ -721,9 +721,28 @@ function syncWorkerAssignments(userId, workerSlug) {
   }
 }
 
+/**
+ * The Deliverables library is a showcase, not a system log. Internal
+ * artifacts stay off it: plain summaries, status notes, and weekly
+ * schedules (those live on the calendar, where they belong).
+ */
+const HIDDEN_DELIVERABLE_OUTPUT_TYPES = new Set(["summary", "status_note", "weekly_schedule"]);
+
 function syncWorkerDeliverables(userId, workerSlug) {
   const outputs = listWorkerOutputs(db, userId, workerSlug);
+
+  // Remove anything previously synced that no longer belongs on display.
+  for (const hiddenType of HIDDEN_DELIVERABLE_OUTPUT_TYPES) {
+    db.prepare(
+      `DELETE FROM office_deliverables
+       WHERE user_id = ? AND worker_slug = ? AND source_type = 'worker_output' AND deliverable_type = ?`
+    ).run(userId, workerSlug, hiddenType);
+  }
+
   for (const output of outputs) {
+    if (HIDDEN_DELIVERABLE_OUTPUT_TYPES.has(String(output.outputType))) {
+      continue;
+    }
     upsertOfficeDeliverable({
       contentRefId: output.id,
       createdAt: output.createdAt,
@@ -2394,6 +2413,47 @@ function purgeLegacyDemoData() {
 }
 purgeLegacyDemoData();
 
+/**
+ * Scraped HTML entities (&mdash; &amp; …) leaked into stored text in earlier
+ * builds. Decode them in place across every user-visible column. Idempotent.
+ */
+function cleanHtmlEntitiesInDatabase() {
+  const targets = [
+    ["worker_research_items", ["topic", "summary"]],
+    ["worker_brands", ["brand_name", "identity_summary", "suggested_angle", "vibe_notes"]],
+    ["worker_tasks", ["title", "description"]],
+    ["worker_outputs", ["title", "content"]],
+    ["office_deliverables", ["title", "summary", "preview_text"]],
+    ["office_assignments", ["title", "summary", "artifact_title", "artifact_preview"]],
+    ["office_custom_tasks", ["title"]],
+    ["office_chat_messages", ["text"]]
+  ];
+  const replacements = [
+    ["&mdash;", "—"], ["&ndash;", "–"], ["&amp;", "&"], ["&quot;", '"'],
+    ["&#39;", "'"], ["&apos;", "'"], ["&rsquo;", "’"], ["&lsquo;", "‘"],
+    ["&rdquo;", "”"], ["&ldquo;", "“"], ["&nbsp;", " "], ["&hellip;", "…"]
+  ];
+
+  let cleaned = 0;
+  for (const [table, columns] of targets) {
+    for (const column of columns) {
+      for (const [entity, character] of replacements) {
+        try {
+          cleaned += db
+            .prepare(`UPDATE ${table} SET ${column} = REPLACE(${column}, ?, ?) WHERE ${column} LIKE ?`)
+            .run(entity, character, `%${entity}%`).changes;
+        } catch {
+          /* column/table may not exist in older databases */
+        }
+      }
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`Decoded HTML entities in ${cleaned} stored record(s).`);
+  }
+}
+cleanHtmlEntitiesInDatabase();
+
 function maraIntegrations(userId) {
   return db
     .prepare(
@@ -3969,20 +4029,17 @@ app.post("/api/office/workers/:slug/pause", assertOrigin, requireAuth, (req, res
 });
 
 /**
- * Manual weekly TikTok trend intake: the manager pastes trend notes, Mara
- * parses them into a structured snapshot and immediately produces a fresh
- * hashtag-and-content-gap brief from it.
+ * OPS-ONLY weekly TikTok trend intake. The platform operator pastes this
+ * week's trend data once; it becomes the GLOBAL trend source, and every
+ * user's Mara scopes it to their own niche automatically. Users never see
+ * this — to them, trend intelligence is simply part of Mara.
  */
 app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
   const text = String(req.body?.text ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
-    res.status(404).json({ error: "Hired worker not found." });
-    return;
-  }
-  if (!isMaraWorker(workerSlug)) {
-    res.status(400).json({ error: "Trend intake is only available for Mara right now." });
+  if (!isAdminUser(req.user)) {
+    res.status(403).json({ error: "Not available." });
     return;
   }
   if (text.length < 10) {
@@ -3991,70 +4048,84 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
   }
 
   try {
-    const accountContext = getUserOnboardingRecord(req.user.id);
-    const niche = String(accountContext?.whatYouDo ?? "").trim();
-    let parsed = await tryParseTrendPaste({ db, userId: req.user.id, text, niche });
+    let parsed = await tryParseTrendPaste({ db, userId: req.user.id, text, niche: "" });
     let parsedBy = "llm";
     if (!parsed) {
       parsed = parseTrendPasteHeuristic(text);
       parsedBy = "heuristic";
     }
     if ((parsed.hashtags?.length ?? 0) === 0 && (parsed.contentGaps?.length ?? 0) === 0) {
-      res.status(400).json({ error: "I couldn't find hashtags or content gaps in that paste. Include lines like '#glowyskin — 2.1M views'." });
+      res.status(400).json({ error: "No hashtags or content gaps found. Include lines like '#glowyskin — 2.1M views'." });
       return;
     }
 
-    const insights = {
-      contentGaps: (parsed.contentGaps ?? []).map((gap) => ({ label: gap.label, note: gap.note ?? "" })),
-      hashtags: parsed.hashtags ?? [],
-      insights: [],
+    // Write the global source every user's Mara reads from.
+    const globalPayload = {
+      capturedAt: nowIso(),
+      contentGaps: (parsed.contentGaps ?? []).map((gap) => ({ gap: gap.label, label: gap.label, note: gap.note ?? "" })),
+      hashtags: (parsed.hashtags ?? []).map((entry) => ({
+        categories: [],
+        hashtag: entry.hashtag,
+        note: entry.note ?? "",
+        posts: entry.posts ?? "",
+        views: entry.views ?? ""
+      })),
       loginWallEncountered: false,
-      matchedToNiche: true,
-      niche: niche || "creator content",
       notes: parsed.notes ?? [],
       periodDays: 7,
       region: parsed.region || "US",
-      source: "manual_paste",
+      source: "manual_ops_intake",
       sourceUrl: "",
       updatedAt: nowIso()
     };
+    await fs.writeFile(privateInsightsPath, `${JSON.stringify(globalPayload, null, 2)}\n`, "utf8");
 
-    saveUserTrendSnapshot(db, { insights, userId: req.user.id, workerId: workerSlug });
-    await writeUserTrendInsightsFile(resolveStorageRoot(), req.user.id, insights).catch(() => undefined);
+    // Invalidate every user's scoped snapshot so fresh data flows through
+    // on their next cycle — silently, as if Mara found it herself.
+    const invalidated = db.prepare("DELETE FROM worker_trend_snapshots WHERE platform = 'tiktok'").run().changes;
 
-    // Fresh data deserves a fresh brief: run the trend pulse right away.
-    const created = createApprovedTaskIfPermissionAllows(db, {
-      description: "Turn this week's pasted TikTok trend data into a hashtag plan mapped to content gaps.",
-      priority: "high",
-      requiredPermissions: [],
-      source: "autonomy_tiktok_trends",
-      status: "approved",
-      taskType: "tiktok_trend_pulse",
-      title: `TikTok hashtag plan — week of ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
-      userId: req.user.id,
-      workerId: workerSlug
-    });
-    let output = null;
-    if (created?.id) {
-      const result = await runMaraTask({ db, taskId: created.id, userId: req.user.id, workerId: workerSlug, ...buildMaraExecutionReaders() });
-      output = result?.output ?? null;
+    // Give the admin's own Mara an immediate refresh for verification.
+    let outputTitle = null;
+    if (hasHiredWorker(req.user.id, workerSlug) && isMaraWorker(workerSlug)) {
+      syncUserTrendInsightsFromGlobal({
+        db,
+        globalPath: privateInsightsPath,
+        readAccountContext: getUserOnboardingRecord,
+        readMaraOnboarding: readMaraOnboardingAnswers,
+        readWorkerKnowledge: readWorkerKnowledgeSections,
+        storageRoot: resolveStorageRoot(),
+        userId: req.user.id,
+        workerId: workerSlug
+      });
+      const created = createApprovedTaskIfPermissionAllows(db, {
+        description: "Turn this week's trend data into a hashtag plan mapped to content gaps.",
+        priority: "high",
+        requiredPermissions: [],
+        source: "autonomy_tiktok_trends",
+        status: "approved",
+        taskType: "tiktok_trend_pulse",
+        title: `TikTok hashtag plan — week of ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+        userId: req.user.id,
+        workerId: workerSlug
+      });
+      if (created?.id) {
+        const result = await runMaraTask({ db, taskId: created.id, userId: req.user.id, workerId: workerSlug, ...buildMaraExecutionReaders() });
+        outputTitle = result?.output?.title ?? null;
+      }
+      syncMaraOperationalRecords(req.user.id, workerSlug);
     }
-    syncMaraOperationalRecords(req.user.id, workerSlug);
 
     res.json({
       ok: true,
       parsedBy,
-      hashtagCount: insights.hashtags.length,
-      gapCount: insights.contentGaps.length,
-      outputTitle: output?.title ?? null,
-      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
-        readKnowledgeSections: readWorkerKnowledgeSections,
-        readOfficeOverlays: readOfficeOverlaysForUser
-      })
+      hashtagCount: globalPayload.hashtags.length,
+      gapCount: globalPayload.contentGaps.length,
+      usersInvalidated: invalidated,
+      outputTitle
     });
   } catch (error) {
     console.error("Trend intake failed:", error);
-    res.status(500).json({ error: "I couldn't process that trend paste. Try again." });
+    res.status(500).json({ error: "Trend intake failed. Try again." });
   }
 });
 

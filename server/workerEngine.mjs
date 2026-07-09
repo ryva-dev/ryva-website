@@ -2399,8 +2399,46 @@ function startOfUtcDayIso(date = new Date()) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString();
 }
 
+const HTML_ENTITIES = {
+  "&amp;": "&",
+  "&apos;": "'",
+  "&hellip;": "…",
+  "&ldquo;": "“",
+  "&lsquo;": "‘",
+  "&mdash;": "—",
+  "&nbsp;": " ",
+  "&ndash;": "–",
+  "&quot;": '"',
+  "&rdquo;": "”",
+  "&rsquo;": "’"
+};
+
+/** Scraped text must never show raw entities like &mdash; to a user. */
+export function decodeHtmlEntities(value) {
+  return String(value ?? "")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number.parseInt(code, 10)))
+    .replace(/&[a-z]+;/gi, (entity) => HTML_ENTITIES[entity.toLowerCase()] ?? " ");
+}
+
 function stripHtml(value) {
-  return String(value ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return decodeHtmlEntities(String(value ?? "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Search results are full of listicles ("15+ Wellness Brands for…", "Top 10
+ * DTC brands"). Those are articles, not brands — treating them as brand
+ * names produces absurd pitches. Reject them at the source.
+ */
+export function isLikelyListicleTitle(title) {
+  const text = String(title ?? "").trim();
+  if (!text) return true;
+  if (text.length > 60) return true;
+  if (/\d+\s*\+/.test(text)) return true;
+  if (/\b(top|best|list of|guide to|ultimate|our favorite|favourites?)\b/i.test(text)) return true;
+  if (/\bbrands\b/i.test(text)) return true;
+  if (/\b(20\d{2})\b/.test(text)) return true;
+  return false;
 }
 
 function decodeDuckDuckGoResultUrl(url) {
@@ -2532,8 +2570,11 @@ async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsight
       }
       const pageTitle = pageHtml.match(/<title[^>]*>(.*?)<\/title>/is)?.[1] || title;
       const metaDescription = pageHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] || "";
+      const brandName = stripHtml(pageTitle).split("|")[0].split("—")[0].split("-")[0].trim() || stripHtml(title) || hostname;
+      // Articles and listicles are not brands — skip them entirely.
+      if (isLikelyListicleTitle(brandName) || isLikelyListicleTitle(stripHtml(title))) continue;
       const fit = summarizeBrandResearchFit({
-        brandName: stripHtml(pageTitle).split("|")[0].split("-")[0].trim() || title || hostname,
+        brandName,
         metaDescription,
         niche,
         pageTitle,
@@ -2541,7 +2582,7 @@ async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsight
         redditSignals
       });
       candidates.push({
-        brandName: stripHtml(pageTitle).split("|")[0].split("-")[0].trim() || title || hostname,
+        brandName,
         matchedInsights: fit.matchedInsights,
         matchedSignals: fit.matchedSignals,
         summary: fit.fitSummary.slice(0, 320),

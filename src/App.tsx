@@ -771,6 +771,7 @@ export default function App() {
             onNotice={setGlobalNotice}
             onRefreshWorkers={refreshOfficeWorkers}
             userName={user.name}
+            isAdmin={user.isAdmin}
           />
         )}
       </div>
