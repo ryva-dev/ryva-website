@@ -160,6 +160,9 @@ export function ensureOfficeSchema() {
   // Self-serve billing portal needs the Stripe customer on the user.
   ensureColumn("users", "stripe_customer_id", "TEXT");
 
+  // Pause switch: a paused worker does no autonomous (token-spending) work.
+  ensureColumn("hired_workers", "paused", "INTEGER NOT NULL DEFAULT 0");
+
   // Weekly digest bookkeeping: one row per user, updated on each send.
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_digest_log (

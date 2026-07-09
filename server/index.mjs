@@ -42,8 +42,9 @@ import {
   updateWorkerTaskStatus
 } from "./workerEngine.mjs";
 import { handleAgentChatMessage, runAgentAutonomyCycle, runAgentTask } from "./agentCore.mjs";
-import { isAgentLlmConfigured } from "./agentLlm.mjs";
+import { isAgentLlmConfigured, parseTrendPasteHeuristic, tryParseTrendPaste } from "./agentLlm.mjs";
 import { hasRoleConfig } from "./roles.mjs";
+import { saveUserTrendSnapshot, writeUserTrendInsightsFile } from "./maraTrendOps.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -291,7 +292,7 @@ async function readWorkers() {
 async function readHiredWorkersForUser(userId) {
   const hiredRows = db
     .prepare(
-      `SELECT worker_slug
+      `SELECT worker_slug, paused
        FROM hired_workers
        WHERE user_id = ? AND status = ?
        ORDER BY hired_at DESC`
@@ -306,8 +307,18 @@ async function readHiredWorkersForUser(userId) {
   const workerMap = new Map(workers.map((worker) => [worker.slug, worker]));
 
   return hiredRows
-    .map((row) => workerMap.get(row.worker_slug))
+    .map((row) => {
+      const worker = workerMap.get(row.worker_slug);
+      return worker ? { ...worker, paused: Boolean(row.paused) } : null;
+    })
     .filter(Boolean);
+}
+
+function isWorkerPaused(userId, workerSlug) {
+  const row = db
+    .prepare("SELECT paused FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'")
+    .get(userId, workerSlug);
+  return Boolean(row?.paused);
 }
 
 function hasHiredWorker(userId, workerSlug) {
@@ -1815,7 +1826,104 @@ function syncInboxThreadsToCampaigns(userId, workerSlug) {
   return { syncedCount };
 }
 
+/**
+ * Reddit lessons Mara distilled become durable playbook memory, and weekly
+ * schedules land on the calendar as real time blocks. Both are idempotent —
+ * each output is harvested exactly once.
+ */
+function harvestMaraOutputSideEffects(userId, workerSlug) {
+  const recentThreshold = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+  const rows = db.prepare(
+    `SELECT id, output_type AS outputType, structured_content_json AS structuredContentJson
+     FROM worker_outputs
+     WHERE user_id = ? AND worker_id = ? AND created_at >= ? AND output_type IN ('market_pulse', 'weekly_schedule')`
+  ).all(userId, workerSlug, recentThreshold);
+
+  for (const row of rows) {
+    const structured = parseJson(row.structuredContentJson, {});
+    let changed = false;
+
+    // Lessons → "UGC playbook (learned)" memory section, capped at 20.
+    if (row.outputType === "market_pulse" && Array.isArray(structured.lessonsLearned) && structured.lessonsLearned.length > 0 && !structured.lessonsHarvestedAt) {
+      upsertWorkerKnowledge(userId, workerSlug, (knowledge) => {
+        const next = Array.isArray(knowledge) ? [...knowledge] : [];
+        const title = "UGC playbook (learned)";
+        const index = next.findIndex((section) => String(section?.title ?? "").trim() === title);
+        const existingItems = index >= 0 && Array.isArray(next[index]?.items) ? next[index].items : [];
+        const mergedItems = normalizeTextList([...structured.lessonsLearned, ...existingItems], 20);
+        const section = { title, items: mergedItems };
+        if (index >= 0) next[index] = section;
+        else next.push(section);
+        return next;
+      });
+      structured.lessonsHarvestedAt = nowIso();
+      changed = true;
+    }
+
+    // Schedule blocks → calendar events for the upcoming week.
+    if (row.outputType === "weekly_schedule" && Array.isArray(structured.blocks) && structured.blocks.length > 0 && !structured.calendarSyncedAt) {
+      const dayIndex = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
+      const now = new Date();
+      let created = 0;
+      for (const block of structured.blocks.slice(0, 20)) {
+        const targetDay = dayIndex[String(block?.day ?? "").trim()];
+        const startMatch = String(block?.start ?? "").match(/^(\d{1,2}):(\d{2})$/);
+        const endMatch = String(block?.end ?? "").match(/^(\d{1,2}):(\d{2})$/);
+        const activity = String(block?.activity ?? "").trim();
+        if (targetDay === undefined || !startMatch || !endMatch || !activity) continue;
+
+        const start = new Date(now);
+        let delta = (targetDay - start.getDay() + 7) % 7;
+        if (delta === 0 && (start.getHours() > Number(startMatch[1]) || (start.getHours() === Number(startMatch[1]) && start.getMinutes() > Number(startMatch[2])))) {
+          delta = 7; // today's slot already passed — schedule next week
+        }
+        start.setDate(start.getDate() + delta);
+        start.setHours(Number(startMatch[1]), Number(startMatch[2]), 0, 0);
+        const end = new Date(start);
+        end.setHours(Number(endMatch[1]), Number(endMatch[2]), 0, 0);
+        if (end.getTime() <= start.getTime()) continue;
+
+        db.prepare(
+          `INSERT INTO office_calendar_events
+            (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          randomUUID(),
+          userId,
+          workerSlug,
+          activity.slice(0, 120),
+          start.toISOString(),
+          end.toISOString(),
+          "Focus",
+          String(block?.goal ?? "").slice(0, 240),
+          nowIso(),
+          nowIso()
+        );
+        created += 1;
+      }
+      if (created > 0) {
+        createWorkerActivityLog(db, {
+          description: `Placed ${created} time block${created === 1 ? "" : "s"} on your calendar for the week.`,
+          eventType: "task_completed",
+          metadata: { outputId: row.id },
+          title: "Weekly schedule on calendar",
+          userId,
+          workerId: workerSlug
+        });
+      }
+      structured.calendarSyncedAt = nowIso();
+      changed = true;
+    }
+
+    if (changed) {
+      db.prepare("UPDATE worker_outputs SET structured_content_json = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(structured), nowIso(), row.id);
+    }
+  }
+}
+
 function syncMaraOperationalRecords(userId, workerSlug) {
+  harvestMaraOutputSideEffects(userId, workerSlug);
   const privateInsights = loadUserTrendInsights({
     db,
     globalPath: privateInsightsPath,
@@ -2810,7 +2918,7 @@ async function runScheduledMaraAutonomy() {
        FROM hired_workers hw
        INNER JOIN office_onboarding_sessions os
          ON os.user_id = hw.user_id AND os.worker_slug = hw.worker_slug
-       WHERE hw.status = 'active' AND os.status = 'completed'`
+       WHERE hw.status = 'active' AND hw.paused = 0 AND os.status = 'completed'`
     ).all();
 
     for (const row of workersToRun) {
@@ -3764,6 +3872,11 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
     return;
   }
 
+  if (isWorkerPaused(req.user.id, workerSlug)) {
+    res.status(409).json({ error: "This worker is paused. Resume them from their desk to run work." });
+    return;
+  }
+
   try {
     let summary;
     if (isMaraWorker(workerSlug)) {
@@ -3824,6 +3937,124 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
     }
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not run worker autonomy." });
+  }
+});
+
+app.post("/api/office/workers/:slug/pause", assertOrigin, requireAuth, (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const paused = Boolean(req.body?.paused);
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  db.prepare("UPDATE hired_workers SET paused = ? WHERE user_id = ? AND worker_slug = ? AND status = 'active'")
+    .run(paused ? 1 : 0, req.user.id, workerSlug);
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    req.user.id,
+    workerSlug,
+    paused ? "Paused autonomous work." : "Resumed autonomous work.",
+    "People",
+    paused ? "No background work or AI usage until resumed" : "Back on the clock",
+    nowIso()
+  );
+
+  res.json({ ok: true, paused });
+});
+
+/**
+ * Manual weekly TikTok trend intake: the manager pastes trend notes, Mara
+ * parses them into a structured snapshot and immediately produces a fresh
+ * hashtag-and-content-gap brief from it.
+ */
+app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const text = String(req.body?.text ?? "").trim();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Trend intake is only available for Mara right now." });
+    return;
+  }
+  if (text.length < 10) {
+    res.status(400).json({ error: "Paste this week's trend notes — hashtags, view counts, anything you have." });
+    return;
+  }
+
+  try {
+    const accountContext = getUserOnboardingRecord(req.user.id);
+    const niche = String(accountContext?.whatYouDo ?? "").trim();
+    let parsed = await tryParseTrendPaste({ db, userId: req.user.id, text, niche });
+    let parsedBy = "llm";
+    if (!parsed) {
+      parsed = parseTrendPasteHeuristic(text);
+      parsedBy = "heuristic";
+    }
+    if ((parsed.hashtags?.length ?? 0) === 0 && (parsed.contentGaps?.length ?? 0) === 0) {
+      res.status(400).json({ error: "I couldn't find hashtags or content gaps in that paste. Include lines like '#glowyskin — 2.1M views'." });
+      return;
+    }
+
+    const insights = {
+      contentGaps: (parsed.contentGaps ?? []).map((gap) => ({ label: gap.label, note: gap.note ?? "" })),
+      hashtags: parsed.hashtags ?? [],
+      insights: [],
+      loginWallEncountered: false,
+      matchedToNiche: true,
+      niche: niche || "creator content",
+      notes: parsed.notes ?? [],
+      periodDays: 7,
+      region: parsed.region || "US",
+      source: "manual_paste",
+      sourceUrl: "",
+      updatedAt: nowIso()
+    };
+
+    saveUserTrendSnapshot(db, { insights, userId: req.user.id, workerId: workerSlug });
+    await writeUserTrendInsightsFile(resolveStorageRoot(), req.user.id, insights).catch(() => undefined);
+
+    // Fresh data deserves a fresh brief: run the trend pulse right away.
+    const created = createApprovedTaskIfPermissionAllows(db, {
+      description: "Turn this week's pasted TikTok trend data into a hashtag plan mapped to content gaps.",
+      priority: "high",
+      requiredPermissions: [],
+      source: "autonomy_tiktok_trends",
+      status: "approved",
+      taskType: "tiktok_trend_pulse",
+      title: `TikTok hashtag plan — week of ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+      userId: req.user.id,
+      workerId: workerSlug
+    });
+    let output = null;
+    if (created?.id) {
+      const result = await runMaraTask({ db, taskId: created.id, userId: req.user.id, workerId: workerSlug, ...buildMaraExecutionReaders() });
+      output = result?.output ?? null;
+    }
+    syncMaraOperationalRecords(req.user.id, workerSlug);
+
+    res.json({
+      ok: true,
+      parsedBy,
+      hashtagCount: insights.hashtags.length,
+      gapCount: insights.contentGaps.length,
+      outputTitle: output?.title ?? null,
+      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+        readKnowledgeSections: readWorkerKnowledgeSections,
+        readOfficeOverlays: readOfficeOverlaysForUser
+      })
+    });
+  } catch (error) {
+    console.error("Trend intake failed:", error);
+    res.status(500).json({ error: "I couldn't process that trend paste. Try again." });
   }
 });
 
@@ -5074,8 +5305,11 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
           agentResult.reply,
           new Date(Date.now() + 1000).toISOString()
         );
-        res.status(201).json({ ok: true, executing: agentResult.createdTaskIds.length > 0 });
-        executeChatTasksInBackground(req.user.id, workerSlug, worker, agentResult.createdTaskIds, text);
+        const paused = isWorkerPaused(req.user.id, workerSlug);
+        res.status(201).json({ ok: true, executing: !paused && agentResult.createdTaskIds.length > 0 });
+        if (!paused) {
+          executeChatTasksInBackground(req.user.id, workerSlug, worker, agentResult.createdTaskIds, text);
+        }
         return;
       }
     } catch (error) {

@@ -23,9 +23,12 @@ export type WorkerProfile = {
 export type Worker = {
   description: string;
   department: string;
+  dealLabel?: string;
   experience: string;
   imageUrl: string;
   name: string;
+  originalSalary?: string;
+  paused?: boolean;
   profile: WorkerProfile;
   salary: string;
   skills: string[];

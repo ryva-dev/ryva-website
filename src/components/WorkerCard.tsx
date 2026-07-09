@@ -22,9 +22,13 @@ export function WorkerCard({ onHire, worker }: WorkerCardProps) {
       <div className="skills">{worker.skills.slice(0, 4).join(" · ")}</div>
 
       <div className="foot">
-        <span className="sal">{salaryNumber}<span>/mo</span></span>
+        <span className="sal">
+          {worker.originalSalary ? <s className="sal-was">{worker.originalSalary.replace(/\/mo$/, "")}</s> : null}
+          {salaryNumber}<span>/mo</span>
+        </span>
         <span className={`r-status ${statusClass}`}>{statusLabel}</span>
       </div>
+      {worker.dealLabel ? <div className="r-deal-chip">{worker.dealLabel}</div> : null}
 
       <div className="r-worker-actions">
         <a className="r-btn r-btn-ghost r-worker-action" href={`#worker-${worker.slug}`}>

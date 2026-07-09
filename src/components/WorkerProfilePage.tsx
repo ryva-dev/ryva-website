@@ -35,7 +35,11 @@ export function WorkerProfilePage({ onHire, onInterview, worker }: WorkerProfile
         </div>
         <div className="rp-hero-side">
           <div className="rp-price">
-            <strong>{worker.salary}</strong>
+            <strong>
+              {worker.originalSalary ? <s className="sal-was">{worker.originalSalary}</s> : null}
+              {worker.salary}
+            </strong>
+            {worker.dealLabel ? <span className="r-deal-chip">{worker.dealLabel}</span> : null}
             <span className={`r-status ${statusClass}`}>{worker.status}</span>
           </div>
           <div className="rp-actions">
@@ -107,7 +111,7 @@ export function WorkerProfilePage({ onHire, onInterview, worker }: WorkerProfile
           <section className="rp-card">
             <h3>Hiring information</h3>
             <dl className="rp-info">
-              <div><dt>Monthly salary</dt><dd>{worker.salary}</dd></div>
+              <div><dt>Monthly salary</dt><dd>{worker.originalSalary ? <><s className="sal-was">{worker.originalSalary}</s> {worker.salary}</> : worker.salary}</dd></div>
               <div><dt>Availability</dt><dd>{worker.status}</dd></div>
               <div><dt>Category</dt><dd>{worker.profile.category}</dd></div>
               <div><dt>Industry</dt><dd>{worker.profile.industry}</dd></div>

@@ -7,7 +7,13 @@ import {
   planMaraAutonomyActions
 } from "./maraAutonomyPlanner.mjs";
 import { isMaraLlmConfigured, tryGenerateMaraBrandContentIdeas, tryGenerateMaraPersonalizedPitch } from "./maraLlm.mjs";
-import { buildBrandContext, tryExecuteAgentTaskLlm, tryPolishDeliverableVoice } from "./agentLlm.mjs";
+import {
+  buildBrandContext,
+  classifyRedditSignalsHeuristic,
+  tryClassifyRedditSignals,
+  tryExecuteAgentTaskLlm,
+  tryPolishDeliverableVoice
+} from "./agentLlm.mjs";
 import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
@@ -75,6 +81,7 @@ const LLM_FIRST_TASK_TYPES = new Set([
   "follow_up_sequence",
   "content_idea_batch",
   "weekly_action_plan",
+  "weekly_schedule",
   "brand_tracker_structure",
   "ugc_shot_list",
   "portfolio_recommendations",
@@ -143,7 +150,8 @@ const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "pitch_template",
   "reddit_market_pulse",
   "tiktok_trend_pulse",
-  "update_brand_tracker"
+  "update_brand_tracker",
+  "weekly_schedule"
 ]);
 
 export const MARA_REDDIT_COMMUNITIES = [
@@ -152,8 +160,9 @@ export const MARA_REDDIT_COMMUNITIES = [
   "UGCcreators",
   "UGCUNIVERSITY",
   "influencermarketing",
-  "socialmedia",
-  "TikTokMarketing"
+  "TikTokMarketing",
+  "Tiktokhelp",
+  "ContentCreators"
 ];
 
 const MARA_DAILY_BRAND_RESEARCH_LIMIT = 5;
@@ -176,6 +185,7 @@ const TASK_TYPE_OUTPUT_TYPE_MAP = {
   research_queue_summary: "summary",
   ugc_shot_list: "shot_list",
   weekly_action_plan: "weekly_plan",
+  weekly_schedule: "weekly_schedule",
   brand_content_ideas: "content_ideas",
   ops_brief: "ops_brief",
   reddit_market_pulse: "market_pulse",
@@ -412,6 +422,40 @@ const MARA_KNOWLEDGE_MODULES = [
     },
     tags: ["beginner", "roadmap", "portfolio", "first brands"],
     isActive: true
+  },
+  {
+    id: "mara-tiktok-growth",
+    workerType: "mara",
+    title: "TikTok growth playbook",
+    category: "tiktok_growth",
+    summary: "How creators actually grow and get seen on TikTok: hooks, retention, hashtags, stories, posting rhythm, and TikTok SEO.",
+    content: "TikTok rewards watch time and completion above all. The first 1.5 seconds decide everything: open on motion, a bold claim, a question, or the payoff shown first — never a logo or slow intro. Retention tactics: cut every pause, change the frame every 2-3 seconds, use on-screen text that creates an open loop, and put the payoff at the end to drive completion. Hashtags work as a stack: 1-2 broad trending tags for reach, 2-3 niche tags for classification, 1 micro tag for community. TikTok is a search engine now: say and write the exact phrase a target viewer would search (TikTok SEO) in the first line of the caption and out loud in the first seconds. TikTok Stories keep the account warm between posts and get shown to non-followers. Consistency beats bursts: 3-5 posts a week sustained outperforms 15 in one week then silence. Post when the audience is active, typically mornings and 7-10pm local. Reply to early comments within the first hour — early engagement velocity is a ranking input. Content gaps are the fastest growth lever: find a searched-for topic with weak supply and fill it repeatedly until you own it.",
+    structuredContent: {
+      hookPatterns: ["Show the payoff first, then explain", "Bold claim the viewer wants to argue with", "Direct question naming the target viewer", "Motion or transformation in frame one", "Negative hook: 'stop doing X'"],
+      retentionTactics: ["Cut all dead air", "Visual change every 2-3 seconds", "Open-loop text overlay", "Payoff at the end for completion", "Loop the ending back to the start"],
+      hashtagStacking: ["1-2 broad trending tags for reach", "2-3 niche tags for classification", "1 micro/community tag", "Rotate stacks per video — never one static set"],
+      tiktokSeo: ["Say the search phrase out loud early", "Write it in the caption's first line", "Use it in on-screen text", "One video = one search intent"],
+      postingRhythm: ["3-5 posts weekly, sustained", "Stories between posts to stay warm", "Post at audience-active hours", "Reply to comments within the first hour"],
+      contentGapStrategy: ["Find searched topics with weak supply", "Fill one gap repeatedly until you own it", "Check what top results miss, make that"]
+    },
+    tags: ["tiktok", "hooks", "retention", "hashtags", "seo", "stories", "posting", "trends", "growth"],
+    isActive: true
+  },
+  {
+    id: "mara-deal-closing",
+    workerType: "mara",
+    title: "Closing UGC deals",
+    category: "deal_closing",
+    summary: "Moving a brand from interested to paid: discovery questions, anchoring rates, usage rights, urgency without desperation, and follow-up cadence that closes.",
+    content: "Deals die from slowness and vagueness, not from price. Reply to interested brands within hours, not days. Always ask discovery questions before quoting: how many videos, what platforms, organic or paid usage, what timeline — quoting before scoping leaves money on the table. Anchor with a package rate, not an hourly rate, and never give a naked number: attach it to a deliverable and a timeline. Usage rights are the profit lever: organic-only is the base rate; paid ad usage adds 30-100% or a monthly licensing fee; whitelisting and perpetuity always cost more. Create honest urgency with production slots: 'I have two slots left this month.' Follow-up closes deals: most yeses come on the second to fourth touch — follow up at day 3, day 7, and close the loop at day 14 with the door left open. When a brand goes quiet after a quote, the price was probably fine — re-engage with added value (a concept idea), not a discount.",
+    structuredContent: {
+      discoveryQuestions: ["How many videos and what formats?", "Organic only, or paid ads too?", "Which platforms and for how long?", "What does your timeline look like?", "Who signs off on creative?"],
+      pricingRules: ["Package rates, never hourly", "Number always attached to deliverable + timeline", "Usage rights priced separately", "Paid usage adds 30-100%", "Whitelisting and perpetuity cost more"],
+      closingMoves: ["Reply within hours", "Production-slot urgency, honestly", "Second to fourth touch closes most deals", "Re-engage with value, not discounts"],
+      followUpCadence: ["Day 3: light bump", "Day 7: add a concept idea", "Day 14: close the loop, door open"]
+    },
+    tags: ["negotiation", "closing", "rates", "usage rights", "follow ups", "deals"],
+    isActive: true
   }
 ];
 
@@ -420,15 +464,19 @@ const TASK_TYPE_KNOWLEDGE_CATEGORIES = {
   brand_tracker_structure: ["campaign_workflow", "admin_tracking"],
   content_idea_batch: ["ugc_basics", "content_strategy", "content_formats", "creator_positioning"],
   creator_positioning: ["ugc_basics", "creator_positioning", "beginner_roadmap"],
-  draft_brand_reply: ["outreach", "negotiation", "usage_rights", "red_flags"],
+  draft_brand_reply: ["outreach", "negotiation", "usage_rights", "red_flags", "deal_closing"],
   follow_up_sequence: ["follow_ups", "outreach", "admin_tracking"],
   outreach_strategy: ["outreach", "brand_research", "follow_ups", "creator_positioning"],
-  pasted_message_analysis: ["red_flags", "usage_rights", "negotiation"],
+  pasted_message_analysis: ["red_flags", "usage_rights", "negotiation", "deal_closing"],
   personalized_pitch: ["outreach", "pitch_templates", "creator_positioning", "brand_research"],
   pitch_template: ["outreach", "pitch_templates", "creator_positioning", "brand_research"],
   portfolio_recommendations: ["portfolio", "beginner_roadmap", "creator_positioning"],
-  ugc_shot_list: ["content_strategy", "content_formats"],
-  weekly_action_plan: ["beginner_roadmap", "admin_tracking", "campaign_workflow"]
+  ugc_shot_list: ["content_strategy", "content_formats", "tiktok_growth"],
+  weekly_action_plan: ["beginner_roadmap", "admin_tracking", "campaign_workflow"],
+  weekly_schedule: ["tiktok_growth", "beginner_roadmap", "campaign_workflow"],
+  brand_content_ideas: ["content_strategy", "content_formats", "tiktok_growth"],
+  tiktok_trend_pulse: ["tiktok_growth", "content_strategy"],
+  reddit_market_pulse: ["tiktok_growth", "brand_research", "deal_closing"]
 };
 
 export function normalizeForComparison(value) {
@@ -1791,9 +1839,23 @@ async function executeTikTokTrendPulseTask(context) {
   const insights = context.privateInsights;
   const niche = String(insights?.niche || profile.niche).trim();
   const contentGaps = extractPrivateInsightItems(insights).slice(0, 8);
-  const hashtags = Array.isArray(insights?.hashtags) ? insights.hashtags.slice(0, 8) : [];
+  const hashtags = Array.isArray(insights?.hashtags) ? insights.hashtags.slice(0, 12) : [];
+
+  // The actionable core: per content gap, a ready-to-use hashtag stack —
+  // trending tags from this week's data plus the creator's niche anchors.
+  const nicheAnchor = `#${niche.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "creator"}`;
+  const hashtagPlan = contentGaps.slice(0, 5).map((gap, index) => {
+    const rotation = hashtags.slice(index % Math.max(1, hashtags.length)).concat(hashtags).slice(0, 4);
+    return {
+      gap: String(gap),
+      hashtags: [...new Set([...rotation.map((item) => item.hashtag), nicheAnchor, "#ugccreator"])].slice(0, 6),
+      why: rotation[0]?.views ? `Anchored on ${rotation[0].hashtag} (${rotation[0].views} views this week).` : "Anchored on this week's trending set."
+    };
+  });
+
   const structuredContent = {
     contentGapNotes: contentGaps,
+    hashtagPlan,
     matchedToNiche: Boolean(insights?.matchedToNiche),
     niche,
     notes: Array.isArray(insights?.notes) ? insights.notes : [],
@@ -1812,7 +1874,14 @@ async function executeTikTokTrendPulseTask(context) {
       },
       {
         title: "Content-gap angles to explore",
-        value: contentGaps.length > 0 ? contentGaps : ["Run a TikTok trend sync after updating the global Creative Center file."]
+        value: contentGaps.length > 0 ? contentGaps : ["Paste this week's TikTok trend notes on my desk and I'll map the gaps."]
+      },
+      {
+        title: "Hashtag plan — what to tag each video",
+        value:
+          hashtagPlan.length > 0
+            ? hashtagPlan.map((plan) => `${plan.gap}: ${plan.hashtags.join(" ")} — ${plan.why}`)
+            : ["Once trend data is loaded I'll pair every content gap with a ready-to-paste hashtag stack."]
       },
       {
         title: "What Mara is taking away",
@@ -1827,21 +1896,69 @@ async function executeTikTokTrendPulseTask(context) {
 
 async function executeRedditMarketPulseTask(context) {
   const profile = buildContextProfile(context);
-  const redditSignals = await fetchRedditSignals({ fetchImpl: context.fetchImpl });
+  const redditSignals = await fetchRedditSignals({ fetchImpl: context.fetchImpl, limitPerCommunity: 4 });
   const insightGaps = extractPrivateInsightItems(context.privateInsights).slice(0, 5);
+
+  // Learning loop: split scraped posts into real paid opportunities and
+  // reusable lessons. LLM-classified when available, heuristic otherwise —
+  // and never fabricated.
+  let classified = null;
+  if (redditSignals.length > 0) {
+    classified = await tryClassifyRedditSignals({
+      db: context.db,
+      fetchImpl: context.fetchImpl,
+      niche: profile.niche,
+      signals: redditSignals,
+      userId: context.userId
+    });
+  }
+  if (!classified) {
+    classified = classifyRedditSignalsHeuristic(redditSignals);
+  }
+
+  // Opportunities become research items the manager can act on immediately.
+  const createdOpportunityIds = [];
+  for (const opportunity of classified.opportunities) {
+    const created = createResearchItem(context.db, {
+      evidence: [{ title: opportunity.title, url: opportunity.url }],
+      insights: [opportunity.whyRelevant || opportunity.summary].filter(Boolean),
+      query: `Reddit opportunity in r/${opportunity.community || "creator communities"}`,
+      scope: "brand_opportunity",
+      sourceType: "reddit_opportunity",
+      status: "queued",
+      summary: opportunity.summary || opportunity.title,
+      topic: `[Opportunity] ${opportunity.title}`,
+      userId: context.userId,
+      workerId: context.workerId
+    });
+    if (!created.duplicate && created.id) createdOpportunityIds.push(created.id);
+  }
+
   const structuredContent = {
-    communitySignals: redditSignals.slice(0, 6).map((signal) => `[r/${signal.community}] ${signal.title}`),
+    communitySignals: redditSignals.slice(0, 8).map((signal) => `[r/${signal.community}] ${signal.title}`),
     contentGapNotes: insightGaps,
+    lessonsLearned: classified.lessons.map((entry) => entry.lesson),
     niche: profile.niche,
+    opportunities: classified.opportunities,
     takeaways: redditSignals.slice(0, 3).map((signal) => signal.summary || signal.title)
   };
 
   return {
     content: buildRichContent([
       { title: "Focus area", value: [profile.niche] },
+      {
+        title: "Paid opportunities spotted",
+        value:
+          classified.opportunities.length > 0
+            ? classified.opportunities.map((entry) => `${entry.title} — ${entry.url}`)
+            : ["No clear paid opportunities in this cycle's posts. I'll keep scanning."]
+      },
+      {
+        title: "What I learned this cycle",
+        value: classified.lessons.length > 0 ? classified.lessons.map((entry) => entry.lesson) : ["No new durable lessons this cycle — the playbook stands."]
+      },
       { title: "Fresh Reddit creator signals", value: structuredContent.communitySignals.length > 0 ? structuredContent.communitySignals : ["No Reddit pulls were available during this cycle."] },
-      { title: "TikTok creator-search content gaps", value: insightGaps.length > 0 ? insightGaps : ["No private creator-search insight file is loaded yet."] },
-      { title: "What Mara is taking away", value: structuredContent.takeaways.length > 0 ? structuredContent.takeaways : ["Continue monitoring creator communities for pitch angles and objections."] }
+      { title: "TikTok content gaps on file", value: insightGaps.length > 0 ? insightGaps : ["No trend data loaded yet — paste this week's TikTok trends on my desk."] }
     ]),
     outputType: "market_pulse",
     structuredContent,

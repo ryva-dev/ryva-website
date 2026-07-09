@@ -501,6 +501,181 @@ export async function tryPolishDeliverableVoice({ db, userId, roleConfig, title,
 }
 
 /* ------------------------------------------------------------------ */
+/* Reddit learning: opportunities + lessons from scraped signals       */
+/* ------------------------------------------------------------------ */
+
+const OPPORTUNITY_PATTERN = /(hiring|looking for|need(ing)?\s+(a\s+)?(ugc|creator|content)|paid\s+collab|casting|apply|brand\s+deal|\$\s?\d|budget|compensat|seeking\s+creator)/i;
+
+/** Heuristic split when the LLM is unavailable: never fabricates, only sorts. */
+export function classifyRedditSignalsHeuristic(signals) {
+  const opportunities = [];
+  const lessons = [];
+  for (const signal of Array.isArray(signals) ? signals : []) {
+    const text = `${signal.title ?? ""} ${signal.summary ?? ""}`;
+    if (OPPORTUNITY_PATTERN.test(text)) {
+      opportunities.push({
+        community: String(signal.community ?? ""),
+        summary: String(signal.summary ?? signal.title ?? "").slice(0, 280),
+        title: String(signal.title ?? "").slice(0, 140),
+        url: String(signal.url ?? ""),
+        whyRelevant: "Mentions hiring, paid collaboration, or budget language."
+      });
+    }
+  }
+  return { lessons, opportunities };
+}
+
+/**
+ * Classify scraped Reddit posts into (a) real brand/collab opportunities and
+ * (b) durable UGC lessons worth remembering. Uses ONLY the provided posts.
+ */
+export async function tryClassifyRedditSignals({ db, userId, signals, niche, fetchImpl }) {
+  if (!Array.isArray(signals) || signals.length === 0) return null;
+
+  let text;
+  try {
+    text = await budgetedMessage(db, userId, {
+      fetchImpl,
+      maxTokens: 1000,
+      system: [
+        "You sort scraped Reddit posts from UGC/creator communities for a creator operations assistant.",
+        "Split them into: opportunities (posts where a brand or buyer is plausibly offering paid creator work) and lessons (tactical advice worth remembering).",
+        "Rules:",
+        "- Use ONLY the posts provided. Never invent posts, brands, URLs, or terms.",
+        "- An opportunity requires real buying signals: hiring language, budget, paid collab, casting. Vague hype is not an opportunity.",
+        "- A lesson must be a concrete, reusable tactic (pricing, pitching, hooks, negotiation, platform mechanics) stated or clearly demonstrated in a post — phrase it in one crisp sentence.",
+        '- Return only JSON: {"opportunities":[{"title":"","url":"","community":"","summary":"","whyRelevant":""}],"lessons":[{"lesson":"","sourceTitle":""}]}'
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                `Creator niche: ${niche || "creator content"}`,
+                "Posts:",
+                ...signals.map(
+                  (signal, index) =>
+                    `${index + 1}. [r/${signal.community}] ${signal.title}\n   ${String(signal.summary ?? "").slice(0, 300)}\n   URL: ${signal.url}`
+                )
+              ].join("\n")
+            }
+          ]
+        }
+      ]
+    });
+  } catch {
+    return null;
+  }
+  if (!text) return null;
+
+  try {
+    const payload = parseJsonFromLlmText(text);
+    const validUrls = new Set(signals.map((signal) => String(signal.url ?? "")));
+    const opportunities = (Array.isArray(payload.opportunities) ? payload.opportunities : [])
+      .map((entry) => ({
+        community: String(entry?.community ?? "").slice(0, 60),
+        summary: String(entry?.summary ?? "").slice(0, 280),
+        title: String(entry?.title ?? "").slice(0, 140),
+        url: validUrls.has(String(entry?.url ?? "")) ? String(entry.url) : "",
+        whyRelevant: String(entry?.whyRelevant ?? "").slice(0, 200)
+      }))
+      .filter((entry) => entry.title && entry.url)
+      .slice(0, 6);
+    const lessons = (Array.isArray(payload.lessons) ? payload.lessons : [])
+      .map((entry) => ({
+        lesson: String(entry?.lesson ?? "").trim().slice(0, 240),
+        sourceTitle: String(entry?.sourceTitle ?? "").slice(0, 140)
+      }))
+      .filter((entry) => entry.lesson)
+      .slice(0, 6);
+    return { lessons, opportunities };
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Manual TikTok trend paste                                           */
+/* ------------------------------------------------------------------ */
+
+/** Heuristic parser for pasted trend text: finds #hashtags and view counts. */
+export function parseTrendPasteHeuristic(text) {
+  const hashtags = [];
+  const contentGaps = [];
+  const lines = String(text ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    const tagMatch = line.match(/#([A-Za-z0-9_]+)/);
+    if (tagMatch) {
+      const views = line.match(/([\d.,]+\s*[KMB])\s*(views)?/i)?.[1] ?? "";
+      hashtags.push({ hashtag: `#${tagMatch[1]}`, posts: "", views });
+      continue;
+    }
+    if (/gap|missing|underserved|no one|nobody|opportunity/i.test(line)) {
+      contentGaps.push({ label: line.slice(0, 160) });
+    }
+  }
+  return { contentGaps, hashtags: hashtags.slice(0, 20), notes: [] };
+}
+
+/**
+ * Parse a manager's pasted weekly TikTok trend notes into a structured
+ * snapshot. Uses ONLY what was pasted — no invented metrics.
+ */
+export async function tryParseTrendPaste({ db, userId, text, niche, fetchImpl }) {
+  const raw = String(text ?? "").trim();
+  if (!raw) return null;
+
+  let responseText;
+  try {
+    responseText = await budgetedMessage(db, userId, {
+      fetchImpl,
+      maxTokens: 900,
+      system: [
+        "You convert a manager's pasted TikTok trend notes into structured data for their creator-operations assistant.",
+        "Rules:",
+        "- Extract ONLY what is in the paste. Never invent hashtags, numbers, or gaps.",
+        "- Keep view/post counts exactly as written (e.g. '1.2M').",
+        '- Return only JSON: {"hashtags":[{"hashtag":"#tag","views":"","posts":"","note":""}],"contentGaps":[{"label":"","note":""}],"notes":[""],"region":""}'
+      ].join("\n"),
+      messages: [
+        { role: "user", content: [{ type: "text", text: `Creator niche: ${niche || "creator content"}\n\nPasted trend notes:\n${raw.slice(0, 6000)}` }] }
+      ]
+    });
+  } catch {
+    return null;
+  }
+  if (!responseText) return null;
+
+  try {
+    const payload = parseJsonFromLlmText(responseText);
+    const hashtags = (Array.isArray(payload.hashtags) ? payload.hashtags : [])
+      .map((entry) => ({
+        hashtag: String(entry?.hashtag ?? "").trim().replace(/^(?!#)/, "#"),
+        note: String(entry?.note ?? "").slice(0, 200),
+        posts: String(entry?.posts ?? "").slice(0, 40),
+        views: String(entry?.views ?? "").slice(0, 40)
+      }))
+      .filter((entry) => entry.hashtag.length > 1)
+      .slice(0, 24);
+    const contentGaps = (Array.isArray(payload.contentGaps) ? payload.contentGaps : [])
+      .map((entry) => ({ label: String(entry?.label ?? "").slice(0, 200), note: String(entry?.note ?? "").slice(0, 200) }))
+      .filter((entry) => entry.label)
+      .slice(0, 12);
+    if (hashtags.length === 0 && contentGaps.length === 0) return null;
+    return {
+      contentGaps,
+      hashtags,
+      notes: (Array.isArray(payload.notes) ? payload.notes : []).map((note) => String(note).slice(0, 240)).filter(Boolean).slice(0, 8),
+      region: String(payload.region ?? "").slice(0, 40)
+    };
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Honest placeholder fallback                                         */
 /* ------------------------------------------------------------------ */
 

@@ -128,3 +128,23 @@ test("placeholder output is honest and labeled", () => {
   assert.match(output.content, /could not produce the full deliverable/i);
   assert.doesNotMatch(output.content, /Deal summary/);
 });
+
+test("reddit heuristic finds paid opportunities, never invents lessons", async () => {
+  const { classifyRedditSignalsHeuristic } = await import("./agentLlm.mjs");
+  const result = classifyRedditSignalsHeuristic([
+    { community: "ugc", title: "Brand looking for UGC creators — paid collab $300/video", summary: "Apply inside", url: "https://reddit.com/1" },
+    { community: "ugc", title: "My favorite lighting setup", summary: "Just sharing", url: "https://reddit.com/2" }
+  ]);
+  assert.equal(result.opportunities.length, 1);
+  assert.match(result.opportunities[0].title, /paid collab/i);
+  assert.equal(result.lessons.length, 0);
+});
+
+test("trend paste heuristic extracts hashtags with views and gap lines", async () => {
+  const { parseTrendPasteHeuristic } = await import("./agentLlm.mjs");
+  const result = parseTrendPasteHeuristic("#glowyskin — 2.1M views\n#morningroutine 890K\nGap: nobody covers shift workers\nrandom line");
+  assert.equal(result.hashtags.length, 2);
+  assert.equal(result.hashtags[0].hashtag, "#glowyskin");
+  assert.equal(result.hashtags[0].views, "2.1M");
+  assert.equal(result.contentGaps.length, 1);
+});

@@ -140,7 +140,7 @@
     "title": "UGC Production Coordinator",
     "department": "Talent Management",
     "experience": "2 yrs experience",
-    "salary": "$1/mo",
+    "salary": "$40/mo",
     "status": "Available",
     "description": "Mara keeps your UGC work organized behind the scenes. She checks brand emails, detects campaigns, breaks down briefs, tracks deadlines, creates tasks, flags missing details, prepares simple replies for approval, and finds a small number of aligned brand opportunities each day.",
     "skills": [
@@ -181,7 +181,9 @@
         "Junior-level brand research"
       ],
       "summaryTitle": "UGC Production Coordinator"
-    }
+    },
+    "originalSalary": "$410/mo",
+    "dealLabel": "New employee deal"
   },
   {
     "name": "June Okafor",

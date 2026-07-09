@@ -22,8 +22,11 @@ export function HireWorkerPage({ onBack, onConfirmHire, worker }: HireWorkerPage
             <p>as your {worker.title}</p>
           </div>
           <div className="hire-price">
-            <strong>{worker.salary}</strong>
-            <span>billed monthly</span>
+            <strong>
+              {worker.originalSalary ? <s className="sal-was">{worker.originalSalary}</s> : null}
+              {worker.salary}
+            </strong>
+            <span>{worker.dealLabel ? `${worker.dealLabel} · billed monthly` : "billed monthly"}</span>
           </div>
         </div>
 

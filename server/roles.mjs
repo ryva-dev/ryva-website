@@ -89,6 +89,12 @@ export const ROLE_CONFIGS = {
         description: "Concrete weekly action plan built from the creator's open tasks, pipeline, and goals.",
         schemaHint: '{"focusForTheWeek":"","topPriorities":[],"outreachPlan":[],"contentPlan":[],"adminTasks":[],"whatIWillHandleMyself":[]}'
       }),
+      taskType("weekly_schedule", {
+        label: "Weekly schedule",
+        outputType: "weekly_schedule",
+        description: "A time-blocked working week for the creator: filming blocks, posting slots, TikTok story cadence, outreach and admin windows — realistic for their actual life and goals, and placed directly on their calendar.",
+        schemaHint: '{"weekTheme":"","blocks":[{"day":"Monday","start":"09:00","end":"10:30","activity":"","goal":""}],"postingSlots":[{"day":"","time":"","contentType":""}],"storyCadence":"","notes":[]}'
+      }),
       taskType("update_brand_tracker", {
         label: "Tracker update",
         outputType: "tracker_structure",

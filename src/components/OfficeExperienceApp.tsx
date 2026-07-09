@@ -1770,16 +1770,67 @@ function WorkerKnowledgeView({
   activeWorker,
   connectedTools,
   desk,
-  onSeedCorrection
+  onSeedCorrection,
+  onReload
 }: {
   activeWorker: Worker;
   connectedTools: OverlayIntegration[];
   desk: WorkerDesk;
   onSeedCorrection: (prompt: string) => void;
+  onReload?: () => Promise<void>;
 }) {
+  const [trendText, setTrendText] = useState("");
+  const [trendBusy, setTrendBusy] = useState(false);
+  const [trendNotice, setTrendNotice] = useState<string | null>(null);
+
+  const submitTrends = async () => {
+    if (!trendText.trim() || trendBusy) return;
+    setTrendBusy(true);
+    setTrendNotice(null);
+    try {
+      const payload = await officeJson<{ hashtagCount: number; gapCount: number; outputTitle: string | null }>(
+        `/api/office/workers/${activeWorker.slug}/trends/manual`,
+        { method: "POST", body: JSON.stringify({ text: trendText.trim() }) }
+      );
+      setTrendText("");
+      setTrendNotice(
+        `Got it — ${payload.hashtagCount} hashtag${payload.hashtagCount === 1 ? "" : "s"} and ${payload.gapCount} content gap${payload.gapCount === 1 ? "" : "s"} loaded.${payload.outputTitle ? ` Fresh brief on your desk: “${payload.outputTitle}”.` : ""}`
+      );
+      if (onReload) await onReload();
+    } catch (error) {
+      setTrendNotice(error instanceof Error ? error.message : "That paste didn't go through.");
+    } finally {
+      setTrendBusy(false);
+    }
+  };
+
   return (
     <div className="ro-review-layout">
       <div>
+        {isMaraWorker(activeWorker.slug) ? (
+          <section className="ro-sec ro-sec-lead">
+            <div className="ro-sec-head">
+              <h2>This week's TikTok trends</h2>
+            </div>
+            <p className="ro-page-meta">
+              Paste trend notes from TikTok Creative Center or Creator Search Insights — hashtags, view counts,
+              gaps you noticed. I'll turn them into a hashtag plan for every video you make this week.
+            </p>
+            <textarea
+              className="ro-trend-paste"
+              rows={5}
+              value={trendText}
+              onChange={(event) => setTrendText(event.target.value)}
+              placeholder={"#glowyskin — 2.1M views this week\n#morningroutine — 890K views\nGap: nobody covers routines for shift workers"}
+            />
+            <div className="ro-appr-actions">
+              <button className="r-btn r-btn-accent" type="button" disabled={trendBusy || !trendText.trim()} onClick={() => void submitTrends()}>
+                {trendBusy ? "Reading…" : "Give to Mara"}
+              </button>
+              {trendNotice ? <span className="ro-saved">{trendNotice}</span> : null}
+            </div>
+          </section>
+        ) : null}
         <section className="ro-sec ro-sec-lead">
           <div className="ro-sec-head">
             <h2>What {activeWorker.name.split(" ")[0]} knows</h2>
@@ -1897,8 +1948,45 @@ function WorkerDeskView({
   section: WorkbenchSection;
 }) {
   const [selectedDeliverable, setSelectedDeliverable] = useState<WorkerDeskDeliverable | null>(null);
+  const [managing, setManaging] = useState(false);
+  const [manageNotice, setManageNotice] = useState<string | null>(null);
   const nextRunnable = desk.workInMotion[0] ?? null;
   const setSection = (nextSection: WorkbenchSection) => onNavigate(`#app/office/workers/${activeWorker.slug}/${nextSection}`);
+
+  const togglePause = async () => {
+    setManaging(true);
+    setManageNotice(null);
+    try {
+      await officeJson(`/api/office/workers/${activeWorker.slug}/pause`, {
+        method: "POST",
+        body: JSON.stringify({ paused: !activeWorker.paused })
+      });
+      await onReload();
+    } catch (error) {
+      setManageNotice(error instanceof Error ? error.message : "Could not update the pause state.");
+    } finally {
+      setManaging(false);
+    }
+  };
+
+  const fireWorker = async () => {
+    const first = activeWorker.name.split(" ")[0];
+    if (!window.confirm(`End ${first}'s engagement? This cancels the subscription immediately — you will not be billed again. Their work history stays in your office.`)) {
+      return;
+    }
+    setManaging(true);
+    setManageNotice(null);
+    try {
+      await officeJson(`/api/office/workers/${activeWorker.slug}/fire`, { method: "POST", body: JSON.stringify({}) });
+      await onReload();
+      onNavigate("#app/office/today");
+    } catch (error) {
+      setManageNotice(error instanceof Error ? error.message : "Could not end the engagement.");
+    } finally {
+      setManaging(false);
+    }
+  };
+
   let body: JSX.Element;
 
   if (section === "conversation") {
@@ -1923,6 +2011,7 @@ function WorkerDeskView({
           connectedTools={connectedTools}
           desk={desk}
           onSeedCorrection={onSeedCorrection}
+          onReload={onReload}
         />
       </div>
     );
@@ -1970,8 +2059,20 @@ function WorkerDeskView({
           {!isMaraWorker(activeWorker.slug) ? (
             <button className="r-btn r-btn-accent" type="button" onClick={() => setSection("conversation")}>Assign work</button>
           ) : null}
+          <button className="ro-textlink" type="button" disabled={managing} onClick={() => void togglePause()}>
+            {activeWorker.paused ? "Resume work" : "Pause work"}
+          </button>
+          <button className="ro-textlink ro-danger-link" type="button" disabled={managing} onClick={() => void fireWorker()}>
+            Fire {activeWorker.name.split(" ")[0]}
+          </button>
         </div>
       </header>
+      {activeWorker.paused ? (
+        <p className="ro-paused-note">
+          {activeWorker.name.split(" ")[0]} is paused — no background work, no AI usage. Chat still works; resume any time.
+        </p>
+      ) : null}
+      {manageNotice ? <p className="ro-review-notice">{manageNotice}</p> : null}
 
       <div className="ro-worker-page-layout">
         <WorkbenchTabNav active={section} onChange={setSection} />

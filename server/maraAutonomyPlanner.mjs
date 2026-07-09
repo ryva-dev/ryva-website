@@ -4,7 +4,8 @@ const MAINTAIN_ARTIFACT_MAX_AGE_HOURS = {
   ops_brief: 24,
   tiktok_trends: 24 * 7,
   tracker_structure: 24 * 7,
-  weekly_plan: 24 * 7
+  weekly_plan: 24 * 7,
+  weekly_schedule: 24 * 7
 };
 
 const DAY_INDEX = {
@@ -184,6 +185,15 @@ export function planMaraAutonomyActions(context) {
 
   if (isArtifactStale(recentOutputTypes.weekly_plan, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.weekly_plan)) {
     actions.push({ kind: "weekly_plan" });
+  }
+
+  if (isArtifactStale(recentOutputTypes.weekly_schedule, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.weekly_schedule)) {
+    actions.push({
+      kind: "maintain_artifact",
+      reason: "Build this week's working schedule: filming blocks, posting slots, story cadence, and follow-up time.",
+      taskType: "weekly_schedule",
+      title: "Plan this week's schedule"
+    });
   }
 
   if (isArtifactStale(recentOutputTypes.ops_brief, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.ops_brief)) {
