@@ -1318,6 +1318,21 @@ function isGenericNicheValue(value) {
 }
 
 /**
+ * A niche is a short noun phrase ("fitness and wellness UGC"), never a
+ * sentence from an onboarding answer ("I do not have any content yet").
+ * Sentence-shaped candidates produce grotesque pitches — reject them.
+ */
+function isUsableNichePhrase(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text.length > 60) return false;
+  if (/^i\s/i.test(text)) return false;
+  if (/\b(do not|don't|dont|cannot|can't|won't|not have|have no|nothing)\b/i.test(text)) return false;
+  if (/[?!]/.test(text)) return false;
+  if (text.split(/\s+/).length > 9) return false;
+  return true;
+}
+
+/**
  * Resolve the creator's actual niche, best signal first:
  * their positioning document → onboarding → memory. Generic values lose.
  */
@@ -1333,7 +1348,7 @@ function resolveCreatorNiche({ accountContext, previousOutputs = [], workerKnowl
   ];
   for (const candidate of candidates) {
     const value = String(candidate ?? "").trim();
-    if (value && !isGenericNicheValue(value) && value.length <= 90) {
+    if (value && !isGenericNicheValue(value) && isUsableNichePhrase(value)) {
       return value;
     }
   }
@@ -1350,11 +1365,17 @@ function buildContextProfile(context) {
   const brandFitOutput = context.previousOutputs.find((output) => output.outputType === "brand_criteria");
   const positioningOutput = context.previousOutputs.find((output) => output.outputType === "creator_positioning");
 
+  const rawProfileBrandName = String(onboarding.brandName ?? "").trim();
+  const profileBrandName =
+    rawProfileBrandName && !/^(ugc\s*)?(creator|content creator)$/i.test(rawProfileBrandName)
+      ? rawProfileBrandName
+      : String(onboarding.name ?? "").trim() || "Your brand";
+
   return {
     approvalRules,
     audience: String(onboarding.whatYouDo || recentDirection[0] || "UGC-focused creators and founder-led brands").trim(),
     brandFitOutput,
-    brandName: String(onboarding.brandName || "Your brand").trim(),
+    brandName: profileBrandName,
     goals,
     niche: resolveCreatorNiche({
       accountContext: onboarding,
@@ -1554,6 +1575,17 @@ function executeBrandFitCriteriaTask(context) {
 
 async function executePitchTemplateTask(context) {
   if (context.currentTask.taskType === "personalized_pitch") {
+    // Never pitch an article headline. If the stored target is a listicle
+    // that slipped in before scrape filtering, refuse honestly.
+    const target = extractPersonalizedBrandTarget(context);
+    if (target?.brandName && isLikelyListicleTitle(target.brandName)) {
+      return {
+        blocked: true,
+        blockerReason: `"${target.brandName}" is an article title, not a brand — a pitch addressed to it would be embarrassing to send.`,
+        neededFromUser: "Nothing — I've flagged this lead as junk. My next research cycle will bring real brands.",
+        suggestedNextStep: "Run brand research again or point me at a specific brand you want pitched."
+      };
+    }
     const llmResult = await tryGenerateMaraPersonalizedPitch(context);
     if (llmResult) {
       return llmResult;
@@ -1827,6 +1859,14 @@ function executeBrandContentIdeasTaskTemplate(context) {
 }
 
 async function executeBrandContentIdeasTask(context) {
+  if (context.targetBrand?.brandName && isLikelyListicleTitle(context.targetBrand.brandName)) {
+    return {
+      blocked: true,
+      blockerReason: `"${context.targetBrand.brandName}" is an article title, not a brand — content ideas for it would be meaningless.`,
+      neededFromUser: "Nothing — I've flagged this lead as junk.",
+      suggestedNextStep: "Name a real brand and I'll build ideas for it."
+    };
+  }
   const llmResult = await tryGenerateMaraBrandContentIdeas(context);
   if (llmResult) {
     return llmResult;

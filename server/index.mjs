@@ -42,6 +42,7 @@ import {
   updateWorkerTaskStatus
 } from "./workerEngine.mjs";
 import { handleAgentChatMessage, runAgentAutonomyCycle, runAgentTask } from "./agentCore.mjs";
+import { isLikelyListicleTitle } from "./workerEngine.mjs";
 import { isAgentLlmConfigured, parseTrendPasteHeuristic, tryParseTrendPaste } from "./agentLlm.mjs";
 import { hasRoleConfig } from "./roles.mjs";
 import { saveUserTrendSnapshot, writeUserTrendInsightsFile } from "./maraTrendOps.mjs";
@@ -195,9 +196,10 @@ function getUserRecordById(userId) {
 }
 
 /** Admin accounts are for product ops — Mara should not run autonomously on them. */
-function isMaraAutonomyPausedForUser(userOrUserId) {
-  const user = typeof userOrUserId === "string" ? getUserRecordById(userOrUserId) : userOrUserId;
-  return isAdminUser(user);
+function isMaraAutonomyPausedForUser() {
+  // Superseded by the explicit per-worker pause switch (hired_workers.paused).
+  // Admins need their own Mara running to verify what users experience.
+  return false;
 }
 
 function isGoogleAuthConfigured() {
@@ -2453,6 +2455,65 @@ function cleanHtmlEntitiesInDatabase() {
   }
 }
 cleanHtmlEntitiesInDatabase();
+
+/**
+ * Earlier scrapes stored article headlines ("15+ Wellness Brands for…") as
+ * brands, producing absurd pitches. Purge every artifact built on them:
+ * brand rows, research items, tasks, outputs, and displayed deliverables.
+ */
+function purgeListicleArtifacts() {
+  let purged = 0;
+  const titleTail = (title) => {
+    const match = String(title ?? "").match(/\bfor\s+(.{4,})$/i);
+    return match ? match[1].trim() : "";
+  };
+
+  try {
+    for (const row of db.prepare("SELECT id, brand_name AS brandName FROM worker_brands").all()) {
+      if (isLikelyListicleTitle(row.brandName)) {
+        purged += db.prepare("DELETE FROM worker_brands WHERE id = ?").run(row.id).changes;
+      }
+    }
+    for (const row of db.prepare("SELECT id, topic FROM worker_research_items").all()) {
+      const topic = String(row.topic ?? "").replace(/^\[(Opportunity|r\/[^\]]+)\]\s*/i, "");
+      if (isLikelyListicleTitle(topic) && !/^\[/.test(String(row.topic ?? ""))) {
+        purged += db.prepare("DELETE FROM worker_research_items WHERE id = ?").run(row.id).changes;
+      }
+    }
+    for (const row of db.prepare("SELECT id, title FROM worker_tasks").all()) {
+      const tail = titleTail(row.title);
+      if (tail && isLikelyListicleTitle(tail)) {
+        purged += db.prepare("DELETE FROM worker_tasks WHERE id = ?").run(row.id).changes;
+      }
+    }
+    for (const row of db.prepare("SELECT id, title FROM worker_outputs").all()) {
+      const tail = titleTail(row.title);
+      if (tail && isLikelyListicleTitle(tail)) {
+        db.prepare("DELETE FROM office_deliverables WHERE content_ref_id = ?").run(row.id);
+        purged += db.prepare("DELETE FROM worker_outputs WHERE id = ?").run(row.id).changes;
+      }
+    }
+    for (const row of db.prepare("SELECT id, title FROM office_deliverables").all()) {
+      const tail = titleTail(row.title);
+      if (tail && isLikelyListicleTitle(tail)) {
+        purged += db.prepare("DELETE FROM office_deliverables WHERE id = ?").run(row.id).changes;
+      }
+    }
+    for (const row of db.prepare("SELECT id, title FROM office_assignments").all()) {
+      const tail = titleTail(row.title);
+      if (tail && isLikelyListicleTitle(tail)) {
+        purged += db.prepare("DELETE FROM office_assignments WHERE id = ?").run(row.id).changes;
+      }
+    }
+  } catch (error) {
+    console.error("Listicle purge failed:", error);
+  }
+
+  if (purged > 0) {
+    console.log(`Purged ${purged} listicle-derived record(s).`);
+  }
+}
+purgeListicleArtifacts();
 
 function maraIntegrations(userId) {
   return db

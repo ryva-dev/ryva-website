@@ -175,7 +175,17 @@ export function buildMaraLlmBrief(context) {
   const brandFitOutput = context.previousOutputs.find((output) => output.outputType === "brand_criteria");
   // Niche: positioning document first — "UGC creator" is a job title, not a
   // niche, so generic values are skipped in favor of real targeting signal.
+  // Sentence-shaped answers ("I do not have any content yet") are never a
+  // niche either; they produce grotesque mail-merge pitches.
   const genericNiche = /^(ugc\s*)?(content\s*)?(creator|creators|content|influencer)s?$/i;
+  const isUsableNiche = (value) =>
+    value.length > 0 &&
+    value.length <= 60 &&
+    !genericNiche.test(value) &&
+    !/^i\s/i.test(value) &&
+    !/\b(do not|don't|dont|cannot|can't|not have|have no)\b/i.test(value) &&
+    !/[?!]/.test(value) &&
+    value.split(/\s+/).length <= 9;
   const nicheCandidates = [
     positioningOutput?.structuredContent?.nicheDefinition,
     positioningOutput?.structuredContent?.niche,
@@ -184,17 +194,22 @@ export function buildMaraLlmBrief(context) {
     preferences[0]
   ];
   const niche = String(
-    nicheCandidates.find((candidate) => {
-      const value = String(candidate ?? "").trim();
-      return value && !genericNiche.test(value);
-    }) ?? "the creator's niche"
+    nicheCandidates.find((candidate) => isUsableNiche(String(candidate ?? "").trim())) ?? "the creator's niche"
   ).trim();
+
+  // "UGC Creator" as a brand name is a placeholder, not an identity — sign
+  // pitches with the person's actual name instead.
+  const genericBrandName = /^(ugc\s*)?(creator|content creator)$/i;
+  const rawBrandName = String(onboarding.brandName ?? "").trim();
+  const creatorName = rawBrandName && !genericBrandName.test(rawBrandName)
+    ? rawBrandName
+    : String(onboarding.name ?? "").trim() || "the creator";
 
   return {
     approvalRules,
     brandFitCriteria: brandFitOutput?.structuredContent ?? null,
     brandTarget: resolvePersonalizedBrandTarget(context),
-    creatorName: String(onboarding.brandName || "the creator").trim(),
+    creatorName,
     goals,
     knowledgeSummaries: (context.relevantKnowledgeModules || []).map(
       (module) => `${module.title}: ${module.summary}`
@@ -235,6 +250,9 @@ function buildPitchSystemPrompt() {
     MARA_ROLE_DEFINITION,
     "Write for one real brand and one real creator. Use their names, niche, positioning, and stored brand research.",
     "Do not invent fake metrics, past collaborations, or live trend claims.",
+    "Write like a person emailing another person — warm, specific, confident. Never mail-merge phrasing, never a sentence a human wouldn't say out loud.",
+    "If the creator is early-stage or has no portfolio yet, never state that negatively; lead with fit and offer tailored sample concepts instead.",
+    "The pitch must pass this test: a busy brand manager reads it and thinks 'this person actually looked at us.' Reference something concrete about the brand from the provided context.",
     "Keep pitches short, specific, and easy to send after human approval.",
     "Return only valid JSON matching the requested schema. No markdown fences or commentary."
   ].join("\n");
