@@ -173,8 +173,21 @@ export function buildMaraLlmBrief(context) {
   const recentDirection = getMemoryItems(context.workerKnowledge, "Recent direction");
   const positioningOutput = context.previousOutputs.find((output) => output.outputType === "creator_positioning");
   const brandFitOutput = context.previousOutputs.find((output) => output.outputType === "brand_criteria");
+  // Niche: positioning document first — "UGC creator" is a job title, not a
+  // niche, so generic values are skipped in favor of real targeting signal.
+  const genericNiche = /^(ugc\s*)?(content\s*)?(creator|creators|content|influencer)s?$/i;
+  const nicheCandidates = [
+    positioningOutput?.structuredContent?.nicheDefinition,
+    positioningOutput?.structuredContent?.niche,
+    onboarding.whatYouDo,
+    maraAnswers.current_workflow,
+    preferences[0]
+  ];
   const niche = String(
-    onboarding.whatYouDo || maraAnswers.current_workflow || preferences[0] || "creator content"
+    nicheCandidates.find((candidate) => {
+      const value = String(candidate ?? "").trim();
+      return value && !genericNiche.test(value);
+    }) ?? "the creator's niche"
   ).trim();
 
   return {

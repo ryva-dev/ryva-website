@@ -45,7 +45,7 @@ export const ROLE_CONFIGS = {
         label: "Creator positioning",
         outputType: "creator_positioning",
         description: "Define or refresh the creator's positioning statement, angles, and proof points, grounded in their actual niche and goals.",
-        schemaHint: '{"creatorPositioningStatement":"","whatMakesThemDifferent":[],"contentAngles":[],"proofPoints":[],"positioningRisks":[]}'
+        schemaHint: '{"creatorPositioningStatement":"","nicheDefinition":"","whatMakesThemDifferent":[],"contentAngles":[],"proofPoints":[],"positioningRisks":[]}'
       }),
       taskType("brand_fit_criteria", {
         label: "Brand fit criteria",

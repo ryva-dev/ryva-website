@@ -223,22 +223,52 @@ const schemas: Record<string, OnboardingSchema> = {
     role: "UGC Production Coordinator",
     sections: [
       {
+        id: "brand",
+        learningFocus: ["Your niche", "Dream brands", "Where you are right now"],
+        questions: [
+          {
+            id: "niche_focus",
+            label: "Tell me about your content in your own words — what do you make, who's it for, and what makes it unmistakably yours?",
+            helperText: "Be specific. 'Fitness and wellness for busy professionals' teaches me more than 'UGC'.",
+            memoryKey: "Preferences",
+            required: true,
+            type: "long-text"
+          },
+          {
+            id: "dream_brands",
+            label: "Which brands would be a dream to land — and what kinds would you turn down no matter the money?",
+            helperText: "Name names if you have them. This shapes every pitch and every lead I bring you.",
+            memoryKey: "Goals",
+            required: true,
+            type: "long-text"
+          },
+          {
+            id: "current_stage",
+            label: "Where are you right now — recent wins, rates you've charged, how full your pipeline feels?",
+            helperText: "No wrong answer. If you're just starting, say so and I'll plan for that.",
+            memoryKey: "Goals",
+            type: "long-text"
+          }
+        ],
+        title: "Your brand"
+      },
+      {
         id: "workflow",
         learningFocus: ["Current workflow", "What falls through the cracks", "Where chaos starts"],
         questions: [
-          { id: "current_workflow", label: "How are you currently managing brand emails, briefs, deadlines, and follow-ups?", memoryKey: "Current Workflow", required: true, type: "long-text" },
-          { id: "workflow_breakdowns", label: "What usually gets messy or missed right now?", memoryKey: "Workflow Breakdowns", required: true, type: "long-text" },
-          { id: "biggest_admin_drag", label: "What part of the admin side do you most want off your plate?", memoryKey: "Admin Bottlenecks", required: true, type: "long-text" }
+          { id: "current_workflow", label: "Walk me through how a brand deal flows today, from first email to getting paid. Where does it all live — inbox, notes, spreadsheets, memory?", memoryKey: "Current Workflow", required: true, type: "long-text" },
+          { id: "workflow_breakdowns", label: "Tell me about the last time something slipped — a follow-up, a deadline, a payment. What happened?", memoryKey: "Pain points", required: true, type: "long-text" },
+          { id: "biggest_admin_drag", label: "If I could take exactly one recurring chore off your plate this week, which would buy back the most time?", memoryKey: "Pain points", required: true, type: "long-text" }
         ],
-        title: "Workflow"
+        title: "How you work"
       },
       {
         id: "email",
         learningFocus: ["Email handling", "Inbox priorities", "Optional integrations"],
         questions: [
-          { id: "email_volume", label: "What kinds of emails should I pay closest attention to when inbox access is available?", memoryKey: "Inbox Priorities", required: true, type: "long-text" },
-          { id: "reply_boundaries", label: "What should I draft or organize versus always bring back to you first?", memoryKey: "Reply Boundaries", required: true, type: "long-text" },
-          { id: "integration_interest", label: "Do you want to connect Gmail or Outlook later so I can help with email-based campaign work?", memoryKey: "Integration Intent", type: "select", options: ["Yes, later", "Maybe later", "No, keep it manual"] }
+          { id: "email_volume", label: "When I'm watching your inbox, what should I treat as urgent — and what's noise I should quietly file?", memoryKey: "Inbox Priorities", required: true, type: "long-text" },
+          { id: "reply_boundaries", label: "Where's my line? What can I draft and organize freely, and what should always come to you untouched?", memoryKey: "Reply Boundaries", required: true, type: "long-text" },
+          { id: "integration_interest", label: "Want to connect Gmail or Outlook later so I can work your inbox directly?", memoryKey: "Integration Intent", type: "select", options: ["Yes, later", "Maybe later", "No, keep it manual"] }
         ],
         title: "Inbox rules"
       },
@@ -246,9 +276,9 @@ const schemas: Record<string, OnboardingSchema> = {
         id: "operations",
         learningFocus: ["Approvals", "Deadlines", "Priority setting"],
         questions: [
-          { id: "deadline_style", label: "How do you want deadlines and reminders handled?", memoryKey: "Deadline Style", required: true, type: "long-text" },
-          { id: "approval_rules", label: "What should always require your approval?", memoryKey: "Approval Rules", required: true, type: "long-text" },
-          { id: "daily_output", label: "At the end of a normal day, what do you want ready for you?", memoryKey: "Daily Output", type: "long-text" }
+          { id: "deadline_style", label: "How do you want me to handle deadlines — gentle nudges early, a hard flag the day before, or both?", memoryKey: "Deadline Style", required: true, type: "long-text" },
+          { id: "approval_rules", label: "What should never happen without your sign-off?", helperText: "For example: anything sent to a brand, anything involving money, anything public.", memoryKey: "Approval rules", required: true, type: "long-text" },
+          { id: "daily_output", label: "When you check in on me at the end of a day, what do you want waiting for you?", memoryKey: "Daily Output", type: "long-text" }
         ],
         title: "Operating rules"
       }
@@ -317,13 +347,15 @@ export function buildOnboardingCompletionPayload(worker: Worker, answers: Record
       },
       firstDayNotice: "I'm Mara. I captured how you run campaigns, what should stay manual, and what I can own — I'm already setting up my desk around your brand.",
       knowledge: [
+        { title: "Preferences", items: normalizeSummaryItems(answer(answers, "niche_focus", "")) },
+        { title: "Goals", items: [...normalizeSummaryItems(answer(answers, "dream_brands", "")), ...normalizeSummaryItems(answer(answers, "current_stage", ""))] },
         { title: "Current Workflow", items: normalizeSummaryItems(answer(answers, "current_workflow")) },
-        { title: "Workflow Breakdowns", items: normalizeSummaryItems(answer(answers, "workflow_breakdowns")) },
-        { title: "Admin Bottlenecks", items: normalizeSummaryItems(answer(answers, "biggest_admin_drag")) },
+        { title: "Pain points", items: [...normalizeSummaryItems(answer(answers, "workflow_breakdowns")), ...normalizeSummaryItems(answer(answers, "biggest_admin_drag"))] },
         { title: "Inbox Priorities", items: normalizeSummaryItems(answer(answers, "email_volume")) },
         { title: "Reply Boundaries", items: normalizeSummaryItems(answer(answers, "reply_boundaries")) },
         { title: "Integration Intent", items: [answer(answers, "integration_interest", "Not decided")] },
-        { title: "Operating Rules", items: [answer(answers, "deadline_style"), answer(answers, "approval_rules"), answer(answers, "daily_output")] }
+        { title: "Approval rules", items: normalizeSummaryItems(answer(answers, "approval_rules")) },
+        { title: "Operating Rules", items: [answer(answers, "deadline_style"), answer(answers, "daily_output")] }
       ],
       summary,
       tasks: [],

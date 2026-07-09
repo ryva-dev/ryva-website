@@ -444,6 +444,63 @@ export async function tryPlanAutonomyLlm({ db, userId, roleConfig, brandContext,
 }
 
 /* ------------------------------------------------------------------ */
+/* Voice pass: rewrite data-driven drafts as natural briefs            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Data-driven executors (trend pulses, ops briefs) produce factually
+ * grounded but robotic text. This pass rewrites the draft in the worker's
+ * voice using ONLY the facts already in the draft — no new claims.
+ * Returns null on failure; callers keep the original draft.
+ */
+export async function tryPolishDeliverableVoice({ db, userId, roleConfig, title, draftContent, brandContext, fetchImpl }) {
+  const draft = String(draftContent ?? "").trim();
+  if (!roleConfig || !draft) return null;
+
+  let text;
+  try {
+    text = await budgetedMessage(db, userId, {
+      fetchImpl,
+      maxTokens: 1200,
+      system: [
+        `You are ${roleConfig.name}, ${roleConfig.title}, rewriting one of your own working documents into a clean brief for your manager.`,
+        `Voice: ${roleConfig.voice}`,
+        "Rules:",
+        "- Use ONLY facts present in the draft. Do not add data, metrics, names, or claims.",
+        "- If the draft says data is missing or empty, say so plainly in one line — do not pad around it.",
+        "- Write as a natural one-page brief: short opening line, clear section headings ending with a colon, tight bullets starting with '- '.",
+        "- First person, direct, warm. No corporate filler, no 'as an AI'.",
+        "- Plain text only. No markdown symbols other than '- ' bullets and 'Heading:' lines."
+      ].join("\n"),
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: [
+                `Manager context (for tone only, not new facts):`,
+                `Brand: ${brandContext?.brandName || "(unknown)"} — ${brandContext?.whatTheyDo || ""}`,
+                "",
+                `Document title: ${title}`,
+                "Draft to rewrite:",
+                draft
+              ].join("\n")
+            }
+          ]
+        }
+      ]
+    });
+  } catch {
+    return null;
+  }
+
+  const polished = String(text ?? "").trim();
+  if (!polished || polished.length < 40) return null;
+  return polished;
+}
+
+/* ------------------------------------------------------------------ */
 /* Honest placeholder fallback                                         */
 /* ------------------------------------------------------------------ */
 

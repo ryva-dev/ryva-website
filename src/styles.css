@@ -4617,3 +4617,15 @@ a:focus-visible {
   .ro-library-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .ro-library-title { white-space: normal; }
 }
+
+/* Chat: optimistic send + typing indicator */
+.ro-bubble-typing { font-style: italic; color: var(--muted); }
+.ro-bubble-typing::after { content: ""; display: inline-block; width: 1em; animation: ro-ellipsis 1.2s steps(4, end) infinite; }
+@keyframes ro-ellipsis { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+/* Review page inline error notice */
+.ro-review-notice { border-top: 1px solid #b3564a; border-bottom: 1px solid #b3564a; color: #8c3d33; padding: 10px 0; font-size: 13.5px; max-width: 860px; }
+
+/* Onboarding: the chat pane owns its scroll — the page never grows */
+.onboarding-conversation-layout { height: calc(100vh - 200px); min-height: 460px; }
+.onboarding-thread-shell, .onboarding-chat-shell { overflow: hidden; }

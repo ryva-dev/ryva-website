@@ -10,3 +10,5 @@ data/app.db
 data/app.db-*
 data/outbox.log
 /tmp/
+data/private/
+.DS_Store

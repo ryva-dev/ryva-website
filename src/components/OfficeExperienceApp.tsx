@@ -571,6 +571,44 @@ function sentenceCase(value: string) {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
+/**
+ * Machine keys like "autonomy_tiktok_trends" must never reach the screen.
+ * Turns snake/kebab keys into readable labels; leaves human text alone.
+ */
+function humanizeMachineText(value: string | null | undefined, fallback = ""): string {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return fallback;
+  if (/^[a-z0-9]+([_-][a-z0-9]+)+$/i.test(trimmed)) {
+    const KEY_LABELS: Record<string, string> = {
+      autonomy_brand_content: "Brand content planning",
+      autonomy_brand_pitch: "Outreach",
+      autonomy_brand_research: "Brand research",
+      autonomy_maintenance: "Profile upkeep",
+      autonomy_market_pulse: "Creator community signals",
+      autonomy_ops_brief: "Daily brief",
+      autonomy_planned: "Planned by your worker",
+      autonomy_starter: "Getting started",
+      autonomy_tiktok_trends: "Trend research",
+      autonomy_tracker: "Pipeline tracker",
+      autonomy_weekly_planning: "Weekly planning",
+      chat_direct_request: "From your conversation",
+      chat_task_created: "From your conversation",
+      mara_suggested: "Suggested by your worker",
+      memory_triggered: "From what they know about you",
+      office_recommended_next: "Recommended next step",
+      office_task: "Office task",
+      onboarding_generated: "From onboarding",
+      research_triggered: "From research",
+      worker_task: "Worker task"
+    };
+    const mapped = KEY_LABELS[trimmed.toLowerCase()];
+    if (mapped) return mapped;
+    const spaced = trimmed.replace(/[_-]+/g, " ").toLowerCase();
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  }
+  return trimmed;
+}
+
 function normalizeOfficeCopy(value: string, fallback = "") {
   const trimmed = value.replace(/\s+/g, " ").trim();
   if (!trimmed) return fallback;
@@ -1571,6 +1609,7 @@ function ChatView({
   const active = workers.find((w) => w.slug === selectedSlug) ?? workers[0] ?? null;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const thread = useMemo(
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
     [overlays.chats, active?.slug]
@@ -1600,14 +1639,19 @@ function ChatView({
 
   const send = async () => {
     if (!active || !draft.trim() || sending) return;
+    const text = draft.trim();
+    // Optimistic: the manager's message appears instantly; the worker's
+    // interpretation happens while the typing indicator shows.
+    setDraft("");
+    setPendingMessage(text);
     setSending(true);
     try {
-      await officeJson(`/api/office/workers/${active.slug}/chat`, { method: "POST", body: JSON.stringify({ text: draft.trim() }) });
-      setDraft("");
+      await officeJson(`/api/office/workers/${active.slug}/chat`, { method: "POST", body: JSON.stringify({ text }) });
       await reloadOffice();
     } catch {
-      /* surfaced via disabled state; keep draft */
+      setDraft(text); // restore so nothing is lost
     } finally {
+      setPendingMessage(null);
       setSending(false);
     }
   };
@@ -1639,7 +1683,7 @@ function ChatView({
             </button>
           </div>
           <div className="ro-chat-scroll">
-            {thread.length === 0 ? (
+            {thread.length === 0 && !pendingMessage ? (
               <div className="ro-chat-intro">
                 <WorkerMark seed={active.slug} size={52} />
                 <p>
@@ -1656,11 +1700,22 @@ function ChatView({
             ) : (
               thread.map((m) => (
                 <div key={m.id} className={`ro-msg${m.author === "You" ? " you" : ""}`}>
-                  {m.author === "Worker" && <WorkerMark seed={active.slug} size={26} />}
+                  {m.author !== "You" && <WorkerMark seed={active.slug} size={26} />}
                   <div className="ro-bubble">{m.text}<time>{clock(m.timestamp)}</time></div>
                 </div>
               ))
             )}
+            {pendingMessage ? (
+              <div className="ro-msg you">
+                <div className="ro-bubble">{pendingMessage}<time>sending…</time></div>
+              </div>
+            ) : null}
+            {sending ? (
+              <div className="ro-msg">
+                <WorkerMark seed={active.slug} size={26} />
+                <div className="ro-bubble ro-bubble-typing">{active.name.split(" ")[0]} is reading this…</div>
+              </div>
+            ) : null}
           </div>
           <div className="ro-composer">
             <textarea
@@ -1942,35 +1997,52 @@ function ApprovalsView({
   workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void; onReload: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const pending = overlays.tasks.filter((t) => t.status === "Needs Review" || t.status === "Pending approval");
   const suggestedApprovals = overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval);
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
 
   const approveTask = async (t: OverlayTask) => {
     setBusy(t.id);
+    setNotice(null);
     try {
       if (isAgentWorker(t.workerSlug)) {
-        await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/approve`, { method: "POST", body: JSON.stringify({}) });
+        try {
+          // Engine path: works when the underlying worker task is proposed.
+          await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/approve`, { method: "POST", body: JSON.stringify({}) });
+        } catch {
+          // Office-level item or task already past "proposed": approve by
+          // status so the worker can proceed on the next pass.
+          await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/status`, { method: "POST", body: JSON.stringify({ status: "To Do" }) });
+        }
       } else {
         await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/status`, { method: "POST", body: JSON.stringify({ status: "Completed" }) });
       }
       await onReload();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "That approval didn't save. Try again.");
     } finally { setBusy(null); }
   };
   const briefingAction = async (b: OverlayBriefing, action: string) => {
     setBusy(b.id);
+    setNotice(null);
     try {
       await officeJson(`/api/office/workers/${b.workerSlug}/briefings/${b.id}/action`, { method: "POST", body: JSON.stringify({ action }) });
       await onReload();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "That action didn't save. Try again.");
     } finally { setBusy(null); }
   };
   const requestChanges = async (t: OverlayTask) => {
     setBusy(t.id);
+    setNotice(null);
     try {
       await officeJson(`/api/office/workers/${t.workerSlug}/tasks/${t.id}/status`, { method: "POST", body: JSON.stringify({ status: "To Do" }) });
       await onReload();
       onNavigate(`#app/office/workers/${t.workerSlug}/conversation`);
       seedOfficeConversationDraft(`Please revise "${t.title}" and bring it back ready for review. Focus on: `);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "That request didn't save. Try again.");
     } finally { setBusy(null); }
   };
   const sendBackBriefing = async (b: OverlayBriefing) => {
@@ -1987,6 +2059,8 @@ function ApprovalsView({
         <h1>Reviews</h1>
         <p className="ro-page-meta">{total === 0 ? "Nothing waiting on your sign-off" : `${total} item${total === 1 ? "" : "s"} · newest first`}</p>
       </header>
+
+      {notice ? <p className="ro-review-notice">{notice}</p> : null}
 
       {total === 0 ? (
         <p className="ro-blank">You're all caught up.</p>
@@ -2103,7 +2177,7 @@ function AssignmentsView({
                       <div className="ro-row-copy">
                         <span className="ro-row-kicker">{nameFor(task.workerSlug)}</span>
                         <strong>{task.title}</strong>
-                        <p>{task.summary || sentenceCase(task.sourceLabel.replace(/_/g, " "))}</p>
+                        <p>{humanizeMachineText(task.summary, "") || humanizeMachineText(task.sourceLabel, "In progress")}</p>
                       </div>
                       <div className="ro-row-end">
                         <span className="ro-row-aside">{task.dueAt ? `due ${task.dueAt}` : sentenceCase(task.status.replace(/_/g, " "))}</span>
@@ -2590,10 +2664,21 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
   const authors = workers.filter((worker) =>
     overlays.deliverables.some((deliverable) => deliverable.workerSlug === worker.slug)
   );
-  const items = overlays.deliverables
-    .filter((deliverable) => (workerFilter ? deliverable.workerSlug === workerFilter : true))
-    .slice()
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  // One row per document: repeated runs of the same deliverable collapse to
+  // the most recent version instead of flooding the library.
+  const items = useMemo(() => {
+    const sorted = overlays.deliverables
+      .filter((deliverable) => (workerFilter ? deliverable.workerSlug === workerFilter : true))
+      .slice()
+      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    const seen = new Set<string>();
+    return sorted.filter((deliverable) => {
+      const key = `${deliverable.workerSlug}::${deliverable.title.trim().toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [overlays.deliverables, workerFilter]);
   const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
 
   return (

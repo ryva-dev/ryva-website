@@ -190,11 +190,20 @@ export function planMaraAutonomyActions(context) {
     actions.push({ kind: "ops_brief" });
   }
 
-  if (permissions.canRunResearch && brandResearchRemaining === 0) {
+  // Market-pulse work must not spam the library: only one fresh pulse doc at
+  // a time, and never generate a trend brief when no trend data exists.
+  const marketPulseFresh = recentOutputTypes.market_pulse
+    && !isArtifactStale(recentOutputTypes.market_pulse, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.tiktok_trends);
+
+  if (permissions.canRunResearch && brandResearchRemaining === 0 && !marketPulseFresh) {
     actions.push({ kind: "reddit_pulse", reason: "I'll scan creator communities for fresh angles while brand research cools down." });
   }
 
-  if (isArtifactStale(trendSnapshotUpdatedAt, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.tiktok_trends)) {
+  if (
+    trendSnapshotUpdatedAt &&
+    !marketPulseFresh &&
+    isArtifactStale(recentOutputTypes.market_pulse ?? null, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.tiktok_trends)
+  ) {
     actions.push({ kind: "tiktok_trends", reason: "Refresh niche-scoped TikTok trend insights for this creator." });
   }
 

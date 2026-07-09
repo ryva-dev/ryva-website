@@ -7,7 +7,7 @@ import {
   planMaraAutonomyActions
 } from "./maraAutonomyPlanner.mjs";
 import { isMaraLlmConfigured, tryGenerateMaraBrandContentIdeas, tryGenerateMaraPersonalizedPitch } from "./maraLlm.mjs";
-import { buildBrandContext, tryExecuteAgentTaskLlm } from "./agentLlm.mjs";
+import { buildBrandContext, tryExecuteAgentTaskLlm, tryPolishDeliverableVoice } from "./agentLlm.mjs";
 import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
@@ -122,6 +122,14 @@ async function tryExecuteLlmFirstMaraTask(context) {
     fetchImpl: context.fetchImpl
   });
 }
+
+/** Data-driven outputs that get a voice rewrite (facts kept, prose humanized). */
+const VOICE_POLISH_TASK_TYPES = new Set([
+  "tiktok_trend_pulse",
+  "reddit_market_pulse",
+  "ops_brief",
+  "update_brand_tracker"
+]);
 
 const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "brand_content_ideas",
@@ -1249,6 +1257,41 @@ function buildRichContent(sections) {
     .join("\n\n");
 }
 
+/**
+ * "UGC creator" is a job description, not a niche. Values like it must never
+ * be presented as the creator's niche — they carry zero targeting signal.
+ */
+function isGenericNicheValue(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return true;
+  return /^(ugc\s*)?(content\s*)?(creator|creators|content|influencer|videos?)$/.test(normalized)
+    || normalized === "ugc"
+    || normalized === "ugc creator brands";
+}
+
+/**
+ * Resolve the creator's actual niche, best signal first:
+ * their positioning document → onboarding → memory. Generic values lose.
+ */
+function resolveCreatorNiche({ accountContext, previousOutputs = [], workerKnowledge = [], maraAnswers = {} }) {
+  const positioning = previousOutputs.find((output) => output.outputType === "creator_positioning")?.structuredContent;
+  const candidates = [
+    positioning?.nicheDefinition,
+    positioning?.niche,
+    accountContext?.whatYouDo,
+    maraAnswers.current_workflow,
+    ...getMemoryItem(workerKnowledge, "Preferences"),
+    ...getMemoryItem(workerKnowledge, "Goals")
+  ];
+  for (const candidate of candidates) {
+    const value = String(candidate ?? "").trim();
+    if (value && !isGenericNicheValue(value) && value.length <= 90) {
+      return value;
+    }
+  }
+  return "your creator niche";
+}
+
 function buildContextProfile(context) {
   const onboarding = context.accountContext ?? {};
   const preferences = getMemoryItem(context.workerKnowledge, "Preferences");
@@ -1265,7 +1308,12 @@ function buildContextProfile(context) {
     brandFitOutput,
     brandName: String(onboarding.brandName || "Your brand").trim(),
     goals,
-    niche: String(onboarding.whatYouDo || preferences[0] || "creator content").trim(),
+    niche: resolveCreatorNiche({
+      accountContext: onboarding,
+      maraAnswers: context.workerOnboarding?.answers ?? {},
+      previousOutputs: context.previousOutputs,
+      workerKnowledge: context.workerKnowledge
+    }),
     painPoints,
     positioningOutput,
     preferences,
@@ -1757,7 +1805,7 @@ async function executeTikTokTrendPulseTask(context) {
 
   return {
     content: buildRichContent([
-      { title: "Niche Mara scoped trends for", value: [niche] },
+      { title: "Focus area", value: [niche] },
       {
         title: "TikTok hashtags matched to this creator",
         value: structuredContent.takeaways.length > 0 ? structuredContent.takeaways : ["No niche-scoped TikTok trends are on file yet."]
@@ -1790,7 +1838,7 @@ async function executeRedditMarketPulseTask(context) {
 
   return {
     content: buildRichContent([
-      { title: "Niche Mara is learning for", value: [profile.niche] },
+      { title: "Focus area", value: [profile.niche] },
       { title: "Fresh Reddit creator signals", value: structuredContent.communitySignals.length > 0 ? structuredContent.communitySignals : ["No Reddit pulls were available during this cycle."] },
       { title: "TikTok creator-search content gaps", value: insightGaps.length > 0 ? insightGaps : ["No private creator-search insight file is loaded yet."] },
       { title: "What Mara is taking away", value: structuredContent.takeaways.length > 0 ? structuredContent.takeaways : ["Continue monitoring creator communities for pitch angles and objections."] }
@@ -2149,6 +2197,34 @@ export async function runMaraTask({
   }
   if (!result) {
     result = await Promise.resolve(executeTaskByType(context));
+    // Data-driven executors stay factually grounded, but their prose is
+    // robotic — rewrite in the worker's voice using only the draft's facts.
+    if (
+      result?.content &&
+      !result.blocked &&
+      VOICE_POLISH_TASK_TYPES.has(task.taskType) &&
+      isMaraLlmConfigured()
+    ) {
+      const roleConfig = getRoleConfig(workerId);
+      const polished = await tryPolishDeliverableVoice({
+        db,
+        userId,
+        roleConfig,
+        title: result.title || task.title,
+        draftContent: result.content,
+        brandContext: {
+          brandName: context.accountContext?.brandName || "",
+          whatTheyDo: context.accountContext?.whatYouDo || ""
+        },
+        fetchImpl: context.fetchImpl
+      });
+      if (polished) {
+        result.content = polished;
+        if (result.structuredContent && typeof result.structuredContent === "object") {
+          result.structuredContent.generatedBy = "llm";
+        }
+      }
+    }
     // Label every non-LLM deliverable honestly so the UI can badge it.
     if (result?.structuredContent && typeof result.structuredContent === "object" && !result.structuredContent.generatedBy) {
       result.structuredContent.generatedBy = "template";
@@ -2399,11 +2475,8 @@ function hasConnectedEmailIntegration(integrations) {
   );
 }
 
-function inferMaraNiche({ accountContext, maraAnswers = {}, workerKnowledge }) {
-  const onboardingNiche = String(maraAnswers.current_workflow || maraAnswers.email_volume || "").trim();
-  const preferences = getMemoryItem(workerKnowledge, "Preferences");
-  const nicheFromKnowledge = preferences.find((item) => /skincare|wellness|beauty|ugc|creator/i.test(String(item)));
-  return String(accountContext?.whatYouDo || onboardingNiche || nicheFromKnowledge || "UGC creator brands").trim();
+function inferMaraNiche({ accountContext, maraAnswers = {}, workerKnowledge, previousOutputs = [] }) {
+  return resolveCreatorNiche({ accountContext, maraAnswers, previousOutputs, workerKnowledge });
 }
 
 function hasRecentOutputOfType(db, userId, workerId, outputType, maxAgeHours) {
@@ -2595,7 +2668,11 @@ async function runMaraBrandResearchCycle({
     return { note: "Daily brand research cap reached." };
   }
 
-  const niche = inferMaraNiche({ accountContext, workerKnowledge });
+  const niche = inferMaraNiche({
+    accountContext,
+    previousOutputs: listWorkerOutputs(db, userId, workerId),
+    workerKnowledge
+  });
   const redditSignals = await fetchRedditSignals({ fetchImpl });
   const privateContentGaps = extractPrivateInsightItems(privateInsights).slice(0, 6);
   const discovery = await discoverBrandCandidates({
