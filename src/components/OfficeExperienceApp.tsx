@@ -2108,6 +2108,72 @@ function WorkerDeskView({
 
 /* ---------- Approvals ---------- */
 
+function BriefingModal({
+  briefing,
+  onClose,
+  workerName
+}: {
+  briefing: OverlayBriefing;
+  onClose: () => void;
+  workerName: string;
+}) {
+  const agenda = safeList(briefing.agendaJson);
+  const decisions = safeList(briefing.decisionsJson);
+  const actions = safeList(briefing.actionsJson);
+
+  return (
+    <div className="ro-doc-scrim" onClick={onClose}>
+      <div className="ro-doc-sheet" role="document" onClick={(event) => event.stopPropagation()}>
+        <button className="ro-doc-close" type="button" aria-label="Close briefing" onClick={onClose}>×</button>
+
+        <header className="ro-doc-letterhead">
+          <span className="ro-doc-kicker">Briefing</span>
+          <h1 className="ro-doc-title">{briefing.title}</h1>
+          <div className="ro-doc-byline">
+            <span>{workerName}</span>
+            {briefing.dateLabel ? <span>{briefing.dateLabel}</span> : null}
+          </div>
+        </header>
+
+        <div className="ro-doc-body">
+          {briefing.summary ? <p className="ro-doc-para">{briefing.summary}</p> : null}
+
+          {agenda.length > 0 ? (
+            <>
+              <h3 className="ro-doc-heading">Agenda</h3>
+              <ul className="ro-doc-list">
+                {agenda.map((item, index) => <li key={`agenda-${index}`}>{item}</li>)}
+              </ul>
+            </>
+          ) : null}
+
+          {decisions.length > 0 ? (
+            <>
+              <h3 className="ro-doc-heading">Decisions needed</h3>
+              <ul className="ro-doc-list">
+                {decisions.map((item, index) => <li key={`decision-${index}`}>{item}</li>)}
+              </ul>
+            </>
+          ) : null}
+
+          {actions.length > 0 ? (
+            <>
+              <h3 className="ro-doc-heading">Recommended actions</h3>
+              <ul className="ro-doc-list">
+                {actions.map((item, index) => <li key={`action-${index}`}>{item}</li>)}
+              </ul>
+            </>
+          ) : null}
+
+          {!briefing.summary && agenda.length === 0 && decisions.length === 0 && actions.length === 0 ? (
+            <p className="ro-doc-muted">This briefing doesn't have any detail recorded yet.</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ApprovalsView({
   workers, overlays, onNavigate, onReload,
 }: {
@@ -2115,8 +2181,19 @@ function ApprovalsView({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [openBriefing, setOpenBriefing] = useState<OverlayBriefing | null>(null);
   const pending = overlays.tasks.filter((t) => t.status === "Needs Review" || t.status === "Pending approval");
   const suggestedApprovals = overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval);
+  // Collapse duplicate briefings (same worker, title, and time) to a single card.
+  const briefings = useMemo(() => {
+    const seen = new Set<string>();
+    return overlays.briefings.filter((b) => {
+      const key = `${b.workerSlug}::${b.title.trim().toLowerCase()}::${b.dateLabel.trim().toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [overlays.briefings]);
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
 
   const approveTask = async (t: OverlayTask) => {
@@ -2168,7 +2245,7 @@ function ApprovalsView({
     seedOfficeConversationDraft(`Please update "${b.title}" before the next review. Specifically: `);
   };
 
-  const total = pending.length + overlays.briefings.length + suggestedApprovals.length;
+  const total = pending.length + briefings.length + suggestedApprovals.length;
 
   return (
     <div className="ro-main-scroll">
@@ -2210,18 +2287,21 @@ function ApprovalsView({
               </article>
             ))}
 
-            {overlays.briefings.map((b) => {
+            {briefings.map((b) => {
               const decisions = safeList(b.decisionsJson);
               return (
                 <article className="ro-appr" key={b.id}>
                   <div className="ro-appr-meta">{nameFor(b.workerSlug)} · Briefing · {b.dateLabel}</div>
-                  <h3>{b.title}</h3>
-                  <p>{normalizeOfficeCopy(b.summary || "Ready for your review.")}</p>
-                  {decisions.length > 0 && (
-                    <ul className="ro-appr-points">
-                      {decisions.map((d, i) => <li key={i}>{d}</li>)}
-                    </ul>
-                  )}
+                  <button className="ro-appr-open" type="button" onClick={() => setOpenBriefing(b)}>
+                    <h3>{b.title}</h3>
+                    <p>{normalizeOfficeCopy(b.summary || "Ready for your review.")}</p>
+                    {decisions.length > 0 && (
+                      <ul className="ro-appr-points">
+                        {decisions.map((d, i) => <li key={i}>{d}</li>)}
+                      </ul>
+                    )}
+                    <span className="ro-appr-readmore">Read full briefing</span>
+                  </button>
                   <div className="ro-appr-actions">
                     <button className="r-btn r-btn-accent" type="button" disabled={busy === b.id} onClick={() => void briefingAction(b, "approve")}>{busy === b.id ? "Saving..." : "Approve"}</button>
                     <button className="ro-textlink" type="button" disabled={busy === b.id} onClick={() => void sendBackBriefing(b)}>Send back</button>
@@ -2233,6 +2313,71 @@ function ApprovalsView({
 
         </div>
       )}
+
+      {openBriefing ? (
+        <BriefingModal
+          briefing={openBriefing}
+          onClose={() => setOpenBriefing(null)}
+          workerName={nameFor(openBriefing.workerSlug)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function AssignmentDetailModal({
+  assignment,
+  onClose,
+  onOpenWorker,
+  workerName
+}: {
+  assignment: OverlayAssignment;
+  onClose: () => void;
+  onOpenWorker: () => void;
+  workerName: string;
+}) {
+  const statusLabel = sentenceCase(assignment.status.replace(/_/g, " "));
+  const summary = humanizeMachineText(assignment.summary, "");
+  const preview = String(assignment.artifactPreview ?? "").trim();
+
+  return (
+    <div className="ro-doc-scrim" onClick={onClose}>
+      <div className="ro-doc-sheet" role="document" onClick={(event) => event.stopPropagation()}>
+        <button className="ro-doc-close" type="button" aria-label="Close assignment" onClick={onClose}>×</button>
+
+        <header className="ro-doc-letterhead">
+          <span className="ro-doc-kicker">{humanizeMachineText(assignment.sourceLabel, "Assignment")}</span>
+          <h1 className="ro-doc-title">{assignment.title}</h1>
+          <div className="ro-doc-byline">
+            <span>{workerName}</span>
+            <span>{statusLabel}</span>
+            {assignment.dueAt ? <span>Due {assignment.dueAt}</span> : null}
+          </div>
+        </header>
+
+        <div className="ro-doc-body">
+          {summary ? <p className="ro-doc-para">{summary}</p> : null}
+          {assignment.blockedReason ? (
+            <>
+              <h3 className="ro-doc-heading">What's blocking it</h3>
+              <p className="ro-doc-para">{assignment.blockedReason}</p>
+            </>
+          ) : null}
+          {preview ? (
+            <>
+              <h3 className="ro-doc-heading">{humanizeMachineText(assignment.artifactTitle, "Latest work")}</h3>
+              {renderDocumentBlocks(preview)}
+            </>
+          ) : null}
+          {!summary && !assignment.blockedReason && !preview ? (
+            <p className="ro-doc-muted">No further detail recorded for this assignment yet.</p>
+          ) : null}
+        </div>
+
+        <footer className="ro-doc-footer">
+          <button className="r-btn r-btn-accent" type="button" onClick={onOpenWorker}>Open {workerName.split(" ")[0]}'s desk</button>
+        </footer>
+      </div>
     </div>
   );
 }
@@ -2246,6 +2391,7 @@ function AssignmentsView({
   overlays: Overlays;
   onNavigate: (h: string) => void;
 }) {
+  const [openAssignment, setOpenAssignment] = useState<OverlayAssignment | null>(null);
   const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
   const tasks = overlays.assignments;
   const needsYou = tasks.filter((task) => task.status === "in_review" || task.status === "blocked");
@@ -2289,7 +2435,7 @@ function AssignmentsView({
                       key={task.id}
                       className="ro-row"
                       type="button"
-                      onClick={() => onNavigate(`#app/office/workers/${task.workerSlug}/desk`)}
+                      onClick={() => setOpenAssignment(task)}
                     >
                       <div className="ro-row-copy">
                         <span className="ro-row-kicker">{nameFor(task.workerSlug)}</span>
@@ -2308,6 +2454,19 @@ function AssignmentsView({
 
         </div>
       )}
+
+      {openAssignment ? (
+        <AssignmentDetailModal
+          assignment={openAssignment}
+          onClose={() => setOpenAssignment(null)}
+          onOpenWorker={() => {
+            const slug = openAssignment.workerSlug;
+            setOpenAssignment(null);
+            onNavigate(`#app/office/workers/${slug}/desk`);
+          }}
+          workerName={nameFor(openAssignment.workerSlug)}
+        />
+      ) : null}
     </div>
   );
 }

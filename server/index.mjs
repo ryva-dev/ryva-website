@@ -1857,7 +1857,7 @@ function harvestMaraOutputSideEffects(userId, workerSlug) {
   const rows = db.prepare(
     `SELECT id, output_type AS outputType, structured_content_json AS structuredContentJson
      FROM worker_outputs
-     WHERE user_id = ? AND worker_id = ? AND created_at >= ? AND output_type IN ('market_pulse', 'weekly_schedule')`
+     WHERE user_id = ? AND worker_id = ? AND created_at >= ? AND output_type IN ('market_pulse', 'weekly_schedule', 'weekly_plan')`
   ).all(userId, workerSlug, recentThreshold);
 
   for (const row of rows) {
@@ -1928,6 +1928,79 @@ function harvestMaraOutputSideEffects(userId, workerSlug) {
           eventType: "task_completed",
           metadata: { outputId: row.id },
           title: "Weekly schedule on calendar",
+          userId,
+          workerId: workerSlug
+        });
+      }
+      structured.calendarSyncedAt = nowIso();
+      changed = true;
+    }
+
+    // Weekly action plan → calendar. The plan lists day-anchored actions
+    // (e.g. "Monday: draft creator content concepts") rather than explicit
+    // time blocks, so each one lands as a default focus block on that day.
+    if (row.outputType === "weekly_plan" && !structured.calendarSyncedAt) {
+      const dayIndex = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
+      const weekdayPattern = /^\s*(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s*[:\-–—]\s*(.+)$/i;
+
+      // Pull day-prefixed action lines from every string array on the plan so
+      // both the deterministic plan and richer LLM plans are covered.
+      const candidateActions = [];
+      for (const value of Object.values(structured)) {
+        if (!Array.isArray(value)) continue;
+        for (const entry of value) {
+          const match = weekdayPattern.exec(String(entry ?? ""));
+          if (!match) continue;
+          const day = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+          candidateActions.push({ day, activity: match[2].trim() });
+        }
+      }
+
+      const now = new Date();
+      const perDayCount = {};
+      let created = 0;
+      for (const action of candidateActions.slice(0, 20)) {
+        const targetDay = dayIndex[action.day];
+        if (targetDay === undefined || !action.activity) continue;
+
+        const start = new Date(now);
+        let delta = (targetDay - start.getDay() + 7) % 7;
+        // A focus block that already passed today rolls to next week.
+        const usedToday = perDayCount[action.day] ?? 0;
+        const startHour = 9 + usedToday; // stagger multiple same-day blocks
+        if (delta === 0 && start.getHours() >= startHour) {
+          delta = 7;
+        }
+        start.setDate(start.getDate() + delta);
+        start.setHours(startHour, 0, 0, 0);
+        const end = new Date(start);
+        end.setHours(startHour, 45, 0, 0);
+        perDayCount[action.day] = usedToday + 1;
+
+        db.prepare(
+          `INSERT INTO office_calendar_events
+            (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          randomUUID(),
+          userId,
+          workerSlug,
+          action.activity.slice(0, 120),
+          start.toISOString(),
+          end.toISOString(),
+          "Focus",
+          String(structured.priority ?? "").slice(0, 240),
+          nowIso(),
+          nowIso()
+        );
+        created += 1;
+      }
+      if (created > 0) {
+        createWorkerActivityLog(db, {
+          description: `Placed ${created} focus block${created === 1 ? "" : "s"} from the weekly plan on your calendar.`,
+          eventType: "task_completed",
+          metadata: { outputId: row.id },
+          title: "Weekly plan on calendar",
           userId,
           workerId: workerSlug
         });
@@ -5781,6 +5854,22 @@ app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin,
       `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(randomUUID(), req.user.id, workerSlug, "Approved a briefing.", "Briefings", briefingId, createdAt);
+    // Clear the briefing (and any duplicate copies of it) so approving it
+    // actually removes it from the review queue instead of leaving it in place.
+    const briefing = db
+      .prepare(
+        `SELECT title, date_label AS dateLabel FROM office_custom_briefings
+         WHERE id = ? AND user_id = ? AND worker_slug = ?`
+      )
+      .get(briefingId, req.user.id, workerSlug);
+    if (briefing) {
+      db.prepare(
+        `DELETE FROM office_custom_briefings
+         WHERE user_id = ? AND worker_slug = ? AND title = ? AND date_label = ?`
+      ).run(req.user.id, workerSlug, briefing.title, briefing.dateLabel);
+    } else {
+      db.prepare(`DELETE FROM office_custom_briefings WHERE id = ? AND user_id = ?`).run(briefingId, req.user.id);
+    }
     res.json({ ok: true });
     return;
   }
@@ -5803,6 +5892,9 @@ app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin,
       `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(randomUUID(), req.user.id, workerSlug, "Requested briefing follow-up.", "Briefings", briefingId, createdAt);
+    // Sending a briefing back moves the conversation forward, so it should
+    // also leave the review queue instead of lingering there.
+    db.prepare(`DELETE FROM office_custom_briefings WHERE id = ? AND user_id = ?`).run(briefingId, req.user.id);
     res.json({ ok: true });
     return;
   }
