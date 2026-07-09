@@ -1611,6 +1611,7 @@ function ChatView({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const thread = useMemo(
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
     [overlays.chats, active?.slug]
@@ -1637,6 +1638,14 @@ function ChatView({
   const reloadOffice = useCallback(async () => {
     await onReload();
   }, [onReload]);
+
+  // Keep the newest message in view; the pane scrolls, the page never moves.
+  useEffect(() => {
+    const pane = scrollRef.current;
+    if (pane) {
+      pane.scrollTop = pane.scrollHeight;
+    }
+  }, [thread.length, pendingMessage, sending]);
 
   const send = async () => {
     if (!active || !draft.trim() || sending) return;
@@ -1683,7 +1692,7 @@ function ChatView({
               Worker details
             </button>
           </div>
-          <div className="ro-chat-scroll">
+          <div className="ro-chat-scroll" ref={scrollRef}>
             {thread.length === 0 && !pendingMessage ? (
               <div className="ro-chat-intro">
                 <WorkerMark seed={active.slug} size={52} />

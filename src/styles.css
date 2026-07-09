@@ -4644,3 +4644,17 @@ a:focus-visible {
 .ro-paused-note { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--muted); padding: 10px 0; font-size: 13.5px; }
 .ro-trend-paste { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 12px 14px; font: inherit; resize: vertical; margin: 10px 0 12px; }
 .ro-trend-paste:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Worker conversation: the thread scrolls inside a fixed pane — the page
+   never grows with new messages. */
+.ro-worker-page-main .ro-chat {
+  height: calc(100vh - 330px);
+  min-height: 440px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+@media (max-width: 900px) {
+  .ro-worker-page-main .ro-chat { height: calc(100vh - 260px); min-height: 380px; }
+}
