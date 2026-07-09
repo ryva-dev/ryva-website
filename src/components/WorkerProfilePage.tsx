@@ -67,7 +67,7 @@ export function WorkerProfilePage({ onHire, onInterview, worker }: WorkerProfile
           </section>
 
           <section className="rp-panel">
-            <h2>Recent work</h2>
+            <h2>What a first week looks like</h2>
             <div className="rp-samples">
               {worker.profile.sampleWork.map((item) => <div className="rp-sample" key={item}>{item}</div>)}
             </div>
@@ -77,20 +77,30 @@ export function WorkerProfilePage({ onHire, onInterview, worker }: WorkerProfile
             <blockquote>{worker.profile.philosophy}</blockquote>
           </section>
 
-          <section className="rp-panel">
-            <h2>Reviews</h2>
-            <div className="rp-reviews">
-              {worker.profile.reviews.map((review) => (
-                <article className="rp-review" key={`${review.name}-${review.company}`}>
-                  <div className="rp-review-head">
-                    <div><strong>{review.name}</strong><p>{review.company}</p></div>
-                    <Stars rating={review.rating} />
-                  </div>
-                  <p>{review.quote}</p>
-                </article>
-              ))}
-            </div>
-          </section>
+          {worker.profile.reviews.length > 0 ? (
+            <section className="rp-panel">
+              <h2>Reviews</h2>
+              <div className="rp-reviews">
+                {worker.profile.reviews.map((review) => (
+                  <article className="rp-review" key={`${review.name}-${review.company}`}>
+                    <div className="rp-review-head">
+                      <div><strong>{review.name}</strong><p>{review.company}</p></div>
+                      <Stars rating={review.rating} />
+                    </div>
+                    <p>{review.quote}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="rp-panel">
+              <h2>Early hire</h2>
+              <p className="rp-early-note">
+                This is a new digital employee — reviews will come from real managers as they do. Interview them first
+                and judge the work yourself; you can end the engagement any time.
+              </p>
+            </section>
+          )}
         </div>
 
         <aside className="rp-sidebar">

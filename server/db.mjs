@@ -156,6 +156,17 @@ export function ensureOfficeSchema() {
   // a worker cancels billing and failed payments are visible.
   ensureColumn("hired_workers", "stripe_subscription_id", "TEXT");
   ensureColumn("hired_workers", "billing_status", "TEXT NOT NULL DEFAULT ''");
+
+  // Self-serve billing portal needs the Stripe customer on the user.
+  ensureColumn("users", "stripe_customer_id", "TEXT");
+
+  // Weekly digest bookkeeping: one row per user, updated on each send.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_digest_log (
+      user_id TEXT PRIMARY KEY,
+      last_sent_at TEXT NOT NULL
+    )
+  `);
 }
 
 db.exec(`

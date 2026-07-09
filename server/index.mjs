@@ -2057,6 +2057,30 @@ function buildDraftSpecsFromOutput(outputRow) {
   return drafts;
 }
 
+/**
+ * Send a previously created Gmail draft. This is the only place the platform
+ * ever sends email on a user's behalf, and it only runs after an explicit
+ * human approval of a specific draft.
+ */
+async function sendGmailDraft(userId, workerSlug, draftId) {
+  const { accessToken } = await getFreshGoogleAccessToken(userId, workerSlug, "gmail");
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ id: draftId })
+  });
+
+  if (!response.ok) {
+    const payload = await response.text();
+    throw new Error(`Gmail send failed with status ${response.status}: ${payload.slice(0, 240)}`);
+  }
+
+  return response.json();
+}
+
 async function createGmailDraftForOutput(userId, workerSlug, spec) {
   const { accessToken } = await getFreshGoogleAccessToken(userId, workerSlug, "gmail");
   const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
@@ -2140,6 +2164,31 @@ async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = [])
        SET structured_content_json = ?, updated_at = ?
        WHERE id = ? AND user_id = ? AND worker_id = ?`
     ).run(JSON.stringify(nextStructured), nowIso(), row.id, userId, workerSlug);
+
+    // The approve-and-send loop: drafts with a real recipient become a
+    // one-click approval. Approving sends from the user's own Gmail.
+    const permissions = getWorkerPermissions(db, userId, workerSlug);
+    const sendableDrafts = createdDrafts.filter((draft) => String(draft.to ?? "").trim());
+    if (sendableDrafts.length > 0 && permissions.canSendEmailsWithApproval) {
+      createApprovalRequest(db, {
+        actionType: "send_email",
+        description: `Ready to go from your Gmail: ${sendableDrafts
+          .map((draft) => `“${draft.subject}” → ${draft.to}`)
+          .join("; ")}. Nothing sends until you approve.`,
+        payload: {
+          drafts: sendableDrafts.map((draft) => ({
+            gmailDraftId: draft.gmailDraftId,
+            subject: draft.subject,
+            title: draft.title,
+            to: draft.to
+          })),
+          outputId: row.id
+        },
+        title: `Send: ${sendableDrafts[0].subject}`.slice(0, 140),
+        userId,
+        workerId: workerSlug
+      });
+    }
 
     createWorkerActivityLog(db, {
       description: `Saved ${createdDrafts.length} Gmail draft${createdDrafts.length === 1 ? "" : "s"} from ${row.title}.`,
@@ -2673,6 +2722,83 @@ async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generate
       readOfficeOverlays: readOfficeOverlaysForUser
     })
   };
+}
+
+const DIGEST_INTERVAL_DAYS = Number.parseInt(process.env.DIGEST_INTERVAL_DAYS ?? "7", 10);
+
+/**
+ * Weekly digest: what the team shipped, what's waiting on the manager.
+ * The single most reliable reason to come back to the office.
+ */
+async function sendWeeklyDigests() {
+  if (DIGEST_INTERVAL_DAYS <= 0) return;
+  const threshold = new Date(Date.now() - DIGEST_INTERVAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const users = db.prepare(
+    `SELECT DISTINCT u.id, u.email, u.name
+     FROM users u
+     INNER JOIN hired_workers hw ON hw.user_id = u.id AND hw.status = 'active'
+     LEFT JOIN user_digest_log dl ON dl.user_id = u.id
+     WHERE u.email_verified_at IS NOT NULL AND (dl.last_sent_at IS NULL OR dl.last_sent_at <= ?)`
+  ).all(threshold);
+
+  for (const user of users) {
+    try {
+      const outputs = db.prepare(
+        `SELECT title, output_type AS outputType, worker_id AS workerId, created_at AS createdAt
+         FROM worker_outputs
+         WHERE user_id = ? AND created_at >= ?
+         ORDER BY created_at DESC
+         LIMIT 12`
+      ).all(user.id, threshold);
+      const approvals = db.prepare(
+        `SELECT title FROM worker_approval_requests WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 8`
+      ).all(user.id);
+      const completedTasks = db.prepare(
+        `SELECT COUNT(*) AS count FROM worker_tasks WHERE user_id = ? AND status = 'completed' AND updated_at >= ?`
+      ).get(user.id, threshold);
+
+      // Nothing shipped and nothing waiting — stay silent rather than spam.
+      if (outputs.length === 0 && approvals.length === 0) {
+        continue;
+      }
+
+      const firstName = String(user.name ?? "").split(" ")[0] || "there";
+      const shippedLines = outputs.slice(0, 8).map((output) => `• ${output.title}`);
+      const approvalLines = approvals.map((approval) => `• ${approval.title}`);
+      const textParts = [
+        `Hi ${firstName},`,
+        "",
+        `Here's what your Ryva team got done over the last ${DIGEST_INTERVAL_DAYS} days:`,
+        "",
+        outputs.length > 0 ? `Shipped (${outputs.length} deliverable${outputs.length === 1 ? "" : "s"}, ${Number(completedTasks?.count ?? 0)} tasks closed):\n${shippedLines.join("\n")}` : "",
+        approvals.length > 0 ? `\nWaiting on you (${approvals.length}):\n${approvalLines.join("\n")}` : "",
+        "",
+        `Open your office: ${appUrl}/#app/office/today`
+      ].filter((part) => part !== "");
+      const text = textParts.join("\n");
+      const html = textParts
+        .map((part) => `<p style="margin:0 0 12px;white-space:pre-line;font-family:Georgia,serif;color:#191713;">${part.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</p>`)
+        .join("");
+
+      await sendTransactionalEmail({
+        html,
+        subject:
+          approvals.length > 0
+            ? `Your team shipped ${outputs.length} deliverable${outputs.length === 1 ? "" : "s"} — ${approvals.length} thing${approvals.length === 1 ? "" : "s"} need${approvals.length === 1 ? "s" : ""} you`
+            : `Your team shipped ${outputs.length} deliverable${outputs.length === 1 ? "" : "s"} this week`,
+        text,
+        to: user.email
+      });
+
+      db.prepare(
+        `INSERT INTO user_digest_log (user_id, last_sent_at) VALUES (?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET last_sent_at = excluded.last_sent_at`
+      ).run(user.id, nowIso());
+    } catch (error) {
+      console.error(`Digest failed for ${user.id}:`, error);
+    }
+  }
 }
 
 async function runScheduledMaraAutonomy() {
@@ -3512,6 +3638,14 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
   }
 
   try {
+    const approvalRow = db
+      .prepare(
+        `SELECT action_type AS actionType, payload_json AS payloadJson, title
+         FROM worker_approval_requests
+         WHERE id = ? AND user_id = ? AND worker_id = ?`
+      )
+      .get(approvalId, req.user.id, workerSlug);
+
     const result = await updateApprovalRequestStatus(
       db,
       req.user.id,
@@ -3520,6 +3654,49 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
       status,
       isMaraWorker(workerSlug) && status === "approved" ? buildMaraExecutionReaders() : null
     );
+
+    // Approve-and-send: an approved send_email request actually sends the
+    // Gmail drafts. If sending fails, the approval reopens for retry.
+    let emailsSent = 0;
+    if (status === "approved" && approvalRow?.actionType === "send_email") {
+      const payload = parseJson(approvalRow.payloadJson, {});
+      const draftsToSend = (Array.isArray(payload.drafts) ? payload.drafts : []).filter((draft) => draft?.gmailDraftId);
+      try {
+        for (const draft of draftsToSend) {
+          await sendGmailDraft(req.user.id, workerSlug, String(draft.gmailDraftId));
+          emailsSent += 1;
+          createWorkerActivityLog(db, {
+            description: `Sent “${draft.subject}” to ${draft.to} from your Gmail after your approval.`,
+            eventType: "email_sent",
+            metadata: { outputId: payload.outputId ?? null, subject: draft.subject, to: draft.to },
+            title: `Sent: ${draft.subject}`.slice(0, 140),
+            userId: req.user.id,
+            workerId: workerSlug
+          });
+        }
+        if (emailsSent > 0 && payload.outputId) {
+          const outputRow = db
+            .prepare("SELECT structured_content_json AS structuredContentJson FROM worker_outputs WHERE id = ? AND user_id = ? AND worker_id = ?")
+            .get(payload.outputId, req.user.id, workerSlug);
+          if (outputRow) {
+            const structured = parseJson(outputRow.structuredContentJson, {});
+            structured.sentAt = nowIso();
+            structured.sentCount = emailsSent;
+            db.prepare("UPDATE worker_outputs SET structured_content_json = ?, updated_at = ? WHERE id = ? AND user_id = ? AND worker_id = ?")
+              .run(JSON.stringify(structured), nowIso(), payload.outputId, req.user.id, workerSlug);
+          }
+        }
+      } catch (error) {
+        db.prepare(
+          `UPDATE worker_approval_requests SET status = 'pending', updated_at = ? WHERE id = ? AND user_id = ? AND worker_id = ?`
+        ).run(nowIso(), approvalId, req.user.id, workerSlug);
+        res.status(502).json({
+          error: `The email did not send (${error instanceof Error ? error.message.slice(0, 120) : "Gmail error"}). The approval is back in your queue — nothing went out twice.`
+        });
+        return;
+      }
+    }
+
     if (isMaraWorker(workerSlug)) {
       syncMaraOperationalRecords(req.user.id, workerSlug);
     } else {
@@ -3533,6 +3710,7 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
     }
     res.json({
       ...result,
+      emailsSent,
       workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
         readKnowledgeSections: readWorkerKnowledgeSections,
         readOfficeOverlays: readOfficeOverlaysForUser
@@ -4627,6 +4805,32 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
   res.json({ url: session.url });
 });
 
+app.post("/api/payments/portal", assertOrigin, requireAuth, async (req, res) => {
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey) {
+    res.status(501).json({ error: "Billing is not configured yet." });
+    return;
+  }
+
+  const customerId = db.prepare("SELECT stripe_customer_id AS customerId FROM users WHERE id = ?").get(req.user.id)?.customerId;
+  if (!customerId) {
+    res.status(404).json({ error: "No billing account yet — you'll get one with your first paid hire." });
+    return;
+  }
+
+  try {
+    const stripe = new Stripe(stripeKey);
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${appUrl}/#app/office/settings`
+    });
+    res.json({ url: session.url });
+  } catch (error) {
+    console.error("Billing portal session failed:", error);
+    res.status(502).json({ error: "Could not open the billing portal. Try again shortly." });
+  }
+});
+
 app.post("/api/payments/webhook", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -4658,6 +4862,10 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
            SET status = ?, completed_at = ?
            WHERE id = ?`
         ).run("completed", nowIso(), checkoutId);
+      }
+
+      if (userId && session.customer) {
+        db.prepare("UPDATE users SET stripe_customer_id = ? WHERE id = ?").run(String(session.customer), userId);
       }
 
       if (checkoutId && userId && workerSlug) {
@@ -5814,8 +6022,10 @@ app.listen(port, host, () => {
     const intervalMs = maraAutonomyIntervalMinutes * 60 * 1000;
     maraAutonomyTimer = setInterval(() => {
       void runScheduledMaraAutonomy();
+      void sendWeeklyDigests();
     }, intervalMs);
     void runScheduledMaraAutonomy();
+    void sendWeeklyDigests();
     console.log(`Mara autonomy scheduler enabled every ${maraAutonomyIntervalMinutes} minute(s).`);
   }
 });

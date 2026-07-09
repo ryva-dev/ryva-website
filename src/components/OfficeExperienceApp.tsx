@@ -2773,6 +2773,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
   const [decisionStyle, setDecisionStyle] = useState<string>(parsed.decisionStyle ?? "");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [billingNotice, setBillingNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setBrandContext(parsed.brandContext ?? "");
@@ -2781,6 +2782,16 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
     setReviewCadence(parsed.reviewCadence ?? "Weekly");
     setDecisionStyle(parsed.decisionStyle ?? "");
   }, [parsed]);
+
+  const openBillingPortal = async () => {
+    setBillingNotice(null);
+    try {
+      const payload = await officeJson<{ url: string }>("/api/payments/portal", { method: "POST", body: JSON.stringify({}) });
+      window.location.href = payload.url;
+    } catch (error) {
+      setBillingNotice(error instanceof Error ? error.message : "Could not open billing.");
+    }
+  };
 
   const save = async () => {
     setBusy(true); setSaved(false);
@@ -2822,6 +2833,13 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
         <div className="ro-settings-foot">
           {saved && <span className="ro-saved">Saved ✓</span>}
           <button className="r-btn r-btn-accent" type="button" onClick={() => void save()} disabled={busy}>{busy ? "Saving…" : "Save settings"}</button>
+        </div>
+
+        <div className="ro-settings-billing">
+          <div className="ro-sec-head"><h2>Billing</h2></div>
+          <p className="ro-page-meta">Salaries, invoices, payment method, and cancellations — all self-serve.</p>
+          <button className="r-btn r-btn-ghost" type="button" onClick={() => void openBillingPortal()}>Manage billing</button>
+          {billingNotice ? <p className="ro-review-notice">{billingNotice}</p> : null}
         </div>
       </div>
     </div>
@@ -3028,13 +3046,19 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     if (!isAgentWorker(workerSlugParam)) return;
     setWorkerActionBusy(approvalId);
     try {
-      const payload = await officeJson<{ workspace: MaraWorkspace }>(`/api/office/workers/${workerSlugParam}/approval-requests/${approvalId}/status`, {
+      const payload = await officeJson<{ workspace: MaraWorkspace; emailsSent?: number }>(`/api/office/workers/${workerSlugParam}/approval-requests/${approvalId}/status`, {
         method: "POST",
         body: JSON.stringify({ status })
       });
       setMaraWorkspaces((current) => ({ ...current, [workerSlugParam]: payload.workspace }));
       await reload();
-      onNotice(status === "approved" ? "Thanks — I'll move forward." : "Understood — I won't do that.");
+      onNotice(
+        status !== "approved"
+          ? "Understood — I won't do that."
+          : payload.emailsSent && payload.emailsSent > 0
+            ? `Approved — ${payload.emailsSent === 1 ? "the email is" : `${payload.emailsSent} emails are`} sent from your Gmail.`
+            : "Thanks — I'll move forward."
+      );
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "I couldn't save that approval.");
     } finally {

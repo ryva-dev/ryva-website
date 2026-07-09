@@ -4629,3 +4629,9 @@ a:focus-visible {
 /* Onboarding: the chat pane owns its scroll — the page never grows */
 .onboarding-conversation-layout { height: calc(100vh - 200px); min-height: 460px; }
 .onboarding-thread-shell, .onboarding-chat-shell { overflow: hidden; }
+
+/* Settings: billing block + early-hire note */
+.ro-settings-billing { margin-top: 48px; max-width: 560px; }
+.ro-settings-billing .ro-sec-head { margin-bottom: 8px; }
+.ro-settings-billing .r-btn { margin-top: 12px; }
+.rp-early-note { color: var(--muted); font-size: 13.5px; line-height: 1.6; max-width: 46ch; }
