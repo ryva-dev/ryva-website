@@ -1,3 +1,5 @@
+import { canSpend, noteSpend } from "./llmBudget.mjs";
+
 const MARA_ROLE_DEFINITION =
   "Mara is an autonomous UGC operations hire for a specific creator and brand. She maintains positioning and brand-fit criteria, researches aligned brands, drafts personalized outreach, organizes Gmail into a living tracker, generates brand-specific content ideas, surfaces blockers and approval needs, and keeps working within daily limits until she hits a real stop condition.";
 
@@ -53,10 +55,16 @@ function extractAnthropicText(payload) {
   return "";
 }
 
-export async function createAnthropicMessage({ fetchImpl = globalThis.fetch, maxTokens, messages, model, system }) {
+export async function createAnthropicMessage({ fetchImpl = globalThis.fetch, maxTokens, messages, model, system, userId }) {
   const config = getAnthropicConfig();
   if (!config) {
     throw new Error("Anthropic is not configured.");
+  }
+
+  // Unified per-user daily budget. No userId (system paths) passes through;
+  // callers that provide one are capped and counted against the shared limit.
+  if (!(await canSpend(userId))) {
+    throw new Error("Daily LLM budget reached for this account.");
   }
 
   const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
@@ -85,6 +93,7 @@ export async function createAnthropicMessage({ fetchImpl = globalThis.fetch, max
     throw new Error("Anthropic request returned no text.");
   }
 
+  await noteSpend(userId);
   return text;
 }
 
@@ -384,6 +393,7 @@ export async function tryGenerateMaraPersonalizedPitch(context, { fetchImpl } = 
   try {
     const text = await createAnthropicMessage({
       fetchImpl: fetchImpl || context.fetchImpl,
+      userId: context.userId,
       maxTokens: 1400,
       model: DEFAULT_MODEL,
       system: buildPitchSystemPrompt(),
@@ -429,6 +439,7 @@ export async function tryGenerateMaraBrandContentIdeas(context, { fetchImpl } = 
   try {
     const text = await createAnthropicMessage({
       fetchImpl: fetchImpl || context.fetchImpl,
+      userId: context.userId,
       maxTokens: 1800,
       model: DEFAULT_MODEL,
       system: buildContentIdeasSystemPrompt(),

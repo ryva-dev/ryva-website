@@ -153,6 +153,9 @@ export function validateConfig() {
     if (!String(process.env.ANTHROPIC_API_KEY ?? "").trim()) {
       warnings.push("ANTHROPIC_API_KEY is not set — workers will fall back to placeholder output.");
     }
+    if (!String(process.env.ENCRYPTION_KEY ?? "").trim()) {
+      warnings.push("ENCRYPTION_KEY is not set — OAuth tokens will be stored in plaintext.");
+    }
     const stripeKey = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
     const stripeHook = String(process.env.STRIPE_WEBHOOK_SECRET ?? "").trim();
     if (Boolean(stripeKey) !== Boolean(stripeHook)) {

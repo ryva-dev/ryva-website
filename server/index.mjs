@@ -55,6 +55,8 @@ import {
   requestContext,
   validateConfig
 } from "./observability.mjs";
+import { decryptJson, encryptJson } from "./secretsCrypto.mjs";
+import { canSpend, noteSpend } from "./llmBudget.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -347,6 +349,15 @@ function isWorkerPaused(userId, workerSlug) {
   return Boolean(row?.paused);
 }
 
+// Billing has lapsed when the subscription is past_due or cancelled. Empty
+// billing_status ('') is a free/admin hire and is allowed to run.
+function isWorkerBillingLapsed(userId, workerSlug) {
+  const row = db
+    .prepare("SELECT billing_status AS billingStatus FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'")
+    .get(userId, workerSlug);
+  return ["past_due", "cancelled"].includes(String(row?.billingStatus ?? ""));
+}
+
 function hasHiredWorker(userId, workerSlug) {
   return Boolean(
     db
@@ -470,8 +481,11 @@ function readOfficeOverlaysForUser(userId) {
       .all(userId),
     integrations: db
       .prepare(
+        // Never send integration metadata (OAuth tokens) to the browser — the
+        // client only needs provider/status/label. metadataJson is returned
+        // empty to preserve the payload shape.
         `SELECT worker_slug AS workerSlug, provider, status, account_label AS accountLabel,
-                metadata_json AS metadataJson, connected_at AS connectedAt, updated_at AS updatedAt
+                '' AS metadataJson, connected_at AS connectedAt, updated_at AS updatedAt
          FROM office_worker_integrations
          WHERE user_id = ?
          ORDER BY worker_slug ASC, provider ASC`
@@ -1094,10 +1108,17 @@ function extractAnthropicText(payload) {
   return "";
 }
 
-async function createAnthropicMessage({ maxTokens, messages, model, system }) {
+async function createAnthropicMessage({ maxTokens, messages, model, system, userId }) {
   const config = getAnthropicConfig();
   if (!config) {
     throw new Error("Anthropic is not configured.");
+  }
+
+  // Unified per-user daily budget shared with every other Anthropic path.
+  // Authenticated callers pass userId; unauthenticated ones (e.g. interview)
+  // rely on rate limiting instead.
+  if (!(await canSpend(userId))) {
+    throw new Error("Daily LLM budget reached for this account.");
   }
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1126,6 +1147,7 @@ async function createAnthropicMessage({ maxTokens, messages, model, system }) {
     throw new Error("Anthropic request returned no text.");
   }
 
+  await noteSpend(userId);
   return text;
 }
 
@@ -1347,7 +1369,7 @@ function ensureMaraIntegrationRecord(userId, provider) {
     provider,
     "connected",
     accountLabel,
-    serializeJson({ simulated: false }),
+    encryptJson({ simulated: false }),
     nowIso(),
     nowIso()
   );
@@ -1371,7 +1393,7 @@ function upsertWorkerIntegration(userId, workerSlug, provider, status, accountLa
     provider,
     status,
     accountLabel,
-    serializeJson(metadata),
+    encryptJson(metadata),
     status === "connected" ? nowIso() : null,
     nowIso()
   );
@@ -1387,7 +1409,7 @@ function getWorkerIntegration(userId, workerSlug, provider) {
   if (!row) return null;
   return {
     ...row,
-    metadata: parseJson(row.metadataJson, {})
+    metadata: decryptJson(row.metadataJson, {})
   };
 }
 
@@ -2623,7 +2645,7 @@ function maraIntegrations(userId) {
     .all(userId, MARA_SLUG)
     .map((integration) => ({
       ...integration,
-      metadata: parseJson(integration.metadataJson, {})
+      metadata: decryptJson(integration.metadataJson, {})
     }));
 }
 
@@ -2918,7 +2940,7 @@ function readWorkerIntegrationMetadata(userId, workerSlug) {
     .all(userId, workerSlug)
     .map((row) => ({
       ...row,
-      metadata: parseJson(row.metadataJson, {})
+      metadata: decryptJson(row.metadataJson, {})
     }));
 }
 
@@ -3132,11 +3154,15 @@ async function runScheduledMaraAutonomy() {
   maraAutonomyRunning = true;
   try {
     const workersToRun = db.prepare(
+      // Skip workers whose billing has lapsed: past_due / cancelled subscriptions
+      // must not keep spending LLM budget. Empty billing_status ('') covers free
+      // and admin hires and is intentionally allowed.
       `SELECT DISTINCT hw.user_id AS userId, hw.worker_slug AS workerSlug
        FROM hired_workers hw
        INNER JOIN office_onboarding_sessions os
          ON os.user_id = hw.user_id AND os.worker_slug = hw.worker_slug
-       WHERE hw.status = 'active' AND hw.paused = 0 AND os.status = 'completed'`
+       WHERE hw.status = 'active' AND hw.paused = 0 AND os.status = 'completed'
+         AND hw.billing_status NOT IN ('past_due', 'cancelled')`
     ).all();
 
     for (const row of workersToRun) {
@@ -3250,7 +3276,7 @@ function fallbackMemorySectionsFromText(text) {
   return sections;
 }
 
-async function extractWorkerMemorySections(worker, text) {
+async function extractWorkerMemorySections(userId, worker, text) {
   const cleaned = String(text ?? "").trim();
   if (!cleaned) {
     return [];
@@ -3265,6 +3291,7 @@ async function extractWorkerMemorySections(worker, text) {
     const response = await createAnthropicMessage({
       maxTokens: 220,
       model,
+      userId,
       system: [
         `You are extracting durable user-specific memory for ${worker.name}, a ${worker.title} in Ryva Office.`,
         "Return JSON only.",
@@ -3302,7 +3329,7 @@ async function rememberWorkerDirection(userId, worker, text) {
   const cleaned = String(text ?? "").trim();
   if (!cleaned) return;
 
-  const memorySections = await extractWorkerMemorySections(worker, cleaned);
+  const memorySections = await extractWorkerMemorySections(userId, worker, cleaned);
   upsertWorkerKnowledge(userId, worker.slug, (knowledge) => mergeKnowledgeSections(knowledge, memorySections));
 }
 
@@ -3406,6 +3433,7 @@ async function generateOfficeWorkerReply(userId, worker, text) {
   return createAnthropicMessage({
     maxTokens: 220,
     model,
+    userId,
     system: [
       `You are ${worker.name}, a salaried ${worker.title} working inside Ryva Office for a specific manager.`,
       "Reply like a sharp human operator, not an assistant.",
@@ -4092,6 +4120,11 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
 
   if (isWorkerPaused(req.user.id, workerSlug)) {
     res.status(409).json({ error: "This worker is paused. Resume them from their desk to run work." });
+    return;
+  }
+
+  if (isWorkerBillingLapsed(req.user.id, workerSlug)) {
+    res.status(402).json({ error: "This worker's billing is past due. Update payment to resume their work." });
     return;
   }
 
