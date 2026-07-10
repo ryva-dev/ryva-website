@@ -108,7 +108,23 @@ if (isProduction) {
 }
 app.use(
   helmet({
-    contentSecurityPolicy: false
+    // Report-only CSP: browsers report violations but do NOT block, so nothing
+    // breaks today. Watch the reports, tighten as needed, then flip reportOnly
+    // to false to enforce. Inline styles are allowed (common in the SPA build).
+    contentSecurityPolicy: {
+      reportOnly: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'", "data:", "https:"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'self'"],
+        baseUri: ["'self'"]
+      }
+    }
   })
 );
 app.use((req, res, next) => {
