@@ -46,6 +46,17 @@ import { isLikelyListicleTitle } from "./workerEngine.mjs";
 import { isAgentLlmConfigured, parseTrendPasteHeuristic, tryParseTrendPaste } from "./agentLlm.mjs";
 import { hasRoleConfig } from "./roles.mjs";
 import { saveUserTrendSnapshot, writeUserTrendInsightsFile } from "./maraTrendOps.mjs";
+import {
+  errorHandler,
+  installGracefulShutdown,
+  log,
+  notFoundHandler,
+  registerHealthEndpoints,
+  requestContext,
+  validateConfig
+} from "./observability.mjs";
+import { decryptJson, encryptJson } from "./secretsCrypto.mjs";
+import { canSpend, noteSpend } from "./llmBudget.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -87,6 +98,9 @@ if (
   throw new Error("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set together.");
 }
 
+// Fail fast at boot if production configuration is incomplete.
+validateConfig();
+
 const app = express();
 app.disable("x-powered-by");
 if (isProduction) {
@@ -106,6 +120,18 @@ app.use((req, res, next) => {
   express.json({ limit: "2mb" })(req, res, next);
 });
 app.use(cookieParser());
+
+// Request correlation + structured access logs.
+app.use(requestContext);
+
+// Liveness/readiness probes for the load balancer — unauthenticated, cheap, and
+// registered before auth/rate-limiting so orchestrators can always reach them.
+registerHealthEndpoints(app, {
+  pingStore: async () => {
+    db.prepare("SELECT 1").get();
+    return true;
+  }
+});
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -193,13 +219,6 @@ function isAdminUser(user) {
 function getUserRecordById(userId) {
   if (!userId) return null;
   return db.prepare("SELECT * FROM users WHERE id = ?").get(userId) ?? null;
-}
-
-/** Admin accounts are for product ops — Mara should not run autonomously on them. */
-function isMaraAutonomyPausedForUser() {
-  // Superseded by the explicit per-worker pause switch (hired_workers.paused).
-  // Admins need their own Mara running to verify what users experience.
-  return false;
 }
 
 function isGoogleAuthConfigured() {
@@ -321,6 +340,15 @@ function isWorkerPaused(userId, workerSlug) {
     .prepare("SELECT paused FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'")
     .get(userId, workerSlug);
   return Boolean(row?.paused);
+}
+
+// Billing has lapsed when the subscription is past_due or cancelled. Empty
+// billing_status ('') is a free/admin hire and is allowed to run.
+function isWorkerBillingLapsed(userId, workerSlug) {
+  const row = db
+    .prepare("SELECT billing_status AS billingStatus FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'")
+    .get(userId, workerSlug);
+  return ["past_due", "cancelled"].includes(String(row?.billingStatus ?? ""));
 }
 
 function hasHiredWorker(userId, workerSlug) {
@@ -446,8 +474,11 @@ function readOfficeOverlaysForUser(userId) {
       .all(userId),
     integrations: db
       .prepare(
+        // Never send integration metadata (OAuth tokens) to the browser — the
+        // client only needs provider/status/label. metadataJson is returned
+        // empty to preserve the payload shape.
         `SELECT worker_slug AS workerSlug, provider, status, account_label AS accountLabel,
-                metadata_json AS metadataJson, connected_at AS connectedAt, updated_at AS updatedAt
+                '' AS metadataJson, connected_at AS connectedAt, updated_at AS updatedAt
          FROM office_worker_integrations
          WHERE user_id = ?
          ORDER BY worker_slug ASC, provider ASC`
@@ -1070,10 +1101,17 @@ function extractAnthropicText(payload) {
   return "";
 }
 
-async function createAnthropicMessage({ maxTokens, messages, model, system }) {
+async function createAnthropicMessage({ maxTokens, messages, model, system, userId }) {
   const config = getAnthropicConfig();
   if (!config) {
     throw new Error("Anthropic is not configured.");
+  }
+
+  // Unified per-user daily budget shared with every other Anthropic path.
+  // Authenticated callers pass userId; unauthenticated ones (e.g. interview)
+  // rely on rate limiting instead.
+  if (!(await canSpend(userId))) {
+    throw new Error("Daily LLM budget reached for this account.");
   }
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1102,6 +1140,7 @@ async function createAnthropicMessage({ maxTokens, messages, model, system }) {
     throw new Error("Anthropic request returned no text.");
   }
 
+  await noteSpend(userId);
   return text;
 }
 
@@ -1323,7 +1362,7 @@ function ensureMaraIntegrationRecord(userId, provider) {
     provider,
     "connected",
     accountLabel,
-    serializeJson({ simulated: false }),
+    encryptJson({ simulated: false }),
     nowIso(),
     nowIso()
   );
@@ -1347,7 +1386,7 @@ function upsertWorkerIntegration(userId, workerSlug, provider, status, accountLa
     provider,
     status,
     accountLabel,
-    serializeJson(metadata),
+    encryptJson(metadata),
     status === "connected" ? nowIso() : null,
     nowIso()
   );
@@ -1363,7 +1402,7 @@ function getWorkerIntegration(userId, workerSlug, provider) {
   if (!row) return null;
   return {
     ...row,
-    metadata: parseJson(row.metadataJson, {})
+    metadata: decryptJson(row.metadataJson, {})
   };
 }
 
@@ -2599,7 +2638,7 @@ function maraIntegrations(userId) {
     .all(userId, MARA_SLUG)
     .map((integration) => ({
       ...integration,
-      metadata: parseJson(integration.metadataJson, {})
+      metadata: decryptJson(integration.metadataJson, {})
     }));
 }
 
@@ -2894,7 +2933,7 @@ function readWorkerIntegrationMetadata(userId, workerSlug) {
     .all(userId, workerSlug)
     .map((row) => ({
       ...row,
-      metadata: parseJson(row.metadataJson, {})
+      metadata: decryptJson(row.metadataJson, {})
     }));
 }
 
@@ -2936,15 +2975,6 @@ function buildMaraExecutionReaders() {
 }
 
 async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generatedSummary, normalizedKnowledge }) {
-  if (isMaraAutonomyPausedForUser(userId)) {
-    return {
-      summary: { paused: true, reason: "admin_account" },
-      workspace: buildMaraWorkspace(db, userId, workerSlug, {
-        readKnowledgeSections: readWorkerKnowledgeSections,
-        readOfficeOverlays: readOfficeOverlaysForUser
-      })
-    };
-  }
 
   const accountContext = getUserOnboardingRecord(userId);
   const initialPlan = buildMaraInitialWorkPlan({
@@ -3108,18 +3138,21 @@ async function runScheduledMaraAutonomy() {
   maraAutonomyRunning = true;
   try {
     const workersToRun = db.prepare(
+      // Skip workers whose billing has lapsed: past_due / cancelled subscriptions
+      // must not keep spending LLM budget. Empty billing_status ('') covers free
+      // and admin hires and is intentionally allowed.
       `SELECT DISTINCT hw.user_id AS userId, hw.worker_slug AS workerSlug
        FROM hired_workers hw
        INNER JOIN office_onboarding_sessions os
          ON os.user_id = hw.user_id AND os.worker_slug = hw.worker_slug
-       WHERE hw.status = 'active' AND hw.paused = 0 AND os.status = 'completed'`
+       WHERE hw.status = 'active' AND hw.paused = 0 AND os.status = 'completed'
+         AND hw.billing_status NOT IN ('past_due', 'cancelled')`
     ).all();
 
     for (const row of workersToRun) {
       if (!hasRoleConfig(row.workerSlug)) continue;
       try {
         if (row.workerSlug === MARA_SLUG) {
-          if (isMaraAutonomyPausedForUser(row.userId)) continue;
           const gmail = getWorkerIntegration(row.userId, row.workerSlug, "gmail");
           if (gmail?.status === "connected") {
             await syncGmailInbox(row.userId, row.workerSlug);
@@ -3226,7 +3259,7 @@ function fallbackMemorySectionsFromText(text) {
   return sections;
 }
 
-async function extractWorkerMemorySections(worker, text) {
+async function extractWorkerMemorySections(userId, worker, text) {
   const cleaned = String(text ?? "").trim();
   if (!cleaned) {
     return [];
@@ -3241,6 +3274,7 @@ async function extractWorkerMemorySections(worker, text) {
     const response = await createAnthropicMessage({
       maxTokens: 220,
       model,
+      userId,
       system: [
         `You are extracting durable user-specific memory for ${worker.name}, a ${worker.title} in Ryva Office.`,
         "Return JSON only.",
@@ -3278,7 +3312,7 @@ async function rememberWorkerDirection(userId, worker, text) {
   const cleaned = String(text ?? "").trim();
   if (!cleaned) return;
 
-  const memorySections = await extractWorkerMemorySections(worker, cleaned);
+  const memorySections = await extractWorkerMemorySections(userId, worker, cleaned);
   upsertWorkerKnowledge(userId, worker.slug, (knowledge) => mergeKnowledgeSections(knowledge, memorySections));
 }
 
@@ -3382,6 +3416,7 @@ async function generateOfficeWorkerReply(userId, worker, text) {
   return createAnthropicMessage({
     maxTokens: 220,
     model,
+    userId,
     system: [
       `You are ${worker.name}, a salaried ${worker.title} working inside Ryva Office for a specific manager.`,
       "Reply like a sharp human operator, not an assistant.",
@@ -4053,6 +4088,54 @@ app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, a
   });
 });
 
+// Disconnect an inbox: revoke the OAuth token at the provider, delete the stored
+// integration (and its encrypted tokens), and drop the email permissions.
+app.post("/api/office/workers/:slug/disconnect-email", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const provider = String(req.body?.provider ?? "gmail").trim().toLowerCase();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  const integration = getWorkerIntegration(req.user.id, workerSlug, provider);
+
+  // Best-effort revocation at Google so the token is dead even after we forget it.
+  if (provider === "gmail" && integration?.metadata) {
+    const token = String(integration.metadata.refreshToken || integration.metadata.accessToken || "").trim();
+    if (token) {
+      try {
+        await fetch("https://oauth2.googleapis.com/revoke", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ token }).toString()
+        });
+      } catch (error) {
+        log.warn("oauth_revoke_failed", { userId: req.user.id, provider, error: error?.message });
+      }
+    }
+  }
+
+  db.prepare("DELETE FROM office_worker_integrations WHERE user_id = ? AND worker_slug = ? AND provider = ?")
+    .run(req.user.id, workerSlug, provider);
+
+  // Drop the permissions that depended on the inbox connection.
+  updateWorkerPermissions(db, req.user.id, workerSlug, {
+    canReadInbox: false,
+    canDraftOutreach: false,
+    canSendEmailsWithApproval: false,
+    canUseConnectedIntegrations: false
+  });
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Disconnected an inbox.", "Integrations", provider, nowIso());
+
+  res.json({ ok: true });
+});
+
 app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
@@ -4071,21 +4154,14 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
     return;
   }
 
+  if (isWorkerBillingLapsed(req.user.id, workerSlug)) {
+    res.status(402).json({ error: "This worker's billing is past due. Update payment to resume their work." });
+    return;
+  }
+
   try {
     let summary;
     if (isMaraWorker(workerSlug)) {
-      if (isMaraAutonomyPausedForUser(req.user)) {
-        res.json({
-          ok: true,
-          paused: true,
-          summary: { paused: true, reason: "admin_account" },
-          workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
-            readKnowledgeSections: readWorkerKnowledgeSections,
-            readOfficeOverlays: readOfficeOverlaysForUser
-          })
-        });
-        return;
-      }
       // Fast interactive pass now; heavy work (research, inbox) continues in
       // the background so the request stays responsive.
       summary = await runMaraAutonomyCycle({
@@ -4276,15 +4352,6 @@ app.post("/api/office/workers/:slug/sync-trends", assertOrigin, requireAuth, asy
     return;
   }
 
-  if (isMaraAutonomyPausedForUser(req.user)) {
-    res.json({
-      dashboard: getMaraDashboard(req.user.id),
-      ok: true,
-      paused: true,
-      synced: false
-    });
-    return;
-  }
 
   try {
     const syncResult = syncUserTrendInsightsFromGlobal({
@@ -4320,11 +4387,6 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
 
   if (!isMaraWorker(workerSlug)) {
     res.status(400).json({ error: "Structured scans are not available for this worker." });
-    return;
-  }
-
-  if (isMaraAutonomyPausedForUser(req.user)) {
-    res.json({ dashboard: getMaraDashboard(req.user.id), ok: true, paused: true });
     return;
   }
 
@@ -4907,7 +4969,7 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
       canUseConnectedIntegrations: true
     });
     await syncGmailInbox(statePayload.userId, workerSlug);
-    if (!isMaraAutonomyPausedForUser(statePayload.userId)) {
+    {
       const summary = await runMaraAutonomyCycle({
         db,
         userId: statePayload.userId,
@@ -5286,6 +5348,20 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
     const stripe = new Stripe(stripeKey);
     const event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
 
+    // Idempotency: record the event id first. Stripe retries deliver the same
+    // event.id; a duplicate insert affects 0 rows, so we ack and skip — no
+    // double billing-state mutations.
+    const seen = db
+      .prepare(
+        `INSERT INTO stripe_webhook_events (event_id, type, received_at) VALUES (?, ?, ?)
+         ON CONFLICT(event_id) DO NOTHING`
+      )
+      .run(String(event.id), String(event.type), nowIso());
+    if (seen.changes === 0) {
+      res.json({ received: true, duplicate: true });
+      return;
+    }
+
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       const checkoutId = session.metadata?.checkoutId;
@@ -5383,7 +5459,6 @@ function workerChatAuthor(worker, workerSlug) {
  */
 function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, triggerText) {
   if (!Array.isArray(taskIds) || taskIds.length === 0) return;
-  if (workerSlug === MARA_SLUG && isMaraAutonomyPausedForUser(userId)) return;
   void (async () => {
     try {
       const executedResults = [];
@@ -5610,9 +5685,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
       });
     }
 
-    const executedResults = isMaraAutonomyPausedForUser(req.user)
-      ? []
-      : await autoExecuteSafeMaraTasks({
+    const executedResults = await autoExecuteSafeMaraTasks({
         db,
         taskIds: createdChatTaskIds,
         userId: req.user.id,
@@ -6409,10 +6482,6 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       timestamp
     );
 
-    if (shouldRunMaraOnboardingAutomation && isMaraAutonomyPausedForUser(req.user)) {
-      shouldRunMaraOnboardingAutomation = false;
-    }
-
     let maraAutomationResult = null;
     if (shouldRunMaraOnboardingAutomation) {
       try {
@@ -6458,10 +6527,140 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
   }
 });
 
+// Every table that holds user-scoped data (all keyed by user_id). Hardcoded
+// allowlist — safe to interpolate into SQL. worker_knowledge_modules is global
+// seed data and intentionally excluded.
+const USER_SCOPED_TABLES = [
+  "sessions",
+  "email_verification_tokens",
+  "password_reset_tokens",
+  "checkout_sessions",
+  "hired_workers",
+  "office_chat_messages",
+  "office_custom_tasks",
+  "office_activity_logs",
+  "office_worker_settings",
+  "office_worker_knowledge",
+  "office_uploaded_files",
+  "office_custom_briefings",
+  "office_global_settings",
+  "user_onboarding",
+  "office_onboarding_sessions",
+  "office_calendar_events",
+  "office_worker_integrations",
+  "office_email_threads",
+  "office_campaigns",
+  "office_leads",
+  "office_suggested_actions",
+  "office_assignments",
+  "office_deliverables",
+  "office_handbook_entries",
+  "office_brand_opportunities",
+  "office_trend_signals",
+  "office_sync_jobs",
+  "user_digest_log",
+  "worker_permissions",
+  "worker_tasks",
+  "worker_activity_log",
+  "worker_recurring_responsibilities",
+  "worker_research_items",
+  "worker_approval_requests",
+  "worker_outputs",
+  "worker_brands",
+  "worker_trend_snapshots",
+  "agent_llm_usage"
+];
+
+// Data portability (GDPR/CCPA): download everything we hold about the account.
+app.get("/api/account/export", requireAuth, (req, res) => {
+  const userId = req.user.id;
+  const data = {
+    exportedAt: nowIso(),
+    account:
+      db
+        .prepare("SELECT id, email, name, email_verified_at AS emailVerifiedAt, created_at AS createdAt FROM users WHERE id = ?")
+        .get(userId) ?? null
+  };
+  for (const table of USER_SCOPED_TABLES) {
+    // Never export session or credential-reset material.
+    if (["sessions", "email_verification_tokens", "password_reset_tokens"].includes(table)) continue;
+    try {
+      data[table] = db.prepare(`SELECT * FROM ${table} WHERE user_id = ?`).all(userId);
+    } catch {
+      data[table] = [];
+    }
+  }
+  // Redact stored OAuth tokens from the export.
+  if (Array.isArray(data.office_worker_integrations)) {
+    data.office_worker_integrations = data.office_worker_integrations.map((row) => ({ ...row, metadata_json: "[redacted]" }));
+  }
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="ryva-account-export.json"`);
+  res.send(JSON.stringify(data, null, 2));
+});
+
+// Right to erasure: verify password, stop billing, wipe all user data.
+app.post("/api/account/delete", assertOrigin, requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const password = String(req.body?.password ?? "");
+  const user = db.prepare("SELECT id, password_hash AS passwordHash FROM users WHERE id = ?").get(userId);
+  if (!user) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
+  if (!password || !verifyPassword(password, user.passwordHash)) {
+    res.status(403).json({ error: "Password is incorrect." });
+    return;
+  }
+
+  // Stop billing first: cancel any active Stripe subscriptions.
+  if (process.env.STRIPE_SECRET_KEY) {
+    const subs = db
+      .prepare("SELECT stripe_subscription_id AS id FROM hired_workers WHERE user_id = ? AND stripe_subscription_id IS NOT NULL")
+      .all(userId);
+    if (subs.length > 0) {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      for (const sub of subs) {
+        try {
+          await stripe.subscriptions.cancel(sub.id);
+        } catch (error) {
+          log.error("stripe_cancel_failed_on_delete", { userId, error: error?.message });
+        }
+      }
+    }
+  }
+
+  // Remove uploaded files from disk.
+  const files = db.prepare("SELECT stored_name AS storedName FROM office_uploaded_files WHERE user_id = ?").all(userId);
+  for (const file of files) {
+    if (file.storedName) {
+      try {
+        await fs.unlink(path.join(uploadsDir, file.storedName));
+      } catch {
+        /* file already gone */
+      }
+    }
+  }
+
+  // Atomically delete every user-scoped row, then the account itself.
+  const wipe = db.transaction(() => {
+    for (const table of USER_SCOPED_TABLES) {
+      db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+    }
+    db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+  });
+  wipe();
+
+  clearSessionCookie(res);
+  log.info("account_deleted", { userId });
+  res.json({ ok: true });
+});
+
 app.use(express.static(distDir));
 app.use(async (req, res, next) => {
+  // Unmatched API routes return a clean JSON 404 instead of the SPA shell.
   if (req.path.startsWith("/api/")) {
-    next();
+    notFoundHandler(req, res);
     return;
   }
 
@@ -6474,8 +6673,11 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.listen(port, host, () => {
-  console.log(`Ryva API listening on http://${host}:${port}`);
+// Terminal error handler — structured, correlated, no stack leaks in prod.
+app.use(errorHandler(isProduction));
+
+const server = app.listen(port, host, () => {
+  log.info("server_listening", { url: `http://${host}:${port}` });
   if (maraAutonomyIntervalMinutes > 0) {
     const intervalMs = maraAutonomyIntervalMinutes * 60 * 1000;
     maraAutonomyTimer = setInterval(() => {
@@ -6484,6 +6686,18 @@ app.listen(port, host, () => {
     }, intervalMs);
     void runScheduledMaraAutonomy();
     void sendWeeklyDigests();
-    console.log(`Mara autonomy scheduler enabled every ${maraAutonomyIntervalMinutes} minute(s).`);
+    log.info("autonomy_scheduler_enabled", { minutes: maraAutonomyIntervalMinutes });
+  }
+});
+
+// Drain cleanly on deploy/rollback: stop the scheduler, finish in-flight
+// requests, then exit. (Stage D moves the scheduler to a durable queue.)
+installGracefulShutdown({
+  server,
+  onShutdown: async () => {
+    if (maraAutonomyTimer) {
+      clearInterval(maraAutonomyTimer);
+      maraAutonomyTimer = null;
+    }
   }
 });

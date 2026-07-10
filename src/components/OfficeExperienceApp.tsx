@@ -3101,6 +3101,8 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [billingNotice, setBillingNotice] = useState<string | null>(null);
+  const [privacyNotice, setPrivacyNotice] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     setBrandContext(parsed.brandContext ?? "");
@@ -3117,6 +3119,28 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
       window.location.href = payload.url;
     } catch (error) {
       setBillingNotice(error instanceof Error ? error.message : "Could not open billing.");
+    }
+  };
+
+  const exportData = () => {
+    // Cookie-authenticated download; the server sets Content-Disposition.
+    window.location.href = "/api/account/export";
+  };
+
+  const deleteAccount = async () => {
+    setPrivacyNotice(null);
+    const password = window.prompt(
+      "This permanently deletes your account and all your data, and cancels any active subscriptions. This cannot be undone.\n\nEnter your password to confirm:"
+    );
+    if (!password) return;
+    setDeleteBusy(true);
+    try {
+      await officeJson("/api/account/delete", { method: "POST", body: JSON.stringify({ password }) });
+      window.location.href = "/";
+    } catch (error) {
+      setPrivacyNotice(error instanceof Error ? error.message : "Couldn't delete the account. Try again.");
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -3170,6 +3194,18 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
           <p className="ro-page-meta">Salaries, invoices, payment method, and cancellations — all self-serve.</p>
           <button className="r-btn r-btn-ghost" type="button" onClick={() => void openBillingPortal()}>Manage billing</button>
           {billingNotice ? <p className="ro-review-notice">{billingNotice}</p> : null}
+        </div>
+
+        <div className="ro-settings-billing">
+          <div className="ro-sec-head"><h2>Data &amp; privacy</h2></div>
+          <p className="ro-page-meta">Download everything we hold about your account, or delete it permanently.</p>
+          <div className="ro-appr-actions">
+            <button className="r-btn r-btn-ghost" type="button" onClick={exportData}>Export my data</button>
+            <button className="ro-textlink ro-danger-link" type="button" disabled={deleteBusy} onClick={() => void deleteAccount()}>
+              {deleteBusy ? "Deleting…" : "Delete my account"}
+            </button>
+          </div>
+          {privacyNotice ? <p className="ro-review-notice">{privacyNotice}</p> : null}
         </div>
       </div>
     </div>

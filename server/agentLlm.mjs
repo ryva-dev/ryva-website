@@ -8,6 +8,11 @@
  */
 import { createAnthropicMessage, isMaraLlmConfigured, parseJsonFromLlmText } from "./maraLlm.mjs";
 import { SHARED_AGENT_OUTPUT_RULES, getRoleTaskType } from "./roles.mjs";
+// Budget accounting now lives in the shared llmBudget module (single source of
+// truth across every Anthropic path). Re-exported for existing importers.
+import { canSpend, llmBudgetRemaining, noteSpend, recordLlmCall } from "./llmBudget.mjs";
+
+export { llmBudgetRemaining, recordLlmCall };
 
 const AGENT_MODEL =
   process.env.ANTHROPIC_AGENT_MODEL ||
@@ -15,56 +20,24 @@ const AGENT_MODEL =
   process.env.ANTHROPIC_MODEL ||
   "claude-sonnet-4-6";
 
-const DAILY_LLM_CALL_LIMIT = Number.parseInt(process.env.AGENT_DAILY_LLM_CALL_LIMIT ?? "300", 10);
-
 export function isAgentLlmConfigured() {
   return isMaraLlmConfigured();
 }
 
 /* ------------------------------------------------------------------ */
-/* Budget guard                                                        */
+/* Budget guard (delegates to the shared llmBudget module)             */
 /* ------------------------------------------------------------------ */
 
-function ensureUsageTable(db) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS agent_llm_usage (
-      user_id TEXT NOT NULL,
-      day TEXT NOT NULL,
-      calls INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (user_id, day)
-    )
-  `);
-}
-
-function utcDay() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-export function llmBudgetRemaining(db, userId) {
-  ensureUsageTable(db);
-  const row = db.prepare("SELECT calls FROM agent_llm_usage WHERE user_id = ? AND day = ?").get(userId, utcDay());
-  return Math.max(0, DAILY_LLM_CALL_LIMIT - Number(row?.calls ?? 0));
-}
-
-export function recordLlmCall(db, userId) {
-  ensureUsageTable(db);
-  db.prepare(
-    `INSERT INTO agent_llm_usage (user_id, day, calls) VALUES (?, ?, 1)
-     ON CONFLICT(user_id, day) DO UPDATE SET calls = calls + 1`
-  ).run(userId, utcDay());
-}
-
+// `db` is still accepted for call-site compatibility but is no longer used.
 async function budgetedMessage(db, userId, params) {
   if (!isAgentLlmConfigured()) {
     return null;
   }
-  if (db && userId && llmBudgetRemaining(db, userId) <= 0) {
+  if (!(await canSpend(userId))) {
     return null;
   }
   const text = await createAnthropicMessage({ model: AGENT_MODEL, ...params });
-  if (db && userId) {
-    recordLlmCall(db, userId);
-  }
+  await noteSpend(userId);
   return text;
 }
 
