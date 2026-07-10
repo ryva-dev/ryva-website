@@ -17,6 +17,7 @@ import {
 import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
+import { wrapSqliteHandle } from "./dataStore.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -2990,8 +2991,9 @@ async function runMaraInboxOrganizationCycle({ db, fetchImpl, userId, workerId }
     return { note: "No inbox threads are available for organization yet." };
   }
 
-  const briefParse = await parseUnparsedInboxThreads(db, userId, workerId, { fetchImpl });
-  const opsSummary = buildInboxOpsSummary(db, userId, workerId);
+  const bridged = wrapSqliteHandle(db);
+  const briefParse = await parseUnparsedInboxThreads(bridged, userId, workerId, { fetchImpl });
+  const opsSummary = await buildInboxOpsSummary(bridged, userId, workerId);
   const statusCounts = threads.reduce((acc, thread) => {
     const key = String(thread.threadStatus || "unknown");
     acc[key] = (acc[key] || 0) + 1;

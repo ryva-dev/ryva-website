@@ -57,6 +57,7 @@ import {
 } from "./observability.mjs";
 import { decryptJson, encryptJson } from "./secretsCrypto.mjs";
 import { canSpend, noteSpend } from "./llmBudget.mjs";
+import { wrapSqliteHandle } from "./dataStore.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -2193,7 +2194,7 @@ async function syncGmailInbox(userId, workerSlug) {
 
   insertMaraSyncJob(userId, "gmail", "gmail_inbox_sync", `Synced ${syncedCount} Gmail message${syncedCount === 1 ? "" : "s"} into Mara's inbox view.`);
   const campaignSync = syncInboxThreadsToCampaigns(userId, workerSlug);
-  const briefParse = await parseUnparsedInboxThreads(db, userId, workerSlug, { fetchImpl: fetch });
+  const briefParse = await parseUnparsedInboxThreads(wrapSqliteHandle(db), userId, workerSlug, { fetchImpl: fetch });
   const operationalSync = syncMaraOperationalRecords(userId, workerSlug);
   return {
     briefParseCount: briefParse.parsedCount,

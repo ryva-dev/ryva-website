@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { parseUnparsedInboxThreads, upsertCampaignFromParsedBrief } from "./maraInboxOps.mjs";
+import { wrapSqliteHandle } from "./dataStore.mjs";
 
 function makeDb() {
   const db = new Database(":memory:");
@@ -66,7 +67,7 @@ function makeDb() {
   return db;
 }
 
-test("upsertCampaignFromParsedBrief creates structured campaign rows", () => {
+test("upsertCampaignFromParsedBrief creates structured campaign rows", async () => {
   const db = makeDb();
   const thread = {
     id: "thread-1",
@@ -96,7 +97,7 @@ test("upsertCampaignFromParsedBrief creates structured campaign rows", () => {
     usageRightsStatus: "unclear"
   };
 
-  const result = upsertCampaignFromParsedBrief(db, "user-1", "mara-vale", thread, parsed);
+  const result = await upsertCampaignFromParsedBrief(wrapSqliteHandle(db), "user-1", "mara-vale", thread, parsed);
   const campaign = db.prepare("SELECT campaign_name AS campaignName, deliverables_json AS deliverablesJson, missing_fields_json AS missingFieldsJson FROM office_campaigns WHERE id = ?").get(result.campaignId);
 
   assert.equal(result.updated, false);
@@ -135,7 +136,7 @@ test("parseUnparsedInboxThreads parses brand threads into campaigns", async () =
     now
   );
 
-  const result = await parseUnparsedInboxThreads(db, "user-1", "mara-vale", { limit: 3 });
+  const result = await parseUnparsedInboxThreads(wrapSqliteHandle(db), "user-1", "mara-vale", { limit: 3 });
   const campaignCount = db.prepare("SELECT COUNT(*) AS count FROM office_campaigns").get().count;
   const parsedAt = db.prepare("SELECT parsed_at AS parsedAt FROM office_email_threads WHERE id = ?").get("thread-1").parsedAt;
 

@@ -189,6 +189,40 @@ export function createStore(options = {}) {
   };
 }
 
+/**
+ * Wrap an existing better-sqlite3 handle in the async store interface. This is
+ * the Stage B bridge: a function converted to the async store API can be called
+ * with `wrapSqliteHandle(db)` at sites that still thread a raw `db`, so the same
+ * connection is used (no duplication) and injected test databases keep working.
+ * Removed per call site as the app finishes migrating to a threaded store.
+ */
+export function wrapSqliteHandle(db) {
+  const scoped = {
+    query: async (sql, ...p) => db.prepare(sql).all(...normalizeParams(p)),
+    queryOne: async (sql, ...p) => db.prepare(sql).get(...normalizeParams(p)) ?? null,
+    execute: async (sql, ...p) => {
+      const info = db.prepare(sql).run(...normalizeParams(p));
+      return { rowCount: info.changes, changes: info.changes, rows: [] };
+    }
+  };
+  return {
+    kind: "sqlite",
+    ...scoped,
+    tx: async (callback) => {
+      db.exec("BEGIN");
+      try {
+        const value = await callback(scoped);
+        db.exec("COMMIT");
+        return value;
+      } catch (error) {
+        try { db.exec("ROLLBACK"); } catch { /* ignore */ }
+        throw error;
+      }
+    },
+    ping: async () => { db.prepare("SELECT 1").get(); return true; }
+  };
+}
+
 /* ------------------------------------------------------------------ default */
 
 // Shared instance for the app. Module-level exports delegate here so existing
