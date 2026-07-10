@@ -10,19 +10,17 @@
 // of the migration. Prod never loads better-sqlite3; dev never loads pg — both
 // are dynamically imported only for the driver actually in use.
 //
+// Injectability: `createStore(options)` returns an isolated store instance. The
+// app uses one shared default instance; tests create their own (pointed at a
+// temp SQLite path) so the threaded-dependency pattern keeps working during the
+// Stage B cutover — pass a store where a `db` used to be threaded.
+//
 // SQL conventions for call sites:
 //   * Use `?` positional placeholders everywhere. The Postgres driver rewrites
 //     them to `$1, $2, …`; SQLite uses them natively.
 //   * Avoid dialect-only SQL in shared queries. Known exceptions to translate
 //     during the cutover: `INSERT OR REPLACE/IGNORE` (-> ON CONFLICT),
 //     `lower(hex(randomblob(16)))` (-> gen_random_uuid()), `strftime`/`datetime`.
-
-let driver = null;
-let driverKind = null;
-
-function usePostgres() {
-  return Boolean(String(process.env.DATABASE_URL ?? "").trim());
-}
 
 /** Translate better-sqlite3 style `?` placeholders into Postgres `$1, $2, …`. */
 export function toPgPlaceholders(sql) {
@@ -35,15 +33,22 @@ function normalizeParams(params) {
   return params;
 }
 
+function resolveUsesPostgres(options) {
+  if (options.databaseUrl !== undefined) return Boolean(String(options.databaseUrl).trim());
+  if (options.databasePath !== undefined) return false;
+  return Boolean(String(process.env.DATABASE_URL ?? "").trim());
+}
+
 /* ---------------------------------------------------------------- Postgres */
 
-async function createPostgresDriver() {
+async function createPostgresDriver(options) {
   const pg = (await import("pg")).default;
   const { Pool } = pg;
 
+  const connectionString = String(options.databaseUrl ?? process.env.DATABASE_URL ?? "").trim();
   const sslDisabled = String(process.env.PGSSL ?? "").trim().toLowerCase() === "disable";
   const pool = new Pool({
-    connectionString: String(process.env.DATABASE_URL).trim(),
+    connectionString,
     // Managed Postgres (RDS/Aurora) presents certs Node won't validate by
     // default; rejectUnauthorized:false is the standard posture there.
     ssl: sslDisabled ? false : { rejectUnauthorized: false },
@@ -92,7 +97,7 @@ async function createPostgresDriver() {
 
 /* ------------------------------------------------------------------ SQLite */
 
-async function createSqliteDriver() {
+async function createSqliteDriver(options) {
   const Database = (await import("better-sqlite3")).default;
   const path = await import("node:path");
   const fs = await import("node:fs");
@@ -100,11 +105,13 @@ async function createSqliteDriver() {
 
   const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const defaultRoot = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(rootDir, "data");
-  const configured = process.env.DATABASE_PATH;
+  const configured = options.databasePath ?? process.env.DATABASE_PATH;
   const dbPath = configured
-    ? (path.isAbsolute(configured) ? configured : path.resolve(rootDir, configured))
+    ? (configured === ":memory:" || path.isAbsolute(configured) ? configured : path.resolve(rootDir, configured))
     : path.join(defaultRoot, "app.db");
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  if (dbPath !== ":memory:") {
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  }
 
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
@@ -147,50 +154,53 @@ async function createSqliteDriver() {
   };
 }
 
-/* ------------------------------------------------------------------ public */
+/* ------------------------------------------------------------------ factory */
 
-/** Initialize (once) and return the active driver. */
-export async function initStore() {
-  if (driver) return driver;
-  driver = usePostgres() ? await createPostgresDriver() : await createSqliteDriver();
-  driverKind = driver.kind;
-  return driver;
+/**
+ * Create an isolated store instance. Options:
+ *   - databaseUrl: force Postgres against this connection string.
+ *   - databasePath: force SQLite at this path (":memory:" supported for tests).
+ * With no options it mirrors the process env (DATABASE_URL -> Postgres, else SQLite).
+ */
+export function createStore(options = {}) {
+  const kind = resolveUsesPostgres(options) ? "postgres" : "sqlite";
+  let d = null;
+  const ensure = async () => {
+    if (d) return d;
+    d = kind === "postgres" ? await createPostgresDriver(options) : await createSqliteDriver(options);
+    return d;
+  };
+  return {
+    kind,
+    init: ensure,
+    activeDriver: () => kind,
+    query: async (sql, ...params) => (await ensure()).query(sql, params),
+    queryOne: async (sql, ...params) => (await ensure()).queryOne(sql, params),
+    execute: async (sql, ...params) => (await ensure()).execute(sql, params),
+    tx: async (callback) => (await ensure()).tx(callback),
+    ping: async () => (await ensure()).ping(),
+    sqliteHandle: async () => {
+      const active = await ensure();
+      return active.kind === "sqlite" ? active.raw : null;
+    },
+    close: async () => {
+      if (d) { await d.close(); d = null; }
+    }
+  };
 }
 
-async function ensureDriver() {
-  return driver ?? (await initStore());
-}
+/* ------------------------------------------------------------------ default */
 
-export function activeDriver() {
-  return driverKind;
-}
+// Shared instance for the app. Module-level exports delegate here so existing
+// `import * as store from "./dataStore.mjs"` call sites keep working unchanged.
+const defaultStore = createStore();
 
-export async function query(sql, ...params) {
-  return (await ensureDriver()).query(sql, params);
-}
-
-export async function queryOne(sql, ...params) {
-  return (await ensureDriver()).queryOne(sql, params);
-}
-
-export async function execute(sql, ...params) {
-  return (await ensureDriver()).execute(sql, params);
-}
-
-export async function tx(callback) {
-  return (await ensureDriver()).tx(callback);
-}
-
-export async function ping() {
-  return (await ensureDriver()).ping();
-}
-
-/** Underlying better-sqlite3 handle when on SQLite (schema bootstrap only). */
-export async function sqliteHandle() {
-  const active = await ensureDriver();
-  return active.kind === "sqlite" ? active.raw : null;
-}
-
-export async function closeStore() {
-  if (driver) { await driver.close(); driver = null; driverKind = null; }
-}
+export function initStore() { return defaultStore.init(); }
+export function activeDriver() { return defaultStore.activeDriver(); }
+export async function query(sql, ...params) { return defaultStore.query(sql, ...params); }
+export async function queryOne(sql, ...params) { return defaultStore.queryOne(sql, ...params); }
+export async function execute(sql, ...params) { return defaultStore.execute(sql, ...params); }
+export async function tx(callback) { return defaultStore.tx(callback); }
+export async function ping() { return defaultStore.ping(); }
+export async function sqliteHandle() { return defaultStore.sqliteHandle(); }
+export async function closeStore() { return defaultStore.close(); }

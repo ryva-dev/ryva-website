@@ -81,23 +81,30 @@ npm test                      # Postgres driver — same suite, both backends gr
 Every file's conversion is a separate reviewable commit. A file is "done" only
 when the suite is green on **both** drivers.
 
-## Test isolation (important)
+## Test isolation (important) — use the injectable store
 
-The store is a process-global singleton keyed off env (`DATABASE_URL` or
-`DATABASE_PATH`), not an injected handle. Tests that previously passed their own
-`db` into functions must instead point the store at a temp database and reset it
-between tests:
+`dataStore.mjs` exports `createStore(options)`, so the existing threaded-
+dependency pattern keeps working: functions that used to take a raw `db` now
+take a `store`, and tests pass an isolated instance instead of the shared one.
 
 ```js
-process.env.DATABASE_PATH = tmpFile;   // before importing modules that use store
-// ...
-import { closeStore } from "./dataStore.mjs";
-afterEach(async () => { await closeStore(); });
+import { createStore } from "./dataStore.mjs";
+
+const store = createStore({ databasePath: ":memory:" }); // per-test, isolated
+await store.init();
+// create the schema on this store's connection, then call the converted fn:
+const result = await someConvertedFn(store, { ...args });
+// no global state to reset between tests.
 ```
 
-`agentLlm.mjs` is already converted (the budget counter) as the reference
-pattern — the budget functions dropped their `db` argument and now use the
-store. Mirror that shape for the remaining files.
+Production keeps using the shared default instance (module-level `query`/
+`queryOne`/`execute`, or `import * as store`). `agentLlm.mjs`'s budget counter is
+the reference for the shared-store shape; DI-style modules (`maraTrendOps`,
+`workerEngine`, …) should take a `store` param, mirroring how they took `db`.
+
+Because both drivers are async, converting a function makes it `async` and every
+caller must `await` — the keyword cascades upward. That's why each unit of work
+is "one module + its callers + its tests," green before moving on.
 
 ## After Stage B
 
