@@ -4088,6 +4088,54 @@ app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, a
   });
 });
 
+// Disconnect an inbox: revoke the OAuth token at the provider, delete the stored
+// integration (and its encrypted tokens), and drop the email permissions.
+app.post("/api/office/workers/:slug/disconnect-email", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug ?? "").trim();
+  const provider = String(req.body?.provider ?? "gmail").trim().toLowerCase();
+
+  if (!hasHiredWorker(req.user.id, workerSlug)) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+
+  const integration = getWorkerIntegration(req.user.id, workerSlug, provider);
+
+  // Best-effort revocation at Google so the token is dead even after we forget it.
+  if (provider === "gmail" && integration?.metadata) {
+    const token = String(integration.metadata.refreshToken || integration.metadata.accessToken || "").trim();
+    if (token) {
+      try {
+        await fetch("https://oauth2.googleapis.com/revoke", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ token }).toString()
+        });
+      } catch (error) {
+        log.warn("oauth_revoke_failed", { userId: req.user.id, provider, error: error?.message });
+      }
+    }
+  }
+
+  db.prepare("DELETE FROM office_worker_integrations WHERE user_id = ? AND worker_slug = ? AND provider = ?")
+    .run(req.user.id, workerSlug, provider);
+
+  // Drop the permissions that depended on the inbox connection.
+  updateWorkerPermissions(db, req.user.id, workerSlug, {
+    canReadInbox: false,
+    canDraftOutreach: false,
+    canSendEmailsWithApproval: false,
+    canUseConnectedIntegrations: false
+  });
+
+  db.prepare(
+    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(randomUUID(), req.user.id, workerSlug, "Disconnected an inbox.", "Integrations", provider, nowIso());
+
+  res.json({ ok: true });
+});
+
 app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
@@ -5299,6 +5347,20 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
   try {
     const stripe = new Stripe(stripeKey);
     const event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
+
+    // Idempotency: record the event id first. Stripe retries deliver the same
+    // event.id; a duplicate insert affects 0 rows, so we ack and skip — no
+    // double billing-state mutations.
+    const seen = db
+      .prepare(
+        `INSERT INTO stripe_webhook_events (event_id, type, received_at) VALUES (?, ?, ?)
+         ON CONFLICT(event_id) DO NOTHING`
+      )
+      .run(String(event.id), String(event.type), nowIso());
+    if (seen.changes === 0) {
+      res.json({ received: true, duplicate: true });
+      return;
+    }
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
