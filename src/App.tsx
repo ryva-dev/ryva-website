@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AboutPage } from "./components/AboutPage";
+import { LegalPage } from "./components/LegalPages";
 import { AuthModal } from "./components/AuthModal";
 import { FilterSidebar } from "./components/FilterSidebar";
 import { HireWorkerPage } from "./components/HireWorkerPage";
@@ -31,7 +32,7 @@ const navItems = [
   { label: "About", href: "#about" }
 ];
 
-const allowedViews = new Set(["home", "workers", "about", "onboarding"]);
+const allowedViews = new Set(["home", "workers", "about", "onboarding", "privacy", "terms", "security"]);
 
 function getViewFromHash() {
   const hash = window.location.hash.replace("#", "");
@@ -750,6 +751,9 @@ export default function App() {
         )}
 
         {!isWorkersLoading && !isOfficeRoute && view === "about" && <AboutPage />}
+        {!isWorkersLoading && !isOfficeRoute && (view === "privacy" || view === "terms" || view === "security") && (
+          <LegalPage page={view} onHome={() => { window.location.hash = "home"; }} />
+        )}
         {!isWorkersLoading && !isOfficeRoute && isOnboardingRoute && user && (
           <UserOnboardingPage
             error={onboardingError}

@@ -1971,6 +1971,9 @@ function WorkerKnowledgeView({
               <p className="ro-connect-inbox-copy">
                 {activeWorker.name.split(" ")[0]} treats email as the source of truth for creator ops. Connect Gmail so she can scan, classify, and organize brand threads.
               </p>
+              <p className="ro-connect-inbox-disclosure">
+                Connecting Gmail lets {activeWorker.name.split(" ")[0]} read brand-related email; relevant content may be processed by our AI provider (Anthropic) to draft work. Tokens are encrypted, and you can disconnect anytime.
+              </p>
               <div className="ro-appr-actions">
                 <button className="r-btn r-btn-accent" type="button" disabled={connectBusy} onClick={() => void connectGmail()}>
                   {connectBusy ? "Opening Google…" : "Connect Gmail"}

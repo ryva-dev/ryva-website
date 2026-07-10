@@ -559,19 +559,19 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
             <a onClick={onBrowseWorkers}>Workers</a>
             <a href="#office">The Office</a>
             <a href="#pay">Pricing</a>
-            <a>Security</a>
+            <a href="#security">Security</a>
           </div>
           <div>
             <b>Company</b>
             <a href="#about">About</a>
-            <a>Careers</a>
-            <a>Contact</a>
+            <a href="#about">Careers</a>
+            <a href="#privacy">Contact</a>
           </div>
           <div>
             <b>Legal</b>
-            <a>Terms</a>
-            <a>Privacy</a>
-            <a>Data processing</a>
+            <a href="#terms">Terms</a>
+            <a href="#privacy">Privacy</a>
+            <a href="#privacy">Data processing</a>
           </div>
         </div>
         <div className="mk-footer-base">
