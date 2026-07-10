@@ -122,7 +122,8 @@ app.use(
         fontSrc: ["'self'", "data:", "https:"],
         objectSrc: ["'none'"],
         frameAncestors: ["'self'"],
-        baseUri: ["'self'"]
+        baseUri: ["'self'"],
+        reportUri: ["/api/csp-report"]
       }
     }
   })
@@ -148,6 +149,18 @@ registerHealthEndpoints(app, {
     return true;
   }
 });
+
+// CSP violation sink — browsers POST reports here (report-only mode). Logged so
+// you can see what an enforcing policy would block before flipping it on.
+app.post(
+  "/api/csp-report",
+  express.json({ type: ["application/csp-report", "application/reports+json", "application/json"], limit: "100kb" }),
+  (req, res) => {
+    const report = req.body?.["csp-report"] ?? req.body ?? null;
+    if (report) log.warn("csp_violation", { report });
+    res.status(204).end();
+  }
+);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -6616,7 +6629,7 @@ app.get("/api/account/export", requireAuth, (req, res) => {
 });
 
 // Right to erasure: verify password, stop billing, wipe all user data.
-app.post("/api/account/delete", assertOrigin, requireAuth, async (req, res) => {
+app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (req, res) => {
   const userId = req.user.id;
   const password = String(req.body?.password ?? "");
   const user = db.prepare("SELECT id, password_hash AS passwordHash FROM users WHERE id = ?").get(userId);
