@@ -270,6 +270,7 @@ export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [view, setView] = useState(() => getViewFromHash());
   const [workers, setWorkers] = useState<Worker[]>([]);
+  const [workersError, setWorkersError] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState<string | null>(null);
 
   const isOfficeRoute = view.startsWith("app/office");
@@ -439,6 +440,9 @@ export default function App() {
       try {
         const response = await apiJson<{ workers: Worker[] }>("/api/workers", { method: "GET" });
         setWorkers(response.workers);
+        setWorkersError(null);
+      } catch (error) {
+        setWorkersError(error instanceof Error ? error.message : "Couldn't load the marketplace. Refresh to try again.");
       } finally {
         setIsWorkersLoading(false);
       }
@@ -725,6 +729,9 @@ export default function App() {
           />
         )}
 
+        {!isWorkersLoading && !isOfficeRoute && view === "workers" && workersError && (
+          <div className="app-error-banner" role="alert">{workersError}</div>
+        )}
         {!isWorkersLoading && !isOfficeRoute && view === "workers" && (
           <WorkersPage
             onClearFilters={clearWorkerFilters}

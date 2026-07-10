@@ -1611,6 +1611,7 @@ function ChatView({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const thread = useMemo(
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
@@ -1655,11 +1656,13 @@ function ChatView({
     setDraft("");
     setPendingMessage(text);
     setSending(true);
+    setSendError(null);
     try {
       await officeJson(`/api/office/workers/${active.slug}/chat`, { method: "POST", body: JSON.stringify({ text }) });
       await reloadOffice();
-    } catch {
+    } catch (error) {
       setDraft(text); // restore so nothing is lost
+      setSendError(error instanceof Error ? error.message : "Message didn't send. Try again.");
     } finally {
       setPendingMessage(null);
       setSending(false);
@@ -1727,6 +1730,7 @@ function ChatView({
               </div>
             ) : null}
           </div>
+          {sendError ? <div className="ro-chat-error" role="alert">{sendError}</div> : null}
           <div className="ro-composer">
             <textarea
               value={draft}
@@ -1794,6 +1798,35 @@ function WorkerKnowledgeView({
   const [trendText, setTrendText] = useState("");
   const [trendBusy, setTrendBusy] = useState(false);
   const [trendNotice, setTrendNotice] = useState<string | null>(null);
+  const [connectBusy, setConnectBusy] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
+
+  const canConnectInbox = isMaraWorker(activeWorker.slug);
+  const gmailConnected = connectedTools.some(
+    (tool) => tool.provider === "gmail" && tool.status === "connected"
+  );
+
+  const connectGmail = async () => {
+    if (connectBusy) return;
+    setConnectBusy(true);
+    setConnectError(null);
+    try {
+      const response = await officeJson<{ ok: boolean; redirectUrl?: string }>(
+        `/api/office/workers/${activeWorker.slug}/connect-email`,
+        { method: "POST", body: JSON.stringify({ provider: "gmail" }) }
+      );
+      if (response.redirectUrl) {
+        // Hand off to Google's consent screen; we return to the office after.
+        window.location.href = response.redirectUrl;
+        return;
+      }
+      if (onReload) await onReload();
+    } catch (error) {
+      setConnectError(error instanceof Error ? error.message : "Couldn't start the Gmail connection.");
+    } finally {
+      setConnectBusy(false);
+    }
+  };
 
   const submitTrends = async () => {
     if (!trendText.trim() || trendBusy) return;
@@ -1903,6 +1936,23 @@ function WorkerKnowledgeView({
           ) : (
             <p className="ro-blank">No connected tools yet.</p>
           )}
+
+          {canConnectInbox && !gmailConnected ? (
+            <div className="ro-connect-inbox">
+              <p className="ro-connect-inbox-copy">
+                {activeWorker.name.split(" ")[0]} treats email as the source of truth for creator ops. Connect Gmail so she can scan, classify, and organize brand threads.
+              </p>
+              <div className="ro-appr-actions">
+                <button className="r-btn r-btn-accent" type="button" disabled={connectBusy} onClick={() => void connectGmail()}>
+                  {connectBusy ? "Opening Google…" : "Connect Gmail"}
+                </button>
+                <button className="r-btn r-btn-ghost" type="button" disabled title="Outlook support is coming soon.">
+                  Outlook (soon)
+                </button>
+              </div>
+              {connectError ? <p className="ro-review-notice">{connectError}</p> : null}
+            </div>
+          ) : null}
         </section>
       </aside>
     </div>
@@ -3049,6 +3099,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
   const [decisionStyle, setDecisionStyle] = useState<string>(parsed.decisionStyle ?? "");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [billingNotice, setBillingNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -3070,7 +3121,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
   };
 
   const save = async () => {
-    setBusy(true); setSaved(false);
+    setBusy(true); setSaved(false); setSaveError(null);
     try {
       await officeJson("/api/office/settings", {
         method: "POST",
@@ -3078,6 +3129,8 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
       });
       await onReload();
       setSaved(true);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Couldn't save settings. Try again.");
     } finally { setBusy(false); }
   };
 
@@ -3108,6 +3161,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
         </div>
         <div className="ro-settings-foot">
           {saved && <span className="ro-saved">Saved ✓</span>}
+          {saveError && <span className="ro-save-error" role="alert">{saveError}</span>}
           <button className="r-btn r-btn-accent" type="button" onClick={() => void save()} disabled={busy}>{busy ? "Saving…" : "Save settings"}</button>
         </div>
 
