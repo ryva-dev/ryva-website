@@ -6465,6 +6465,135 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
   }
 });
 
+// Every table that holds user-scoped data (all keyed by user_id). Hardcoded
+// allowlist — safe to interpolate into SQL. worker_knowledge_modules is global
+// seed data and intentionally excluded.
+const USER_SCOPED_TABLES = [
+  "sessions",
+  "email_verification_tokens",
+  "password_reset_tokens",
+  "checkout_sessions",
+  "hired_workers",
+  "office_chat_messages",
+  "office_custom_tasks",
+  "office_activity_logs",
+  "office_worker_settings",
+  "office_worker_knowledge",
+  "office_uploaded_files",
+  "office_custom_briefings",
+  "office_global_settings",
+  "user_onboarding",
+  "office_onboarding_sessions",
+  "office_calendar_events",
+  "office_worker_integrations",
+  "office_email_threads",
+  "office_campaigns",
+  "office_leads",
+  "office_suggested_actions",
+  "office_assignments",
+  "office_deliverables",
+  "office_handbook_entries",
+  "office_brand_opportunities",
+  "office_trend_signals",
+  "office_sync_jobs",
+  "user_digest_log",
+  "worker_permissions",
+  "worker_tasks",
+  "worker_activity_log",
+  "worker_recurring_responsibilities",
+  "worker_research_items",
+  "worker_approval_requests",
+  "worker_outputs",
+  "worker_brands",
+  "worker_trend_snapshots",
+  "agent_llm_usage"
+];
+
+// Data portability (GDPR/CCPA): download everything we hold about the account.
+app.get("/api/account/export", requireAuth, (req, res) => {
+  const userId = req.user.id;
+  const data = {
+    exportedAt: nowIso(),
+    account:
+      db
+        .prepare("SELECT id, email, name, email_verified_at AS emailVerifiedAt, created_at AS createdAt FROM users WHERE id = ?")
+        .get(userId) ?? null
+  };
+  for (const table of USER_SCOPED_TABLES) {
+    // Never export session or credential-reset material.
+    if (["sessions", "email_verification_tokens", "password_reset_tokens"].includes(table)) continue;
+    try {
+      data[table] = db.prepare(`SELECT * FROM ${table} WHERE user_id = ?`).all(userId);
+    } catch {
+      data[table] = [];
+    }
+  }
+  // Redact stored OAuth tokens from the export.
+  if (Array.isArray(data.office_worker_integrations)) {
+    data.office_worker_integrations = data.office_worker_integrations.map((row) => ({ ...row, metadata_json: "[redacted]" }));
+  }
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="ryva-account-export.json"`);
+  res.send(JSON.stringify(data, null, 2));
+});
+
+// Right to erasure: verify password, stop billing, wipe all user data.
+app.post("/api/account/delete", assertOrigin, requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const password = String(req.body?.password ?? "");
+  const user = db.prepare("SELECT id, password_hash AS passwordHash FROM users WHERE id = ?").get(userId);
+  if (!user) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
+  if (!password || !verifyPassword(password, user.passwordHash)) {
+    res.status(403).json({ error: "Password is incorrect." });
+    return;
+  }
+
+  // Stop billing first: cancel any active Stripe subscriptions.
+  if (process.env.STRIPE_SECRET_KEY) {
+    const subs = db
+      .prepare("SELECT stripe_subscription_id AS id FROM hired_workers WHERE user_id = ? AND stripe_subscription_id IS NOT NULL")
+      .all(userId);
+    if (subs.length > 0) {
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      for (const sub of subs) {
+        try {
+          await stripe.subscriptions.cancel(sub.id);
+        } catch (error) {
+          log.error("stripe_cancel_failed_on_delete", { userId, error: error?.message });
+        }
+      }
+    }
+  }
+
+  // Remove uploaded files from disk.
+  const files = db.prepare("SELECT stored_name AS storedName FROM office_uploaded_files WHERE user_id = ?").all(userId);
+  for (const file of files) {
+    if (file.storedName) {
+      try {
+        await fs.unlink(path.join(uploadsDir, file.storedName));
+      } catch {
+        /* file already gone */
+      }
+    }
+  }
+
+  // Atomically delete every user-scoped row, then the account itself.
+  const wipe = db.transaction(() => {
+    for (const table of USER_SCOPED_TABLES) {
+      db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+    }
+    db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+  });
+  wipe();
+
+  clearSessionCookie(res);
+  log.info("account_deleted", { userId });
+  res.json({ ok: true });
+});
+
 app.use(express.static(distDir));
 app.use(async (req, res, next) => {
   // Unmatched API routes return a clean JSON 404 instead of the SPA shell.
