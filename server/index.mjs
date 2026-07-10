@@ -221,13 +221,6 @@ function getUserRecordById(userId) {
   return db.prepare("SELECT * FROM users WHERE id = ?").get(userId) ?? null;
 }
 
-/** Admin accounts are for product ops — Mara should not run autonomously on them. */
-function isMaraAutonomyPausedForUser() {
-  // Superseded by the explicit per-worker pause switch (hired_workers.paused).
-  // Admins need their own Mara running to verify what users experience.
-  return false;
-}
-
 function isGoogleAuthConfigured() {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
@@ -2982,15 +2975,6 @@ function buildMaraExecutionReaders() {
 }
 
 async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generatedSummary, normalizedKnowledge }) {
-  if (isMaraAutonomyPausedForUser(userId)) {
-    return {
-      summary: { paused: true, reason: "admin_account" },
-      workspace: buildMaraWorkspace(db, userId, workerSlug, {
-        readKnowledgeSections: readWorkerKnowledgeSections,
-        readOfficeOverlays: readOfficeOverlaysForUser
-      })
-    };
-  }
 
   const accountContext = getUserOnboardingRecord(userId);
   const initialPlan = buildMaraInitialWorkPlan({
@@ -3169,7 +3153,6 @@ async function runScheduledMaraAutonomy() {
       if (!hasRoleConfig(row.workerSlug)) continue;
       try {
         if (row.workerSlug === MARA_SLUG) {
-          if (isMaraAutonomyPausedForUser(row.userId)) continue;
           const gmail = getWorkerIntegration(row.userId, row.workerSlug, "gmail");
           if (gmail?.status === "connected") {
             await syncGmailInbox(row.userId, row.workerSlug);
@@ -4131,18 +4114,6 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
   try {
     let summary;
     if (isMaraWorker(workerSlug)) {
-      if (isMaraAutonomyPausedForUser(req.user)) {
-        res.json({
-          ok: true,
-          paused: true,
-          summary: { paused: true, reason: "admin_account" },
-          workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
-            readKnowledgeSections: readWorkerKnowledgeSections,
-            readOfficeOverlays: readOfficeOverlaysForUser
-          })
-        });
-        return;
-      }
       // Fast interactive pass now; heavy work (research, inbox) continues in
       // the background so the request stays responsive.
       summary = await runMaraAutonomyCycle({
@@ -4333,15 +4304,6 @@ app.post("/api/office/workers/:slug/sync-trends", assertOrigin, requireAuth, asy
     return;
   }
 
-  if (isMaraAutonomyPausedForUser(req.user)) {
-    res.json({
-      dashboard: getMaraDashboard(req.user.id),
-      ok: true,
-      paused: true,
-      synced: false
-    });
-    return;
-  }
 
   try {
     const syncResult = syncUserTrendInsightsFromGlobal({
@@ -4377,11 +4339,6 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
 
   if (!isMaraWorker(workerSlug)) {
     res.status(400).json({ error: "Structured scans are not available for this worker." });
-    return;
-  }
-
-  if (isMaraAutonomyPausedForUser(req.user)) {
-    res.json({ dashboard: getMaraDashboard(req.user.id), ok: true, paused: true });
     return;
   }
 
@@ -4964,7 +4921,7 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
       canUseConnectedIntegrations: true
     });
     await syncGmailInbox(statePayload.userId, workerSlug);
-    if (!isMaraAutonomyPausedForUser(statePayload.userId)) {
+    {
       const summary = await runMaraAutonomyCycle({
         db,
         userId: statePayload.userId,
@@ -5440,7 +5397,6 @@ function workerChatAuthor(worker, workerSlug) {
  */
 function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, triggerText) {
   if (!Array.isArray(taskIds) || taskIds.length === 0) return;
-  if (workerSlug === MARA_SLUG && isMaraAutonomyPausedForUser(userId)) return;
   void (async () => {
     try {
       const executedResults = [];
@@ -5667,9 +5623,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
       });
     }
 
-    const executedResults = isMaraAutonomyPausedForUser(req.user)
-      ? []
-      : await autoExecuteSafeMaraTasks({
+    const executedResults = await autoExecuteSafeMaraTasks({
         db,
         taskIds: createdChatTaskIds,
         userId: req.user.id,
@@ -6465,10 +6419,6 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       String(worklogEntry?.result ?? (workerSlug === MARA_SLUG ? "I captured your workflow and I'm setting up my desk." : "Worker prepared first-day setup")),
       timestamp
     );
-
-    if (shouldRunMaraOnboardingAutomation && isMaraAutonomyPausedForUser(req.user)) {
-      shouldRunMaraOnboardingAutomation = false;
-    }
 
     let maraAutomationResult = null;
     if (shouldRunMaraOnboardingAutomation) {
