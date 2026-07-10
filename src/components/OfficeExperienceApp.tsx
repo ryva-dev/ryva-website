@@ -1800,6 +1800,7 @@ function WorkerKnowledgeView({
   const [trendNotice, setTrendNotice] = useState<string | null>(null);
   const [connectBusy, setConnectBusy] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [disconnectBusy, setDisconnectBusy] = useState<string | null>(null);
 
   const canConnectInbox = isMaraWorker(activeWorker.slug);
   const gmailConnected = connectedTools.some(
@@ -1825,6 +1826,24 @@ function WorkerKnowledgeView({
       setConnectError(error instanceof Error ? error.message : "Couldn't start the Gmail connection.");
     } finally {
       setConnectBusy(false);
+    }
+  };
+
+  const disconnectInbox = async (provider: string) => {
+    if (disconnectBusy) return;
+    if (!window.confirm(`Disconnect ${provider}? ${activeWorker.name.split(" ")[0]} will lose inbox access and the stored token will be revoked.`)) return;
+    setDisconnectBusy(provider);
+    setConnectError(null);
+    try {
+      await officeJson(`/api/office/workers/${activeWorker.slug}/disconnect-email`, {
+        method: "POST",
+        body: JSON.stringify({ provider })
+      });
+      if (onReload) await onReload();
+    } catch (error) {
+      setConnectError(error instanceof Error ? error.message : "Couldn't disconnect the inbox.");
+    } finally {
+      setDisconnectBusy(null);
     }
   };
 
@@ -1929,6 +1948,16 @@ function WorkerKnowledgeView({
                   <strong>{tool.accountLabel || tool.provider}</strong>
                   <div className="ro-handbook-meta">
                     <span>{sentenceCase(tool.status)} · source</span>
+                    {canConnectInbox && (tool.provider === "gmail" || tool.provider === "outlook") ? (
+                      <button
+                        className="ro-inline-link ro-danger-link"
+                        type="button"
+                        disabled={disconnectBusy === tool.provider}
+                        onClick={() => void disconnectInbox(tool.provider)}
+                      >
+                        {disconnectBusy === tool.provider ? "Disconnecting…" : "Disconnect"}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ))}
