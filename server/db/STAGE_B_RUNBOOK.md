@@ -81,6 +81,24 @@ npm test                      # Postgres driver — same suite, both backends gr
 Every file's conversion is a separate reviewable commit. A file is "done" only
 when the suite is green on **both** drivers.
 
+## Test isolation (important)
+
+The store is a process-global singleton keyed off env (`DATABASE_URL` or
+`DATABASE_PATH`), not an injected handle. Tests that previously passed their own
+`db` into functions must instead point the store at a temp database and reset it
+between tests:
+
+```js
+process.env.DATABASE_PATH = tmpFile;   // before importing modules that use store
+// ...
+import { closeStore } from "./dataStore.mjs";
+afterEach(async () => { await closeStore(); });
+```
+
+`agentLlm.mjs` is already converted (the budget counter) as the reference
+pattern — the budget functions dropped their `db` argument and now use the
+store. Mirror that shape for the remaining files.
+
 ## After Stage B
 
 - **C — ETL:** copy `data/app.db` rows into Postgres (FK-safe order).

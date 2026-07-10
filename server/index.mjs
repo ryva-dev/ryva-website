@@ -46,6 +46,15 @@ import { isLikelyListicleTitle } from "./workerEngine.mjs";
 import { isAgentLlmConfigured, parseTrendPasteHeuristic, tryParseTrendPaste } from "./agentLlm.mjs";
 import { hasRoleConfig } from "./roles.mjs";
 import { saveUserTrendSnapshot, writeUserTrendInsightsFile } from "./maraTrendOps.mjs";
+import {
+  errorHandler,
+  installGracefulShutdown,
+  log,
+  notFoundHandler,
+  registerHealthEndpoints,
+  requestContext,
+  validateConfig
+} from "./observability.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -87,6 +96,9 @@ if (
   throw new Error("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set together.");
 }
 
+// Fail fast at boot if production configuration is incomplete.
+validateConfig();
+
 const app = express();
 app.disable("x-powered-by");
 if (isProduction) {
@@ -106,6 +118,18 @@ app.use((req, res, next) => {
   express.json({ limit: "2mb" })(req, res, next);
 });
 app.use(cookieParser());
+
+// Request correlation + structured access logs.
+app.use(requestContext);
+
+// Liveness/readiness probes for the load balancer — unauthenticated, cheap, and
+// registered before auth/rate-limiting so orchestrators can always reach them.
+registerHealthEndpoints(app, {
+  pingStore: async () => {
+    db.prepare("SELECT 1").get();
+    return true;
+  }
+});
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -6460,8 +6484,9 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
 
 app.use(express.static(distDir));
 app.use(async (req, res, next) => {
+  // Unmatched API routes return a clean JSON 404 instead of the SPA shell.
   if (req.path.startsWith("/api/")) {
-    next();
+    notFoundHandler(req, res);
     return;
   }
 
@@ -6474,8 +6499,11 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.listen(port, host, () => {
-  console.log(`Ryva API listening on http://${host}:${port}`);
+// Terminal error handler — structured, correlated, no stack leaks in prod.
+app.use(errorHandler(isProduction));
+
+const server = app.listen(port, host, () => {
+  log.info("server_listening", { url: `http://${host}:${port}` });
   if (maraAutonomyIntervalMinutes > 0) {
     const intervalMs = maraAutonomyIntervalMinutes * 60 * 1000;
     maraAutonomyTimer = setInterval(() => {
@@ -6484,6 +6512,18 @@ app.listen(port, host, () => {
     }, intervalMs);
     void runScheduledMaraAutonomy();
     void sendWeeklyDigests();
-    console.log(`Mara autonomy scheduler enabled every ${maraAutonomyIntervalMinutes} minute(s).`);
+    log.info("autonomy_scheduler_enabled", { minutes: maraAutonomyIntervalMinutes });
+  }
+});
+
+// Drain cleanly on deploy/rollback: stop the scheduler, finish in-flight
+// requests, then exit. (Stage D moves the scheduler to a durable queue.)
+installGracefulShutdown({
+  server,
+  onShutdown: async () => {
+    if (maraAutonomyTimer) {
+      clearInterval(maraAutonomyTimer);
+      maraAutonomyTimer = null;
+    }
   }
 });

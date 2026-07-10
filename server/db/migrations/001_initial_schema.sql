@@ -436,6 +436,15 @@ CREATE TABLE IF NOT EXISTS user_digest_log (
   last_sent_at TEXT NOT NULL
 );
 
+-- Per-user daily LLM call counter (cost guard). Created at runtime today in
+-- agentLlm.mjs; declared here so a fresh Postgres database is complete.
+CREATE TABLE IF NOT EXISTS agent_llm_usage (
+  user_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  calls INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+);
+
 -- ---------------------------------------------------------------------------
 -- Worker engine (from initWorkerTables)
 -- ---------------------------------------------------------------------------

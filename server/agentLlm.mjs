@@ -8,6 +8,7 @@
  */
 import { createAnthropicMessage, isMaraLlmConfigured, parseJsonFromLlmText } from "./maraLlm.mjs";
 import { SHARED_AGENT_OUTPUT_RULES, getRoleTaskType } from "./roles.mjs";
+import * as store from "./dataStore.mjs";
 
 const AGENT_MODEL =
   process.env.ANTHROPIC_AGENT_MODEL ||
@@ -25,8 +26,12 @@ export function isAgentLlmConfigured() {
 /* Budget guard                                                        */
 /* ------------------------------------------------------------------ */
 
-function ensureUsageTable(db) {
-  db.exec(`
+// Created here for the SQLite backend (Postgres gets it from the migration).
+// Guarded so the CREATE runs at most once per process instead of per call.
+let usageTableReady = false;
+async function ensureUsageTable() {
+  if (usageTableReady) return;
+  await store.execute(`
     CREATE TABLE IF NOT EXISTS agent_llm_usage (
       user_id TEXT NOT NULL,
       day TEXT NOT NULL,
@@ -34,36 +39,41 @@ function ensureUsageTable(db) {
       PRIMARY KEY (user_id, day)
     )
   `);
+  usageTableReady = true;
 }
 
 function utcDay() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function llmBudgetRemaining(db, userId) {
-  ensureUsageTable(db);
-  const row = db.prepare("SELECT calls FROM agent_llm_usage WHERE user_id = ? AND day = ?").get(userId, utcDay());
+export async function llmBudgetRemaining(userId) {
+  await ensureUsageTable();
+  const row = await store.queryOne("SELECT calls FROM agent_llm_usage WHERE user_id = ? AND day = ?", userId, utcDay());
   return Math.max(0, DAILY_LLM_CALL_LIMIT - Number(row?.calls ?? 0));
 }
 
-export function recordLlmCall(db, userId) {
-  ensureUsageTable(db);
-  db.prepare(
+export async function recordLlmCall(userId) {
+  await ensureUsageTable();
+  await store.execute(
     `INSERT INTO agent_llm_usage (user_id, day, calls) VALUES (?, ?, 1)
-     ON CONFLICT(user_id, day) DO UPDATE SET calls = calls + 1`
-  ).run(userId, utcDay());
+     ON CONFLICT(user_id, day) DO UPDATE SET calls = calls + 1`,
+    userId,
+    utcDay()
+  );
 }
 
+// `db` is still accepted for call-site compatibility during the cutover but is
+// no longer used — the budget counter goes through the data store now.
 async function budgetedMessage(db, userId, params) {
   if (!isAgentLlmConfigured()) {
     return null;
   }
-  if (db && userId && llmBudgetRemaining(db, userId) <= 0) {
+  if (userId && (await llmBudgetRemaining(userId)) <= 0) {
     return null;
   }
   const text = await createAnthropicMessage({ model: AGENT_MODEL, ...params });
-  if (db && userId) {
-    recordLlmCall(db, userId);
+  if (userId) {
+    await recordLlmCall(userId);
   }
   return text;
 }
