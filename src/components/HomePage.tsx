@@ -242,7 +242,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
             [
               "02",
               "Hire",
-              "One monthly salary. No credits, no per-task meters, no scope creep. They start the moment you sign."
+              "One monthly salary. No credits, no per-task meters. After payment, you onboard Mara and connect Gmail — then she starts working inside your approval rules."
             ],
             [
               "03",
@@ -513,14 +513,15 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
 
       <section className="mk-sec">
         <h2 className="r-reveal">
-          Workers are only useful where your <em>work lives.</em>
+          Mara works where your <em>deals live.</em>
         </h2>
         <p className="mk-sec-line r-reveal">
-          Connect email, calendar, and the tools your business runs on. Workers operate inside them with the same
-          permission rules as everything else — and every connection is scoped, visible, and revocable in one click.
+          Connect Gmail so Mara can draft outreach and organize brand replies. Sends stay approval-gated.
+          Billing runs through Stripe. Live ad libraries and contact enrichment are operator-configured —
+          creators never paste platform API keys into the product.
         </p>
         <div className="mk-logos r-reveal">
-          {["Gmail", "Google Calendar", "Slack", "Notion", "Stripe", "Instagram", "TikTok"].map((name) => (
+          {["Gmail", "Stripe", "Approval-gated sends"].map((name) => (
             <span key={name}>{name}</span>
           ))}
         </div>
@@ -528,7 +529,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
 
       <section className="mk-final">
         <h2 className="r-reveal">
-          The interview takes
+          Interview Mara in
           <br />
           <em>five minutes.</em>
         </h2>
@@ -538,9 +539,9 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
           style={{ transitionDelay: "0.1s" }}
           onClick={onBrowseWorkers}
         >
-          Meet the workers
+          Meet Mara
         </button>
-        <p className="mk-fine r-reveal">No card required to interview. Salaries start at $490/mo.</p>
+        <p className="mk-fine r-reveal">No card required to interview. Mara is $40/mo after hire.</p>
         <button className="mk-link r-reveal" type="button" onClick={onOpenAuth} style={{ marginTop: 8 }}>
           or sign in to your office →
         </button>
@@ -571,7 +572,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
             <b>Legal</b>
             <a href="#terms">Terms</a>
             <a href="#privacy">Privacy</a>
-            <a href="#privacy">Data processing</a>
+            <a href="#security">Security</a>
           </div>
         </div>
         <div className="mk-footer-base">

@@ -1,13 +1,18 @@
-// Legal & trust pages (Privacy, Terms, Security). Plain-language and accurate to
-// what the app does today. These are informational drafts intended to be
-// reviewed by counsel before launch — not legal advice.
+// Legal & trust pages. Counsel should still review before marketing spend;
+// support contact is wired from SUPPORT_EMAIL.
 
 type LegalPageName = "privacy" | "terms" | "security";
 
-const EFFECTIVE = "Effective date: to be set at launch";
+const EFFECTIVE = "Effective date: July 12, 2026";
 const COMPANY = "Ryva Forge, LLC";
+const DEFAULT_SUPPORT = "support@ryva.dev";
 
-function Privacy() {
+function supportLine(supportEmail?: string | null) {
+  return supportEmail?.trim() || DEFAULT_SUPPORT;
+}
+
+function Privacy({ supportEmail }: { supportEmail?: string | null }) {
+  const contact = supportLine(supportEmail);
   return (
     <>
       <h1>Privacy Policy</h1>
@@ -25,15 +30,17 @@ function Privacy() {
       <p>
         To generate work — drafts, plans, research, and replies — relevant parts of your business
         context and, if you connect Gmail, relevant email content are sent to our AI provider,
-        Anthropic, for processing. This is core to how the product works. Anthropic processes this
-        content to return results to your office; we do not sell your data or use it to serve ads.
+        Anthropic, for processing. Optional creative transcription may use OpenAI Whisper when that
+        feature is enabled on the deployment. We do not sell your data or use it to serve ads.
       </p>
 
       <h2>Third parties we share data with</h2>
       <p>
-        We use a small set of processors to operate the service: <b>Anthropic</b> (AI processing of
-        your content), <b>Google</b> (Gmail access when you connect it), and <b>Stripe</b> (payments).
-        Each receives only what it needs for its function.
+        We use a small set of processors to operate the service: <b>Anthropic</b> (AI processing),
+        <b> Google</b> (sign-in and Gmail when you connect it), <b>Stripe</b> (payments), and when
+        video QA is enabled, <b>OpenAI</b> (transcription). Optional ops providers (for example Meta
+        Ad Library or contact enrichment) only run when the operator configures them; creators do not
+        paste those API keys into the product.
       </p>
 
       <h2>Security</h2>
@@ -51,12 +58,15 @@ function Privacy() {
       </p>
 
       <h2>Contact</h2>
-      <p>Questions about your data can be sent to your account contact at {COMPANY}.</p>
+      <p>
+        Privacy questions: <a href={`mailto:${contact}`}>{contact}</a> ({COMPANY}).
+      </p>
     </>
   );
 }
 
-function Terms() {
+function Terms({ supportEmail }: { supportEmail?: string | null }) {
+  const contact = supportLine(supportEmail);
   return (
     <>
       <h1>Terms of Service</h1>
@@ -64,9 +74,10 @@ function Terms() {
 
       <h2>The service</h2>
       <p>
-        Ryva provides AI "workers" that perform role-specific work inside your office. Workers act
-        within the permissions you grant and pause for your approval before taking sensitive or
-        external actions. You are responsible for reviewing and approving work before you act on it.
+        Ryva provides AI workers that perform role-specific work inside your office. The flagship
+        hire for creators is Mara Vale (Creator Growth). Workers act within the permissions you grant
+        and pause for your approval before taking sensitive or external actions such as sending email.
+        You are responsible for reviewing and approving work before you act on it.
       </p>
 
       <h2>Your account</h2>
@@ -77,31 +88,37 @@ function Terms() {
 
       <h2>Billing</h2>
       <p>
-        Paid workers are billed as recurring subscriptions through Stripe. You can manage or cancel
-        billing from Settings. If a subscription lapses, that worker's background work pauses until
-        billing is restored.
+        Paid workers are billed as recurring subscriptions through Stripe at the salary shown at
+        hire. You can manage or cancel billing from Settings. If a subscription lapses, that worker&apos;s
+        background work pauses until billing is restored.
       </p>
 
       <h2>Acceptable use</h2>
       <p>
-        Don't use the service to break the law, infringe others' rights, or send unlawful or abusive
+        Don&apos;t use the service to break the law, infringe others&apos; rights, or send unlawful or abusive
         communications. AI output can be imperfect — verify anything before relying on it.
       </p>
 
       <h2>Disclaimers &amp; liability</h2>
       <p>
-        The service is provided "as is." To the extent permitted by law, {COMPANY} is not liable for
+        The service is provided &quot;as is.&quot; To the extent permitted by law, {COMPANY} is not liable for
         indirect or consequential damages arising from use of the service or AI-generated output.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Support: <a href={`mailto:${contact}`}>{contact}</a>.
       </p>
     </>
   );
 }
 
-function Security() {
+function Security({ supportEmail }: { supportEmail?: string | null }) {
+  const contact = supportLine(supportEmail);
   return (
     <>
       <h1>Security</h1>
-      <p className="r-legal-meta">How we protect your account and data</p>
+      <p className="r-legal-meta">How we protect your account and data · {EFFECTIVE}</p>
 
       <h2>Credentials &amp; sessions</h2>
       <p>
@@ -118,7 +135,7 @@ function Security() {
 
       <h2>Payments</h2>
       <p>
-        Payments are handled by Stripe; we don't store card numbers. Billing webhooks are signature-
+        Payments are handled by Stripe; we don&apos;t store card numbers. Billing webhooks are signature-
         verified and processed idempotently.
       </p>
 
@@ -133,21 +150,40 @@ function Security() {
         You can pause any worker, export your data, disconnect integrations, and delete your account
         at any time from Settings.
       </p>
+
+      <h2>Report a concern</h2>
+      <p>
+        Security reports: <a href={`mailto:${contact}`}>{contact}</a>.
+      </p>
     </>
   );
 }
 
-export function LegalPage({ page, onHome }: { page: LegalPageName; onHome?: () => void }) {
+export function LegalPage({
+  page,
+  onHome,
+  supportEmail
+}: {
+  page: LegalPageName;
+  onHome?: () => void;
+  supportEmail?: string | null;
+}) {
   return (
     <div className="r-legal">
       <div className="r-legal-inner">
         <button className="ro-textlink r-legal-back" type="button" onClick={() => (onHome ? onHome() : (window.location.hash = "home"))}>
           ← Back
         </button>
-        {page === "privacy" ? <Privacy /> : page === "terms" ? <Terms /> : <Security />}
+        {page === "privacy" ? (
+          <Privacy supportEmail={supportEmail} />
+        ) : page === "terms" ? (
+          <Terms supportEmail={supportEmail} />
+        ) : (
+          <Security supportEmail={supportEmail} />
+        )}
         <p className="r-legal-note">
-          This page is provided for transparency and is not legal advice. Final policies should be
-          reviewed by counsel before launch.
+          This page describes how Ryva operates today. It is not legal advice; counsel should review
+          policies before large-scale marketing.
         </p>
       </div>
     </div>

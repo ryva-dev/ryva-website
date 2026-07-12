@@ -27,8 +27,11 @@ const prodBase = {
   OBJECT_STORAGE_DRIVER: "s3",
   S3_BUCKET: "ryva-uploads",
   APP_URL: "https://app.example.com",
-  STRIPE_SECRET_KEY: undefined,
-  STRIPE_WEBHOOK_SECRET: undefined,
+  STRIPE_SECRET_KEY: "sk_test_example",
+  STRIPE_WEBHOOK_SECRET: "whsec_example",
+  GOOGLE_CLIENT_ID: "google-client",
+  GOOGLE_CLIENT_SECRET: "google-secret",
+  MARA_DISABLE_VIDEO_QA: "1",
   METRICS_TOKEN: "metrics-secret",
   SESSION_SECRET: undefined
 };
@@ -64,6 +67,37 @@ test("production requires Postgres + S3 + APP_URL", () => {
 
 test("production accepts complete multi-instance configuration", () => {
   withEnvironment(prodBase, () => assert.doesNotThrow(validateConfig));
+});
+
+test("production requires Stripe for paying strangers", () => {
+  withEnvironment(
+    { ...prodBase, STRIPE_SECRET_KEY: undefined, STRIPE_WEBHOOK_SECRET: undefined },
+    () => assert.throws(validateConfig, /STRIPE_SECRET_KEY/)
+  );
+});
+
+test("production requires Google OAuth or SMTP for signup", () => {
+  withEnvironment(
+    {
+      ...prodBase,
+      GOOGLE_CLIENT_ID: undefined,
+      GOOGLE_CLIENT_SECRET: undefined,
+      SMTP_HOST: undefined
+    },
+    () => assert.throws(validateConfig, /Google OAuth|SMTP_HOST/)
+  );
+});
+
+test("production refuses mock video QA unless disabled", () => {
+  withEnvironment(
+    {
+      ...prodBase,
+      MARA_DISABLE_VIDEO_QA: undefined,
+      MARA_TRANSCRIPTION_PROVIDER: "mock",
+      MARA_MULTIMODAL_PROVIDER: "mock"
+    },
+    () => assert.throws(validateConfig, /video QA|MARA_DISABLE_VIDEO_QA/)
+  );
 });
 
 test("development still allows sqlite without S3", () => {

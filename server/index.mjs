@@ -3927,7 +3927,9 @@ async function createSession(userId) {
 
 function authConfigPayload() {
   return {
-    googleEnabled: isGoogleAuthConfigured()
+    googleEnabled: isGoogleAuthConfigured(),
+    supportEmail: String(process.env.SUPPORT_EMAIL || "").trim() || null,
+    videoQaEnabled: String(process.env.MARA_DISABLE_VIDEO_QA || "").trim() !== "1"
   };
 }
 
@@ -5693,7 +5695,7 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
     res.json({
       free: true,
       adminBypass: isAdmin,
-      url: `${appUrl}/?checkout=success&worker=${worker.slug}#app/office/workers/${worker.slug}/onboarding`
+      url: `${appUrl}/?checkout=success&worker=${encodeURIComponent(worker.slug)}#app/office`
     });
     return;
   }
@@ -5705,26 +5707,34 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
 
   const stripe = new Stripe(stripeKey);
 
+  const priceEnvKey = `STRIPE_PRICE_ID_${String(worker.slug).toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
+  const configuredPriceId = String(process.env[priceEnvKey] || process.env.STRIPE_PRICE_ID || "").trim();
+  const lineItems = configuredPriceId
+    ? [{ price: configuredPriceId, quantity: 1 }]
+    : [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              description: `Monthly salary for ${worker.department}`,
+              name: `${worker.name} - ${worker.title}`
+            },
+            recurring: {
+              interval: "month"
+            },
+            unit_amount: unitAmount
+          },
+          quantity: 1
+        }
+      ];
+
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
-    success_url: `${appUrl}/?checkout=success&worker=${worker.slug}#app/office/workers/${worker.slug}/onboarding`,
+    customer_email: req.user.email || undefined,
+    client_reference_id: `${req.user.id}:${worker.slug}:${checkoutId}`,
+    success_url: `${appUrl}/?checkout=success&worker=${encodeURIComponent(worker.slug)}#app/office`,
     cancel_url: `${appUrl}/?checkout=cancelled#worker-${worker.slug}`,
-    line_items: [
-      {
-        price_data: {
-          currency: "usd",
-          product_data: {
-            description: `Monthly salary for ${worker.department}`,
-            name: `${worker.name} - ${worker.title}`
-          },
-          recurring: {
-            interval: "month"
-          },
-          unit_amount: unitAmount
-        },
-        quantity: 1
-      }
-    ],
+    line_items: lineItems,
     metadata: {
       checkoutId,
       userId: req.user.id,
@@ -5738,6 +5748,39 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
     checkoutId, req.user.id, worker.slug, unitAmount, session.id, "pending", nowIso());
 
   res.json({ url: session.url });
+});
+
+app.get("/api/payments/hire-status", requireAuth, async (req, res) => {
+  const workerSlug = String(req.query.worker || "").trim();
+  if (!workerSlug) {
+    res.status(400).json({ error: "worker query parameter is required." });
+    return;
+  }
+  const hired = await hasHiredWorker(req.user.id, workerSlug);
+  const row = hired
+    ? await authStore.queryOne(
+        `SELECT status, billing_status AS "billingStatus", hired_at AS "hiredAt"
+         FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'`,
+        req.user.id,
+        workerSlug
+      )
+    : null;
+  const pendingCheckout = await authStore.queryOne(
+    `SELECT id, status, created_at AS "createdAt"
+     FROM checkout_sessions
+     WHERE user_id = ? AND worker_slug = ?
+     ORDER BY created_at DESC LIMIT 1`,
+    req.user.id,
+    workerSlug
+  ).catch(() => null);
+  res.json({
+    workerSlug,
+    hired,
+    status: row?.status || null,
+    billingStatus: row?.billingStatus || null,
+    hiredAt: row?.hiredAt || null,
+    checkoutStatus: pendingCheckout?.status || null
+  });
 });
 
 app.post("/api/payments/portal", assertOrigin, requireAuth, async (req, res) => {
@@ -7325,6 +7368,12 @@ app.post("/api/office/workers/:slug/media/videos", assertOrigin, requireAuth, ex
   const workerSlug = String(req.params.slug || "").trim();
   if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
     res.status(404).json({ error: "Not found." });
+    return;
+  }
+  if (String(process.env.MARA_DISABLE_VIDEO_QA || "").trim() === "1") {
+    res.status(503).json({
+      error: "Video creative QA is disabled on this deployment. Contact support if you need it enabled with real providers."
+    });
     return;
   }
   try {

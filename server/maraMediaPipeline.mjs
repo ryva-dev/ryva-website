@@ -365,7 +365,9 @@ export function mapPipelineAnalysisToCreativeIntel(analysis, { fileName = "rough
       consequence: String(item.likely_consequence || item.consequence || "").trim() || "Impact not captured.",
       revision: String(item.recommended_change || item.revision || "").trim() || "Revision not captured."
     })),
-    unknowns: Array.isArray(analysis?.unknowns) ? analysis.unknowns : []
+    unknowns: Array.isArray(analysis?.unknowns) ? analysis.unknowns : [],
+    isMock: Boolean(analysis?.isMock),
+    providerHonesty: analysis?.providerHonesty || null
   };
 }
 

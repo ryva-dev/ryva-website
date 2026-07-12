@@ -22,20 +22,31 @@ The image builds the frontend (`npm run build`), runs idempotent migrations when
 | `PGSSL` | Set `disable` for local Postgres without TLS. Managed hosts keep certificate verification. |
 | `ENCRYPTION_KEY` | 32-byte key (64 hex chars) encrypting OAuth tokens at rest. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `ANTHROPIC_API_KEY` | AI provider key; without it workers emit honest placeholders. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google login + Gmail OAuth. |
-| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Billing (must be set together). |
 | `APP_URL` | Public base URL (OAuth redirects and links). |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | **Required in production** for paid hires. |
+| `STRIPE_PRICE_ID_MARA_VALE` or `STRIPE_PRICE_ID` | Optional Stripe Price ID (preferred for receipts); else inline `price_data`. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google login + Gmail OAuth. |
+| `SMTP_*` | Email verification + digests. Production requires **Google and/or SMTP**. |
+| `SUPPORT_EMAIL` | Shown on Privacy/Terms/Security pages. |
+| `MARA_DISABLE_VIDEO_QA` | Set `1` to hide video QA, **or** configure real Whisper + Anthropic multimodal. |
+| `MARA_TRANSCRIPTION_PROVIDER` / `OPENAI_API_KEY` | Real video transcription when QA enabled. |
+| `MARA_MULTIMODAL_PROVIDER=anthropic` | Real creative review path when QA enabled. |
+| `MARA_REQUIRE_REAL_MEDIA=1` | Refuse mock media analysis. |
+| `META_ACCESS_TOKEN` / `TIKTOK_ACCESS_TOKEN` / `HUNTER_API_KEY` / `APOLLO_API_KEY` | Optional launch senses (ads + contact enrichment). |
 | `PORT` / `HOST` | Default `8787` / `0.0.0.0`. |
 | `OBJECT_STORAGE_DRIVER` | Must be `s3` in production. |
 | `S3_BUCKET` / `AWS_REGION` | Tenant upload bucket and region. |
 | `METRICS_TOKEN` | Bearer token required for `GET /metrics` in production. |
 | `MIGRATE_ON_BOOT` | Default `1`. Set `0` only if an init container runs `npm run migrate`. |
 | `SENTRY_DSN` | Optional; enables `@sentry/node` error reporting when set. |
-| `SMTP_*` | Recommended for verification email and digests. |
 
 `SESSION_SECRET` is **unused** (sessions are DB cookies). You can omit it.
 
-The app calls `validateConfig()` at boot and refuses to start in production if Postgres, S3, `APP_URL`, a valid `ENCRYPTION_KEY`, or AI configuration are incomplete.
+The app calls `validateConfig()` at boot and refuses to start in production if Postgres, S3, `APP_URL`, Stripe, Google-or-SMTP, a valid `ENCRYPTION_KEY`, AI configuration, or video QA policy are incomplete.
+
+### Launch soak (paying strangers)
+
+Before marketing Mara as ready for strangers, run the checklist in `docs/MARA_PAID_SOAK.md` on a Postgres+S3 deploy (fresh signup → pay → hire → Gmail → 48h return → money moves).
 
 ### Gmail connect smoke checklist
 

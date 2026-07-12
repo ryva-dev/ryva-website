@@ -25,6 +25,8 @@ type AuthUser = {
 
 type AuthConfig = {
   googleEnabled: boolean;
+  supportEmail?: string | null;
+  videoQaEnabled?: boolean;
 };
 
 const navItems = [
@@ -480,17 +482,46 @@ export default function App() {
       return;
     }
 
-    async function syncCheckedOutWorkers() {
-      try {
-        await refreshOfficeWorkers();
-        setGlobalNotice("Checkout complete. Your hired worker is now available in Ryva Office.");
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 30;
+    const workerSlug = pendingCheckoutWorker;
+
+    async function waitForHire() {
+      setGlobalNotice("Payment received — activating your hire…");
+      while (!cancelled && attempts < maxAttempts) {
+        attempts += 1;
+        try {
+          const status = await apiJson<{ hired: boolean }>(
+            `/api/payments/hire-status?worker=${encodeURIComponent(workerSlug)}`,
+            { method: "GET" }
+          );
+          if (status.hired) {
+            await refreshOfficeWorkers();
+            if (cancelled) return;
+            setGlobalNotice("Checkout complete. Finish setup so Mara can work.");
+            setPendingCheckoutWorker(null);
+            window.location.hash = `app/office/workers/${workerSlug}/onboarding`;
+            return;
+          }
+        } catch {
+          // Keep polling — webhook may still be in flight.
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, Math.min(2000, 400 + attempts * 150)));
+      }
+      if (!cancelled) {
+        setGlobalNotice(
+          "Payment went through, but hire activation is still processing. Refresh in a minute or open the office — billing webhooks can lag briefly."
+        );
         setPendingCheckoutWorker(null);
-      } catch {
-        // Ignore refresh errors here; the office can retry on navigation.
+        window.location.hash = "app/office";
       }
     }
 
-    void syncCheckedOutWorkers();
+    void waitForHire();
+    return () => {
+      cancelled = true;
+    };
   }, [pendingCheckoutWorker, user]);
 
   function handleSearchChange(value: string) {
@@ -760,7 +791,11 @@ export default function App() {
 
         {!isWorkersLoading && !isOfficeRoute && view === "about" && <AboutPage />}
         {!isWorkersLoading && !isOfficeRoute && (view === "privacy" || view === "terms" || view === "security") && (
-          <LegalPage page={view} onHome={() => { window.location.hash = "home"; }} />
+          <LegalPage
+            page={view}
+            supportEmail={authConfig.supportEmail}
+            onHome={() => { window.location.hash = "home"; }}
+          />
         )}
         {!isWorkersLoading && !isOfficeRoute && isOnboardingRoute && user && (
           <UserOnboardingPage

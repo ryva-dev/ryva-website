@@ -446,7 +446,9 @@ export function validateCreativeAnalysis(analysis = {}) {
       if (!observation || !consequence || !revision) throw new Error("Each timestamp requires an observation, consequence, and revision.");
       return { at: validateTimestamp(item.at), observation, consequence, revision };
     }),
-    unknowns: Array.isArray(analysis.unknowns) ? analysis.unknowns.map(String).filter(Boolean) : []
+    unknowns: Array.isArray(analysis.unknowns) ? analysis.unknowns.map(String).filter(Boolean) : [],
+    isMock: Boolean(analysis.isMock),
+    providerHonesty: analysis.providerHonesty ? String(analysis.providerHonesty) : null
   };
 }
 

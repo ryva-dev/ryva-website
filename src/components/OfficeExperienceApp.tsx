@@ -1015,14 +1015,34 @@ function EmptyOffice({ label, onNavigate }: { label: string; onNavigate: (h: str
 /* ---------- Today ---------- */
 
 function TodayView({
-  desks, userName, workers, overlays, onNavigate, onApprovalsClick, onOpenWorkerDetails,
+  desks, userName, workers, overlays, onNavigate, onApprovalsClick, onOpenWorkerDetails, onApprove, onReject, busyId,
 }: {
   desks: WorkerDesk[];
   userName: string; workers: Worker[]; overlays: Overlays;
   onNavigate: (h: string) => void; onApprovalsClick: () => void; onOpenWorkerDetails: (workerSlug: string) => void;
+  onApprove?: (workerSlug: string, approvalId: string) => Promise<void>;
+  onReject?: (workerSlug: string, approvalId: string) => Promise<void>;
+  busyId?: string | null;
 }) {
   const today = new Date();
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
+  const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const maraDesks = desks.filter((desk) => isMaraWorker(desk.workerSlug));
+  const commercialMoves = maraDesks.flatMap((desk) =>
+    (desk.commercialBriefing?.prioritized || []).slice(0, 4).map((entry, index) => ({
+      ...entry,
+      workerSlug: desk.workerSlug,
+      key: `${desk.workerSlug}-${entry.approvalId || entry.opportunityId || index}`
+    }))
+  );
+  const maraApprovals = maraDesks.flatMap((desk) =>
+    desk.approvals.map((item) => ({ ...item, workerSlug: desk.workerSlug }))
+  );
+  const revenue = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialNorthStar?.revenueInfluenced || 0), 0);
+  const stalled = maraDesks.flatMap((desk) =>
+    (desk.bookOfBusiness || []).filter((opp) => opp.stall?.daysStalled || opp.blockingReason).slice(0, 3)
+      .map((opp) => ({ ...opp, workerSlug: desk.workerSlug }))
+  );
   const todayStart = new Date(today);
   todayStart.setHours(0, 0, 0, 0);
   const todaysEvents = overlays.calendarEvents
@@ -1078,18 +1098,81 @@ function TodayView({
   const secondaryAttention = attentionItems.slice(1, 4);
   const nextEvent = todaysEvents[0] ?? null;
   const dateLine = today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  const needsYouCount = attentionItems.length + maraApprovals.length;
 
   return (
     <div className="ro-main-scroll">
       <header className="ro-page-head">
         <h1>Good {today.getHours() < 12 ? "morning" : today.getHours() < 18 ? "afternoon" : "evening"}, {userName.split(" ")[0]}.</h1>
         <p className="ro-page-meta">
-          {dateLine} · {workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock · {attentionItems.length} item{attentionItems.length === 1 ? "" : "s"} need you
+          {dateLine} · {workers.length} {workers.length === 1 ? "worker" : "workers"} on the clock · {needsYouCount} item{needsYouCount === 1 ? "" : "s"} need you
+          {maraDesks.length ? ` · ${money.format(revenue)} revenue influenced` : ""}
         </p>
       </header>
 
       <div className="ro-today-layout">
         <div className="ro-today-main">
+          {maraDesks.length > 0 ? (
+            <section className="ro-sec ro-sec-lead">
+              <div className="ro-sec-head">
+                <h2>Money moves</h2>
+                <span className="ro-sec-n">{commercialMoves.length + maraApprovals.length === 0 ? "Quiet" : commercialMoves.length + maraApprovals.length}</span>
+              </div>
+              {maraApprovals.length === 0 && commercialMoves.length === 0 && stalled.length === 0 ? (
+                <p className="ro-blank">
+                  {revenue === 0
+                    ? "No attributed revenue yet. When Mara has drafts or replies waiting, they show up here."
+                    : "Nothing commercial is waiting on you right now."}
+                </p>
+              ) : (
+                <div className="ro-plain-list">
+                  {maraApprovals.slice(0, 4).map((item) => (
+                    <div className="ro-plain-row" key={`today-appr-${item.id}`}>
+                      <div>
+                        <strong>Approve: {item.title}</strong>
+                        <p>{item.summary}</p>
+                      </div>
+                      <div className="ro-inline-actions">
+                        <button className="r-btn r-btn-ghost" type="button" disabled={busyId === item.id} onClick={() => void onReject?.(item.workerSlug, item.id)}>Deny</button>
+                        <button className="r-btn r-btn-accent" type="button" disabled={busyId === item.id} onClick={() => void onApprove?.(item.workerSlug, item.id)}>
+                          {busyId === item.id ? "Saving…" : "Approve"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {commercialMoves.slice(0, 4).map((entry) => (
+                    <div className="ro-plain-row" key={entry.key}>
+                      <div>
+                        <strong>{entry.title}</strong>
+                        <p>
+                          {entry.whatHappened}
+                          {entry.recommendedAction ? ` — ${entry.recommendedAction}` : ""}
+                        </p>
+                      </div>
+                      {entry.approvalId ? (
+                        <div className="ro-inline-actions">
+                          <button className="r-btn r-btn-ghost" type="button" disabled={busyId === entry.approvalId} onClick={() => void onReject?.(entry.workerSlug, entry.approvalId!)}>Deny</button>
+                          <button className="r-btn r-btn-accent" type="button" disabled={busyId === entry.approvalId} onClick={() => void onApprove?.(entry.workerSlug, entry.approvalId!)}>Approve</button>
+                        </div>
+                      ) : (
+                        <button className="r-btn r-btn-ghost" type="button" onClick={() => onOpenWorkerDetails(entry.workerSlug)}>Open desk</button>
+                      )}
+                    </div>
+                  ))}
+                  {stalled.slice(0, 3).map((opp) => (
+                    <div className="ro-plain-row" key={`stall-${opp.id}`}>
+                      <div>
+                        <strong>Stalled: {opp.brandName}</strong>
+                        <p>{opp.blockingReason || opp.stall?.likelyReason || opp.nextAction?.label || "Needs a next move"}</p>
+                      </div>
+                      <button className="r-btn r-btn-ghost" type="button" onClick={() => onNavigate(`#app/office/workers/${opp.workerSlug}/intelligence`)}>Unstick</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
+
           <section className="ro-sec ro-sec-lead">
             <div className="ro-sec-head">
               <h2>Needs you</h2>
@@ -1130,7 +1213,7 @@ function TodayView({
                 ) : null}
               </div>
             ) : (
-              <p className="ro-blank">Nothing is waiting on you right now.</p>
+              <p className="ro-blank">Nothing else is waiting on you right now.</p>
             )}
           </section>
 
@@ -1314,7 +1397,9 @@ function WorkerDeskSections({
   desk,
   onApprove,
   onApproveTask,
+  onNavigate,
   onReject,
+  onRunAutonomy,
   onRunTask,
   onSeedCorrection,
   onViewDeliverable
@@ -1325,7 +1410,9 @@ function WorkerDeskSections({
   desk: WorkerDesk;
   onApprove: (approvalId: string) => Promise<void>;
   onApproveTask: (taskId: string) => Promise<void>;
+  onNavigate: (hash: string) => void;
   onReject: (approvalId: string) => Promise<void>;
+  onRunAutonomy?: () => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
   onViewDeliverable: (deliverable: WorkerDeskDeliverable) => void;
@@ -1335,6 +1422,35 @@ function WorkerDeskSections({
   const sendApprovals = desk.approvals.filter((item) => /send/i.test(item.type) || /send|gmail|email/i.test(`${item.title} ${item.summary}`));
   const northStar = desk.commercialNorthStar;
   const outreachQueue = desk.outreachReadyQueue || [];
+  const lastWorked = desk.recentActivity[0]?.createdAt ? timeAgo(desk.recentActivity[0].createdAt) : null;
+  const setupSteps = isMara
+    ? [
+        {
+          id: "gmail",
+          done: canUseEmail,
+          label: "Connect Gmail",
+          detail: "Unlock inbox sync and send approvals",
+          action: () => onNavigate(`#app/office/workers/${activeWorker.slug}/knowledge`)
+        },
+        {
+          id: "research",
+          done: (desk.researchToday?.length || 0) > 0 || (desk.bookOfBusiness?.length || 0) > 0 || (desk.recentCompleted?.length || 0) > 0,
+          label: "Let Mara research your niche",
+          detail: "She finds brands and drafts on her own once Gmail/permissions are set",
+          action: onRunAutonomy
+            ? () => void onRunAutonomy()
+            : () => onNavigate(`#app/office/workers/${activeWorker.slug}/desk`)
+        },
+        {
+          id: "send",
+          done: sendApprovals.length > 0 || desk.waitingOnUser.some((item) => item.kind === "approval"),
+          label: "Approve your first send",
+          detail: "External email never goes out without you",
+          action: () => onNavigate("#app/office/reviews")
+        }
+      ]
+    : [];
+  const setupIncomplete = setupSteps.some((step) => !step.done);
 
   return (
     <>
@@ -1347,13 +1463,53 @@ function WorkerDeskSections({
           </p>
         </section>
       ) : null}
+      {isMara && setupIncomplete ? (
+        <section className="ro-worker-drawer-section ro-desk-focus">
+          <span className="ro-section-kicker">Get Mara ready</span>
+          <h3>Finish setup so I can move money work for you</h3>
+          <div className="ro-plain-list">
+            {setupSteps.map((step) => (
+              <div className="ro-plain-row" key={step.id}>
+                <div>
+                  <strong>{step.done ? "Done — " : ""}{step.label}</strong>
+                  <p>{step.detail}</p>
+                </div>
+                {!step.done ? (
+                  <button className="r-btn r-btn-accent" type="button" onClick={() => void step.action()} disabled={busyId === "mara-autonomy"}>
+                    {step.id === "research" && busyId === "mara-autonomy" ? "Working…" : "Do this"}
+                  </button>
+                ) : (
+                  <span className="ro-row-aside">Complete</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {isMara ? (
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Autonomy</strong>
+            <span>{lastWorked ? `Last activity ${lastWorked}` : "Waiting for first work pass"}</span>
+          </div>
+          <p className="ro-worker-note">
+            I keep working on a schedule inside your limits. You only need to approve sends and unblock me.
+          </p>
+          {onRunAutonomy ? (
+            <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunAutonomy()} disabled={busyId === "mara-autonomy"}>
+              {busyId === "mara-autonomy" ? "Working…" : "Run a work pass now"}
+            </button>
+          ) : null}
+        </section>
+      ) : null}
       {isMara && northStar ? (
         <section className="ro-worker-drawer-section ro-desk-focus">
           <span className="ro-section-kicker">Creator revenue influenced</span>
           <h3>{money.format(northStar.revenueInfluenced || 0)}</h3>
           <p>
-            {northStar.deals || 0} deals · avg {money.format(northStar.averageDealValue || 0)} ·{" "}
-            {Math.round((northStar.positiveResponseRate || 0) * 100)}% response · {northStar.qualifiedOpportunityCount || 0} qualified
+            {(northStar.revenueInfluenced || 0) === 0
+              ? "No attributed revenue yet — that's normal until deals close through opportunities I tracked."
+              : `${northStar.deals || 0} deals · avg ${money.format(northStar.averageDealValue || 0)} · ${Math.round((northStar.positiveResponseRate || 0) * 100)}% response · ${northStar.qualifiedOpportunityCount || 0} qualified`}
           </p>
         </section>
       ) : null}
@@ -1404,6 +1560,24 @@ function WorkerDeskSections({
                   <p>
                     {opp.nextAction?.label || opp.blockingReason || opp.stall?.likelyReason || `Score ${opp.scoreTotal || 0}`}
                   </p>
+                </div>
+                <div className="ro-inline-actions">
+                  <button
+                    className="r-btn r-btn-ghost"
+                    type="button"
+                    onClick={() => onNavigate(`#app/office/workers/${activeWorker.slug}/intelligence`)}
+                  >
+                    Open pipeline
+                  </button>
+                  {/contact/i.test(`${opp.nextAction?.label || ""} ${opp.blockingReason || ""}`) ? (
+                    <button
+                      className="r-btn r-btn-accent"
+                      type="button"
+                      onClick={() => onNavigate(`#app/office/workers/${activeWorker.slug}/intelligence`)}
+                    >
+                      Confirm contact
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -1484,6 +1658,18 @@ function WorkerDeskSections({
                   <strong>{item.brandName} · {item.scoreTotal}/100</strong>
                   <p>Outreach-ready: {item.contactEmail} · {sentenceCase(String(item.status || "").replace(/_/g, " "))}</p>
                 </div>
+                <div className="ro-inline-actions">
+                  <button
+                    className="r-btn r-btn-accent"
+                    type="button"
+                    onClick={() => {
+                      onNavigate(`#app/office/workers/${activeWorker.slug}/conversation`);
+                      onSeedCorrection(`Draft a personalized pitch to ${item.brandName} at ${item.contactEmail} and queue it for my approval before send.`);
+                    }}
+                  >
+                    Draft pitch
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -1561,8 +1747,10 @@ function WorkerDetailDrawer({
   onApprove,
   onApproveTask,
   onClose,
+  onNavigate,
   onOpenChat,
   onReject,
+  onRunAutonomy,
   onRunTask,
   onSeedCorrection,
   onViewDeliverable
@@ -1574,8 +1762,10 @@ function WorkerDetailDrawer({
   onApprove: (approvalId: string) => Promise<void>;
   onApproveTask: (taskId: string) => Promise<void>;
   onClose: () => void;
+  onNavigate: (hash: string) => void;
   onOpenChat: () => void;
   onReject: (approvalId: string) => Promise<void>;
+  onRunAutonomy?: () => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
   onViewDeliverable: (deliverable: WorkerDeskDeliverable) => void;
@@ -1602,7 +1792,9 @@ function WorkerDetailDrawer({
             desk={desk}
             onApprove={onApprove}
             onApproveTask={onApproveTask}
+            onNavigate={onNavigate}
             onReject={onReject}
+            onRunAutonomy={onRunAutonomy}
             onRunTask={onRunTask}
             onSeedCorrection={onSeedCorrection}
             onViewDeliverable={onViewDeliverable}
@@ -2256,7 +2448,12 @@ type GrowthIntelligence = {
     id: string;
     assetRef: string;
     assetType: string;
-    analysis: { assetSummary?: string; timestampedFeedback?: Array<{ at: string; observation: string; consequence: string; revision: string }> };
+    analysis: {
+      assetSummary?: string;
+      isMock?: boolean;
+      providerHonesty?: string;
+      timestampedFeedback?: Array<{ at: string; observation: string; consequence: string; revision: string }>;
+    };
   }>;
 };
 
@@ -2375,12 +2572,12 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
     <div className="ro-review-layout">
       <div>
         <section className="ro-sec ro-sec-lead">
-          <div className="ro-sec-head"><h2>Creator revenue influenced</h2><span className="ro-sec-n">North Star</span></div>
+          <div className="ro-sec-head"><h2>Your pipeline</h2><span className="ro-sec-n">Creator revenue</span></div>
           <p className="ro-blank" style={{ marginBottom: 12 }}>
-            Mara updates this herself from inbox replies, campaign payment signals, and approved sends. You only step in for risky decisions — like sending email or correcting a wrong read.
+            Mara updates this from inbox replies, payment signals, and approved sends. Use this page to confirm contacts and review creative feedback — day-to-day money decisions live on Today and Reviews.
           </p>
           <div className="ro-plain-list">
-            <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.revenueInfluenced || 0)}</strong><span>Recorded revenue connected to Mara's opportunities</span></div>
+            <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.revenueInfluenced || 0)}</strong><span>{(intelligence.metrics.revenueInfluenced || 0) === 0 ? "No attributed revenue yet — normal until deals close through tracked opportunities" : "Recorded revenue connected to Mara's opportunities"}</span></div>
             <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.averageDealValue || 0)} avg deal</strong><span>{intelligence.metrics.deals || 0} deals · {intelligence.metrics.repeatDeals || 0} repeat · {intelligence.metrics.opportunitiesTracked || 0} outcomes tracked</span></div>
             <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.positiveResponseRate || 0) * 100)}% positive-response rate</strong><span>{intelligence.metrics.contacted || 0} contacted · {intelligence.metrics.responded || 0} responded</span></div>
             <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.pitchToDealConversion || 0) * 100)}% pitch-to-deal conversion</strong><span>{intelligence.metrics.conceptsAccepted || 0} concepts accepted · {intelligence.metrics.qualifiedOpportunityCount || 0} qualified opportunities</span></div>
@@ -2446,7 +2643,7 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
                         Save contact
                       </button>
                       <button className="r-btn r-btn-ghost" type="button" onClick={() => void discoverContacts(item.publicBrandId)}>
-                        Hunt public contacts
+                        Find public contacts
                       </button>
                     </div>
                   ) : null}
@@ -2464,29 +2661,39 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
           {intelligence.creativeAnalyses.length ? (
             <div className="ro-plain-list">{intelligence.creativeAnalyses.slice(0, 5).map((item) => {
               const tip = item.analysis.timestampedFeedback?.[0];
+              const isMock = Boolean(item.analysis.isMock);
               return (
                 <div className="ro-plain-row" key={item.id}>
                   <strong>{item.analysis.assetSummary || item.assetRef}</strong>
-                  <span>{item.analysis.timestampedFeedback?.length || 0} actionable timestamps · {item.assetType}</span>
+                  <span>
+                    {item.analysis.timestampedFeedback?.length || 0} actionable timestamps · {item.assetType}
+                    {isMock ? " · illustrative only (not real video QA)" : ""}
+                  </span>
+                  {isMock && item.analysis.providerHonesty ? <p>{item.analysis.providerHonesty}</p> : null}
                   {tip ? <p>{tip.at}: {tip.revision || tip.observation}</p> : null}
                 </div>
               );
             })}</div>
-          ) : <p className="ro-blank">No analyzed rough cuts or portfolio videos yet.</p>}
+          ) : <p className="ro-blank">No analyzed rough cuts or portfolio videos yet. Live ad observation needs operator keys — Mara will not invent creatives.</p>}
         </section>
       </div>
 
       <aside className="ro-review-rail">
-        <section className="ro-sec ro-sec-lead">
-          <div className="ro-sec-head"><h2>Correct a read</h2><span className="ro-sec-n">Override</span></div>
-          <p className="ro-blank" style={{ marginBottom: 12 }}>
-            Optional. Use this when Mara misread a reply or payment. Day-to-day pipeline updates should come from her autonomy loop, not from you filling forms.
-          </p>
-          <label className="ro-field"><span>Opportunity</span><select value={outcome.opportunityId} onChange={(event) => setOutcome((current) => ({ ...current, opportunityId: event.target.value }))}><option value="">General / not linked</option>{intelligence.opportunities.map((item) => <option key={item.id} value={item.id}>{item.brandName}</option>)}</select></label>
-          <label className="ro-field"><span>Revenue influenced (USD)</span><input min="0" step="0.01" type="number" value={outcome.revenueAmount} onChange={(event) => setOutcome((current) => ({ ...current, revenueAmount: event.target.value }))} /></label>
-          {(["contacted", "responded", "conceptAccepted", "hired", "rehired"] as const).map((key) => <label className="ro-check" key={key}><input type="checkbox" checked={outcome[key]} onChange={(event) => setOutcome((current) => ({ ...current, [key]: event.target.checked }))} /><span>{sentenceCase(key.replace(/([A-Z])/g, " $1"))}</span></label>)}
-          <button className="r-btn r-btn-accent" type="button" disabled={saving} onClick={() => void saveOutcome()}>{saving ? "Saving…" : "Save correction"}</button>
-          {notice ? <p className="ro-review-notice">{notice}</p> : null}
+        <section className="ro-sec">
+          <details>
+            <summary className="ro-sec-head" style={{ cursor: "pointer", listStyle: "none" }}>
+              <h2>Correct a read</h2>
+              <span className="ro-sec-n">Optional override</span>
+            </summary>
+            <p className="ro-blank" style={{ marginBottom: 12, marginTop: 12 }}>
+              Only when Mara misread a reply or payment. Day-to-day pipeline updates should come from her autonomy loop.
+            </p>
+            <label className="ro-field"><span>Opportunity</span><select value={outcome.opportunityId} onChange={(event) => setOutcome((current) => ({ ...current, opportunityId: event.target.value }))}><option value="">General / not linked</option>{intelligence.opportunities.map((item) => <option key={item.id} value={item.id}>{item.brandName}</option>)}</select></label>
+            <label className="ro-field"><span>Revenue influenced (USD)</span><input min="0" step="0.01" type="number" value={outcome.revenueAmount} onChange={(event) => setOutcome((current) => ({ ...current, revenueAmount: event.target.value }))} /></label>
+            {(["contacted", "responded", "conceptAccepted", "hired", "rehired"] as const).map((key) => <label className="ro-check" key={key}><input type="checkbox" checked={outcome[key]} onChange={(event) => setOutcome((current) => ({ ...current, [key]: event.target.checked }))} /><span>{sentenceCase(key.replace(/([A-Z])/g, " $1"))}</span></label>)}
+            <button className="r-btn r-btn-accent" type="button" disabled={saving} onClick={() => void saveOutcome()}>{saving ? "Saving…" : "Save correction"}</button>
+            {notice ? <p className="ro-review-notice">{notice}</p> : null}
+          </details>
         </section>
       </aside>
     </div>
@@ -2505,6 +2712,7 @@ function WorkerDeskView({
   onApproveTask,
   onNavigate,
   onReject,
+  onRunAutonomy,
   onRunTask,
   onSeedCorrection,
   onReload,
@@ -2521,6 +2729,7 @@ function WorkerDeskView({
   onApproveTask: (taskId: string) => Promise<void>;
   onNavigate: (hash: string) => void;
   onReject: (approvalId: string) => Promise<void>;
+  onRunAutonomy?: () => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onSeedCorrection: (prompt: string) => void;
   onReload: () => Promise<void>;
@@ -2617,7 +2826,9 @@ function WorkerDeskView({
           desk={desk}
           onApprove={onApprove}
           onApproveTask={onApproveTask}
+          onNavigate={onNavigate}
           onReject={onReject}
+          onRunAutonomy={onRunAutonomy}
           onRunTask={onRunTask}
           onSeedCorrection={onSeedCorrection}
           onViewDeliverable={setSelectedDeliverable}
@@ -2745,15 +2956,20 @@ function BriefingModal({
 }
 
 function ApprovalsView({
-  workers, overlays, onNavigate, onReload,
+  workers, overlays, desks = [], onNavigate, onReload, onApprove, onReject, busyId = null,
 }: {
-  workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void; onReload: () => Promise<void>;
+  workers: Worker[]; overlays: Overlays; desks?: WorkerDesk[];
+  onNavigate: (h: string) => void; onReload: () => Promise<void>;
+  onApprove?: (workerSlug: string, approvalId: string) => Promise<void>;
+  onReject?: (workerSlug: string, approvalId: string) => Promise<void>;
+  busyId?: string | null;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [openBriefing, setOpenBriefing] = useState<OverlayBriefing | null>(null);
   const pending = overlays.tasks.filter((t) => t.status === "Needs Review" || t.status === "Pending approval");
   const suggestedApprovals = overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval);
+  const maraApprovals = desks.flatMap((desk) => desk.approvals.map((item) => ({ ...item, workerSlug: desk.workerSlug })));
   // Collapse duplicate briefings (same worker, title, and time) to a single card.
   const briefings = useMemo(() => {
     const seen = new Set<string>();
@@ -2815,7 +3031,7 @@ function ApprovalsView({
     seedOfficeConversationDraft(`Please update "${b.title}" before the next review. Specifically: `);
   };
 
-  const total = pending.length + briefings.length + suggestedApprovals.length;
+  const total = pending.length + briefings.length + suggestedApprovals.length + maraApprovals.length;
 
   return (
     <div className="ro-main-scroll">
@@ -2831,6 +3047,22 @@ function ApprovalsView({
       ) : (
         <div className="ro-review-layout is-single">
           <section className="ro-appr-list">
+            {maraApprovals.map((item) => (
+              <article className="ro-appr" key={`mara-${item.id}`}>
+                <div className="ro-appr-meta">{nameFor(item.workerSlug)} · {sentenceCase(String(item.type || "approval").replace(/_/g, " "))} · money move</div>
+                <h3>{item.title}</h3>
+                <p>{normalizeOfficeCopy(item.summary)}</p>
+                {item.reason ? <p className="ro-appr-reason">{normalizeOfficeCopy(item.reason)}</p> : null}
+                <div className="ro-appr-actions">
+                  <button className="r-btn r-btn-accent" type="button" disabled={busyId === item.id || busy === item.id} onClick={() => void onApprove?.(item.workerSlug, item.id)}>
+                    {busyId === item.id ? "Saving..." : "Approve"}
+                  </button>
+                  <button className="ro-textlink" type="button" disabled={busyId === item.id || busy === item.id} onClick={() => void onReject?.(item.workerSlug, item.id)}>Deny</button>
+                  <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${item.workerSlug}/desk`)}>Open desk</button>
+                </div>
+              </article>
+            ))}
+
             {suggestedApprovals.map((action) => (
               <article className="ro-appr" key={action.id}>
                 <div className="ro-appr-meta">{nameFor(action.workerSlug)} · {sentenceCase(action.actionType.replace(/_/g, " "))} · {timeAgo(action.createdAt)}</div>
@@ -4028,7 +4260,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, isAdmin = false,
   } else {
     switch (tab) {
       case "assignments": main = <AssignmentsView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
-      case "reviews": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} onNavigate={go} onReload={reload} />; break;
+      case "reviews": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} desks={desks} onNavigate={go} onReload={reload} onApprove={(slug, id) => updateWorkerApproval(slug, id, "approved")} onReject={(slug, id) => updateWorkerApproval(slug, id, "rejected")} busyId={workerActionBusy} />; break;
       case "calendar": main = <CalendarView workers={hiredWorkers} overlays={overlays} onReload={reload} />; break;
       case "workers": {
         if (workerSlug && activeWorker && activeDesk) {
@@ -4046,6 +4278,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, isAdmin = false,
               onNavigate={go}
               onReject={(approvalId) => updateWorkerApproval(activeWorker.slug, approvalId, "rejected")}
               onReload={reload}
+              onRunAutonomy={isAgentWorker(activeWorker.slug) ? () => runWorkerAutonomy(activeWorker.slug) : undefined}
               onRunTask={(taskId) => runWorkerTask(activeWorker.slug, taskId)}
               onSeedCorrection={(prompt) => {
                 go(`#app/office/workers/${activeWorker.slug}/conversation`);
@@ -4063,14 +4296,28 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, isAdmin = false,
       case "deliverables": main = <DeliverablesView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
       case "handbook": main = <HandbookView overlays={overlays} workers={hiredWorkers} />; break;
       case "settings": main = <SettingsView overlays={overlays} onReload={reload} />; break;
-      default: main = <TodayView desks={desks} userName={userName} workers={hiredWorkers} overlays={overlays} onNavigate={go} onApprovalsClick={() => go("#app/office/reviews")} onOpenWorkerDetails={(slug) => go(`#app/office/workers/${slug}/desk`)} />;
+      default: main = (
+        <TodayView
+          desks={desks}
+          userName={userName}
+          workers={hiredWorkers}
+          overlays={overlays}
+          onNavigate={go}
+          onApprovalsClick={() => go("#app/office/reviews")}
+          onOpenWorkerDetails={(slug) => go(`#app/office/workers/${slug}/desk`)}
+          onApprove={(slug, id) => updateWorkerApproval(slug, id, "approved")}
+          onReject={(slug, id) => updateWorkerApproval(slug, id, "rejected")}
+          busyId={workerActionBusy}
+        />
+      );
     }
   }
 
   const pendingCount =
     overlays.tasks.filter((t) => t.status === "Needs Review" || t.status === "Pending approval").length +
     overlays.briefings.length +
-    overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval).length;
+    overlays.suggestedActions.filter((action) => action.status === "suggested" && action.requiresApproval).length +
+    desks.reduce((sum, desk) => sum + desk.approvals.length, 0);
 
   return (
     <div className={`ro-shell${navCollapsed ? " nav-collapsed" : ""}`}>

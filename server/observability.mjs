@@ -179,8 +179,8 @@ export function validateConfig() {
     }
     const stripeKey = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
     const stripeHook = String(process.env.STRIPE_WEBHOOK_SECRET ?? "").trim();
-    if (Boolean(stripeKey) !== Boolean(stripeHook)) {
-      problems.push("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set together.");
+    if (!stripeKey || !stripeHook) {
+      problems.push("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required in production for paying strangers.");
     }
     if (!String(process.env.METRICS_TOKEN ?? "").trim()) {
       warnings.push("METRICS_TOKEN is unset; /metrics will return 401 in production until configured.");
@@ -190,11 +190,39 @@ export function validateConfig() {
     }
     const googleId = String(process.env.GOOGLE_CLIENT_ID ?? "").trim();
     const googleSecret = String(process.env.GOOGLE_CLIENT_SECRET ?? "").trim();
-    if (!googleId || !googleSecret) {
-      warnings.push("GOOGLE_CLIENT_ID/SECRET unset — Google login and Gmail connect will not work for public hire.");
+    const googleOk = Boolean(googleId && googleSecret);
+    const smtpOk = Boolean(String(process.env.SMTP_HOST ?? "").trim());
+    if (!googleOk && !smtpOk) {
+      problems.push(
+        "Production requires Google OAuth (GOOGLE_CLIENT_ID/SECRET) and/or SMTP_HOST so strangers can sign up and verify."
+      );
+    } else {
+      if (!googleOk) {
+        warnings.push("GOOGLE_CLIENT_ID/SECRET unset — Google login and Gmail connect will not work.");
+      }
+      if (!smtpOk) {
+        warnings.push("SMTP_HOST unset — email/password signup verification and digests will not send.");
+      }
     }
-    if (!String(process.env.SMTP_HOST ?? "").trim()) {
-      warnings.push("SMTP_HOST unset — transactional email (verification, digests) will not send.");
+    const videoQaDisabled = String(process.env.MARA_DISABLE_VIDEO_QA ?? "").trim() === "1";
+    const transcription = String(process.env.MARA_TRANSCRIPTION_PROVIDER || "mock").toLowerCase();
+    const multimodal = String(process.env.MARA_MULTIMODAL_PROVIDER || "mock").toLowerCase();
+    if (!videoQaDisabled) {
+      const transcriptionReal = ["openai", "whisper", "openai_whisper"].includes(transcription);
+      const multimodalReal = multimodal === "anthropic";
+      if (!transcriptionReal || !multimodalReal) {
+        problems.push(
+          "Production video QA must use real providers (MARA_TRANSCRIPTION_PROVIDER=openai + MARA_MULTIMODAL_PROVIDER=anthropic + OPENAI_API_KEY) or set MARA_DISABLE_VIDEO_QA=1."
+        );
+      } else if (!String(process.env.OPENAI_API_KEY ?? "").trim()) {
+        problems.push("OPENAI_API_KEY is required when Mara video QA providers are enabled in production.");
+      }
+      if (String(process.env.MARA_REQUIRE_REAL_MEDIA ?? "").trim() !== "1") {
+        warnings.push("Set MARA_REQUIRE_REAL_MEDIA=1 in production so mock media analysis cannot slip through.");
+      }
+    }
+    if (!String(process.env.SUPPORT_EMAIL ?? "").trim()) {
+      warnings.push("SUPPORT_EMAIL unset — legal/support pages will use a placeholder contact.");
     }
   } else if (encryptionKey && !encryptionKeyOk(encryptionKey)) {
     problems.push("ENCRYPTION_KEY must decode to exactly 32 bytes when set.");
