@@ -54,19 +54,18 @@ export function readGlobalTikTokInsights(globalPath) {
   }
 }
 
-export function getLatestTrendSnapshot(db, userId, workerId, platform = "tiktok") {
-  return (
-    db
-      .prepare(
-        `SELECT id, niche, region, period_days AS periodDays, source, source_url AS sourceUrl,
-                payload_json AS payloadJson, content_gaps_json AS contentGapsJson, hashtags_json AS hashtagsJson,
-                insights_json AS insightsJson, login_wall_encountered AS loginWallEncountered, updated_at AS updatedAt
-         FROM worker_trend_snapshots
-         WHERE user_id = ? AND worker_id = ? AND platform = ?
-         ORDER BY updated_at DESC
-         LIMIT 1`
-      )
-      .get(userId, workerId, platform) ?? null
+export async function getLatestTrendSnapshot(store, userId, workerId, platform = "tiktok") {
+  return store.queryOne(
+    `SELECT id, niche, region, period_days AS "periodDays", source, source_url AS "sourceUrl",
+            payload_json AS "payloadJson", content_gaps_json AS "contentGapsJson", hashtags_json AS "hashtagsJson",
+            insights_json AS "insightsJson", login_wall_encountered AS "loginWallEncountered", updated_at AS "updatedAt"
+     FROM worker_trend_snapshots
+     WHERE user_id = ? AND worker_id = ? AND platform = ?
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    userId,
+    workerId,
+    platform
   );
 }
 
@@ -97,18 +96,17 @@ function snapshotToInsights(snapshot) {
   });
 }
 
-export function saveUserTrendSnapshot(db, { insights, userId, workerId, platform = "tiktok" }) {
+export async function saveUserTrendSnapshot(store, { insights, userId, workerId, platform = "tiktok" }) {
   const timestamp = insights.updatedAt || new Date().toISOString();
-  const existing = getLatestTrendSnapshot(db, userId, workerId, platform);
+  const existing = await getLatestTrendSnapshot(store, userId, workerId, platform);
   const payloadJson = JSON.stringify(insights);
 
   if (existing?.id) {
-    db.prepare(
+    await store.execute(
       `UPDATE worker_trend_snapshots
        SET niche = ?, region = ?, period_days = ?, source = ?, source_url = ?, payload_json = ?,
            content_gaps_json = ?, hashtags_json = ?, insights_json = ?, login_wall_encountered = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(
+       WHERE id = ?`,
       insights.niche,
       insights.region,
       insights.periodDays,
@@ -126,12 +124,11 @@ export function saveUserTrendSnapshot(db, { insights, userId, workerId, platform
   }
 
   const id = randomUUID();
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_trend_snapshots
       (id, user_id, worker_id, platform, niche, region, period_days, source, source_url, payload_json,
        content_gaps_json, hashtags_json, insights_json, login_wall_encountered, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     userId,
     workerId,
@@ -159,8 +156,8 @@ export async function writeUserTrendInsightsFile(storageRoot, userId, insights) 
   return filePath;
 }
 
-export function syncUserTrendInsightsFromGlobal({
-  db,
+export async function syncUserTrendInsightsFromGlobal({
+  store,
   globalPath,
   readAccountContext,
   readMaraOnboarding,
@@ -174,16 +171,16 @@ export function syncUserTrendInsightsFromGlobal({
     return { note: "Global TikTok trend file is not available yet.", synced: false };
   }
 
-  const accountContext = typeof readAccountContext === "function" ? readAccountContext(userId) : null;
-  const maraOnboarding = typeof readMaraOnboarding === "function" ? readMaraOnboarding(userId, workerId) : null;
-  const workerKnowledge = typeof readWorkerKnowledge === "function" ? readWorkerKnowledge(userId, workerId) : [];
+  const accountContext = typeof readAccountContext === "function" ? await readAccountContext(userId) : null;
+  const maraOnboarding = typeof readMaraOnboarding === "function" ? await readMaraOnboarding(userId, workerId) : null;
+  const workerKnowledge = typeof readWorkerKnowledge === "function" ? await readWorkerKnowledge(userId, workerId) : [];
   const niche = inferTrendNiche({
     accountContext,
     maraAnswers: maraOnboarding?.answers ?? {},
     workerKnowledge
   });
   const insights = buildScopedTrendInsights(globalPayload, niche);
-  saveUserTrendSnapshot(db, { insights, userId, workerId });
+  await saveUserTrendSnapshot(store, { insights, userId, workerId });
 
   const resolvedStorageRoot = storageRoot || resolveStorageRoot();
   writeUserTrendInsightsFile(resolvedStorageRoot, userId, insights).catch((error) => {
@@ -193,9 +190,9 @@ export function syncUserTrendInsightsFromGlobal({
   return { insights, niche, synced: true };
 }
 
-export function loadUserTrendInsights({
+export async function loadUserTrendInsights({
   autoSync = true,
-  db,
+  store,
   globalPath,
   readAccountContext,
   readMaraOnboarding,
@@ -204,10 +201,10 @@ export function loadUserTrendInsights({
   userId,
   workerId
 }) {
-  let snapshot = getLatestTrendSnapshot(db, userId, workerId);
+  let snapshot = await getLatestTrendSnapshot(store, userId, workerId);
   if (!snapshot || (autoSync && isTrendSnapshotStale(snapshot))) {
-    const syncResult = syncUserTrendInsightsFromGlobal({
-      db,
+    const syncResult = await syncUserTrendInsightsFromGlobal({
+      store,
       globalPath,
       readAccountContext,
       readMaraOnboarding,
@@ -219,7 +216,7 @@ export function loadUserTrendInsights({
     if (syncResult.insights) {
       return syncResult.insights;
     }
-    snapshot = getLatestTrendSnapshot(db, userId, workerId);
+    snapshot = await getLatestTrendSnapshot(store, userId, workerId);
   }
 
   if (snapshot) {
@@ -231,9 +228,9 @@ export function loadUserTrendInsights({
     return null;
   }
 
-  const accountContext = typeof readAccountContext === "function" ? readAccountContext(userId) : null;
-  const maraOnboarding = typeof readMaraOnboarding === "function" ? readMaraOnboarding(userId, workerId) : null;
-  const workerKnowledge = typeof readWorkerKnowledge === "function" ? readWorkerKnowledge(userId, workerId) : [];
+  const accountContext = typeof readAccountContext === "function" ? await readAccountContext(userId) : null;
+  const maraOnboarding = typeof readMaraOnboarding === "function" ? await readMaraOnboarding(userId, workerId) : null;
+  const workerKnowledge = typeof readWorkerKnowledge === "function" ? await readWorkerKnowledge(userId, workerId) : [];
   return buildScopedTrendInsights(
     globalPayload,
     inferTrendNiche({

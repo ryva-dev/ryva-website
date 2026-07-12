@@ -17,7 +17,6 @@ import {
 import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
-import { wrapSqliteHandle } from "./dataStore.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -122,7 +121,7 @@ async function tryExecuteLlmFirstMaraTask(context) {
   };
 
   return tryExecuteAgentTaskLlm({
-    db: context.db,
+    db: context.store,
     userId: context.userId,
     roleConfig,
     task,
@@ -152,7 +151,8 @@ const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "reddit_market_pulse",
   "tiktok_trend_pulse",
   "update_brand_tracker",
-  "weekly_schedule"
+  "weekly_schedule",
+  "weekly_growth_intelligence_brief"
 ]);
 
 export const MARA_REDDIT_COMMUNITIES = [
@@ -187,6 +187,7 @@ const TASK_TYPE_OUTPUT_TYPE_MAP = {
   ugc_shot_list: "shot_list",
   weekly_action_plan: "weekly_plan",
   weekly_schedule: "weekly_schedule",
+  weekly_growth_intelligence_brief: "growth_intelligence_brief",
   brand_content_ideas: "content_ideas",
   ops_brief: "ops_brief",
   reddit_market_pulse: "market_pulse",
@@ -474,6 +475,7 @@ const TASK_TYPE_KNOWLEDGE_CATEGORIES = {
   portfolio_recommendations: ["portfolio", "beginner_roadmap", "creator_positioning"],
   ugc_shot_list: ["content_strategy", "content_formats", "tiktok_growth"],
   weekly_action_plan: ["beginner_roadmap", "admin_tracking", "campaign_workflow"],
+  weekly_growth_intelligence_brief: ["brand_research", "content_strategy", "creator_positioning", "deal_closing"],
   weekly_schedule: ["tiktok_growth", "beginner_roadmap", "campaign_workflow"],
   brand_content_ideas: ["content_strategy", "content_formats", "tiktok_growth"],
   tiktok_trend_pulse: ["tiktok_growth", "content_strategy"],
@@ -529,25 +531,25 @@ function seedMaraKnowledgeModules(db) {
   }
 }
 
-export function listWorkerKnowledgeModules(db, { userId = null, workerId = null, workerType = "mara" } = {}) {
-  return db
-    .prepare(
-      `SELECT id, worker_type AS workerType, worker_id AS workerId, title, category, summary, content,
-              structured_content_json AS structuredContentJson, tags_json AS tagsJson, is_active AS isActive,
-              created_at AS createdAt, updated_at AS updatedAt
-       FROM worker_knowledge_modules
-       WHERE is_active = 1
-         AND (worker_id IS NULL OR worker_id = ?)
-         AND (worker_type IS NULL OR worker_type = ?)
-       ORDER BY category, title`
-    )
-    .all(workerId, workerType)
-    .map((row) => ({
+export async function listWorkerKnowledgeModules(store, { userId = null, workerId = null, workerType = "mara" } = {}) {
+  const rows = await store.query(
+    `SELECT id, worker_type AS workerType, worker_id AS workerId, title, category, summary, content,
+            structured_content_json AS structuredContentJson, tags_json AS tagsJson, is_active AS isActive,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM worker_knowledge_modules
+     WHERE is_active = 1
+       AND (worker_id IS NULL OR worker_id = ?)
+       AND (worker_type IS NULL OR worker_type = ?)
+     ORDER BY category, title`,
+    workerId,
+    workerType
+  );
+  return rows.map((row) => ({
       ...row,
       isActive: Boolean(row.isActive),
       structuredContent: safeJsonParse(row.structuredContentJson, null),
       tags: safeJsonParse(row.tagsJson, [])
-    }));
+  }));
 }
 
 function inferTaskTypeFromMessage(text) {
@@ -564,8 +566,8 @@ function inferTaskTypeFromMessage(text) {
   return "general_internal_task";
 }
 
-export function getMaraRelevantKnowledge({
-  db,
+export async function getMaraRelevantKnowledge({
+  store,
   taskType = null,
   tags = [],
   limit = 5,
@@ -574,7 +576,7 @@ export function getMaraRelevantKnowledge({
   workerId = MARA_WORKER_ID
 }) {
   const inferredTaskType = taskType || inferTaskTypeFromMessage(userMessage);
-  const modules = listWorkerKnowledgeModules(db, { userId, workerId, workerType: "mara" });
+  const modules = await listWorkerKnowledgeModules(store, { userId, workerId, workerType: "mara" });
   const neededCategories = new Set(["ugc_basics", ...(TASK_TYPE_KNOWLEDGE_CATEGORIES[inferredTaskType] || [])]);
   const neededTags = Array.isArray(tags) ? tags.map((tag) => String(tag).toLowerCase()) : [];
   const lowerMessage = String(userMessage ?? "").toLowerCase();
@@ -612,6 +614,7 @@ export function inferMaraTaskType(title, source = "") {
   if (normalized.includes("content idea")) return "content_idea_batch";
   if (normalized.includes("shot list")) return "ugc_shot_list";
   if (normalized.includes("weekly action plan")) return "weekly_action_plan";
+  if (normalized.includes("growth intelligence brief")) return "weekly_growth_intelligence_brief";
   if (normalized.includes("brand tracker structure") || normalized.includes("tracker structure")) return "brand_tracker_structure";
   if (normalized.includes("update brand tracker") || normalized.includes("refresh brand tracker")) return "update_brand_tracker";
   if (normalized.includes("brand content ideas") || normalized.includes("content ideas for")) return "brand_content_ideas";
@@ -837,30 +840,29 @@ function safeJsonParse(value, fallback) {
   }
 }
 
-export function ensureWorkerPermissions(db, userId, workerId, overrides = {}) {
-  const current = db
-    .prepare(
-      `SELECT *
-       FROM worker_permissions
-       WHERE user_id = ? AND worker_id = ?`
-    )
-    .get(userId, workerId);
+export async function ensureWorkerPermissions(store, userId, workerId, overrides = {}) {
+  const current = await store.queryOne(
+    `SELECT *
+     FROM worker_permissions
+     WHERE user_id = ? AND worker_id = ?`,
+    userId,
+    workerId
+  );
 
   if (current) {
-    return getWorkerPermissions(db, userId, workerId);
+    return getWorkerPermissions(store, userId, workerId);
   }
 
   const timestamp = new Date().toISOString();
   const next = { ...defaultPermissionsForWorker(workerId), ...overrides };
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_permissions (
       id, user_id, worker_id,
       can_suggest_tasks, can_create_tasks, can_run_research, can_create_recurring_responsibilities,
       can_draft_outreach, can_read_inbox, can_send_emails_with_approval, can_send_emails_without_approval,
       can_update_external_trackers, can_use_connected_integrations, approval_required_for_external_actions,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     randomUUID(),
     userId,
     workerId,
@@ -879,21 +881,20 @@ export function ensureWorkerPermissions(db, userId, workerId, overrides = {}) {
     timestamp
   );
 
-  return getWorkerPermissions(db, userId, workerId);
+  return getWorkerPermissions(store, userId, workerId);
 }
 
-export function updateWorkerPermissions(db, userId, workerId, overrides = {}) {
-  const current = ensureWorkerPermissions(db, userId, workerId);
+export async function updateWorkerPermissions(store, userId, workerId, overrides = {}) {
+  const current = await ensureWorkerPermissions(store, userId, workerId);
   const next = { ...current, ...overrides };
   const timestamp = new Date().toISOString();
-  db.prepare(
+  await store.execute(
     `UPDATE worker_permissions
      SET can_suggest_tasks = ?, can_create_tasks = ?, can_run_research = ?, can_create_recurring_responsibilities = ?,
          can_draft_outreach = ?, can_read_inbox = ?, can_send_emails_with_approval = ?, can_send_emails_without_approval = ?,
          can_update_external_trackers = ?, can_use_connected_integrations = ?, approval_required_for_external_actions = ?,
          updated_at = ?
-     WHERE user_id = ? AND worker_id = ?`
-  ).run(
+     WHERE user_id = ? AND worker_id = ?`,
     boolToInt(next.canSuggestTasks),
     boolToInt(next.canCreateTasks),
     boolToInt(next.canRunResearch),
@@ -909,20 +910,20 @@ export function updateWorkerPermissions(db, userId, workerId, overrides = {}) {
     userId,
     workerId
   );
-  return getWorkerPermissions(db, userId, workerId);
+  return getWorkerPermissions(store, userId, workerId);
 }
 
-export function getWorkerPermissions(db, userId, workerId) {
-  const record = db
-    .prepare(
-      `SELECT *
-       FROM worker_permissions
-       WHERE user_id = ? AND worker_id = ?`
-    )
-    .get(userId, workerId);
+export async function getWorkerPermissions(store, userId, workerId) {
+  const record = await store.queryOne(
+    `SELECT *
+     FROM worker_permissions
+     WHERE user_id = ? AND worker_id = ?`,
+    userId,
+    workerId
+  );
 
   if (!record) {
-    return ensureWorkerPermissions(db, userId, workerId);
+    return ensureWorkerPermissions(store, userId, workerId);
   }
 
   return {
@@ -940,7 +941,7 @@ export function getWorkerPermissions(db, userId, workerId) {
   };
 }
 
-export function createWorkerActivityLog(db, {
+export async function createWorkerActivityLog(store, {
   createdAt,
   description,
   eventType,
@@ -952,10 +953,11 @@ export function createWorkerActivityLog(db, {
 }) {
   const timestamp = createdAt || new Date().toISOString();
   const id = randomUUID();
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_activity_log (id, user_id, worker_id, event_type, title, description, related_task_id, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, userId, workerId, eventType, title, description, relatedTaskId, JSON.stringify(metadata), timestamp);
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, userId, workerId, eventType, title, description, relatedTaskId, JSON.stringify(metadata), timestamp
+  );
   return id;
 }
 
@@ -1011,39 +1013,40 @@ function pickHighestPriorityTask(tasks) {
   })[0] ?? null;
 }
 
-export function listWorkerTasksForUserWorker(db, userId, workerId) {
-  return db
-    .prepare(
-      `SELECT id, user_id AS userId, worker_id AS workerId, title, description, source, status, priority,
-              due_at AS dueAt, required_permissions_json AS requiredPermissionsJson, evidence_used_json AS evidenceUsedJson,
-              output, task_type AS taskType, target_brand_id AS targetBrandId, created_at AS createdAt, updated_at AS updatedAt
-       FROM worker_tasks
-       WHERE user_id = ? AND worker_id = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId, workerId)
-    .map((row) => ({
+export async function listWorkerTasksForUserWorker(store, userId, workerId) {
+  const rows = await store.query(
+    `SELECT id, user_id AS userId, worker_id AS workerId, title, description, source, status, priority,
+            due_at AS dueAt, required_permissions_json AS requiredPermissionsJson, evidence_used_json AS evidenceUsedJson,
+            output, task_type AS taskType, target_brand_id AS targetBrandId, created_at AS createdAt, updated_at AS updatedAt
+     FROM worker_tasks
+     WHERE user_id = ? AND worker_id = ?
+     ORDER BY created_at DESC`,
+    userId,
+    workerId
+  );
+  return rows.map((row) => ({
       ...row,
       evidenceUsed: safeJsonParse(row.evidenceUsedJson, []),
       requiredPermissions: safeJsonParse(row.requiredPermissionsJson, []),
       taskType: row.taskType || inferMaraTaskType(row.title, row.source)
-    }));
+  }));
 }
 
-function findDuplicateTask(db, userId, workerId, title) {
+async function findDuplicateTask(store, userId, workerId, title) {
   const normalizedTitle = normalizeForComparison(title);
-  return db
-    .prepare(
-      `SELECT id
-       FROM worker_tasks
-       WHERE user_id = ? AND worker_id = ? AND normalized_title = ? AND status NOT IN ('dismissed', 'completed')`
-    )
-    .get(userId, workerId, normalizedTitle);
+  return store.queryOne(
+    `SELECT id
+     FROM worker_tasks
+     WHERE user_id = ? AND worker_id = ? AND normalized_title = ? AND status NOT IN ('dismissed', 'completed')`,
+    userId,
+    workerId,
+    normalizedTitle
+  );
 }
 
-export function createWorkerTask(db, task) {
+export async function createWorkerTask(store, task) {
   const normalizedTitle = normalizeForComparison(task.title);
-  const duplicate = findDuplicateTask(db, task.userId, task.workerId, task.title);
+  const duplicate = await findDuplicateTask(store, task.userId, task.workerId, task.title);
   if (duplicate) {
     return { duplicate: true, id: duplicate.id };
   }
@@ -1054,11 +1057,10 @@ export function createWorkerTask(db, task) {
   const evidenceUsed = Array.isArray(task.evidenceUsed) ? task.evidenceUsed : [];
   const taskType = String(task.taskType || inferMaraTaskType(task.title, task.source)).trim();
 
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_tasks (id, user_id, worker_id, title, description, source, status, priority, due_at,
       required_permissions_json, evidence_used_json, output, task_type, target_brand_id, normalized_title, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     task.userId,
     task.workerId,
@@ -1078,10 +1080,9 @@ export function createWorkerTask(db, task) {
     timestamp
   );
 
-  db.prepare(
+  await store.execute(
     `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     task.userId,
     task.workerId,
@@ -1094,7 +1095,7 @@ export function createWorkerTask(db, task) {
     timestamp
   );
 
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: task.description,
     eventType: "task_created",
@@ -1105,33 +1106,36 @@ export function createWorkerTask(db, task) {
     workerId: task.workerId
   });
 
-  db.prepare(
+  await store.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), task.userId, task.workerId, "Created worker task.", "Worker Tasks", task.title, timestamp);
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    randomUUID(), task.userId, task.workerId, "Created worker task.", "Worker Tasks", task.title, timestamp
+  );
 
   return { duplicate: false, id };
 }
 
-export function updateWorkerTaskStatus(db, userId, workerId, taskId, status) {
+export async function updateWorkerTaskStatus(store, userId, workerId, taskId, status) {
   const timestamp = new Date().toISOString();
-  db.prepare(
+  await store.execute(
     `UPDATE worker_tasks
      SET status = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_id = ?`
-  ).run(status, timestamp, taskId, userId, workerId);
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    status, timestamp, taskId, userId, workerId
+  );
 
-  db.prepare(
+  await store.execute(
     `UPDATE office_custom_tasks
      SET status = ?
-     WHERE id = ? AND user_id = ? AND worker_slug = ?`
-  ).run(TASK_STATUS_MAP[status] ?? "To Do", taskId, userId, workerId);
+     WHERE id = ? AND user_id = ? AND worker_slug = ?`,
+    TASK_STATUS_MAP[status] ?? "To Do", taskId, userId, workerId
+  );
 
   return { ok: true };
 }
 
-export async function approveWorkerProposedTask(db, userId, workerId, taskId, executionOptions = {}) {
-  const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
+export async function approveWorkerProposedTask(store, userId, workerId, taskId, executionOptions = {}) {
+  const task = (await listWorkerTasksForUserWorker(store, userId, workerId)).find((entry) => entry.id === taskId);
   if (!task) {
     throw new Error("Worker task not found.");
   }
@@ -1139,15 +1143,15 @@ export async function approveWorkerProposedTask(db, userId, workerId, taskId, ex
     throw new Error("Only proposed tasks can be approved this way.");
   }
 
-  updateWorkerTaskStatus(db, userId, workerId, taskId, "approved");
+  await updateWorkerTaskStatus(store, userId, workerId, taskId, "approved");
   const result = await runMaraTask({
-    db,
+    store,
     taskId,
     userId,
     workerId,
     ...executionOptions
   });
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     description: `You approved ${task.title}, so I ran it.`,
     eventType: "task_auto_executed",
     relatedTaskId: taskId,
@@ -1158,21 +1162,22 @@ export async function approveWorkerProposedTask(db, userId, workerId, taskId, ex
   return result;
 }
 
-export function dismissWorkerTask(db, userId, workerId, taskId) {
-  const task = db
-    .prepare(
-      `SELECT id, title
-       FROM worker_tasks
-       WHERE id = ? AND user_id = ? AND worker_id = ?`
-    )
-    .get(taskId, userId, workerId);
+export async function dismissWorkerTask(store, userId, workerId, taskId) {
+  const task = await store.queryOne(
+    `SELECT id, title
+     FROM worker_tasks
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    taskId,
+    userId,
+    workerId
+  );
 
   if (!task) {
     throw new Error("Worker task not found.");
   }
 
-  updateWorkerTaskStatus(db, userId, workerId, taskId, "dismissed");
-  createWorkerActivityLog(db, {
+  await updateWorkerTaskStatus(store, userId, workerId, taskId, "dismissed");
+  await createWorkerActivityLog(store, {
     description: "Dismissed from Mara's active plate.",
     eventType: "task_dismissed",
     relatedTaskId: taskId,
@@ -1184,15 +1189,16 @@ export function dismissWorkerTask(db, userId, workerId, taskId) {
   return { ok: true };
 }
 
-export function completeWorkerTask(db, userId, workerId, taskId, output = null) {
+export async function completeWorkerTask(store, userId, workerId, taskId, output = null) {
   const timestamp = new Date().toISOString();
-  db.prepare(
+  await store.execute(
     `UPDATE worker_tasks
      SET status = 'completed', output = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_id = ?`
-  ).run(output, timestamp, taskId, userId, workerId);
-  updateWorkerTaskStatus(db, userId, workerId, taskId, "completed");
-  createWorkerActivityLog(db, {
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    output, timestamp, taskId, userId, workerId
+  );
+  await updateWorkerTaskStatus(store, userId, workerId, taskId, "completed");
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: output || "Task completed.",
     eventType: "task_completed",
@@ -1204,30 +1210,29 @@ export function completeWorkerTask(db, userId, workerId, taskId, output = null) 
   return { ok: true };
 }
 
-export function listWorkerOutputs(db, userId, workerId) {
-  return db
-    .prepare(
-      `SELECT id, user_id AS userId, worker_id AS workerId, task_id AS taskId, output_type AS outputType,
-              title, content, structured_content_json AS structuredContentJson, source, created_at AS createdAt, updated_at AS updatedAt
-       FROM worker_outputs
-       WHERE user_id = ? AND worker_id = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId, workerId)
-    .map((row) => ({
+export async function listWorkerOutputs(store, userId, workerId) {
+  const rows = await store.query(
+    `SELECT id, user_id AS userId, worker_id AS workerId, task_id AS taskId, output_type AS outputType,
+            title, content, structured_content_json AS structuredContentJson, source, created_at AS createdAt, updated_at AS updatedAt
+     FROM worker_outputs
+     WHERE user_id = ? AND worker_id = ?
+     ORDER BY created_at DESC`,
+    userId,
+    workerId
+  );
+  return rows.map((row) => ({
       ...row,
       structuredContent: safeJsonParse(row.structuredContentJson, null)
-    }));
+  }));
 }
 
-export function createWorkerOutput(db, output) {
+export async function createWorkerOutput(store, output) {
   const timestamp = output.createdAt || new Date().toISOString();
   const id = randomUUID();
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_outputs
       (id, user_id, worker_id, task_id, output_type, title, content, structured_content_json, source, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     output.userId,
     output.workerId,
@@ -1241,7 +1246,7 @@ export function createWorkerOutput(db, output) {
     timestamp
   );
 
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: output.title,
     eventType: "worker_output_created",
@@ -1396,11 +1401,12 @@ function getStructuredList(module, key, fallback = []) {
   return Array.isArray(value) ? value : fallback;
 }
 
-export function buildMaraExecutionContext({
-  db,
+export async function buildMaraExecutionContext({
+  store,
   fetchImpl,
   readAccountContext,
   readConnectedIntegrations,
+  readGrowthIntelligence,
   readMessages,
   readMaraOnboarding,
   readPrivateInsights,
@@ -1409,26 +1415,26 @@ export function buildMaraExecutionContext({
   userId,
   workerId
 }) {
-  const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
+  const task = (await listWorkerTasksForUserWorker(store, userId, workerId)).find((entry) => entry.id === taskId);
   if (!task) {
     throw new Error("Worker task not found.");
   }
 
-  const recentMessages = typeof readMessages === "function" ? readMessages(userId, workerId) : [];
-  const relevantKnowledgeModules = getMaraRelevantKnowledge({
-    db,
+  const recentMessages = typeof readMessages === "function" ? await readMessages(userId, workerId) : [];
+  const relevantKnowledgeModules = await getMaraRelevantKnowledge({
+    store,
     taskType: task.taskType,
     userId,
     userMessage: recentMessages.map((message) => message.text).join("\n"),
     workerId
   });
 
-  const allResearch = listResearchItems(db, userId, workerId);
+  const allResearch = await listResearchItems(store, userId, workerId);
   const evidenceIds = new Set(
     (task.evidenceUsed || []).map((evidence) => String(evidence).trim().replace(/^research:/, ""))
   );
   let relatedResearch = allResearch.filter((item) => evidenceIds.has(item.id));
-  const targetBrand = task.targetBrandId ? getWorkerBrand(db, userId, workerId, task.targetBrandId) : null;
+  const targetBrand = task.targetBrandId ? await getWorkerBrand(store, userId, workerId, task.targetBrandId) : null;
   if (relatedResearch.length === 0 && targetBrand?.researchItemId) {
     const linkedResearch = allResearch.find((item) => item.id === targetBrand.researchItemId);
     if (linkedResearch) {
@@ -1437,33 +1443,34 @@ export function buildMaraExecutionContext({
   }
 
   return {
-    accountContext: typeof readAccountContext === "function" ? readAccountContext(userId) : null,
-    connectedIntegrations: typeof readConnectedIntegrations === "function" ? readConnectedIntegrations(userId, workerId) : [],
+    accountContext: typeof readAccountContext === "function" ? await readAccountContext(userId) : null,
+    connectedIntegrations: typeof readConnectedIntegrations === "function" ? await readConnectedIntegrations(userId, workerId) : [],
     currentTask: task,
-    db,
+    store,
     fetchImpl: typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch,
-    permissions: getWorkerPermissions(db, userId, workerId),
-    previousOutputs: listWorkerOutputs(db, userId, workerId),
-    privateInsights: typeof readPrivateInsights === "function" ? readPrivateInsights(userId, workerId) : null,
+    permissions: await getWorkerPermissions(store, userId, workerId),
+    growthIntelligence: typeof readGrowthIntelligence === "function" ? await readGrowthIntelligence(userId, workerId) : { opportunities: [], metrics: {} },
+    previousOutputs: await listWorkerOutputs(store, userId, workerId),
+    privateInsights: typeof readPrivateInsights === "function" ? await readPrivateInsights(userId, workerId) : null,
     relevantKnowledgeModules,
     relatedResearch,
     targetBrand,
-    recentActivity: db
-      .prepare(
-        `SELECT id, event_type AS eventType, title, description, created_at AS createdAt
-         FROM worker_activity_log
-         WHERE user_id = ? AND worker_id = ?
-         ORDER BY created_at DESC
-         LIMIT 8`
-      )
-      .all(userId, workerId),
+    recentActivity: await store.query(
+      `SELECT id, event_type AS eventType, title, description, created_at AS createdAt
+       FROM worker_activity_log
+       WHERE user_id = ? AND worker_id = ?
+       ORDER BY created_at DESC
+       LIMIT 8`,
+      userId,
+      workerId
+    ),
     recentMessages,
-    recurringResponsibilities: listRecurringResponsibilities(db, userId, workerId),
-    relatedOpenTasks: listWorkerTasksForUserWorker(db, userId, workerId).filter((entry) => entry.id !== taskId && ["approved", "in_progress", "blocked"].includes(entry.status)),
+    recurringResponsibilities: await listRecurringResponsibilities(store, userId, workerId),
+    relatedOpenTasks: (await listWorkerTasksForUserWorker(store, userId, workerId)).filter((entry) => entry.id !== taskId && ["approved", "in_progress", "blocked"].includes(entry.status)),
     userId,
     workerId,
-    workerKnowledge: typeof readWorkerKnowledge === "function" ? readWorkerKnowledge(userId, workerId) : [],
-    workerOnboarding: typeof readMaraOnboarding === "function" ? readMaraOnboarding(userId, workerId) : null
+    workerKnowledge: typeof readWorkerKnowledge === "function" ? await readWorkerKnowledge(userId, workerId) : [],
+    workerOnboarding: typeof readMaraOnboarding === "function" ? await readMaraOnboarding(userId, workerId) : null
   };
 }
 
@@ -1760,15 +1767,15 @@ function executeWeeklyActionPlanTask(context) {
   };
 }
 
-function executeBrandTrackerStructureTask(context) {
+async function executeBrandTrackerStructureTask(context) {
   return executeUpdateBrandTrackerTask(context, { includeStructureGuide: true });
 }
 
-function executeUpdateBrandTrackerTask(context, { includeStructureGuide = false } = {}) {
+async function executeUpdateBrandTrackerTask(context, { includeStructureGuide = false } = {}) {
   const trackingModule = getKnowledgeModule(context, "admin_tracking");
   const workflowModule = getKnowledgeModule(context, "campaign_workflow");
-  const leads = safeSelectAll(
-    context.db,
+  const leads = await safeSelectAll(
+    context.store,
     `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail,
             lead_stage AS leadStage, summary, last_activity_at AS lastActivityAt
      FROM office_leads
@@ -1777,7 +1784,7 @@ function executeUpdateBrandTrackerTask(context, { includeStructureGuide = false 
      LIMIT 25`,
     [context.userId, context.workerId]
   );
-  const brands = listWorkerBrands(context.db, context.userId, context.workerId).slice(0, 15);
+  const brands = (await listWorkerBrands(context.store, context.userId, context.workerId)).slice(0, 15);
 
   const liveRows = [
     ...leads.map((lead) =>
@@ -1946,7 +1953,7 @@ async function executeRedditMarketPulseTask(context) {
   let classified = null;
   if (redditSignals.length > 0) {
     classified = await tryClassifyRedditSignals({
-      db: context.db,
+      db: context.store,
       fetchImpl: context.fetchImpl,
       niche: profile.niche,
       signals: redditSignals,
@@ -1960,7 +1967,7 @@ async function executeRedditMarketPulseTask(context) {
   // Opportunities become research items the manager can act on immediately.
   const createdOpportunityIds = [];
   for (const opportunity of classified.opportunities) {
-    const created = createResearchItem(context.db, {
+    const created = await createResearchItem(context.store, {
       evidence: [{ title: opportunity.title, url: opportunity.url }],
       insights: [opportunity.whyRelevant || opportunity.summary].filter(Boolean),
       query: `Reddit opportunity in r/${opportunity.community || "creator communities"}`,
@@ -2007,13 +2014,13 @@ async function executeRedditMarketPulseTask(context) {
   };
 }
 
-function executeOpsStatusBriefTask(context) {
-  const approvals = listApprovalRequests(context.db, context.userId, context.workerId).filter((entry) => entry.status === "pending");
-  const blockedTasks = listWorkerTasksForUserWorker(context.db, context.userId, context.workerId).filter((entry) => entry.status === "blocked");
-  const runnableTasks = listWorkerTasksForUserWorker(context.db, context.userId, context.workerId).filter((entry) => entry.status === "approved");
-  const brands = listWorkerBrands(context.db, context.userId, context.workerId);
-  const inboxSnapshot = buildInboxLeadSnapshot(context.db, context.userId, context.workerId);
-  const researchToday = countBrandResearchItemsToday(context.db, context.userId, context.workerId);
+async function executeOpsStatusBriefTask(context) {
+  const approvals = (await listApprovalRequests(context.store, context.userId, context.workerId)).filter((entry) => entry.status === "pending");
+  const blockedTasks = (await listWorkerTasksForUserWorker(context.store, context.userId, context.workerId)).filter((entry) => entry.status === "blocked");
+  const runnableTasks = (await listWorkerTasksForUserWorker(context.store, context.userId, context.workerId)).filter((entry) => entry.status === "approved");
+  const brands = await listWorkerBrands(context.store, context.userId, context.workerId);
+  const inboxSnapshot = await buildInboxLeadSnapshot(context.store, context.userId, context.workerId);
+  const researchToday = await countBrandResearchItemsToday(context.store, context.userId, context.workerId);
 
   const structuredContent = {
     approvalQueue: approvals.map((entry) => entry.title),
@@ -2218,7 +2225,54 @@ function executeGeneralInternalTask(context) {
   };
 }
 
-function executeTaskByType(context) {
+function executeWeeklyGrowthIntelligenceBriefTask(context) {
+  const opportunities = Array.isArray(context.growthIntelligence?.opportunities) ? context.growthIntelligence.opportunities : [];
+  const metrics = context.growthIntelligence?.metrics || {};
+  const qualified = opportunities.filter((entry) => ["qualified", "new", "active"].includes(String(entry.status))).slice(0, 5);
+  const deprioritize = opportunities.filter((entry) => Number(entry.scoreTotal || 0) < 55).slice(0, 2);
+  const evidence = qualified.flatMap((entry) => entry.evidence || []).slice(0, 20);
+  const conceptTerritories = qualified.slice(0, 3).map((entry) => ({
+    brandName: entry.brandName,
+    creativeGap: entry.opportunityPackage?.creativeGap || "Needs further brand-level evidence",
+    treatment: entry.opportunityPackage?.creativeTreatment || {},
+    basis: (entry.evidence || []).map((item) => item.basis)
+  }));
+  const structuredContent = {
+    highFitBrands: qualified.map((entry) => ({
+      brandName: entry.brandName,
+      score: Number(entry.scoreTotal || 0),
+      opportunityThesis: entry.opportunityPackage?.opportunityThesis || "",
+      creativeGap: entry.opportunityPackage?.creativeGap || "",
+      confidence: entry.opportunityPackage?.confidence || 0,
+      lastResearchedAt: entry.lastResearchedAt
+    })),
+    deprioritize: deprioritize.map((entry) => ({ brandName: entry.brandName, score: Number(entry.scoreTotal || 0), reason: "Current creator-specific opportunity score is below 55." })),
+    categoryShifts: [],
+    saturatedFormat: null,
+    conceptTerritories,
+    portfolioGap: qualified[0]?.opportunityPackage?.creatorPositioning?.portfolioGap || null,
+    videoToRevise: null,
+    revenueMetrics: metrics,
+    evidence,
+    unknowns: [
+      ...(qualified.length < 5 ? [`Only ${qualified.length} evidence-qualified brand opportunity${qualified.length === 1 ? " is" : "ies are"} currently available.`] : []),
+      "Category shifts, saturation, and video revision recommendations remain empty unless current evidence supports them."
+    ]
+  };
+  return {
+    content: buildRichContent([
+      { title: "Highest-fit opportunities", value: structuredContent.highFitBrands.length ? structuredContent.highFitBrands.map((item) => `${item.brandName} — ${item.score}/100 — ${item.opportunityThesis || "Opportunity thesis needs refinement"}`) : ["No evidence-qualified opportunities yet. Research is the next required action."] },
+      { title: "Concept territories", value: conceptTerritories.length ? conceptTerritories.map((item) => `${item.brandName}: ${item.creativeGap}`) : ["No evidence-supported concept territory yet."] },
+      { title: "Commercial outcomes", value: [`Revenue influenced: ${Number(metrics.revenueInfluenced || 0)}`, `Positive-response rate: ${Math.round(Number(metrics.positiveResponseRate || 0) * 100)}%`, `Pitch-to-deal conversion: ${Math.round(Number(metrics.pitchToDealConversion || 0) * 100)}%`] },
+      { title: "Evidence limitations", value: structuredContent.unknowns }
+    ]),
+    outputType: "growth_intelligence_brief",
+    structuredContent,
+    title: "Weekly growth intelligence brief"
+  };
+}
+
+async function executeTaskByType(context) {
   switch (context.currentTask.taskType) {
     case "creator_positioning":
       return executeCreatorPositioningTask(context);
@@ -2237,6 +2291,8 @@ function executeTaskByType(context) {
       return executeUGCShotListTask(context);
     case "weekly_action_plan":
       return executeWeeklyActionPlanTask(context);
+    case "weekly_growth_intelligence_brief":
+      return executeWeeklyGrowthIntelligenceBriefTask(context);
     case "brand_tracker_structure":
       return executeBrandTrackerStructureTask(context);
     case "update_brand_tracker":
@@ -2260,14 +2316,15 @@ function executeTaskByType(context) {
   }
 }
 
-function markTaskBlocked(db, userId, workerId, taskId, blocker) {
-  updateWorkerTaskStatus(db, userId, workerId, taskId, "blocked");
-  db.prepare(
+async function markTaskBlocked(store, userId, workerId, taskId, blocker) {
+  await updateWorkerTaskStatus(store, userId, workerId, taskId, "blocked");
+  await store.execute(
     `UPDATE worker_tasks
      SET output = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_id = ?`
-  ).run(JSON.stringify(blocker), new Date().toISOString(), taskId, userId, workerId);
-  createWorkerActivityLog(db, {
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    JSON.stringify(blocker), new Date().toISOString(), taskId, userId, workerId
+  );
+  await createWorkerActivityLog(store, {
     description: blocker.blockerReason,
     eventType: "task_execution_blocked",
     metadata: blocker,
@@ -2280,10 +2337,11 @@ function markTaskBlocked(db, userId, workerId, taskId, blocker) {
 }
 
 export async function runMaraTask({
-  db,
+  store,
   fetchImpl,
   readAccountContext,
   readConnectedIntegrations,
+  readGrowthIntelligence,
   readMessages,
   readMaraOnboarding,
   readPrivateInsights,
@@ -2292,7 +2350,7 @@ export async function runMaraTask({
   userId,
   workerId
 }) {
-  const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
+  const task = (await listWorkerTasksForUserWorker(store, userId, workerId)).find((entry) => entry.id === taskId);
   if (!task) {
     throw new Error("Worker task not found.");
   }
@@ -2305,10 +2363,10 @@ export async function runMaraTask({
     throw new Error("Only approved or in-progress tasks can be executed.");
   }
 
-  const permissions = getWorkerPermissions(db, userId, workerId);
+  const permissions = await getWorkerPermissions(store, userId, workerId);
   if (!hasRequiredPermissions(permissions, task.requiredPermissions)) {
     const primaryPermission = task.requiredPermissions[0];
-    return markTaskBlocked(db, userId, workerId, taskId, {
+    return markTaskBlocked(store, userId, workerId, taskId, {
       blockerReason: describePermissionBlocker(primaryPermission).blockerReason,
       neededFromUser: describePermissionBlocker(primaryPermission).nextStep,
       suggestedNextStep: "Update Mara's permissions or pick a safe internal task instead."
@@ -2316,7 +2374,7 @@ export async function runMaraTask({
   }
 
   if (task.requiredPermissions.some((permission) => INTERNAL_ONLY_PERMISSION_PATTERNS.test(String(permission)))) {
-    return markTaskBlocked(db, userId, workerId, taskId, {
+    return markTaskBlocked(store, userId, workerId, taskId, {
       blockerReason: "This task depends on an external action or integration Mara cannot execute internally.",
       neededFromUser: "Use an internal-only task or provide the required integration and approval path first.",
       suggestedNextStep: "Keep Mara on drafting, planning, analysis, or internal workflow work."
@@ -2324,8 +2382,8 @@ export async function runMaraTask({
   }
 
   const timestamp = new Date().toISOString();
-  updateWorkerTaskStatus(db, userId, workerId, taskId, "in_progress");
-  createWorkerActivityLog(db, {
+  await updateWorkerTaskStatus(store, userId, workerId, taskId, "in_progress");
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: `Started ${task.title}.`,
     eventType: "task_execution_started",
@@ -2335,11 +2393,12 @@ export async function runMaraTask({
     workerId
   });
 
-  const context = buildMaraExecutionContext({
-    db,
+  const context = await buildMaraExecutionContext({
+    store,
     fetchImpl,
     readAccountContext,
     readConnectedIntegrations,
+    readGrowthIntelligence,
     readMessages,
     readMaraOnboarding,
     readPrivateInsights,
@@ -2365,7 +2424,7 @@ export async function runMaraTask({
     ) {
       const roleConfig = getRoleConfig(workerId);
       const polished = await tryPolishDeliverableVoice({
-        db,
+        db: store,
         userId,
         roleConfig,
         title: result.title || task.title,
@@ -2389,10 +2448,10 @@ export async function runMaraTask({
     }
   }
   if (result?.blocked) {
-    return markTaskBlocked(db, userId, workerId, taskId, result);
+    return markTaskBlocked(store, userId, workerId, taskId, result);
   }
 
-  const savedOutput = createWorkerOutput(db, {
+  const savedOutput = await createWorkerOutput(store, {
     content: result.content,
     outputType: result.outputType || TASK_TYPE_OUTPUT_TYPE_MAP[task.taskType] || "summary",
     source: "task_execution",
@@ -2408,18 +2467,18 @@ export async function runMaraTask({
     title: savedOutput.title,
     type: savedOutput.outputType
   };
-  completeWorkerTask(db, userId, workerId, taskId, JSON.stringify(previewPayload));
+  await completeWorkerTask(store, userId, workerId, taskId, JSON.stringify(previewPayload));
 
   if (task.targetBrandId) {
     if (savedOutput.outputType === "content_ideas") {
-      touchWorkerBrandActivity(db, userId, workerId, task.targetBrandId, "content");
+      await touchWorkerBrandActivity(store, userId, workerId, task.targetBrandId, "content");
     }
     if (savedOutput.outputType === "pitch_draft" || savedOutput.outputType === "pitch_template") {
-      touchWorkerBrandActivity(db, userId, workerId, task.targetBrandId, "pitch");
+      await touchWorkerBrandActivity(store, userId, workerId, task.targetBrandId, "pitch");
     }
   }
 
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: `Finished ${task.title}.`,
     eventType: "task_execution_completed",
@@ -2432,7 +2491,7 @@ export async function runMaraTask({
 
   return {
     output: savedOutput,
-    task: listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId)
+    task: (await listWorkerTasksForUserWorker(store, userId, workerId)).find((entry) => entry.id === taskId)
   };
 }
 
@@ -2678,29 +2737,31 @@ function inferMaraNiche({ accountContext, maraAnswers = {}, workerKnowledge, pre
   return resolveCreatorNiche({ accountContext, maraAnswers, previousOutputs, workerKnowledge });
 }
 
-function hasRecentOutputOfType(db, userId, workerId, outputType, maxAgeHours) {
+async function hasRecentOutputOfType(store, userId, workerId, outputType, maxAgeHours) {
   const threshold = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
-  const row = db.prepare(
+  const row = await store.queryOne(
     `SELECT id
      FROM worker_outputs
      WHERE user_id = ? AND worker_id = ? AND output_type = ? AND created_at >= ?
-     LIMIT 1`
-  ).get(userId, workerId, outputType, threshold);
+     LIMIT 1`,
+    userId, workerId, outputType, threshold
+  );
   return Boolean(row);
 }
 
-function countBrandResearchItemsToday(db, userId, workerId) {
-  const row = db.prepare(
+async function countBrandResearchItemsToday(store, userId, workerId) {
+  const row = await store.queryOne(
     `SELECT COUNT(*) AS count
      FROM worker_research_items
-     WHERE user_id = ? AND worker_id = ? AND source_type = 'web_brand' AND created_at >= ?`
-  ).get(userId, workerId, startOfUtcDayIso());
+     WHERE user_id = ? AND worker_id = ? AND source_type = 'web_brand' AND created_at >= ?`,
+    userId, workerId, startOfUtcDayIso()
+  );
   return Number(row?.count || 0);
 }
 
-function safeSelectAll(db, query, params = []) {
+async function safeSelectAll(store, query, params = []) {
   try {
-    return db.prepare(query).all(...params);
+    return await store.query(query, ...params);
   } catch {
     return [];
   }
@@ -2730,9 +2791,9 @@ function buildResearchSnapshot(db, userId, workerId, researchItems) {
   };
 }
 
-function buildInboxLeadSnapshot(db, userId, workerId) {
-  const trackedLeads = safeSelectAll(
-    db,
+async function buildInboxLeadSnapshot(store, userId, workerId) {
+  const trackedLeads = await safeSelectAll(
+    store,
     `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, lead_stage AS leadStage,
             summary, last_activity_at AS lastActivityAt, metadata_json AS metadataJson
      FROM office_leads
@@ -2764,8 +2825,8 @@ function buildInboxLeadSnapshot(db, userId, workerId) {
     };
   }
 
-  const threads = safeSelectAll(
-    db,
+  const threads = await safeSelectAll(
+    store,
     `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, thread_status AS threadStatus,
             urgency, subject, snippet, received_at AS receivedAt
      FROM office_email_threads
@@ -2804,9 +2865,9 @@ function buildInboxLeadSnapshot(db, userId, workerId) {
   };
 }
 
-function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, workerId }) {
+async function createAutonomyStarterTasks({ accountContext, store, maraAnswers, userId, workerId }) {
   const plan = buildMaraInitialWorkPlan({ accountContext, maraAnswers });
-  const existingTasks = listWorkerTasksForUserWorker(db, userId, workerId);
+  const existingTasks = await listWorkerTasksForUserWorker(store, userId, workerId);
   const existingByTitle = new Map(existingTasks.map((task) => [normalizeForComparison(task.title), task]));
   const taskIdsToExecute = [];
 
@@ -2820,7 +2881,7 @@ function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, w
       continue;
     }
 
-    const created = createApprovedTaskIfPermissionAllows(db, {
+    const created = await createApprovedTaskIfPermissionAllows(store, {
       description: task.description,
       dueAt: task.priority === "high" ? "This week" : "Next 7 days",
       evidenceUsed: [],
@@ -2837,7 +2898,7 @@ function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, w
   }
 
   for (const recurring of plan.recurringResponsibilities) {
-    createRecurringResponsibility(db, {
+    await createRecurringResponsibility(store, {
       cadence: recurring.cadence,
       createdFrom: "autonomy_starter",
       dayOfWeek: recurring.dayOfWeek,
@@ -2854,14 +2915,14 @@ function createAutonomyStarterTasks({ accountContext, db, maraAnswers, userId, w
 
 async function runMaraBrandResearchCycle({
   accountContext,
-  db,
+  store,
   fetchImpl = globalThis.fetch,
   privateInsights,
   userId,
   workerId,
   workerKnowledge
 }) {
-  const todayCount = countBrandResearchItemsToday(db, userId, workerId);
+  const todayCount = await countBrandResearchItemsToday(store, userId, workerId);
   const remaining = Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - todayCount);
   if (remaining === 0) {
     return { note: "Daily brand research cap reached." };
@@ -2869,7 +2930,7 @@ async function runMaraBrandResearchCycle({
 
   const niche = inferMaraNiche({
     accountContext,
-    previousOutputs: listWorkerOutputs(db, userId, workerId),
+    previousOutputs: await listWorkerOutputs(store, userId, workerId),
     workerKnowledge
   });
   const redditSignals = await fetchRedditSignals({ fetchImpl });
@@ -2896,7 +2957,7 @@ async function runMaraBrandResearchCycle({
   const createdSignalResearchIds = [];
 
   for (const signal of redditSignals.slice(0, 5)) {
-    const redditResearch = createResearchItem(db, {
+    const redditResearch = await createResearchItem(store, {
       evidence: [{ title: signal.title, url: signal.url }],
       insights: [signal.summary || signal.title],
       query: `Monitor creator chatter from r/${signal.community} for ${niche}.`,
@@ -2912,7 +2973,7 @@ async function runMaraBrandResearchCycle({
   }
 
   for (const brand of brands) {
-    const research = createResearchItem(db, {
+    const research = await createResearchItem(store, {
       evidence: [{ title: brand.brandName, url: brand.url }],
       insights: [
         brand.summary,
@@ -2931,7 +2992,7 @@ async function runMaraBrandResearchCycle({
     });
     if (!research.duplicate && research.id) {
       createdResearchIds.push(research.id);
-      upsertWorkerBrand(db, {
+      await upsertWorkerBrand(store, {
         brandName: brand.brandName,
         identitySummary: brand.summary,
         researchItemId: research.id,
@@ -2941,7 +3002,7 @@ async function runMaraBrandResearchCycle({
         website: brand.website || brand.url || "",
         workerId
       });
-      const pitchTask = convertResearchItemToTask(db, userId, workerId, research.id, {
+      const pitchTask = await convertResearchItemToTask(store, userId, workerId, research.id, {
         description: `Draft a personalized pitch using the brand's identity, site language, ${brand.suggestedAngle || "the strongest current angle"}, and current fit with ${niche}.`,
         priority: "high",
         requiredPermissions: [],
@@ -2960,7 +3021,7 @@ async function runMaraBrandResearchCycle({
     { title: "Private creator-search content gaps", value: privateContentGaps.length > 0 ? privateContentGaps : ["No private creator-search insight file is loaded yet."] }
   ]);
 
-  const output = createWorkerOutput(db, {
+  const output = await createWorkerOutput(store, {
     content,
     outputType: "summary",
     source: "research",
@@ -2978,22 +3039,22 @@ async function runMaraBrandResearchCycle({
   return { createdPitchTaskIds, createdResearchIds, createdSignalResearchIds, output };
 }
 
-async function runMaraInboxOrganizationCycle({ db, fetchImpl, userId, workerId }) {
-  const threads = db.prepare(
+async function runMaraInboxOrganizationCycle({ store, fetchImpl, userId, workerId }) {
+  const threads = await store.query(
     `SELECT subject, brand_name AS brandName, contact_email AS contactEmail, thread_status AS threadStatus, urgency, snippet
      FROM office_email_threads
      WHERE user_id = ? AND worker_slug = ?
      ORDER BY received_at DESC
-     LIMIT 25`
-  ).all(userId, workerId);
+     LIMIT 25`,
+    userId, workerId
+  );
 
   if (threads.length === 0) {
     return { note: "No inbox threads are available for organization yet." };
   }
 
-  const bridged = wrapSqliteHandle(db);
-  const briefParse = await parseUnparsedInboxThreads(bridged, userId, workerId, { fetchImpl });
-  const opsSummary = await buildInboxOpsSummary(bridged, userId, workerId);
+  const briefParse = await parseUnparsedInboxThreads(store, userId, workerId, { fetchImpl });
+  const opsSummary = await buildInboxOpsSummary(store, userId, workerId);
   const statusCounts = threads.reduce((acc, thread) => {
     const key = String(thread.threadStatus || "unknown");
     acc[key] = (acc[key] || 0) + 1;
@@ -3002,7 +3063,7 @@ async function runMaraInboxOrganizationCycle({ db, fetchImpl, userId, workerId }
   const urgentThreads = threads.filter((thread) => String(thread.urgency).toLowerCase() === "high").slice(0, 5);
   const campaignsWithGaps = opsSummary.campaignsWithGaps.slice(0, 6);
 
-  const output = createWorkerOutput(db, {
+  const output = await createWorkerOutput(store, {
     content: buildRichContent([
       { title: "Outreach status snapshot", value: Object.entries(statusCounts).map(([status, count]) => `${status}: ${count}`) },
       { title: "Parsed briefs this cycle", value: [`${briefParse.parsedCount} email brief(s) parsed into campaign records.`] },
@@ -3032,29 +3093,30 @@ async function runMaraInboxOrganizationCycle({ db, fetchImpl, userId, workerId }
   return { output, parsedCount: briefParse.parsedCount };
 }
 
-function countOfficeLeads(db, userId, workerId) {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS count
-       FROM office_leads
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .get(userId, workerId);
+async function countOfficeLeads(store, userId, workerId) {
+  const row = await store.queryOne(
+    `SELECT COUNT(*) AS count
+     FROM office_leads
+     WHERE user_id = ? AND worker_slug = ?`,
+    userId,
+    workerId
+  );
   return Number(row?.count || 0);
 }
 
-function markRecurringResponsibilityRun(db, recurring) {
+async function markRecurringResponsibilityRun(store, recurring) {
   const timestamp = new Date().toISOString();
   const nextRunAt = computeNextRunAt(recurring.cadence, recurring.dayOfWeek, new Date(timestamp));
-  db.prepare(
+  await store.execute(
     `UPDATE worker_recurring_responsibilities
      SET last_run_at = ?, next_run_at = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_id = ?`
-  ).run(timestamp, nextRunAt, timestamp, recurring.id, recurring.userId, recurring.workerId);
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    timestamp, nextRunAt, timestamp, recurring.id, recurring.userId, recurring.workerId
+  );
 }
 
-function createAndRunAutonomyTask(db, taskInput, readers, summary) {
-  const created = createApprovedTaskIfPermissionAllows(db, taskInput);
+async function createAndRunAutonomyTask(store, taskInput, readers, summary) {
+  const created = await createApprovedTaskIfPermissionAllows(store, taskInput);
   if (created.duplicate || !created.id) {
     return null;
   }
@@ -3062,24 +3124,24 @@ function createAndRunAutonomyTask(db, taskInput, readers, summary) {
   return created.id;
 }
 
-async function executeAutonomyPlannedAction(action, { db, fetchImpl, integrations, permissions, privateInsights, summary, userId, workerId, readers }) {
+async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrations, permissions, privateInsights, summary, userId, workerId, readers }) {
   switch (action.kind) {
     case "blocked":
       summary.blockers.push(action.reason);
       return;
     case "ensure_starter_tasks": {
-      const onboarding = typeof readers.readMaraOnboarding === "function" ? readers.readMaraOnboarding(userId, workerId) : null;
-      const accountContext = typeof readers.readAccountContext === "function" ? readers.readAccountContext(userId) : null;
-      const starterTaskIds = createAutonomyStarterTasks({
+      const onboarding = typeof readers.readMaraOnboarding === "function" ? await readers.readMaraOnboarding(userId, workerId) : null;
+      const accountContext = typeof readers.readAccountContext === "function" ? await readers.readAccountContext(userId) : null;
+      const starterTaskIds = await createAutonomyStarterTasks({
         accountContext,
-        db,
+        store,
         maraAnswers: onboarding?.answers || {},
         userId,
         workerId
       });
       summary.createdTaskIds.push(...starterTaskIds);
       const starterResults = await autoExecuteSafeMaraTasks({
-        db,
+        store,
         fetchImpl,
         taskIds: starterTaskIds,
         userId,
@@ -3097,20 +3159,20 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
       if (action.kind === "maintain_profile") {
         await executeAutonomyPlannedAction(
           { kind: "maintain_artifact", reason: "Refresh creator positioning from the latest account context.", taskType: "creator_positioning", title: "Refresh creator positioning" },
-          { db, fetchImpl, integrations, permissions, privateInsights, readers, summary, userId, workerId }
+          { store, fetchImpl, integrations, permissions, privateInsights, readers, summary, userId, workerId }
         );
         await executeAutonomyPlannedAction(
           { kind: "maintain_artifact", reason: "Refresh brand fit criteria from the latest account context.", taskType: "brand_fit_criteria", title: "Refresh brand fit criteria" },
-          { db, fetchImpl, integrations, permissions, privateInsights, readers, summary, userId, workerId }
+          { store, fetchImpl, integrations, permissions, privateInsights, readers, summary, userId, workerId }
         );
         if (action.recurringId) {
-          const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-          if (recurring) markRecurringResponsibilityRun(db, recurring);
+          const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+          if (recurring) await markRecurringResponsibilityRun(store, recurring);
         }
         return;
       }
-      const taskId = createAndRunAutonomyTask(
-        db,
+      const taskId = await createAndRunAutonomyTask(
+        store,
         {
           description: action.reason || `Maintain ${action.title}.`,
           priority: "high",
@@ -3126,7 +3188,7 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary
       );
       if (!taskId) return;
-      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) summary.outputs.push(result.output);
       return;
@@ -3136,11 +3198,11 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary.blockers.push("Research permission is disabled.");
         return;
       }
-      const accountContext = typeof readers.readAccountContext === "function" ? readers.readAccountContext(userId) : null;
-      const workerKnowledge = typeof readers.readWorkerKnowledge === "function" ? readers.readWorkerKnowledge(userId, workerId) : [];
+      const accountContext = typeof readers.readAccountContext === "function" ? await readers.readAccountContext(userId) : null;
+      const workerKnowledge = typeof readers.readWorkerKnowledge === "function" ? await readers.readWorkerKnowledge(userId, workerId) : [];
       const researchResult = await runMaraBrandResearchCycle({
         accountContext,
-        db,
+        store,
         fetchImpl,
         privateInsights,
         userId,
@@ -3151,7 +3213,7 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
       if (researchResult.createdPitchTaskIds?.length) {
         summary.createdTaskIds.push(...researchResult.createdPitchTaskIds);
         const pitchResults = await autoExecuteSafeMaraTasks({
-          db,
+          store,
           fetchImpl,
           taskIds: researchResult.createdPitchTaskIds,
           userId,
@@ -3165,14 +3227,14 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
       }
       if (researchResult.note) summary.notes.push(researchResult.note);
       if (action.recurringId) {
-        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-        if (recurring) markRecurringResponsibilityRun(db, recurring);
+        const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+        if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
       return;
     }
     case "personalized_pitch": {
-      const taskId = createAndRunAutonomyTask(
-        db,
+      const taskId = await createAndRunAutonomyTask(
+        store,
         {
           description: `Draft a personalized pitch for ${action.brandName} using stored brand identity and research.`,
           evidenceUsed: action.researchItemId ? [`research:${action.researchItemId}`] : [],
@@ -3190,21 +3252,21 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary
       );
       if (!taskId) return;
-      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) summary.outputs.push(result.output);
       return;
     }
     case "brand_content_ideas":
     case "brand_content_ideas_batch": {
-      const brands = listWorkerBrands(db, userId, workerId);
-      const brand = action.brandId ? getWorkerBrand(db, userId, workerId, action.brandId) : brands[0];
+      const brands = await listWorkerBrands(store, userId, workerId);
+      const brand = action.brandId ? await getWorkerBrand(store, userId, workerId, action.brandId) : brands[0];
       if (!brand) {
         summary.notes.push("Brand content ideas were skipped because no researched brands are on file yet.");
         return;
       }
-      const taskId = createAndRunAutonomyTask(
-        db,
+      const taskId = await createAndRunAutonomyTask(
+        store,
         {
           description: `Generate content ideas tailored to ${brand.brandName}'s identity and the creator's positioning.`,
           priority: "high",
@@ -3221,24 +3283,24 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary
       );
       if (!taskId) return;
-      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) summary.outputs.push(result.output);
       if (action.recurringId) {
-        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-        if (recurring) markRecurringResponsibilityRun(db, recurring);
+        const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+        if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
       return;
     }
     case "inbox_organization": {
-      const inboxResult = await runMaraInboxOrganizationCycle({ db, fetchImpl, userId, workerId });
+      const inboxResult = await runMaraInboxOrganizationCycle({ store, fetchImpl, userId, workerId });
       if (inboxResult.output) summary.outputs.push(inboxResult.output);
       if (inboxResult.note) summary.notes.push(inboxResult.note);
       return;
     }
     case "update_tracker": {
-      const taskId = createAndRunAutonomyTask(
-        db,
+      const taskId = await createAndRunAutonomyTask(
+        store,
         {
           description: action.reason || "Refresh the internal brand tracker from inbox, leads, and research.",
           priority: "medium",
@@ -3254,18 +3316,18 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary
       );
       if (!taskId) return;
-      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) summary.outputs.push(result.output);
       if (action.recurringId) {
-        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-        if (recurring) markRecurringResponsibilityRun(db, recurring);
+        const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+        if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
       return;
     }
     case "weekly_plan": {
-      const taskId = createAndRunAutonomyTask(
-        db,
+      const taskId = await createAndRunAutonomyTask(
+        store,
         {
           description: "Create the latest weekly action plan from current work, research, and blockers.",
           priority: "high",
@@ -3281,18 +3343,18 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary
       );
       if (!taskId) return;
-      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) summary.outputs.push(result.output);
       if (action.recurringId) {
-        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-        if (recurring) markRecurringResponsibilityRun(db, recurring);
+        const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+        if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
       return;
     }
     case "ops_brief": {
-      const taskId = createAndRunAutonomyTask(
-        db,
+      const taskId = await createAndRunAutonomyTask(
+        store,
         {
           description: "Summarize blockers, risks, approvals, and the next safe work Mara can do.",
           priority: "high",
@@ -3308,18 +3370,18 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary
       );
       if (!taskId) return;
-      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) summary.outputs.push(result.output);
       if (action.recurringId) {
-        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-        if (recurring) markRecurringResponsibilityRun(db, recurring);
+        const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+        if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
       return;
     }
     case "reddit_pulse": {
-      const taskId = createAndRunAutonomyTask(
-        db,
+      const taskId = await createAndRunAutonomyTask(
+        store,
         {
           description: action.reason || "Keep learning from creator communities and market signals.",
           priority: "medium",
@@ -3335,26 +3397,26 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary
       );
       if (!taskId) return;
-      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) summary.outputs.push(result.output);
       if (action.recurringId) {
-        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-        if (recurring) markRecurringResponsibilityRun(db, recurring);
+        const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+        if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
       return;
     }
     case "tiktok_trends": {
-      const syncResult = syncUserTrendInsightsFromGlobal({
-        db,
+      const syncResult = await syncUserTrendInsightsFromGlobal({
+        store,
         globalPath: resolveGlobalTrendInsightsPath(),
         ...readers,
         userId,
         workerId
       });
       if (syncResult.note) summary.notes.push(syncResult.note);
-      const taskId = createAndRunAutonomyTask(
-        db,
+      const taskId = await createAndRunAutonomyTask(
+        store,
         {
           description: action.reason || "Refresh niche-scoped TikTok trend insights for this creator.",
           priority: "medium",
@@ -3370,19 +3432,19 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
         summary
       );
       if (!taskId) return;
-      const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+      const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) summary.outputs.push(result.output);
       if (action.recurringId) {
-        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-        if (recurring) markRecurringResponsibilityRun(db, recurring);
+        const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+        if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
       return;
     }
     case "drain_approved_queue": {
       for (const taskId of (action.taskIds || []).slice(0, action.limit || 3)) {
         try {
-          const result = await runMaraTask({ db, fetchImpl, taskId, userId, workerId, ...readers });
+          const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
           if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
           if (result?.output) summary.outputs.push(result.output);
         } catch (error) {
@@ -3393,19 +3455,20 @@ async function executeAutonomyPlannedAction(action, { db, fetchImpl, integration
     }
     default:
       if (action.recurringId) {
-        const recurring = listRecurringResponsibilities(db, userId, workerId).find((entry) => entry.id === action.recurringId);
-        if (recurring) markRecurringResponsibilityRun(db, recurring);
+        const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
+        if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
       return;
   }
 }
 
 export async function runMaraAutonomyCycle({
-  db,
+  store,
   fetchImpl = globalThis.fetch,
   mode = "full",
   readAccountContext,
   readConnectedIntegrations,
+  readGrowthIntelligence,
   readMessages,
   readMaraOnboarding,
   readPrivateInsights,
@@ -3417,13 +3480,14 @@ export async function runMaraAutonomyCycle({
     throw new Error("Autonomy cycle is only available for Mara.");
   }
 
-  const permissions = ensureWorkerPermissions(db, userId, workerId);
-  const onboarding = typeof readMaraOnboarding === "function" ? readMaraOnboarding(userId, workerId) : null;
-  const integrations = typeof readConnectedIntegrations === "function" ? readConnectedIntegrations(userId, workerId) : [];
-  const privateInsights = typeof readPrivateInsights === "function" ? readPrivateInsights(userId, workerId) : null;
+  const permissions = await ensureWorkerPermissions(store, userId, workerId);
+  const onboarding = typeof readMaraOnboarding === "function" ? await readMaraOnboarding(userId, workerId) : null;
+  const integrations = typeof readConnectedIntegrations === "function" ? await readConnectedIntegrations(userId, workerId) : [];
+  const privateInsights = typeof readPrivateInsights === "function" ? await readPrivateInsights(userId, workerId) : null;
   const readers = {
     readAccountContext,
     readConnectedIntegrations,
+    readGrowthIntelligence,
     readMaraOnboarding,
     readMessages,
     readPrivateInsights,
@@ -3438,20 +3502,21 @@ export async function runMaraAutonomyCycle({
     plannedActions: []
   };
 
+  const latestTrendSnapshot = await getLatestTrendSnapshot(store, userId, workerId);
   const plannerContext = buildAutonomyPlannerContext({
-    approvals: listApprovalRequests(db, userId, workerId).filter((entry) => entry.status === "pending"),
-    blockedTasks: listWorkerTasksForUserWorker(db, userId, workerId).filter((entry) => entry.status === "blocked"),
-    brandResearchRemaining: Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - countBrandResearchItemsToday(db, userId, workerId)),
-    brands: listWorkerBrands(db, userId, workerId),
-    dueRecurring: listRecurringResponsibilities(db, userId, workerId).filter((entry) => isRecurringDue(entry)),
+    approvals: (await listApprovalRequests(store, userId, workerId)).filter((entry) => entry.status === "pending"),
+    blockedTasks: (await listWorkerTasksForUserWorker(store, userId, workerId)).filter((entry) => entry.status === "blocked"),
+    brandResearchRemaining: Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - await countBrandResearchItemsToday(store, userId, workerId)),
+    brands: await listWorkerBrands(store, userId, workerId),
+    dueRecurring: (await listRecurringResponsibilities(store, userId, workerId)).filter((entry) => isRecurringDue(entry)),
     hasConnectedEmail: hasConnectedEmailIntegration(integrations),
     integrations,
-    leadCount: countOfficeLeads(db, userId, workerId),
+    leadCount: await countOfficeLeads(store, userId, workerId),
     onboarding,
-    outputs: listWorkerOutputs(db, userId, workerId),
+    outputs: await listWorkerOutputs(store, userId, workerId),
     permissions,
-    tasks: listWorkerTasksForUserWorker(db, userId, workerId),
-    trendSnapshotUpdatedAt: getLatestTrendSnapshot(db, userId, workerId)?.updatedAt ?? null
+    tasks: await listWorkerTasksForUserWorker(store, userId, workerId),
+    trendSnapshotUpdatedAt: latestTrendSnapshot?.updatedAt ?? null
   });
 
   const timedFetchImpl = createFetchWithTimeout(fetchImpl);
@@ -3461,7 +3526,7 @@ export async function runMaraAutonomyCycle({
 
   for (const action of plannedActions) {
     await executeAutonomyPlannedAction(action, {
-      db,
+      store,
       fetchImpl: timedFetchImpl,
       integrations,
       permissions,
@@ -3475,7 +3540,7 @@ export async function runMaraAutonomyCycle({
 
   summary.blockers.push(...plannerContext.blockers);
 
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     description: `I planned ${plannedActions.length} move(s), finished ${summary.executedTaskIds.length} task(s), and shipped ${summary.outputs.length} deliverable(s).`,
     eventType: "autonomy_cycle_completed",
     metadata: {
@@ -3493,15 +3558,16 @@ export async function runMaraAutonomyCycle({
   return summary;
 }
 
-export async function runWorkerTask(db, userId, workerId, taskId, options = {}) {
-  return runMaraTask({ db, taskId, userId, workerId, ...options });
+export async function runWorkerTask(store, userId, workerId, taskId, options = {}) {
+  return runMaraTask({ store, taskId, userId, workerId, ...options });
 }
 
 export async function autoExecuteSafeMaraTasks({
-  db,
+  store,
   fetchImpl,
   readAccountContext,
   readConnectedIntegrations,
+  readGrowthIntelligence,
   readMessages,
   readMaraOnboarding,
   readPrivateInsights,
@@ -3512,16 +3578,17 @@ export async function autoExecuteSafeMaraTasks({
 }) {
   const results = [];
   for (const taskId of taskIds) {
-    const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
+    const task = (await listWorkerTasksForUserWorker(store, userId, workerId)).find((entry) => entry.id === taskId);
     if (!task || !SAFE_AUTO_EXECUTE_TASK_TYPES.has(task.taskType)) {
       continue;
     }
 
     const result = await runMaraTask({
-      db,
+      store,
       fetchImpl,
       readAccountContext,
       readConnectedIntegrations,
+      readGrowthIntelligence,
       readMessages,
       readMaraOnboarding,
       readPrivateInsights,
@@ -3530,7 +3597,7 @@ export async function autoExecuteSafeMaraTasks({
       userId,
       workerId
     });
-    createWorkerActivityLog(db, {
+    await createWorkerActivityLog(store, {
       description: `Auto-executed ${task.title}.`,
       eventType: "task_auto_executed",
       relatedTaskId: taskId,
@@ -3543,19 +3610,19 @@ export async function autoExecuteSafeMaraTasks({
   return results;
 }
 
-export function createSuggestedTask(db, task) {
-  return createWorkerTask(db, {
+export async function createSuggestedTask(store, task) {
+  return createWorkerTask(store, {
     ...task,
     source: task.source || "mara_suggested",
     status: "proposed"
   });
 }
 
-export function createApprovedTaskIfPermissionAllows(db, task) {
-  const permissions = getWorkerPermissions(db, task.userId, task.workerId);
+export async function createApprovedTaskIfPermissionAllows(store, task) {
+  const permissions = await getWorkerPermissions(store, task.userId, task.workerId);
   const requiredPermissions = Array.isArray(task.requiredPermissions) ? task.requiredPermissions : [];
   if (!hasRequiredPermissions(permissions, requiredPermissions)) {
-    createWorkerActivityLog(db, {
+    await createWorkerActivityLog(store, {
       description: `Blocked task creation due to missing permissions: ${requiredPermissions.join(", ")}`,
       eventType: "permission_blocked_action",
       metadata: { requiredPermissions },
@@ -3563,28 +3630,29 @@ export function createApprovedTaskIfPermissionAllows(db, task) {
       userId: task.userId,
       workerId: task.workerId
     });
-    return createSuggestedTask(db, { ...task, source: task.source || "mara_suggested" });
+    return createSuggestedTask(store, { ...task, source: task.source || "mara_suggested" });
   }
 
-  return createWorkerTask(db, {
+  return createWorkerTask(store, {
     ...task,
     source: task.source || "memory_triggered",
     status: "approved"
   });
 }
 
-function findDuplicateRecurring(db, userId, workerId, title) {
-  return db
-    .prepare(
-      `SELECT id
-       FROM worker_recurring_responsibilities
-       WHERE user_id = ? AND worker_id = ? AND normalized_title = ? AND is_active = 1`
-    )
-    .get(userId, workerId, normalizeForComparison(title));
+async function findDuplicateRecurring(store, userId, workerId, title) {
+  return store.queryOne(
+    `SELECT id
+     FROM worker_recurring_responsibilities
+     WHERE user_id = ? AND worker_id = ? AND normalized_title = ? AND is_active = 1`,
+    userId,
+    workerId,
+    normalizeForComparison(title)
+  );
 }
 
-export function createRecurringResponsibility(db, recurring) {
-  const duplicate = findDuplicateRecurring(db, recurring.userId, recurring.workerId, recurring.title);
+export async function createRecurringResponsibility(store, recurring) {
+  const duplicate = await findDuplicateRecurring(store, recurring.userId, recurring.workerId, recurring.title);
   if (duplicate) {
     return { duplicate: true, id: duplicate.id };
   }
@@ -3592,12 +3660,11 @@ export function createRecurringResponsibility(db, recurring) {
   const timestamp = recurring.createdAt || new Date().toISOString();
   const id = randomUUID();
   const nextRunAt = recurring.nextRunAt ?? computeNextRunAt(recurring.cadence, recurring.dayOfWeek, new Date(timestamp));
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_recurring_responsibilities
       (id, user_id, worker_id, title, description, cadence, day_of_week, is_active, permission_required,
        last_run_at, next_run_at, created_from, normalized_title, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     recurring.userId,
     recurring.workerId,
@@ -3615,7 +3682,7 @@ export function createRecurringResponsibility(db, recurring) {
     timestamp
   );
 
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: recurring.description,
     eventType: "recurring_responsibility_created",
@@ -3628,43 +3695,43 @@ export function createRecurringResponsibility(db, recurring) {
   return { duplicate: false, id };
 }
 
-export function listRecurringResponsibilities(db, userId, workerId) {
-  return db
-    .prepare(
-      `SELECT id, user_id AS userId, worker_id AS workerId, title, description, cadence, day_of_week AS dayOfWeek,
-              is_active AS isActive, permission_required AS permissionRequired, last_run_at AS lastRunAt,
-              next_run_at AS nextRunAt, created_from AS createdFrom, created_at AS createdAt, updated_at AS updatedAt
-       FROM worker_recurring_responsibilities
-       WHERE user_id = ? AND worker_id = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId, workerId)
-    .map((row) => ({ ...row, isActive: intToBool(row.isActive) }));
+export async function listRecurringResponsibilities(store, userId, workerId) {
+  const rows = await store.query(
+    `SELECT id, user_id AS userId, worker_id AS workerId, title, description, cadence, day_of_week AS dayOfWeek,
+            is_active AS isActive, permission_required AS permissionRequired, last_run_at AS lastRunAt,
+            next_run_at AS nextRunAt, created_from AS createdFrom, created_at AS createdAt, updated_at AS updatedAt
+     FROM worker_recurring_responsibilities
+     WHERE user_id = ? AND worker_id = ?
+     ORDER BY created_at DESC`,
+    userId,
+    workerId
+  );
+  return rows.map((row) => ({ ...row, isActive: intToBool(row.isActive) }));
 }
 
-function findDuplicateResearch(db, userId, workerId, topic) {
-  return db
-    .prepare(
-      `SELECT id
-       FROM worker_research_items
-       WHERE coalesce(user_id, '') = coalesce(?, '') AND worker_id = ? AND normalized_topic = ? AND status NOT IN ('dismissed')`
-    )
-    .get(userId ?? null, workerId, normalizeForComparison(topic));
+async function findDuplicateResearch(store, userId, workerId, topic) {
+  return store.queryOne(
+    `SELECT id
+     FROM worker_research_items
+     WHERE coalesce(user_id, '') = coalesce(?, '') AND worker_id = ? AND normalized_topic = ? AND status NOT IN ('dismissed')`,
+    userId ?? null,
+    workerId,
+    normalizeForComparison(topic)
+  );
 }
 
-export function createResearchItem(db, item) {
-  const duplicate = findDuplicateResearch(db, item.userId ?? null, item.workerId, item.topic);
+export async function createResearchItem(store, item) {
+  const duplicate = await findDuplicateResearch(store, item.userId ?? null, item.workerId, item.topic);
   if (duplicate) {
     return { duplicate: true, id: duplicate.id };
   }
 
   const timestamp = item.createdAt || new Date().toISOString();
   const id = randomUUID();
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_research_items
       (id, user_id, worker_id, scope, topic, query, source_type, status, summary, insights_json, evidence_json, normalized_topic, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     item.userId ?? null,
     item.workerId,
@@ -3681,7 +3748,7 @@ export function createResearchItem(db, item) {
     timestamp
   );
 
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: item.query,
     eventType: "research_item_created",
@@ -3694,54 +3761,55 @@ export function createResearchItem(db, item) {
   return { duplicate: false, id };
 }
 
-export function listWorkerBrands(db, userId, workerId) {
-  return db
-    .prepare(
+export async function listWorkerBrands(store, userId, workerId) {
+  return store.query(
+    `SELECT id, brand_name AS brandName, website, identity_summary AS identitySummary, vibe_notes AS vibeNotes,
+            suggested_angle AS suggestedAngle, contact_email AS contactEmail, contact_name AS contactName,
+            research_item_id AS researchItemId, last_content_ideas_at AS lastContentIdeasAt, last_pitch_at AS lastPitchAt,
+            created_at AS createdAt, updated_at AS updatedAt
+     FROM worker_brands
+     WHERE user_id = ? AND worker_id = ?
+     ORDER BY updated_at DESC`,
+    userId,
+    workerId
+  );
+}
+
+export async function getWorkerBrand(store, userId, workerId, brandId) {
+  return (
+    await store.queryOne(
       `SELECT id, brand_name AS brandName, website, identity_summary AS identitySummary, vibe_notes AS vibeNotes,
               suggested_angle AS suggestedAngle, contact_email AS contactEmail, contact_name AS contactName,
               research_item_id AS researchItemId, last_content_ideas_at AS lastContentIdeasAt, last_pitch_at AS lastPitchAt,
               created_at AS createdAt, updated_at AS updatedAt
        FROM worker_brands
-       WHERE user_id = ? AND worker_id = ?
-       ORDER BY updated_at DESC`
-    )
-    .all(userId, workerId);
-}
-
-export function getWorkerBrand(db, userId, workerId, brandId) {
-  return (
-    db
-      .prepare(
-        `SELECT id, brand_name AS brandName, website, identity_summary AS identitySummary, vibe_notes AS vibeNotes,
-                suggested_angle AS suggestedAngle, contact_email AS contactEmail, contact_name AS contactName,
-                research_item_id AS researchItemId, last_content_ideas_at AS lastContentIdeasAt, last_pitch_at AS lastPitchAt,
-                created_at AS createdAt, updated_at AS updatedAt
-         FROM worker_brands
-         WHERE id = ? AND user_id = ? AND worker_id = ?`
-      )
-      .get(brandId, userId, workerId) ?? null
+       WHERE id = ? AND user_id = ? AND worker_id = ?`,
+      brandId,
+      userId,
+      workerId
+    ) ?? null
   );
 }
 
-export function upsertWorkerBrand(db, brand) {
+export async function upsertWorkerBrand(store, brand) {
   const normalizedName = normalizeForComparison(brand.brandName);
   const timestamp = brand.updatedAt || new Date().toISOString();
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM worker_brands
-       WHERE user_id = ? AND worker_id = ? AND normalized_name = ?`
-    )
-    .get(brand.userId, brand.workerId, normalizedName);
+  const existing = await store.queryOne(
+    `SELECT id
+     FROM worker_brands
+     WHERE user_id = ? AND worker_id = ? AND normalized_name = ?`,
+    brand.userId,
+    brand.workerId,
+    normalizedName
+  );
 
   if (existing) {
-    db.prepare(
+    await store.execute(
       `UPDATE worker_brands
        SET brand_name = ?, website = ?, identity_summary = ?, vibe_notes = ?, suggested_angle = ?,
            contact_email = coalesce(?, contact_email), contact_name = coalesce(?, contact_name),
            research_item_id = coalesce(?, research_item_id), updated_at = ?
-       WHERE id = ?`
-    ).run(
+       WHERE id = ?`,
       brand.brandName,
       brand.website ?? "",
       brand.identitySummary ?? "",
@@ -3757,12 +3825,11 @@ export function upsertWorkerBrand(db, brand) {
   }
 
   const id = randomUUID();
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_brands
       (id, user_id, worker_id, brand_name, website, identity_summary, vibe_notes, suggested_angle,
        contact_email, contact_name, research_item_id, last_content_ideas_at, last_pitch_at, normalized_name, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
     id,
     brand.userId,
     brand.workerId,
@@ -3781,41 +3848,43 @@ export function upsertWorkerBrand(db, brand) {
   return { id, updated: false };
 }
 
-export function touchWorkerBrandActivity(db, userId, workerId, brandId, field) {
+export async function touchWorkerBrandActivity(store, userId, workerId, brandId, field) {
   const timestamp = new Date().toISOString();
   const column = field === "pitch" ? "last_pitch_at" : "last_content_ideas_at";
-  db.prepare(
+  await store.execute(
     `UPDATE worker_brands
      SET ${column} = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_id = ?`
-  ).run(timestamp, timestamp, brandId, userId, workerId);
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    timestamp, timestamp, brandId, userId, workerId
+  );
 }
 
-export function listResearchItems(db, userId, workerId) {
-  return db
-    .prepare(
-      `SELECT id, user_id AS userId, worker_id AS workerId, scope, topic, query, source_type AS sourceType, status, summary,
-              insights_json AS insightsJson, evidence_json AS evidenceJson, created_at AS createdAt, updated_at AS updatedAt
-       FROM worker_research_items
-       WHERE worker_id = ? AND (user_id IS NULL OR user_id = ?)
-       ORDER BY created_at DESC`
-    )
-    .all(workerId, userId)
-    .map((row) => ({
+export async function listResearchItems(store, userId, workerId) {
+  const rows = await store.query(
+    `SELECT id, user_id AS userId, worker_id AS workerId, scope, topic, query, source_type AS sourceType, status, summary,
+            insights_json AS insightsJson, evidence_json AS evidenceJson, created_at AS createdAt, updated_at AS updatedAt
+     FROM worker_research_items
+     WHERE worker_id = ? AND (user_id IS NULL OR user_id = ?)
+     ORDER BY created_at DESC`,
+    workerId,
+    userId
+  );
+  return rows.map((row) => ({
       ...row,
       evidence: safeJsonParse(row.evidenceJson, []),
       insights: safeJsonParse(row.insightsJson, [])
-    }));
+  }));
 }
 
-export function convertResearchItemToTask(db, userId, workerId, researchItemId, taskInput) {
-  db.prepare(
+export async function convertResearchItemToTask(store, userId, workerId, researchItemId, taskInput) {
+  await store.execute(
     `UPDATE worker_research_items
      SET status = 'converted_to_task', updated_at = ?
-     WHERE id = ? AND worker_id = ? AND (user_id = ? OR user_id IS NULL)`
-  ).run(new Date().toISOString(), researchItemId, workerId, userId);
+     WHERE id = ? AND worker_id = ? AND (user_id = ? OR user_id IS NULL)`,
+    new Date().toISOString(), researchItemId, workerId, userId
+  );
 
-  return createWorkerTask(db, {
+  return createWorkerTask(store, {
     ...taskInput,
     evidenceUsed: [...(taskInput.evidenceUsed ?? []), `research:${researchItemId}`],
     source: taskInput.source || "research_triggered",
@@ -3825,29 +3894,29 @@ export function convertResearchItemToTask(db, userId, workerId, researchItemId, 
   });
 }
 
-function findDuplicateApproval(db, userId, workerId, title) {
-  return db
-    .prepare(
-      `SELECT id
-       FROM worker_approval_requests
-       WHERE user_id = ? AND worker_id = ? AND normalized_title = ? AND status = 'pending'`
-    )
-    .get(userId, workerId, normalizeForComparison(title));
+async function findDuplicateApproval(store, userId, workerId, title) {
+  return store.queryOne(
+    `SELECT id
+     FROM worker_approval_requests
+     WHERE user_id = ? AND worker_id = ? AND normalized_title = ? AND status = 'pending'`,
+    userId,
+    workerId,
+    normalizeForComparison(title)
+  );
 }
 
-export function createApprovalRequest(db, approval) {
-  const duplicate = findDuplicateApproval(db, approval.userId, approval.workerId, approval.title);
+export async function createApprovalRequest(store, approval) {
+  const duplicate = await findDuplicateApproval(store, approval.userId, approval.workerId, approval.title);
   if (duplicate) {
     return { duplicate: true, id: duplicate.id };
   }
 
   const timestamp = approval.createdAt || new Date().toISOString();
   const id = randomUUID();
-  db.prepare(
+  await store.execute(
     `INSERT INTO worker_approval_requests
       (id, user_id, worker_id, action_type, title, description, payload_json, status, normalized_title, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     approval.userId,
     approval.workerId,
@@ -3861,7 +3930,7 @@ export function createApprovalRequest(db, approval) {
     timestamp
   );
 
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: approval.description,
     eventType: "approval_requested",
@@ -3871,11 +3940,10 @@ export function createApprovalRequest(db, approval) {
     workerId: approval.workerId
   });
 
-  db.prepare(
+  await store.execute(
     `INSERT INTO office_suggested_actions
       (id, user_id, worker_slug, action_type, title, description, reason, related_thread_id, related_campaign_id, related_brand_id, payload_json, status, requires_approval, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'suggested', 1, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'suggested', 1, ?, ?)`,
     id,
     approval.userId,
     approval.workerId,
@@ -3891,19 +3959,19 @@ export function createApprovalRequest(db, approval) {
   return { duplicate: false, id };
 }
 
-export function listApprovalRequests(db, userId, workerId) {
-  return db
-    .prepare(
-      `SELECT id, action_type AS actionType, title, description, payload_json AS payloadJson, status, created_at AS createdAt, updated_at AS updatedAt
-       FROM worker_approval_requests
-       WHERE user_id = ? AND worker_id = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId, workerId)
-    .map((row) => ({ ...row, payload: safeJsonParse(row.payloadJson, {}) }));
+export async function listApprovalRequests(store, userId, workerId) {
+  const rows = await store.query(
+    `SELECT id, action_type AS actionType, title, description, payload_json AS payloadJson, status, created_at AS createdAt, updated_at AS updatedAt
+     FROM worker_approval_requests
+     WHERE user_id = ? AND worker_id = ?
+     ORDER BY created_at DESC`,
+    userId,
+    workerId
+  );
+  return rows.map((row) => ({ ...row, payload: safeJsonParse(row.payloadJson, {}) }));
 }
 
-export async function executeApprovalFollowThrough(db, userId, workerId, approval, executionOptions = {}) {
+export async function executeApprovalFollowThrough(store, userId, workerId, approval, executionOptions = {}) {
   if (!approval || String(approval.status).toLowerCase() !== "approved") {
     return { executed: false };
   }
@@ -3912,7 +3980,7 @@ export async function executeApprovalFollowThrough(db, userId, workerId, approva
   const results = [];
 
   if (approval.actionType === "use_integration" || payload.enableInboxPermissions) {
-    updateWorkerPermissions(db, userId, workerId, {
+    await updateWorkerPermissions(store, userId, workerId, {
       canReadInbox: true,
       canUseConnectedIntegrations: true
     });
@@ -3921,7 +3989,7 @@ export async function executeApprovalFollowThrough(db, userId, workerId, approva
 
   if (payload.taskId) {
     const result = await runMaraTask({
-      db,
+      store,
       taskId: String(payload.taskId),
       userId,
       workerId,
@@ -3932,7 +4000,7 @@ export async function executeApprovalFollowThrough(db, userId, workerId, approva
 
   if (payload.runAutonomy) {
     const summary = await runMaraAutonomyCycle({
-      db,
+      store,
       userId,
       workerId,
       ...executionOptions
@@ -3943,38 +4011,41 @@ export async function executeApprovalFollowThrough(db, userId, workerId, approva
   return { executed: results.length > 0, results };
 }
 
-export async function updateApprovalRequestStatus(db, userId, workerId, approvalId, status, executionOptions = null) {
+export async function updateApprovalRequestStatus(store, userId, workerId, approvalId, status, executionOptions = null) {
   const nextStatus = String(status ?? "").trim().toLowerCase();
   if (!["approved", "rejected", "dismissed"].includes(nextStatus)) {
     throw new Error("Unsupported approval status.");
   }
 
-  const approval = db
-    .prepare(
-      `SELECT id, action_type AS actionType, title, description, payload_json AS payloadJson
-       FROM worker_approval_requests
-       WHERE id = ? AND user_id = ? AND worker_id = ?`
-    )
-    .get(approvalId, userId, workerId);
+  const approval = await store.queryOne(
+    `SELECT id, action_type AS actionType, title, description, payload_json AS payloadJson
+     FROM worker_approval_requests
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    approvalId,
+    userId,
+    workerId
+  );
 
   if (!approval) {
     throw new Error("Approval request not found.");
   }
 
   const timestamp = new Date().toISOString();
-  db.prepare(
+  await store.execute(
     `UPDATE worker_approval_requests
      SET status = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_id = ?`
-  ).run(nextStatus, timestamp, approvalId, userId, workerId);
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    nextStatus, timestamp, approvalId, userId, workerId
+  );
 
-  db.prepare(
+  await store.execute(
     `UPDATE office_suggested_actions
      SET status = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_slug = ?`
-  ).run(nextStatus, timestamp, approvalId, userId, workerId);
+     WHERE id = ? AND user_id = ? AND worker_slug = ?`,
+    nextStatus, timestamp, approvalId, userId, workerId
+  );
 
-  createWorkerActivityLog(db, {
+  await createWorkerActivityLog(store, {
     createdAt: timestamp,
     description: approval.description,
     eventType: nextStatus === "approved" ? "approval_approved" : "approval_rejected",
@@ -3984,10 +4055,9 @@ export async function updateApprovalRequestStatus(db, userId, workerId, approval
     workerId
   });
 
-  db.prepare(
+  await store.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     randomUUID(),
     userId,
     workerId,
@@ -4006,7 +4076,7 @@ export async function updateApprovalRequestStatus(db, userId, workerId, approval
     },
     followThrough: executionOptions
       ? await executeApprovalFollowThrough(
-          db,
+          store,
           userId,
           workerId,
           { ...approval, payload: safeJsonParse(approval.payloadJson, {}), status: nextStatus },
@@ -4306,25 +4376,25 @@ export function runMaraActionDetector({
   };
 }
 
-export function buildMaraWorkspace(db, userId, workerId, { readKnowledgeSections, readOfficeOverlays } = {}) {
-  const tasks = listWorkerTasksForUserWorker(db, userId, workerId);
-  const workerOutputs = listWorkerOutputs(db, userId, workerId);
-  const approvals = listApprovalRequests(db, userId, workerId).filter((request) => request.status === "pending");
-  const recurringResponsibilities = listRecurringResponsibilities(db, userId, workerId);
-  const researchItems = listResearchItems(db, userId, workerId);
-  const researchSnapshot = buildResearchSnapshot(db, userId, workerId, researchItems);
-  const inboxLeadSnapshot = buildInboxLeadSnapshot(db, userId, workerId);
-  const permissions = getWorkerPermissions(db, userId, workerId);
-  const whatMaraKnows = typeof readKnowledgeSections === "function" ? readKnowledgeSections(userId, workerId) : [];
-  const recentActivity = db
-    .prepare(
+export async function buildMaraWorkspace(store, userId, workerId, { readKnowledgeSections, readOfficeOverlays } = {}) {
+  const tasks = await listWorkerTasksForUserWorker(store, userId, workerId);
+  const workerOutputs = await listWorkerOutputs(store, userId, workerId);
+  const approvals = (await listApprovalRequests(store, userId, workerId)).filter((request) => request.status === "pending");
+  const recurringResponsibilities = await listRecurringResponsibilities(store, userId, workerId);
+  const researchItems = await listResearchItems(store, userId, workerId);
+  const researchSnapshot = buildResearchSnapshot(store, userId, workerId, researchItems);
+  const inboxLeadSnapshot = await buildInboxLeadSnapshot(store, userId, workerId);
+  const permissions = await getWorkerPermissions(store, userId, workerId);
+  const whatMaraKnows = typeof readKnowledgeSections === "function" ? await readKnowledgeSections(userId, workerId) : [];
+  const recentActivity = (await store.query(
       `SELECT id, event_type AS eventType, title, description, related_task_id AS relatedTaskId, metadata_json AS metadataJson, created_at AS createdAt
        FROM worker_activity_log
        WHERE user_id = ? AND worker_id = ?
        ORDER BY created_at DESC
-       LIMIT 12`
-    )
-    .all(userId, workerId)
+       LIMIT 12`,
+      userId,
+      workerId
+    ))
     .map((row) => ({ ...row, metadata: safeJsonParse(row.metadataJson, {}) }))
     .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "task_execution_started", "task_execution_completed", "task_execution_blocked", "worker_output_created", "task_auto_executed", "chat_task_created", "chat_task_executed", "recurring_responsibility_created", "autonomy_cycle_completed"].includes(row.eventType))
     .slice(0, 5)

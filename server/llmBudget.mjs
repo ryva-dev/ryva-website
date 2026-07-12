@@ -9,6 +9,7 @@
 // imported anywhere without creating a cycle.
 
 import * as store from "./dataStore.mjs";
+import { incrementMetric } from "./metrics.mjs";
 
 const DAILY_LLM_CALL_LIMIT = Number.parseInt(process.env.AGENT_DAILY_LLM_CALL_LIMIT ?? "300", 10);
 
@@ -72,6 +73,7 @@ export async function noteSpend(userId) {
   if (!userId) return;
   try {
     await recordLlmCall(userId);
+    incrementMetric("llm_calls", 1);
   } catch {
     /* budget accounting is best-effort */
   }

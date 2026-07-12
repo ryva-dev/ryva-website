@@ -1,9 +1,10 @@
-import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { initWorkerTables } from "./workerEngine.mjs";
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const defaultStorageRoot = process.env.RAILWAY_VOLUME_MOUNT_PATH || path.join(rootDir, "data");
@@ -14,23 +15,31 @@ const dbPath = configuredDatabasePath
     : path.resolve(rootDir, configuredDatabasePath)
   : path.join(defaultStorageRoot, "app.db");
 
-fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-
 const isProduction = process.env.NODE_ENV === "production";
+const usingPostgres = Boolean(String(process.env.DATABASE_URL ?? "").trim());
 const hasRailwayVolume = Boolean(process.env.RAILWAY_VOLUME_MOUNT_PATH);
 const hasAbsoluteDatabasePath = Boolean(configuredDatabasePath && path.isAbsolute(configuredDatabasePath));
 const hasAbsoluteStorageRoot = Boolean(process.env.STORAGE_ROOT && path.isAbsolute(process.env.STORAGE_ROOT));
 
-if (isProduction && !hasRailwayVolume && !hasAbsoluteDatabasePath && !hasAbsoluteStorageRoot) {
-  throw new Error(
-    "Persistent storage is not configured for production. Set RAILWAY_VOLUME_MOUNT_PATH or use an absolute DATABASE_PATH/STORAGE_ROOT."
-  );
+// When DATABASE_URL is set, Postgres is the only data plane (via dataStore +
+// migrations). Do not open SQLite — that was the Stage B split-brain failure mode.
+/** @type {import("better-sqlite3").Database | null} */
+export let db = null;
+
+if (!usingPostgres) {
+  if (isProduction && !hasRailwayVolume && !hasAbsoluteDatabasePath && !hasAbsoluteStorageRoot) {
+    throw new Error(
+      "Persistent storage is not configured for production. Set RAILWAY_VOLUME_MOUNT_PATH or use an absolute DATABASE_PATH/STORAGE_ROOT."
+    );
+  }
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const Database = require("better-sqlite3");
+  db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
 }
 
-export const db = new Database(dbPath);
-db.pragma("journal_mode = WAL");
-
 function ensureColumn(tableName, columnName, columnDefinition) {
+  if (!db) return;
   const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
   if (!columns.some((column) => column.name === columnName)) {
     db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
@@ -38,6 +47,7 @@ function ensureColumn(tableName, columnName, columnDefinition) {
 }
 
 export function ensureOfficeSchema() {
+  if (!db) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS office_onboarding_sessions (
       id TEXT PRIMARY KEY,
@@ -172,6 +182,7 @@ export function ensureOfficeSchema() {
   `);
 }
 
+if (db) {
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -583,14 +594,17 @@ db.exec(`
   );
 `);
 
-ensureOfficeSchema();
-initWorkerTables(db);
+  ensureOfficeSchema();
+  initWorkerTables(db);
 
-db.exec(`
-  INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
-  SELECT lower(hex(randomblob(16))), cs.user_id, cs.worker_slug, cs.id, 'active', coalesce(cs.completed_at, cs.created_at)
-  FROM checkout_sessions cs
-  LEFT JOIN hired_workers hw
-    ON hw.user_id = cs.user_id AND hw.worker_slug = cs.worker_slug
-  WHERE cs.status = 'completed' AND hw.id IS NULL;
-`);
+  // SQLite-only hire backfill. Postgres deployments use migrations + app logic;
+  // randomblob() is not portable.
+  db.exec(`
+    INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
+    SELECT lower(hex(randomblob(16))), cs.user_id, cs.worker_slug, cs.id, 'active', coalesce(cs.completed_at, cs.created_at)
+    FROM checkout_sessions cs
+    LEFT JOIN hired_workers hw
+      ON hw.user_id = cs.user_id AND hw.worker_slug = cs.worker_slug
+    WHERE cs.status = 'completed' AND hw.id IS NULL;
+  `);
+}

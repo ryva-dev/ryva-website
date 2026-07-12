@@ -24,13 +24,70 @@
 
 /** Translate better-sqlite3 style `?` placeholders into Postgres `$1, $2, …`. */
 export function toPgPlaceholders(sql) {
+  const source = String(sql);
   let index = 0;
-  return String(sql).replace(/\?/g, () => `$${++index}`);
+  let output = "";
+  let quote = null;
+  let lineComment = false;
+  let blockComment = false;
+  for (let cursor = 0; cursor < source.length; cursor += 1) {
+    const char = source[cursor];
+    const next = source[cursor + 1];
+    if (lineComment) {
+      output += char;
+      if (char === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      output += char;
+      if (char === "*" && next === "/") { output += next; cursor += 1; blockComment = false; }
+      continue;
+    }
+    if (quote) {
+      output += char;
+      if (char === quote) {
+        if (next === quote) { output += next; cursor += 1; }
+        else quote = null;
+      }
+      continue;
+    }
+    if (char === "-" && next === "-") { output += char + next; cursor += 1; lineComment = true; continue; }
+    if (char === "/" && next === "*") { output += char + next; cursor += 1; blockComment = true; continue; }
+    if (char === "'" || char === '"') { quote = char; output += char; continue; }
+    output += char === "?" ? `$${++index}` : char;
+  }
+  return output;
 }
 
 function normalizeParams(params) {
   if (params.length === 1 && Array.isArray(params[0])) return params[0];
   return params;
+}
+
+// Async callbacks can yield even when better-sqlite3 queries themselves are
+// synchronous. Serialize transactions per connection so an API request and an
+// autonomy job cannot issue overlapping BEGIN statements on the same handle.
+const sqliteTransactionTails = new WeakMap();
+
+async function runSerializedSqliteTransaction(db, scoped, callback) {
+  const previous = sqliteTransactionTails.get(db) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(async () => {
+    db.exec("BEGIN");
+    try {
+      const value = await callback(scoped);
+      db.exec("COMMIT");
+      return value;
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch { /* ignore */ }
+      throw error;
+    }
+  });
+  sqliteTransactionTails.set(db, current);
+  try {
+    return await current;
+  } finally {
+    if (sqliteTransactionTails.get(db) === current) sqliteTransactionTails.delete(db);
+  }
 }
 
 function resolveUsesPostgres(options) {
@@ -46,12 +103,12 @@ async function createPostgresDriver(options) {
   const { Pool } = pg;
 
   const connectionString = String(options.databaseUrl ?? process.env.DATABASE_URL ?? "").trim();
-  const sslDisabled = String(process.env.PGSSL ?? "").trim().toLowerCase() === "disable";
+  const sslMode = String(process.env.PGSSL ?? "verify-full").trim().toLowerCase();
   const pool = new Pool({
     connectionString,
-    // Managed Postgres (RDS/Aurora) presents certs Node won't validate by
-    // default; rejectUnauthorized:false is the standard posture there.
-    ssl: sslDisabled ? false : { rejectUnauthorized: false },
+    // Production defaults to certificate verification. Local development may
+    // explicitly opt out with PGSSL=disable.
+    ssl: sslMode === "disable" ? false : { rejectUnauthorized: true },
     max: Number.parseInt(process.env.PG_POOL_MAX ?? "10", 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000
@@ -128,26 +185,15 @@ async function createSqliteDriver(options) {
       return { rowCount: info.changes, changes: info.changes, rows: [] };
     },
     tx: async (callback) => {
-      // better-sqlite3's own db.transaction() requires a synchronous fn, but our
-      // callbacks await sync-wrapped calls (which resolve immediately on one
-      // connection). Manage the transaction explicitly to allow the async shape.
-      db.exec("BEGIN");
-      try {
-        const scoped = {
-          query: async (sql, ...p) => db.prepare(sql).all(...normalizeParams(p)),
-          queryOne: async (sql, ...p) => db.prepare(sql).get(...normalizeParams(p)) ?? null,
-          execute: async (sql, ...p) => {
-            const info = db.prepare(sql).run(...normalizeParams(p));
-            return { rowCount: info.changes, changes: info.changes, rows: [] };
-          }
-        };
-        const value = await callback(scoped);
-        db.exec("COMMIT");
-        return value;
-      } catch (error) {
-        try { db.exec("ROLLBACK"); } catch { /* ignore */ }
-        throw error;
-      }
+      const scoped = {
+        query: async (sql, ...p) => db.prepare(sql).all(...normalizeParams(p)),
+        queryOne: async (sql, ...p) => db.prepare(sql).get(...normalizeParams(p)) ?? null,
+        execute: async (sql, ...p) => {
+          const info = db.prepare(sql).run(...normalizeParams(p));
+          return { rowCount: info.changes, changes: info.changes, rows: [] };
+        }
+      };
+      return runSerializedSqliteTransaction(db, scoped, callback);
     },
     ping: async () => { db.prepare("SELECT 1").get(); return true; },
     close: async () => { db.close(); }
@@ -207,18 +253,9 @@ export function wrapSqliteHandle(db) {
   };
   return {
     kind: "sqlite",
+    activeDriver: () => "sqlite",
     ...scoped,
-    tx: async (callback) => {
-      db.exec("BEGIN");
-      try {
-        const value = await callback(scoped);
-        db.exec("COMMIT");
-        return value;
-      } catch (error) {
-        try { db.exec("ROLLBACK"); } catch { /* ignore */ }
-        throw error;
-      }
-    },
+    tx: async (callback) => runSerializedSqliteTransaction(db, scoped, callback),
     ping: async () => { db.prepare("SELECT 1").get(); return true; }
   };
 }

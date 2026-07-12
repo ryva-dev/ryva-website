@@ -40,6 +40,7 @@ RUN npm ci --omit=dev \
 COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY scripts ./scripts
+COPY data/workers.json ./data/workers.json
 
 # Writable storage for SQLite dev / uploads. In production prefer DATABASE_URL
 # (Postgres) + object storage and mount this only if you need local files.

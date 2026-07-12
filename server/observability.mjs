@@ -143,18 +143,17 @@ export function validateConfig() {
   const usingPostgres = Boolean(String(process.env.DATABASE_URL ?? "").trim());
 
   if (isProduction) {
-    if (!usingPostgres) {
-      // Single-file SQLite behind >1 instance is unsafe; require Postgres in prod.
-      problems.push("DATABASE_URL is required in production (SQLite is single-instance only).");
-    }
-    if (!String(process.env.SESSION_SECRET ?? "").trim()) {
-      warnings.push("SESSION_SECRET is not set.");
+    if (usingPostgres) {
+      // Schema comes from `npm run migrate`. Object storage should be S3 in prod.
+      if (String(process.env.OBJECT_STORAGE_DRIVER ?? "").trim().toLowerCase() !== "s3") {
+        warnings.push("OBJECT_STORAGE_DRIVER is not s3; multi-instance deploys need shared object storage.");
+      }
     }
     if (!String(process.env.ANTHROPIC_API_KEY ?? "").trim()) {
-      warnings.push("ANTHROPIC_API_KEY is not set — workers will fall back to placeholder output.");
+      problems.push("ANTHROPIC_API_KEY is required in production; paid workers must not emit placeholder output.");
     }
     if (!String(process.env.ENCRYPTION_KEY ?? "").trim()) {
-      warnings.push("ENCRYPTION_KEY is not set — OAuth tokens will be stored in plaintext.");
+      problems.push("ENCRYPTION_KEY is required in production; OAuth tokens must never be stored in plaintext.");
     }
     const stripeKey = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
     const stripeHook = String(process.env.STRIPE_WEBHOOK_SECRET ?? "").trim();
@@ -168,5 +167,8 @@ export function validateConfig() {
     for (const problem of problems) emit("error", "config_error", { detail: problem });
     throw new Error(`Invalid configuration:\n- ${problems.join("\n- ")}`);
   }
-  emit("info", "config_validated", { backend: usingPostgres ? "postgres" : "sqlite", production: isProduction });
+  emit("info", "config_validated", {
+    backend: usingPostgres ? "postgres" : "sqlite",
+    production: isProduction
+  });
 }

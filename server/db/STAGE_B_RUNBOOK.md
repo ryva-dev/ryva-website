@@ -108,10 +108,14 @@ is "one module + its callers + its tests," green before moving on.
 
 ## After Stage B
 
+Stage B query cutover is complete on `phase2/stage-b-cutover`:
+
+- Runtime modules use `await store.query/queryOne/execute`
+- `DATABASE_URL` enables Postgres; SQLite is not opened in that mode
+- Autonomy + weekly digests use `durable_jobs` with leased claims
+
+Remaining:
+
 - **C — ETL:** copy `data/app.db` rows into Postgres (FK-safe order).
-- **D — job queue:** replace the `setInterval` autonomy loop with pg-boss so
-  multiple instances don't double-run (`SELECT … FOR UPDATE SKIP LOCKED`
-  semantics come for free).
-- **E — observability:** wire `server/observability.mjs` into `index.mjs`
-  (request context, health endpoints, error handler, graceful shutdown,
-  `validateConfig()` at boot).
+- **E — observability:** metrics backends / error tracking productization.
+- **F — state off local disk:** Secrets Manager, TikTok profile off local disk.

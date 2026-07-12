@@ -20,18 +20,20 @@ import {
   tryPlanAutonomyLlm
 } from "./agentLlm.mjs";
 import { getRoleConfig, getRoleTaskType } from "./roles.mjs";
+import { appendActionAuditEvent, evaluateActionPolicy, initActionAudit } from "./actionPolicy.mjs";
+import { wrapSqliteHandle } from "./dataStore.mjs";
 import {
-  completeWorkerTask,
-  createApprovalRequest,
-  createApprovedTaskIfPermissionAllows,
-  createWorkerActivityLog,
-  createWorkerOutput,
-  ensureWorkerPermissions,
-  listApprovalRequests,
-  listWorkerOutputs,
-  listWorkerTasksForUserWorker,
-  updateWorkerTaskStatus
-} from "./workerEngine.mjs";
+  appendAgentActivity,
+  createAgentApproval,
+  createAgentOutput,
+  createAgentTask,
+  ensureAgentPermissions,
+  listAgentApprovals,
+  listAgentKnowledge,
+  listAgentOutputs,
+  listAgentTasks,
+  updateAgentTaskStatus
+} from "./agentRepository.mjs";
 
 function nowIso() {
   return new Date().toISOString();
@@ -45,19 +47,20 @@ function normalizeTitle(value) {
 /* Context                                                             */
 /* ------------------------------------------------------------------ */
 
-export function buildAgentBrandContext({ db, userId, workerId, readers = {} }) {
-  const accountOnboarding = typeof readers.readAccountContext === "function" ? readers.readAccountContext(userId) : null;
-  const workerOnboarding = typeof readers.readMaraOnboarding === "function" ? readers.readMaraOnboarding(userId, workerId) : null;
-  const knowledgeSections = typeof readers.readWorkerKnowledge === "function" ? readers.readWorkerKnowledge(userId, workerId) : [];
-  const integrations = typeof readers.readConnectedIntegrations === "function" ? readers.readConnectedIntegrations(userId, workerId) : [];
-  const recentMessages = typeof readers.readMessages === "function" ? readers.readMessages(userId, workerId) : [];
+export async function buildAgentBrandContext({ store, userId, workerId, readers = {} }) {
+  const accountOnboarding = typeof readers.readAccountContext === "function" ? await readers.readAccountContext(userId) : null;
+  const workerOnboarding = typeof readers.readMaraOnboarding === "function" ? await readers.readMaraOnboarding(userId, workerId) : null;
+  const knowledgeSections = typeof readers.readWorkerKnowledge === "function" ? await readers.readWorkerKnowledge(userId, workerId) : [];
+  const integrations = typeof readers.readConnectedIntegrations === "function" ? await readers.readConnectedIntegrations(userId, workerId) : [];
+  const recentMessages = typeof readers.readMessages === "function" ? await readers.readMessages(userId, workerId) : [];
 
   return buildBrandContext({
     accountOnboarding,
     workerOnboardingAnswers: workerOnboarding?.answers ?? {},
+    professionalKnowledge: await listAgentKnowledge(store, { workerId, workerType: null }),
     knowledgeSections,
-    recentOutputs: listWorkerOutputs(db, userId, workerId),
-    openTasks: listWorkerTasksForUserWorker(db, userId, workerId).filter((task) =>
+    recentOutputs: await listAgentOutputs(store, userId, workerId),
+    openTasks: (await listAgentTasks(store, userId, workerId)).filter((task) =>
       ["proposed", "approved", "in_progress", "blocked"].includes(task.status)
     ),
     integrations,
@@ -73,13 +76,13 @@ export function buildAgentBrandContext({ db, userId, workerId, readers = {} }) {
  * Execute one task for a role-config worker. LLM-first; if the LLM cannot
  * run, we store an honestly-labeled placeholder and keep the task open.
  */
-export async function runAgentTask({ db, userId, workerId, taskId, readers = {}, fetchImpl }) {
+export async function runAgentTask({ db, store = db ? wrapSqliteHandle(db) : null, userId, workerId, taskId, readers = {}, fetchImpl }) {
   const roleConfig = getRoleConfig(workerId);
   if (!roleConfig) {
     throw new Error("No role configuration for this worker.");
   }
 
-  const task = listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId);
+  const task = (await listAgentTasks(store, userId, workerId)).find((entry) => entry.id === taskId);
   if (!task) {
     throw new Error("Worker task not found.");
   }
@@ -87,9 +90,9 @@ export async function runAgentTask({ db, userId, workerId, taskId, readers = {},
     throw new Error("Only approved or in-progress tasks can be executed.");
   }
 
-  ensureWorkerPermissions(db, userId, workerId);
-  updateWorkerTaskStatus(db, userId, workerId, taskId, "in_progress");
-  createWorkerActivityLog(db, {
+  await ensureAgentPermissions(store, userId, workerId);
+  await updateAgentTaskStatus(store, userId, workerId, taskId, "in_progress");
+  await appendAgentActivity(store, {
     description: `Started ${task.title}.`,
     eventType: "task_execution_started",
     relatedTaskId: taskId,
@@ -98,13 +101,13 @@ export async function runAgentTask({ db, userId, workerId, taskId, readers = {},
     workerId
   });
 
-  const brandContext = buildAgentBrandContext({ db, userId, workerId, readers });
+  const brandContext = await buildAgentBrandContext({ store, userId, workerId, readers });
   const llmResult = await tryExecuteAgentTaskLlm({ db, userId, roleConfig, task, brandContext, fetchImpl });
 
   if (!llmResult) {
     // Honest degradation: labeled placeholder, task stays approved for retry.
     const placeholder = buildPlaceholderOutput(roleConfig, task);
-    const savedOutput = createWorkerOutput(db, {
+    const savedOutput = await createAgentOutput(store, {
       content: placeholder.content,
       outputType: placeholder.outputType,
       source: "task_execution",
@@ -114,8 +117,8 @@ export async function runAgentTask({ db, userId, workerId, taskId, readers = {},
       userId,
       workerId
     });
-    updateWorkerTaskStatus(db, userId, workerId, taskId, "approved");
-    createWorkerActivityLog(db, {
+    await updateAgentTaskStatus(store, userId, workerId, taskId, "approved");
+    await appendAgentActivity(store, {
       description: "Deliverable deferred: reasoning engine unavailable or over budget.",
       eventType: "task_execution_blocked",
       metadata: { outputId: savedOutput.id, reason: "llm_unavailable" },
@@ -129,11 +132,11 @@ export async function runAgentTask({ db, userId, workerId, taskId, readers = {},
       neededFromUser: "Configure the platform AI key (or wait for the daily budget to reset), then re-run this task.",
       output: savedOutput,
       suggestedNextStep: "Re-run the task once AI is available.",
-      task: listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId)
+      task: (await listAgentTasks(store, userId, workerId)).find((entry) => entry.id === taskId)
     };
   }
 
-  const savedOutput = createWorkerOutput(db, {
+  const savedOutput = await createAgentOutput(store, {
     content: llmResult.content,
     outputType: llmResult.outputType,
     source: "task_execution",
@@ -143,11 +146,7 @@ export async function runAgentTask({ db, userId, workerId, taskId, readers = {},
     userId,
     workerId
   });
-  completeWorkerTask(
-    db,
-    userId,
-    workerId,
-    taskId,
+  await updateAgentTaskStatus(store, userId, workerId, taskId, "completed",
     JSON.stringify({
       outputId: savedOutput.id,
       preview: String(llmResult.content).slice(0, 280),
@@ -155,7 +154,7 @@ export async function runAgentTask({ db, userId, workerId, taskId, readers = {},
       type: savedOutput.outputType
     })
   );
-  createWorkerActivityLog(db, {
+  await appendAgentActivity(store, {
     description: `Finished ${task.title}.`,
     eventType: "task_execution_completed",
     metadata: { outputId: savedOutput.id, outputType: savedOutput.outputType },
@@ -167,7 +166,7 @@ export async function runAgentTask({ db, userId, workerId, taskId, readers = {},
 
   return {
     output: savedOutput,
-    task: listWorkerTasksForUserWorker(db, userId, workerId).find((entry) => entry.id === taskId)
+    task: (await listAgentTasks(store, userId, workerId)).find((entry) => entry.id === taskId)
   };
 }
 
@@ -175,7 +174,7 @@ export async function runAgentTask({ db, userId, workerId, taskId, readers = {},
 /* Autonomy                                                            */
 /* ------------------------------------------------------------------ */
 
-function ensureStarterTasks(db, userId, workerId, roleConfig, existingTasks) {
+async function ensureStarterTasks(store, userId, workerId, roleConfig, existingTasks, permissions) {
   const createdIds = [];
   const existingTitles = new Set(existingTasks.map((task) => normalizeTitle(task.title)));
   for (const taskTypeId of roleConfig.starterTaskTypes ?? []) {
@@ -183,11 +182,11 @@ function ensureStarterTasks(db, userId, workerId, roleConfig, existingTasks) {
     if (!typeConfig) continue;
     const title = typeConfig.label;
     if (existingTitles.has(normalizeTitle(title))) continue;
-    const alreadyDelivered = listWorkerOutputs(db, userId, workerId).some(
+    const alreadyDelivered = (await listAgentOutputs(store, userId, workerId)).some(
       (output) => output.outputType === typeConfig.outputType
     );
     if (alreadyDelivered) continue;
-    const created = createApprovedTaskIfPermissionAllows(db, {
+    const created = await createAgentTask(store, {
       description: typeConfig.description,
       priority: "high",
       requiredPermissions: [],
@@ -197,7 +196,7 @@ function ensureStarterTasks(db, userId, workerId, roleConfig, existingTasks) {
       title,
       userId,
       workerId
-    });
+    }, permissions);
     if (created?.id && !created.duplicate) {
       createdIds.push(created.id);
     }
@@ -209,13 +208,14 @@ function ensureStarterTasks(db, userId, workerId, roleConfig, existingTasks) {
  * One autonomy cycle for a role-config worker (non-Mara).
  * Returns a summary shaped like Mara's cycle summary.
  */
-export async function runAgentAutonomyCycle({ db, userId, workerId, readers = {}, fetchImpl, maxExecutions = 3 }) {
+export async function runAgentAutonomyCycle({ db, store = db ? wrapSqliteHandle(db) : null, userId, workerId, readers = {}, fetchImpl, maxExecutions = 3 }) {
   const roleConfig = getRoleConfig(workerId);
   if (!roleConfig) {
     throw new Error("No role configuration for this worker.");
   }
 
-  ensureWorkerPermissions(db, userId, workerId);
+  const permissions = await ensureAgentPermissions(store, userId, workerId);
+  await initActionAudit(store);
   const summary = {
     blockers: [],
     createdTaskIds: [],
@@ -226,21 +226,21 @@ export async function runAgentAutonomyCycle({ db, userId, workerId, readers = {}
     plannedActions: []
   };
 
-  const existingTasks = listWorkerTasksForUserWorker(db, userId, workerId);
-  summary.createdTaskIds.push(...ensureStarterTasks(db, userId, workerId, roleConfig, existingTasks));
+  const existingTasks = await listAgentTasks(store, userId, workerId);
+  summary.createdTaskIds.push(...await ensureStarterTasks(store, userId, workerId, roleConfig, existingTasks, permissions));
 
   // LLM planning for anything beyond starters.
   if (isAgentLlmConfigured()) {
-    const brandContext = buildAgentBrandContext({ db, userId, workerId, readers });
+    const brandContext = await buildAgentBrandContext({ store, userId, workerId, readers });
     const planResult = await tryPlanAutonomyLlm({ db, userId, roleConfig, brandContext, fetchImpl });
     if (planResult) {
       const currentTitles = new Set(
-        listWorkerTasksForUserWorker(db, userId, workerId).map((task) => normalizeTitle(task.title))
+        (await listAgentTasks(store, userId, workerId)).map((task) => normalizeTitle(task.title))
       );
       for (const planned of planResult.plan) {
         summary.plannedActions.push(planned.taskType);
         if (currentTitles.has(normalizeTitle(planned.title))) continue;
-        const created = createApprovedTaskIfPermissionAllows(db, {
+        const created = await createAgentTask(store, {
           description: planned.description || planned.reason,
           priority: "medium",
           requiredPermissions: [],
@@ -250,7 +250,7 @@ export async function runAgentAutonomyCycle({ db, userId, workerId, readers = {}
           title: planned.title,
           userId,
           workerId
-        });
+        }, permissions);
         if (created?.id && !created.duplicate) {
           summary.createdTaskIds.push(created.id);
         }
@@ -264,7 +264,7 @@ export async function runAgentAutonomyCycle({ db, userId, workerId, readers = {}
   }
 
   // Execute approved tasks, newest-first, bounded.
-  const runnable = listWorkerTasksForUserWorker(db, userId, workerId)
+  const runnable = (await listAgentTasks(store, userId, workerId))
     .filter((task) => task.status === "approved")
     .filter((task) => {
       const typeConfig = getRoleTaskType(roleConfig, task.taskType);
@@ -273,8 +273,23 @@ export async function runAgentAutonomyCycle({ db, userId, workerId, readers = {}
     .slice(0, maxExecutions);
 
   for (const task of runnable) {
+    const typeConfig = getRoleTaskType(roleConfig, task.taskType);
+    const policy = evaluateActionPolicy({
+      actionType: "internal_task",
+      permissions,
+      safeAutoExecute: Boolean(typeConfig?.safeAutoExecute)
+    });
+    await appendActionAuditEvent(store, {
+      userId, workerId, taskId: task.id, actionType: "internal_task",
+      decision: policy.allowed ? "allowed" : "denied", policyVersion: policy.policyVersion,
+      reasons: policy.reasons, evidence: task.evidenceUsed || [], idempotencyKey: `task:${task.id}`
+    });
+    if (!policy.allowed) {
+      summary.blockers.push(...policy.reasons);
+      continue;
+    }
     try {
-      const result = await runAgentTask({ db, userId, workerId, taskId: task.id, readers, fetchImpl });
+      const result = await runAgentTask({ db, store, userId, workerId, taskId: task.id, readers, fetchImpl });
       if (result?.output && !result.blockerReason) {
         summary.executedTaskIds.push(task.id);
         summary.outputs.push(result.output);
@@ -287,7 +302,7 @@ export async function runAgentAutonomyCycle({ db, userId, workerId, readers = {}
     }
   }
 
-  createWorkerActivityLog(db, {
+  await appendAgentActivity(store, {
     description: `Cycle complete: ${summary.executedTaskIds.length} task(s) executed, ${summary.createdTaskIds.length} queued.`,
     eventType: "autonomy_cycle_completed",
     metadata: { blockers: summary.blockers, executed: summary.executedTaskIds.length },
@@ -310,14 +325,14 @@ export async function runAgentAutonomyCycle({ db, userId, workerId, readers = {}
  *
  * Returns null when the LLM is unavailable so the caller can fall back.
  */
-export async function handleAgentChatMessage({ db, userId, workerId, message, readers = {}, fetchImpl }) {
+export async function handleAgentChatMessage({ db, store = db ? wrapSqliteHandle(db) : null, userId, workerId, message, readers = {}, fetchImpl }) {
   const roleConfig = getRoleConfig(workerId);
   if (!roleConfig || !isAgentLlmConfigured()) {
     return null;
   }
 
-  ensureWorkerPermissions(db, userId, workerId);
-  const brandContext = buildAgentBrandContext({ db, userId, workerId, readers });
+  const permissions = await ensureAgentPermissions(store, userId, workerId);
+  const brandContext = await buildAgentBrandContext({ store, userId, workerId, readers });
   const interpretation = await tryInterpretChatMessageLlm({ db, userId, roleConfig, message, brandContext, fetchImpl });
   if (!interpretation) {
     return null;
@@ -325,11 +340,11 @@ export async function handleAgentChatMessage({ db, userId, workerId, message, re
 
   const createdTaskIds = [];
   const existingTitles = new Set(
-    listWorkerTasksForUserWorker(db, userId, workerId).map((task) => normalizeTitle(task.title))
+    (await listAgentTasks(store, userId, workerId)).map((task) => normalizeTitle(task.title))
   );
   for (const task of interpretation.tasksToCreate) {
     if (existingTitles.has(normalizeTitle(task.title))) continue;
-    const created = createApprovedTaskIfPermissionAllows(db, {
+    const created = await createAgentTask(store, {
       description: task.description,
       priority: task.priority,
       requiredPermissions: [],
@@ -339,10 +354,10 @@ export async function handleAgentChatMessage({ db, userId, workerId, message, re
       title: task.title,
       userId,
       workerId
-    });
+    }, permissions);
     if (created?.id && !created.duplicate) {
       createdTaskIds.push(created.id);
-      createWorkerActivityLog(db, {
+      await appendAgentActivity(store, {
         description: message,
         eventType: "chat_task_created",
         metadata: { taskType: task.taskType },
@@ -355,13 +370,13 @@ export async function handleAgentChatMessage({ db, userId, workerId, message, re
   }
 
   const pendingApprovalTitles = new Set(
-    listApprovalRequests(db, userId, workerId)
+    (await listAgentApprovals(store, userId, workerId))
       .filter((entry) => entry.status === "pending")
       .map((entry) => normalizeTitle(entry.title))
   );
   for (const request of interpretation.approvalRequests) {
     if (pendingApprovalTitles.has(normalizeTitle(request.title))) continue;
-    createApprovalRequest(db, {
+    await createAgentApproval(store, {
       actionType: request.actionType,
       description: request.description,
       title: request.title,

@@ -4,6 +4,7 @@ const MAINTAIN_ARTIFACT_MAX_AGE_HOURS = {
   ops_brief: 24,
   tiktok_trends: 24 * 7,
   tracker_structure: 24 * 7,
+  growth_intelligence_brief: 24 * 7,
   weekly_plan: 24 * 7,
   weekly_schedule: 24 * 7
 };
@@ -185,6 +186,15 @@ export function planMaraAutonomyActions(context) {
 
   if (isArtifactStale(recentOutputTypes.weekly_plan, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.weekly_plan)) {
     actions.push({ kind: "weekly_plan" });
+  }
+
+  if (isArtifactStale(recentOutputTypes.growth_intelligence_brief, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.growth_intelligence_brief)) {
+    actions.push({
+      kind: "maintain_artifact",
+      reason: "Build this week's creator-specific opportunity, creative-gap, and revenue intelligence brief.",
+      taskType: "weekly_growth_intelligence_brief",
+      title: "Prepare weekly growth intelligence brief"
+    });
   }
 
   if (isArtifactStale(recentOutputTypes.weekly_schedule, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.weekly_schedule)) {

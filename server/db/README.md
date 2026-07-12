@@ -28,13 +28,8 @@ npm run migrate             # creates the schema
 
 ## Remaining stages
 
-- **B — query cutover:** rewrite the 313 `db.prepare(...).get/all/run(...)` sites
-  to `await store.queryOne/query/execute(...)`, smallest files first, cascading
-  `async` up call chains. Watch for SQLite-only SQL that needs translating:
-  `INSERT OR REPLACE`, `lower(hex(randomblob(16)))` (→ `gen_random_uuid()`),
-  any `strftime`/`datetime('now')`, and `PRAGMA`.
-- **C — data ETL:** copy existing `data/app.db` rows into Postgres, FK-safe.
-- **D — job queue:** replace the in-process `setInterval` autonomy loop with
-  pg-boss so multiple instances don't double-run.
-- **E — observability**, **F — state off local disk** (see the root
-  `PHASE2_POSTGRES_MIGRATION_PLAN.md`).
+- **B — query cutover:** DONE.
+- **C — data ETL:** DONE — `npm run etl:sqlite-to-postgres` (see `STAGE_C_ETL_RUNBOOK.md`).
+- **D — job queue:** DONE — `durable_jobs` + leases.
+- **E — observability:** DONE enough — `/metrics`, structured error logging, optional Sentry.
+- **F — state off local disk:** partial — `npm run sync:uploads-to-s3`; secrets via host env/Secrets Manager.

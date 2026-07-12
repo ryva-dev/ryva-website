@@ -1,0 +1,280 @@
+import { randomUUID } from "node:crypto";
+
+export const EVIDENCE_BASIS = new Set(["observed", "inferred", "hypothesis", "creator_preference", "industry_benchmark"]);
+
+const SCORE_WEIGHTS = {
+  creatorFit: 0.35,
+  commercialPotential: 0.25,
+  opportunityGap: 0.25,
+  outreachLikelihood: 0.15
+};
+
+function boundedScore(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
+}
+
+export function scoreCreatorBrandOpportunity(dimensions = {}) {
+  const normalized = Object.fromEntries(Object.keys(SCORE_WEIGHTS).map((key) => [key, boundedScore(dimensions[key])]));
+  const total = Math.round(Object.entries(SCORE_WEIGHTS).reduce((sum, [key, weight]) => sum + normalized[key] * weight, 0));
+  return { dimensions: normalized, total };
+}
+
+export function validateEvidence(evidence = []) {
+  if (!Array.isArray(evidence) || evidence.length === 0) throw new Error("At least one evidence item is required.");
+  return evidence.map((item) => {
+    const basis = String(item?.basis ?? "").trim().toLowerCase();
+    const claim = String(item?.claim ?? "").trim();
+    if (!EVIDENCE_BASIS.has(basis)) throw new Error(`Unsupported evidence basis: ${basis || "missing"}.`);
+    if (!claim) throw new Error("Every evidence item requires a claim.");
+    return {
+      basis,
+      claim,
+      sourceUrl: item?.sourceUrl ? String(item.sourceUrl) : null,
+      observedAt: item?.observedAt ? String(item.observedAt) : null,
+      confidence: boundedScore(item?.confidence ?? (basis === "observed" ? 90 : basis === "hypothesis" ? 45 : 70))
+    };
+  });
+}
+
+export function buildOpportunityPackage(input) {
+  const score = scoreCreatorBrandOpportunity(input.scores);
+  const evidence = validateEvidence(input.evidence);
+  return {
+    brandIntelligence: input.brandIntelligence || {},
+    creatorPositioning: input.creatorPositioning || {},
+    pitchStrategy: input.pitchStrategy || {},
+    creativeTreatment: input.creativeTreatment || {},
+    economics: input.economics || {},
+    opportunityThesis: String(input.opportunityThesis || "").trim(),
+    creativeGap: String(input.creativeGap || "").trim(),
+    confidence: Math.round(evidence.reduce((sum, item) => sum + item.confidence, 0) / evidence.length),
+    evidence,
+    score
+  };
+}
+
+export async function initMaraIntelligence(store) {
+  if (store.kind === "postgres") return;
+  await store.execute(`CREATE TABLE IF NOT EXISTS mara_brand_profiles (
+    id TEXT PRIMARY KEY, brand_key TEXT NOT NULL UNIQUE, brand_name TEXT NOT NULL, website TEXT,
+    profile_json TEXT NOT NULL, evidence_json TEXT NOT NULL, research_version INTEGER NOT NULL DEFAULT 1,
+    last_researched_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  )`);
+  await store.execute(`CREATE TABLE IF NOT EXISTS mara_creator_performance_profiles (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, worker_id TEXT NOT NULL, profile_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    UNIQUE(user_id, worker_id)
+  )`);
+  await store.execute(`CREATE TABLE IF NOT EXISTS mara_creator_brand_opportunities (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, worker_id TEXT NOT NULL, brand_profile_id TEXT NOT NULL,
+    status TEXT NOT NULL, score_total INTEGER NOT NULL, scores_json TEXT NOT NULL,
+    opportunity_package_json TEXT NOT NULL, evidence_json TEXT NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(user_id, worker_id, brand_profile_id)
+  )`);
+  await store.execute(`CREATE TABLE IF NOT EXISTS mara_creative_analyses (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, worker_id TEXT NOT NULL, asset_type TEXT NOT NULL,
+    asset_ref TEXT NOT NULL, analysis_json TEXT NOT NULL, evidence_json TEXT NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(user_id, worker_id, asset_type, asset_ref)
+  )`);
+  await store.execute(`CREATE TABLE IF NOT EXISTS mara_commercial_outcomes (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, worker_id TEXT NOT NULL, opportunity_id TEXT,
+    contacted INTEGER NOT NULL DEFAULT 0, responded INTEGER NOT NULL DEFAULT 0, concept_accepted INTEGER NOT NULL DEFAULT 0,
+    hired INTEGER NOT NULL DEFAULT 0, rehired INTEGER NOT NULL DEFAULT 0, revenue_amount REAL NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'USD', outcome_json TEXT NOT NULL, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
+  )`);
+}
+
+export async function saveBrandProfile(store, profile) {
+  const now = new Date().toISOString();
+  const id = profile.id || randomUUID();
+  const evidence = validateEvidence(profile.evidence);
+  await store.execute(
+    `INSERT INTO mara_brand_profiles
+      (id, brand_key, brand_name, website, profile_json, evidence_json, research_version, last_researched_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+     ON CONFLICT(brand_key) DO UPDATE SET brand_name = excluded.brand_name, website = excluded.website,
+       profile_json = excluded.profile_json, evidence_json = excluded.evidence_json,
+       research_version = mara_brand_profiles.research_version + 1,
+       last_researched_at = excluded.last_researched_at, updated_at = excluded.updated_at`,
+    id, String(profile.brandKey), String(profile.brandName), profile.website || null,
+    JSON.stringify(profile.profile || {}), JSON.stringify(evidence), now, now, now
+  );
+  return store.queryOne(`SELECT * FROM mara_brand_profiles WHERE brand_key = ?`, String(profile.brandKey));
+}
+
+export async function saveCreatorPerformanceProfile(store, profile) {
+  const now = new Date().toISOString();
+  const evidence = validateEvidence(profile.evidence);
+  await store.execute(
+    `INSERT INTO mara_creator_performance_profiles (id, user_id, worker_id, profile_json, evidence_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_id) DO UPDATE SET profile_json = excluded.profile_json,
+       evidence_json = excluded.evidence_json, updated_at = excluded.updated_at`,
+    randomUUID(), profile.userId, profile.workerId, JSON.stringify(profile.profile || {}), JSON.stringify(evidence), now, now
+  );
+}
+
+export async function saveCreatorBrandOpportunity(store, opportunity) {
+  const now = new Date().toISOString();
+  const packageData = buildOpportunityPackage(opportunity);
+  const id = opportunity.id || randomUUID();
+  await store.execute(
+    `INSERT INTO mara_creator_brand_opportunities
+      (id, user_id, worker_id, brand_profile_id, status, score_total, scores_json, opportunity_package_json, evidence_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_id, brand_profile_id) DO UPDATE SET status = excluded.status,
+       score_total = excluded.score_total, scores_json = excluded.scores_json,
+       opportunity_package_json = excluded.opportunity_package_json, evidence_json = excluded.evidence_json,
+       updated_at = excluded.updated_at`,
+    id, opportunity.userId, opportunity.workerId, opportunity.brandProfileId, opportunity.status || "qualified",
+    packageData.score.total, JSON.stringify(packageData.score.dimensions), JSON.stringify(packageData),
+    JSON.stringify(packageData.evidence), now, now
+  );
+  return { id, ...packageData };
+}
+
+export async function recordCommercialOutcome(store, outcome) {
+  const now = new Date().toISOString();
+  if (outcome.opportunityId) {
+    const owned = await store.queryOne(
+      `SELECT id FROM mara_creator_brand_opportunities WHERE id = ? AND user_id = ? AND worker_id = ?`,
+      outcome.opportunityId, outcome.userId, outcome.workerId
+    );
+    if (!owned) throw new Error("Opportunity not found for this creator and worker.");
+  }
+  const revenueAmount = Number(outcome.revenueAmount || 0);
+  if (!Number.isFinite(revenueAmount) || revenueAmount < 0) throw new Error("Revenue amount must be a non-negative number.");
+  const id = randomUUID();
+  await store.execute(
+    `INSERT INTO mara_commercial_outcomes
+      (id, user_id, worker_id, opportunity_id, contacted, responded, concept_accepted, hired, rehired,
+       revenue_amount, currency, outcome_json, occurred_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, outcome.userId, outcome.workerId, outcome.opportunityId || null,
+    outcome.contacted ? 1 : 0, outcome.responded ? 1 : 0, outcome.conceptAccepted ? 1 : 0,
+    outcome.hired ? 1 : 0, outcome.rehired ? 1 : 0, revenueAmount,
+    String(outcome.currency || "USD"), JSON.stringify(outcome.details || {}), outcome.occurredAt || now, now
+  );
+  return id;
+}
+
+function validateTimestamp(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{1,2}:\d{2}(?::\d{2})?$/.test(text)) throw new Error(`Invalid feedback timestamp: ${text || "missing"}.`);
+  return text;
+}
+
+export function validateCreativeAnalysis(analysis = {}) {
+  const timestampedFeedback = Array.isArray(analysis.timestampedFeedback) ? analysis.timestampedFeedback : [];
+  if (timestampedFeedback.length === 0) throw new Error("Creative analysis requires timestamped feedback.");
+  const requiredSections = ["videoStructure", "creativeStrategy", "performanceMechanics", "execution"];
+  for (const section of requiredSections) {
+    if (!analysis[section] || typeof analysis[section] !== "object" || Array.isArray(analysis[section])) {
+      throw new Error(`Creative analysis requires a structured ${section} section.`);
+    }
+  }
+  return {
+    assetSummary: String(analysis.assetSummary || "").trim(),
+    videoStructure: analysis.videoStructure,
+    creativeStrategy: analysis.creativeStrategy,
+    performanceMechanics: analysis.performanceMechanics,
+    execution: analysis.execution,
+    timestampedFeedback: timestampedFeedback.map((item) => {
+      const observation = String(item?.observation || "").trim();
+      const consequence = String(item?.consequence || "").trim();
+      const revision = String(item?.revision || "").trim();
+      if (!observation || !consequence || !revision) throw new Error("Each timestamp requires an observation, consequence, and revision.");
+      return { at: validateTimestamp(item.at), observation, consequence, revision };
+    }),
+    unknowns: Array.isArray(analysis.unknowns) ? analysis.unknowns.map(String).filter(Boolean) : []
+  };
+}
+
+export async function saveCreativeAnalysis(store, input) {
+  const now = new Date().toISOString();
+  const assetType = String(input.assetType || "").trim();
+  const assetRef = String(input.assetRef || "").trim();
+  if (!assetType || !assetRef) throw new Error("Creative analysis requires an asset type and reference.");
+  const analysis = validateCreativeAnalysis(input.analysis);
+  const evidence = validateEvidence(input.evidence);
+  const id = input.id || randomUUID();
+  await store.execute(
+    `INSERT INTO mara_creative_analyses
+      (id, user_id, worker_id, asset_type, asset_ref, analysis_json, evidence_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, worker_id, asset_type, asset_ref) DO UPDATE SET
+       analysis_json = excluded.analysis_json, evidence_json = excluded.evidence_json, updated_at = excluded.updated_at`,
+    id, input.userId, input.workerId, assetType, assetRef,
+    JSON.stringify(analysis), JSON.stringify(evidence), now, now
+  );
+  return { id, analysis, evidence };
+}
+
+export async function listCreativeAnalyses(store, userId, workerId, limit = 20) {
+  const rows = await store.query(
+    `SELECT id, asset_type AS "assetType", asset_ref AS "assetRef", analysis_json AS "analysisJson",
+            evidence_json AS "evidenceJson", created_at AS "createdAt", updated_at AS "updatedAt"
+     FROM mara_creative_analyses WHERE user_id = ? AND worker_id = ?
+     ORDER BY updated_at DESC LIMIT ?`,
+    userId, workerId, Math.max(1, Math.min(100, Number(limit) || 20))
+  );
+  const parse = (value, fallback) => {
+    if (value && typeof value === "object") return value;
+    try { return JSON.parse(value); } catch { return fallback; }
+  };
+  return rows.map((row) => ({ ...row, analysis: parse(row.analysisJson, {}), evidence: parse(row.evidenceJson, []) }));
+}
+
+export async function getRevenueInfluenceMetrics(store, userId, workerId) {
+  const row = await store.queryOne(
+    `SELECT COUNT(*) AS opportunities,
+            SUM(contacted) AS contacted, SUM(responded) AS responded,
+            SUM(concept_accepted) AS "conceptsAccepted", SUM(hired) AS deals,
+            SUM(rehired) AS "repeatDeals", SUM(revenue_amount) AS "revenueInfluenced"
+     FROM mara_commercial_outcomes WHERE user_id = ? AND worker_id = ?`,
+    userId, workerId
+  );
+  const number = (value) => Number(value || 0);
+  const contacted = number(row?.contacted);
+  const responded = number(row?.responded);
+  const deals = number(row?.deals);
+  return {
+    opportunitiesTracked: number(row?.opportunities),
+    contacted,
+    responded,
+    conceptsAccepted: number(row?.conceptsAccepted),
+    deals,
+    repeatDeals: number(row?.repeatDeals),
+    revenueInfluenced: number(row?.revenueInfluenced),
+    positiveResponseRate: contacted ? responded / contacted : 0,
+    pitchToDealConversion: contacted ? deals / contacted : 0
+  };
+}
+
+export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId) {
+  const opportunities = await store.query(
+    `SELECT o.id, o.status, o.score_total AS "scoreTotal", o.scores_json AS "scoresJson",
+            o.opportunity_package_json AS "opportunityPackageJson", o.evidence_json AS "evidenceJson",
+            b.brand_name AS "brandName", b.website, b.last_researched_at AS "lastResearchedAt"
+     FROM mara_creator_brand_opportunities o
+     INNER JOIN mara_brand_profiles b ON b.id = o.brand_profile_id
+     WHERE o.user_id = ? AND o.worker_id = ?
+     ORDER BY o.score_total DESC, o.updated_at DESC LIMIT 25`,
+    userId, workerId
+  );
+  const parse = (value, fallback) => {
+    if (value && typeof value === "object") return value;
+    try { return JSON.parse(value); } catch { return fallback; }
+  };
+  return {
+    opportunities: opportunities.map((row) => ({
+      ...row,
+      scores: parse(row.scoresJson, {}),
+      opportunityPackage: parse(row.opportunityPackageJson, {}),
+      evidence: parse(row.evidenceJson, [])
+    })),
+    metrics: await getRevenueInfluenceMetrics(store, userId, workerId),
+    creativeAnalyses: await listCreativeAnalyses(store, userId, workerId, 10)
+  };
+}

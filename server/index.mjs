@@ -55,9 +55,27 @@ import {
   requestContext,
   validateConfig
 } from "./observability.mjs";
+import { captureException, getMetricsSnapshot, incrementMetric } from "./metrics.mjs";
 import { decryptJson, encryptJson } from "./secretsCrypto.mjs";
 import { canSpend, noteSpend } from "./llmBudget.mjs";
-import { wrapSqliteHandle } from "./dataStore.mjs";
+import { createStore, wrapSqliteHandle } from "./dataStore.mjs";
+import { createObjectStorage } from "./objectStorage.mjs";
+import { claimJobs, completeJob, enqueueJob, failJob, initJobQueue } from "./jobQueue.mjs";
+import { initProfessionalIntelligence } from "./professionalIntelligence.mjs";
+import { appendActionAuditEvent, evaluateActionPolicy, initActionAudit } from "./actionPolicy.mjs";
+import { validateTenantUpload } from "./uploadSecurity.mjs";
+import { claimExternalAction, completeExternalAction, initExternalActions, markExternalActionUncertain } from "./externalActions.mjs";
+import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, recordCommercialOutcome, saveBrandProfile, saveCreatorBrandOpportunity, saveCreativeAnalysis } from "./maraIntelligence.mjs";
+
+function logCaught(message, error, fields = {}) {
+  const errMessage = error instanceof Error ? error.message : String(error);
+  log.error(message, {
+    ...fields,
+    error: errMessage,
+    stack: error instanceof Error ? error.stack : undefined
+  });
+  void captureException(error instanceof Error ? error : new Error(errMessage), { message, ...fields });
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -68,6 +86,22 @@ const storageRoot =
   process.env.RAILWAY_VOLUME_MOUNT_PATH ||
   path.join(rootDir, "data");
 const uploadsDir = path.join(storageRoot, "office-uploads");
+const objectStorage = createObjectStorage({ localRoot: uploadsDir });
+
+// Single data plane: Postgres when DATABASE_URL is set, otherwise the SQLite
+// handle opened by db.mjs. Never wrap a null db or open a second backend.
+const usingPostgres = Boolean(String(process.env.DATABASE_URL ?? "").trim());
+const appStore = usingPostgres ? createStore() : wrapSqliteHandle(db);
+if (usingPostgres) {
+  await appStore.init();
+}
+const trendStore = appStore;
+const jobStore = appStore;
+const auditStore = appStore;
+const professionalStore = appStore;
+const agentStore = appStore;
+const authStore = appStore;
+const maraStore = appStore;
 const privateInsightsPath = resolveGlobalTrendInsightsPath();
 const sessionCookieName = "ryva_session";
 const googleStateCookieName = "ryva_google_oauth_state";
@@ -84,6 +118,7 @@ const MARA_SLUG = "mara-vale";
 const maraAutonomyIntervalMinutes = Number.parseInt(process.env.MARA_AUTONOMY_INTERVAL_MINUTES ?? "15", 10);
 let maraAutonomyTimer = null;
 let maraAutonomyRunning = false;
+const jobLeaseOwner = `${host}:${port}:${process.pid}:${randomUUID()}`;
 
 if (isProduction && !process.env.APP_URL) {
   throw new Error("APP_URL must be set in production.");
@@ -101,6 +136,17 @@ if (
 
 // Fail fast at boot if production configuration is incomplete.
 validateConfig();
+await initJobQueue(jobStore);
+await initProfessionalIntelligence(professionalStore);
+await initActionAudit(auditStore);
+await initExternalActions(auditStore);
+await initMaraIntelligence(professionalStore);
+await authStore.execute(`CREATE TABLE IF NOT EXISTS agent_llm_usage (
+  user_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  calls INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+)`);
 
 const app = express();
 app.disable("x-powered-by");
@@ -145,9 +191,32 @@ app.use(requestContext);
 // Liveness/readiness probes for the load balancer — unauthenticated, cheap, and
 // registered before auth/rate-limiting so orchestrators can always reach them.
 registerHealthEndpoints(app, {
-  pingStore: async () => {
-    db.prepare("SELECT 1").get();
-    return true;
+  pingStore: () => authStore.ping()
+});
+
+app.get("/metrics", async (_req, res) => {
+  try {
+    const dead = await jobStore.queryOne(
+      `SELECT COUNT(*) AS count FROM durable_jobs WHERE status = 'dead'`
+    );
+    const queued = await jobStore.queryOne(
+      `SELECT COUNT(*) AS count FROM durable_jobs WHERE status = 'queued'`
+    );
+    const oldest = await jobStore.queryOne(
+      `SELECT MIN(available_at) AS "oldestAvailableAt" FROM durable_jobs WHERE status = 'queued'`
+    );
+    res.status(200).json({
+      ...getMetricsSnapshot(),
+      jobs: {
+        dead: Number(dead?.count ?? 0),
+        queued: Number(queued?.count ?? 0),
+        oldestQueuedAt: oldest?.oldestAvailableAt ?? null
+      },
+      backend: usingPostgres ? "postgres" : "sqlite"
+    });
+  } catch (error) {
+    logCaught("metrics_endpoint_failed", error);
+    res.status(500).json({ error: "metrics unavailable" });
   }
 });
 
@@ -230,7 +299,11 @@ function createOpaqueToken() {
   return { raw, hash };
 }
 
-function toSafeUser(user) {
+async function toSafeUser(user) {
+  const onboarding = await authStore.queryOne(
+    "SELECT user_id FROM user_onboarding WHERE user_id = ? AND completed_at IS NOT NULL",
+    user.id
+  );
   return {
     createdAt: user.created_at,
     email: user.email,
@@ -238,7 +311,7 @@ function toSafeUser(user) {
     id: user.id,
     isAdmin: isAdminUser(user),
     name: user.name,
-    onboarded: isUserOnboarded(user.id)
+    onboarded: Boolean(onboarding)
   };
 }
 
@@ -246,47 +319,37 @@ function isAdminUser(user) {
   return Boolean(user?.email && adminEmails.has(normalizeEmail(user.email)));
 }
 
-function getUserRecordById(userId) {
+async function getUserRecordById(userId) {
   if (!userId) return null;
-  return db.prepare("SELECT * FROM users WHERE id = ?").get(userId) ?? null;
+  return authStore.queryOne("SELECT * FROM users WHERE id = ?", userId);
 }
 
 function isGoogleAuthConfigured() {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
 
-function isUserOnboarded(userId) {
-  return Boolean(
-    db
-      .prepare(
-        `SELECT user_id
-         FROM user_onboarding
-         WHERE user_id = ? AND completed_at IS NOT NULL`
-      )
-      .get(userId)
+async function isUserOnboarded(userId) {
+  return Boolean(await authStore.queryOne(
+    `SELECT user_id
+     FROM user_onboarding
+     WHERE user_id = ? AND completed_at IS NOT NULL`,
+    userId
+  ));
+}
+
+async function getUserOnboardingRecordAsync(userId) {
+  return authStore.queryOne(
+    `SELECT user_id, brand_name AS "brandName", what_you_do AS "whatYouDo", completed_at AS "completedAt"
+     FROM user_onboarding WHERE user_id = ?`,
+    userId
   );
 }
 
-function getUserOnboardingRecord(userId) {
-  return (
-    db
-      .prepare(
-        `SELECT user_id, brand_name AS brandName, what_you_do AS whatYouDo, completed_at AS completedAt
-         FROM user_onboarding
-         WHERE user_id = ?`
-      )
-      .get(userId) ?? null
+async function buildOfficeSettingsSeed(user, onboardingRecord) {
+  const existing = await authStore.queryOne(
+    `SELECT settings_json AS "settingsJson" FROM office_global_settings WHERE user_id = ?`,
+    user.id
   );
-}
-
-function buildOfficeSettingsSeed(user, onboardingRecord) {
-  const existing = db
-    .prepare(
-      `SELECT settings_json AS settingsJson
-       FROM office_global_settings
-       WHERE user_id = ?`
-    )
-    .get(user.id);
 
   const parsedExisting =
     existing?.settingsJson && typeof existing.settingsJson === "string" ? JSON.parse(existing.settingsJson) : {};
@@ -324,15 +387,15 @@ function buildOfficeSettingsSeed(user, onboardingRecord) {
   };
 }
 
-function seedOfficeSettingsFromOnboarding(user, onboardingRecord) {
-  const settings = buildOfficeSettingsSeed(user, onboardingRecord);
-  db.prepare(
+async function seedOfficeSettingsFromOnboarding(user, onboardingRecord) {
+  const settings = await buildOfficeSettingsSeed(user, onboardingRecord);
+  await authStore.execute(
     `INSERT INTO office_global_settings (user_id, settings_json, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        settings_json = excluded.settings_json,
-       updated_at = excluded.updated_at`
-  ).run(user.id, JSON.stringify(settings), nowIso());
+       updated_at = excluded.updated_at`,
+    user.id, JSON.stringify(settings), nowIso());
 }
 
 async function readWorkers() {
@@ -341,14 +404,14 @@ async function readWorkers() {
 }
 
 async function readHiredWorkersForUser(userId) {
-  const hiredRows = db
-    .prepare(
-      `SELECT worker_slug, paused
-       FROM hired_workers
-       WHERE user_id = ? AND status = ?
-       ORDER BY hired_at DESC`
-    )
-    .all(userId, "active");
+  const hiredRows = await authStore.query(
+    `SELECT worker_slug AS "workerSlug", paused
+     FROM hired_workers
+     WHERE user_id = ? AND status = ?
+     ORDER BY hired_at DESC`,
+    userId,
+    "active"
+  );
 
   if (hiredRows.length === 0) {
     return [];
@@ -359,170 +422,194 @@ async function readHiredWorkersForUser(userId) {
 
   return hiredRows
     .map((row) => {
-      const worker = workerMap.get(row.worker_slug);
+      const worker = workerMap.get(row.workerSlug);
       return worker ? { ...worker, paused: Boolean(row.paused) } : null;
     })
     .filter(Boolean);
 }
 
-function isWorkerPaused(userId, workerSlug) {
-  const row = db
-    .prepare("SELECT paused FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'")
-    .get(userId, workerSlug);
+async function isWorkerPaused(userId, workerSlug) {
+  const row = await authStore.queryOne(
+    "SELECT paused FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'",
+    userId,
+    workerSlug
+  );
   return Boolean(row?.paused);
 }
 
 // Billing has lapsed when the subscription is past_due or cancelled. Empty
 // billing_status ('') is a free/admin hire and is allowed to run.
-function isWorkerBillingLapsed(userId, workerSlug) {
-  const row = db
-    .prepare("SELECT billing_status AS billingStatus FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'")
-    .get(userId, workerSlug);
+async function isWorkerBillingLapsed(userId, workerSlug) {
+  const row = await authStore.queryOne(
+    `SELECT billing_status AS "billingStatus"
+     FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = 'active'`,
+    userId,
+    workerSlug
+  );
   return ["past_due", "cancelled"].includes(String(row?.billingStatus ?? ""));
 }
 
-function hasHiredWorker(userId, workerSlug) {
-  return Boolean(
-    db
-      .prepare("SELECT id FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = ?")
-      .get(userId, workerSlug, "active")
-  );
+async function hasHiredWorker(userId, workerSlug) {
+  return Boolean(await authStore.queryOne(
+    "SELECT id FROM hired_workers WHERE user_id = ? AND worker_slug = ? AND status = ?",
+    userId,
+    workerSlug,
+    "active"
+  ));
 }
 
-function readOfficeOverlaysForUser(userId) {
+async function readOfficeOverlaysForUser(userId) {
+  const [
+    assignments,
+    briefings,
+    chats,
+    tasks,
+    suggestedActions,
+    worklog,
+    settings,
+    knowledge,
+    files,
+    deliverables,
+    calendarEvents,
+    globalSettings,
+    onboarding,
+    integrations,
+    handbookEntries
+  ] = await Promise.all([
+    authStore.query(
+      `SELECT id, worker_slug AS "workerSlug", source_type AS "sourceType", source_id AS "sourceId", source_label AS "sourceLabel",
+              title, summary, status, priority, kind, rhythm, blocked_reason AS "blockedReason", due_at AS "dueAt",
+              artifact_type AS "artifactType", artifact_ref_id AS "artifactRefId", artifact_title AS "artifactTitle",
+              artifact_preview AS "artifactPreview", created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM office_assignments
+       WHERE user_id = ?
+       ORDER BY updated_at DESC, created_at DESC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", id, title, date_label AS "dateLabel", summary,
+              agenda_json AS "agendaJson", decisions_json AS "decisionsJson", actions_json AS "actionsJson"
+       FROM office_custom_briefings
+       WHERE user_id = ?
+       ORDER BY created_at DESC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", id, author, text, created_at AS timestamp
+       FROM office_chat_messages
+       WHERE user_id = ?
+       ORDER BY created_at ASC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", id, due_date AS "dueDate", module_name AS module, owner, priority, status, title
+       FROM office_custom_tasks
+       WHERE user_id = ?
+       ORDER BY created_at DESC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", id, action_type AS "actionType", title, description, reason,
+              related_thread_id AS "relatedThreadId", related_campaign_id AS "relatedCampaignId", related_brand_id AS "relatedBrandId",
+              payload_json AS "payloadJson", status, requires_approval AS "requiresApproval", created_at AS "createdAt"
+       FROM office_suggested_actions
+       WHERE user_id = ?
+       ORDER BY created_at DESC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", id, action, module_name AS module, result, created_at AS timestamp
+       FROM office_activity_logs
+       WHERE user_id = ?
+       ORDER BY created_at DESC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", settings_json AS "settingsJson", updated_at AS "updatedAt"
+       FROM office_worker_settings
+       WHERE user_id = ?`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", knowledge_json AS "knowledgeJson", updated_at AS "updatedAt"
+       FROM office_worker_knowledge
+       WHERE user_id = ?`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", id, name, type, uploaded_at AS "updatedAt"
+       FROM office_uploaded_files
+       WHERE user_id = ?
+       ORDER BY uploaded_at DESC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT id, worker_slug AS "workerSlug", source_type AS "sourceType", source_id AS "sourceId", title, summary,
+              deliverable_type AS "deliverableType", preview_text AS "previewText", content_ref_id AS "contentRefId",
+              created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM office_deliverables
+       WHERE user_id = ?
+       ORDER BY updated_at DESC, created_at DESC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT id, worker_slug AS "workerSlug", title, starts_at AS "startsAt", ends_at AS "endsAt",
+              event_type AS "eventType", notes, updated_at AS "updatedAt"
+       FROM office_calendar_events
+       WHERE user_id = ?
+       ORDER BY starts_at ASC`,
+      userId
+    ),
+    authStore.queryOne(
+      `SELECT settings_json AS "settingsJson", updated_at AS "updatedAt"
+       FROM office_global_settings
+       WHERE user_id = ?`,
+      userId
+    ),
+    authStore.query(
+      `SELECT worker_slug AS "workerSlug", status, answers_json AS "answersJson",
+              generated_summary_json AS "generatedSummaryJson", completed_at AS "completedAt"
+       FROM office_onboarding_sessions
+       WHERE user_id = ?`,
+      userId
+    ),
+    authStore.query(
+      // Never send integration metadata (OAuth tokens) to the browser — the
+      // client only needs provider/status/label. metadataJson is returned
+      // empty to preserve the payload shape.
+      `SELECT worker_slug AS "workerSlug", provider, status, account_label AS "accountLabel",
+              '' AS "metadataJson", connected_at AS "connectedAt", updated_at AS "updatedAt"
+       FROM office_worker_integrations
+       WHERE user_id = ?
+       ORDER BY worker_slug ASC, provider ASC`,
+      userId
+    ),
+    authStore.query(
+      `SELECT id, section, subsection, worker_slug AS "workerSlug", source_type AS "sourceType", source_id AS "sourceId",
+              source_label AS "sourceLabel", statement, created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM office_handbook_entries
+       WHERE user_id = ?
+       ORDER BY section ASC, subsection ASC, updated_at DESC, created_at DESC`,
+      userId
+    )
+  ]);
+
   return {
-    assignments: db
-      .prepare(
-        `SELECT id, worker_slug AS workerSlug, source_type AS sourceType, source_id AS sourceId, source_label AS sourceLabel,
-                title, summary, status, priority, kind, rhythm, blocked_reason AS blockedReason, due_at AS dueAt,
-                artifact_type AS artifactType, artifact_ref_id AS artifactRefId, artifact_title AS artifactTitle,
-                artifact_preview AS artifactPreview, created_at AS createdAt, updated_at AS updatedAt
-         FROM office_assignments
-         WHERE user_id = ?
-         ORDER BY updated_at DESC, created_at DESC`
-      )
-      .all(userId),
-    briefings: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, id, title, date_label AS dateLabel, summary,
-                agenda_json AS agendaJson, decisions_json AS decisionsJson, actions_json AS actionsJson
-         FROM office_custom_briefings
-         WHERE user_id = ?
-         ORDER BY created_at DESC`
-      )
-      .all(userId),
-    chats: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, id, author, text, created_at AS timestamp
-         FROM office_chat_messages
-         WHERE user_id = ?
-         ORDER BY created_at ASC`
-      )
-      .all(userId),
-    tasks: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, id, due_date AS dueDate, module_name AS module, owner, priority, status, title
-         FROM office_custom_tasks
-         WHERE user_id = ?
-         ORDER BY created_at DESC`
-      )
-      .all(userId),
-    suggestedActions: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, id, action_type AS actionType, title, description, reason,
-                related_thread_id AS relatedThreadId, related_campaign_id AS relatedCampaignId, related_brand_id AS relatedBrandId,
-                payload_json AS payloadJson, status, requires_approval AS requiresApproval, created_at AS createdAt
-         FROM office_suggested_actions
-         WHERE user_id = ?
-         ORDER BY created_at DESC`
-      )
-      .all(userId),
-    worklog: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, id, action, module_name AS module, result, created_at AS timestamp
-         FROM office_activity_logs
-         WHERE user_id = ?
-         ORDER BY created_at DESC`
-      )
-      .all(userId),
-    settings: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, settings_json AS settingsJson, updated_at AS updatedAt
-         FROM office_worker_settings
-         WHERE user_id = ?`
-      )
-      .all(userId),
-    knowledge: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, knowledge_json AS knowledgeJson, updated_at AS updatedAt
-         FROM office_worker_knowledge
-         WHERE user_id = ?`
-      )
-      .all(userId),
-    files: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, id, name, type, uploaded_at AS updatedAt
-         FROM office_uploaded_files
-         WHERE user_id = ?
-         ORDER BY uploaded_at DESC`
-      )
-      .all(userId),
-    deliverables: db
-      .prepare(
-        `SELECT id, worker_slug AS workerSlug, source_type AS sourceType, source_id AS sourceId, title, summary,
-                deliverable_type AS deliverableType, preview_text AS previewText, content_ref_id AS contentRefId,
-                created_at AS createdAt, updated_at AS updatedAt
-         FROM office_deliverables
-         WHERE user_id = ?
-         ORDER BY updated_at DESC, created_at DESC`
-      )
-      .all(userId),
-    calendarEvents: db
-      .prepare(
-        `SELECT id, worker_slug AS workerSlug, title, starts_at AS startsAt, ends_at AS endsAt,
-                event_type AS eventType, notes, updated_at AS updatedAt
-         FROM office_calendar_events
-         WHERE user_id = ?
-         ORDER BY starts_at ASC`
-      )
-      .all(userId),
-    globalSettings:
-      db
-        .prepare(
-          `SELECT settings_json AS settingsJson, updated_at AS updatedAt
-           FROM office_global_settings
-           WHERE user_id = ?`
-        )
-        .get(userId) ?? null,
-    onboarding: db
-      .prepare(
-        `SELECT worker_slug AS workerSlug, status, answers_json AS answersJson,
-                generated_summary_json AS generatedSummaryJson, completed_at AS completedAt
-         FROM office_onboarding_sessions
-         WHERE user_id = ?`
-      )
-      .all(userId),
-    integrations: db
-      .prepare(
-        // Never send integration metadata (OAuth tokens) to the browser — the
-        // client only needs provider/status/label. metadataJson is returned
-        // empty to preserve the payload shape.
-        `SELECT worker_slug AS workerSlug, provider, status, account_label AS accountLabel,
-                '' AS metadataJson, connected_at AS connectedAt, updated_at AS updatedAt
-         FROM office_worker_integrations
-         WHERE user_id = ?
-         ORDER BY worker_slug ASC, provider ASC`
-      )
-      .all(userId),
-    handbookEntries: db
-      .prepare(
-        `SELECT id, section, subsection, worker_slug AS workerSlug, source_type AS sourceType, source_id AS sourceId,
-                source_label AS sourceLabel, statement, created_at AS createdAt, updated_at AS updatedAt
-         FROM office_handbook_entries
-         WHERE user_id = ?
-         ORDER BY section ASC, subsection ASC, updated_at DESC, created_at DESC`
-      )
-      .all(userId)
+    assignments,
+    briefings,
+    chats,
+    tasks,
+    suggestedActions,
+    worklog,
+    settings,
+    knowledge,
+    files,
+    deliverables,
+    calendarEvents,
+    globalSettings: globalSettings ?? null,
+    onboarding,
+    integrations,
+    handbookEntries
   };
 }
 
@@ -558,20 +645,20 @@ function inferArtifactTypeFromOutputType(outputType) {
   return "report";
 }
 
-function upsertOfficeAssignment(record) {
-  const existing = db.prepare(
+async function upsertOfficeAssignment(record) {
+  const existing = await authStore.queryOne(
     `SELECT id
      FROM office_assignments
      WHERE user_id = ? AND worker_slug = ? AND source_type = ? AND source_id = ?`
-  ).get(record.userId, record.workerSlug, record.sourceType, record.sourceId);
+  , record.userId, record.workerSlug, record.sourceType, record.sourceId);
 
   if (existing) {
-    db.prepare(
+    await authStore.execute(
       `UPDATE office_assignments
        SET source_label = ?, title = ?, summary = ?, status = ?, priority = ?, kind = ?, rhythm = ?, blocked_reason = ?,
            due_at = ?, artifact_type = ?, artifact_ref_id = ?, artifact_title = ?, artifact_preview = ?, updated_at = ?
        WHERE id = ?`
-    ).run(
+    ,
       record.sourceLabel,
       record.title,
       record.summary,
@@ -592,12 +679,12 @@ function upsertOfficeAssignment(record) {
   }
 
   const id = randomUUID();
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_assignments
       (id, user_id, worker_slug, source_type, source_id, source_label, title, summary, status, priority, kind, rhythm,
        blocked_reason, due_at, artifact_type, artifact_ref_id, artifact_title, artifact_preview, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+  ,
     id,
     record.userId,
     record.workerSlug,
@@ -622,19 +709,19 @@ function upsertOfficeAssignment(record) {
   return id;
 }
 
-function upsertOfficeDeliverable(record) {
-  const existing = db.prepare(
+async function upsertOfficeDeliverable(record) {
+  const existing = await authStore.queryOne(
     `SELECT id
      FROM office_deliverables
      WHERE user_id = ? AND worker_slug = ? AND source_type = ? AND source_id = ?`
-  ).get(record.userId, record.workerSlug, record.sourceType, record.sourceId);
+  , record.userId, record.workerSlug, record.sourceType, record.sourceId);
 
   if (existing) {
-    db.prepare(
+    await authStore.execute(
       `UPDATE office_deliverables
        SET title = ?, summary = ?, deliverable_type = ?, preview_text = ?, content_ref_id = ?, updated_at = ?
        WHERE id = ?`
-    ).run(
+    ,
       record.title,
       record.summary,
       record.deliverableType,
@@ -647,11 +734,11 @@ function upsertOfficeDeliverable(record) {
   }
 
   const id = randomUUID();
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_deliverables
       (id, user_id, worker_slug, source_type, source_id, title, summary, deliverable_type, preview_text, content_ref_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+  ,
     id,
     record.userId,
     record.workerSlug,
@@ -668,28 +755,28 @@ function upsertOfficeDeliverable(record) {
   return id;
 }
 
-function upsertHandbookEntry(record) {
-  const existing = db.prepare(
+async function upsertHandbookEntry(record) {
+  const existing = await authStore.queryOne(
     `SELECT id
      FROM office_handbook_entries
      WHERE user_id = ? AND section = ? AND subsection = ? AND COALESCE(worker_slug, '') = COALESCE(?, '') AND source_type = ? AND source_id = ?`
-  ).get(record.userId, record.section, record.subsection, record.workerSlug ?? null, record.sourceType, record.sourceId);
+  , record.userId, record.section, record.subsection, record.workerSlug ?? null, record.sourceType, record.sourceId);
 
   if (existing) {
-    db.prepare(
+    await authStore.execute(
       `UPDATE office_handbook_entries
        SET source_label = ?, statement = ?, updated_at = ?
        WHERE id = ?`
-    ).run(record.sourceLabel, record.statement, record.updatedAt, existing.id);
+    , record.sourceLabel, record.statement, record.updatedAt, existing.id);
     return existing.id;
   }
 
   const id = randomUUID();
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_handbook_entries
       (id, user_id, section, subsection, worker_slug, source_type, source_id, source_label, statement, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+  ,
     id,
     record.userId,
     record.section,
@@ -705,16 +792,16 @@ function upsertHandbookEntry(record) {
   return id;
 }
 
-function syncWorkerAssignments(userId, workerSlug) {
-  const workerTasks = db.prepare(
-    `SELECT id, title, description, source, status, priority, due_at AS dueAt, output, task_type AS taskType, updated_at AS updatedAt, created_at AS createdAt
+async function syncWorkerAssignments(userId, workerSlug) {
+  const workerTasks = await authStore.query(
+    `SELECT id, title, description, source, status, priority, due_at AS "dueAt", output, task_type AS "taskType", updated_at AS "updatedAt", created_at AS "createdAt"
      FROM worker_tasks
      WHERE user_id = ? AND worker_id = ?`
-  ).all(userId, workerSlug);
+  , userId, workerSlug);
 
   for (const task of workerTasks) {
     const parsedOutput = parseJson(task.output, null);
-    upsertOfficeAssignment({
+    await upsertOfficeAssignment({
       artifactPreview: truncatePreview(parsedOutput?.preview || parsedOutput?.content || task.output || ""),
       artifactRefId: null,
       artifactTitle: parsedOutput?.title || "",
@@ -737,11 +824,11 @@ function syncWorkerAssignments(userId, workerSlug) {
     });
   }
 
-  const officeTasks = db.prepare(
-    `SELECT id, title, module_name AS moduleName, priority, status, due_date AS dueDate, created_at AS createdAt
+  const officeTasks = await authStore.query(
+    `SELECT id, title, module_name AS "moduleName", priority, status, due_date AS "dueDate", created_at AS "createdAt"
      FROM office_custom_tasks
      WHERE user_id = ? AND worker_slug = ?`
-  ).all(userId, workerSlug);
+  , userId, workerSlug);
 
   // Worker tasks are the source of truth. Office rows that mirror a worker
   // task (same title) would render as duplicates — skip them, and clean up
@@ -750,17 +837,17 @@ function syncWorkerAssignments(userId, workerSlug) {
 
   for (const task of officeTasks) {
     if (workerTaskTitles.has(String(task.title).trim().toLowerCase())) {
-      db.prepare(
+      await authStore.execute(
         `DELETE FROM office_assignments
          WHERE user_id = ? AND worker_slug = ? AND source_type = 'office_task' AND source_id = ?`
-      ).run(userId, workerSlug, task.id);
+      , userId, workerSlug, task.id);
       continue;
     }
     const moduleLabel = String(task.moduleName ?? "").trim();
     const readableModule = /^[a-z0-9]+([_-][a-z0-9]+)+$/i.test(moduleLabel)
       ? formatTaskSourceLabel(moduleLabel) || sentenceCase(moduleLabel.replace(/[_-]+/g, " "))
       : moduleLabel;
-    upsertOfficeAssignment({
+    await upsertOfficeAssignment({
       artifactPreview: "",
       artifactRefId: null,
       artifactTitle: "",
@@ -791,22 +878,28 @@ function syncWorkerAssignments(userId, workerSlug) {
  */
 const HIDDEN_DELIVERABLE_OUTPUT_TYPES = new Set(["summary", "status_note", "weekly_schedule"]);
 
-function syncWorkerDeliverables(userId, workerSlug) {
-  const outputs = listWorkerOutputs(db, userId, workerSlug);
+async function syncWorkerDeliverables(userId, workerSlug) {
+  const outputs = (await authStore.query(
+    `SELECT id, user_id AS "userId", worker_id AS "workerId", task_id AS "taskId", output_type AS "outputType",
+            title, content, structured_content_json AS "structuredContentJson", source,
+            created_at AS "createdAt", updated_at AS "updatedAt"
+     FROM worker_outputs WHERE user_id = ? AND worker_id = ? ORDER BY created_at DESC`,
+    userId, workerSlug
+  )).map((row) => ({ ...row, structuredContent: parseJson(row.structuredContentJson, null) }));
 
   // Remove anything previously synced that no longer belongs on display.
   for (const hiddenType of HIDDEN_DELIVERABLE_OUTPUT_TYPES) {
-    db.prepare(
+    await authStore.execute(
       `DELETE FROM office_deliverables
        WHERE user_id = ? AND worker_slug = ? AND source_type = 'worker_output' AND deliverable_type = ?`
-    ).run(userId, workerSlug, hiddenType);
+    , userId, workerSlug, hiddenType);
   }
 
   for (const output of outputs) {
     if (HIDDEN_DELIVERABLE_OUTPUT_TYPES.has(String(output.outputType))) {
       continue;
     }
-    upsertOfficeDeliverable({
+    await upsertOfficeDeliverable({
       contentRefId: output.id,
       createdAt: output.createdAt,
       deliverableType: output.outputType,
@@ -821,14 +914,14 @@ function syncWorkerDeliverables(userId, workerSlug) {
     });
   }
 
-  const uploadedFiles = db.prepare(
-    `SELECT id, name, type, uploaded_at AS uploadedAt
+  const uploadedFiles = await authStore.query(
+    `SELECT id, name, type, uploaded_at AS "uploadedAt"
      FROM office_uploaded_files
      WHERE user_id = ? AND worker_slug = ?`
-  ).all(userId, workerSlug);
+  , userId, workerSlug);
 
   for (const file of uploadedFiles) {
-    upsertOfficeDeliverable({
+    await upsertOfficeDeliverable({
       contentRefId: file.id,
       createdAt: file.uploadedAt,
       deliverableType: file.type || "file",
@@ -844,13 +937,14 @@ function syncWorkerDeliverables(userId, workerSlug) {
   }
 }
 
-function syncHandbookEntries(userId, workerSlug) {
+async function syncHandbookEntries(userId, workerSlug) {
   const timestamp = nowIso();
-  const settingsRow = db.prepare(
-    `SELECT settings_json AS settingsJson
+  const entries = [];
+  const settingsRow = await authStore.queryOne(
+    `SELECT settings_json AS "settingsJson"
      FROM office_global_settings
      WHERE user_id = ?`
-  ).get(userId);
+  , userId);
   const settings = parseJson(settingsRow?.settingsJson, {});
   const baseEntries = [
     ["business_profile", "company", "global_settings", "brand_context", String(settings.brandContext || "").trim(), "Added in settings"],
@@ -861,7 +955,7 @@ function syncHandbookEntries(userId, workerSlug) {
 
   for (const [section, subsection, sourceType, sourceId, statement, sourceLabel] of baseEntries) {
     if (!statement) continue;
-    upsertHandbookEntry({
+    entries.push({
       createdAt: timestamp,
       section,
       sourceId,
@@ -875,14 +969,14 @@ function syncHandbookEntries(userId, workerSlug) {
     });
   }
 
-  const onboarding = db.prepare(
-    `SELECT generated_summary_json AS generatedSummaryJson
+  const onboarding = await authStore.queryOne(
+    `SELECT generated_summary_json AS "generatedSummaryJson"
      FROM office_onboarding_sessions
      WHERE user_id = ? AND worker_slug = ?`
-  ).get(userId, workerSlug);
+  , userId, workerSlug);
   const generatedSummary = normalizeTextList(parseJson(onboarding?.generatedSummaryJson, []), 12);
   generatedSummary.forEach((statement, index) => {
-    upsertHandbookEntry({
+    entries.push({
       createdAt: timestamp,
       section: "workers",
       sourceId: `${workerSlug}-onboarding-${index}`,
@@ -896,11 +990,11 @@ function syncHandbookEntries(userId, workerSlug) {
     });
   });
 
-  const knowledgeRow = db.prepare(
-    `SELECT knowledge_json AS knowledgeJson
+  const knowledgeRow = await authStore.queryOne(
+    `SELECT knowledge_json AS "knowledgeJson"
      FROM office_worker_knowledge
      WHERE user_id = ? AND worker_slug = ?`
-  ).get(userId, workerSlug);
+  , userId, workerSlug);
   const knowledge = parseJson(knowledgeRow?.knowledgeJson, []);
   if (Array.isArray(knowledge)) {
     knowledge.slice(0, 12).forEach((section, index) => {
@@ -911,7 +1005,7 @@ function syncHandbookEntries(userId, workerSlug) {
         .filter(Boolean)
         .slice(0, 2)
         .forEach((statement, itemIndex) => {
-          upsertHandbookEntry({
+          entries.push({
             createdAt: timestamp,
             section: "workers",
             sourceId: `${workerSlug}-knowledge-${index}-${itemIndex}`,
@@ -933,7 +1027,7 @@ function syncHandbookEntries(userId, workerSlug) {
         .filter(Boolean)
         .slice(0, 2)
         .forEach((statement, itemIndex) => {
-          upsertHandbookEntry({
+          entries.push({
             createdAt: timestamp,
             section: "workers",
             sourceId: `${workerSlug}-knowledge-${index}-${itemIndex}`,
@@ -949,14 +1043,14 @@ function syncHandbookEntries(userId, workerSlug) {
     });
   }
 
-  const decisions = db.prepare(
-    `SELECT id, date_label AS dateLabel, decisions_json AS decisionsJson
+  const decisions = await authStore.query(
+    `SELECT id, date_label AS "dateLabel", decisions_json AS "decisionsJson"
      FROM office_custom_briefings
      WHERE user_id = ? AND worker_slug = ?`
-  ).all(userId, workerSlug);
+  , userId, workerSlug);
   decisions.forEach((briefing) => {
     safeList(briefing.decisionsJson).slice(0, 6).forEach((statement, index) => {
-      upsertHandbookEntry({
+      entries.push({
         createdAt: timestamp,
         section: "decisions",
         sourceId: `${briefing.id}-${index}`,
@@ -971,13 +1065,13 @@ function syncHandbookEntries(userId, workerSlug) {
     });
   });
 
-  const integrations = db.prepare(
-    `SELECT provider, status, account_label AS accountLabel
+  const integrations = await authStore.query(
+    `SELECT provider, status, account_label AS "accountLabel"
      FROM office_worker_integrations
      WHERE user_id = ? AND worker_slug = ?`
-  ).all(userId, workerSlug);
+  , userId, workerSlug);
   integrations.forEach((integration) => {
-    upsertHandbookEntry({
+    entries.push({
       createdAt: timestamp,
       section: "sources",
       sourceId: `${workerSlug}-${integration.provider}`,
@@ -990,12 +1084,15 @@ function syncHandbookEntries(userId, workerSlug) {
       workerSlug
     });
   });
+  for (const entry of entries) {
+    await upsertHandbookEntry(entry);
+  }
 }
 
-function syncOfficeCanonicalRecords(userId, workerSlug) {
-  syncWorkerAssignments(userId, workerSlug);
-  syncWorkerDeliverables(userId, workerSlug);
-  syncHandbookEntries(userId, workerSlug);
+async function syncOfficeCanonicalRecords(userId, workerSlug) {
+  await syncWorkerAssignments(userId, workerSlug);
+  await syncWorkerDeliverables(userId, workerSlug);
+  await syncHandbookEntries(userId, workerSlug);
 }
 
 function makeWorkerReply(name) {
@@ -1331,15 +1428,16 @@ function serializeJson(value) {
   return JSON.stringify(value ?? {});
 }
 
-function getUserBrandContext(userId) {
-  const onboarding = getUserOnboardingRecord(userId);
-  const globalSettings = db
-    .prepare(
-      `SELECT settings_json AS settingsJson
+async function getUserBrandContext(userId) {
+  const [onboarding, globalSettings] = await Promise.all([
+    getUserOnboardingRecordAsync(userId),
+    authStore.queryOne(
+      `SELECT settings_json AS "settingsJson"
        FROM office_global_settings
-       WHERE user_id = ?`
+       WHERE user_id = ?`,
+      userId
     )
-    .get(userId);
+  ]);
   const parsedSettings = parseJson(globalSettings?.settingsJson, {});
 
   return {
@@ -1351,31 +1449,27 @@ function getUserBrandContext(userId) {
   };
 }
 
-function ensureMaraKnowledge(userId) {
+async function ensureMaraKnowledge(userId) {
   // Worker memory must only ever contain things the manager actually said
   // (onboarding answers, chat direction). Never seed invented preferences.
-  if (!hasHiredWorker(userId, MARA_SLUG)) return;
-  const existing = db
-    .prepare(
-      `SELECT id
-       FROM office_worker_knowledge
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .get(userId, MARA_SLUG);
+  if (!(await hasHiredWorker(userId, MARA_SLUG))) return;
+  const existing = await authStore.queryOne(
+    `SELECT id FROM office_worker_knowledge WHERE user_id = ? AND worker_slug = ?`,
+    userId, MARA_SLUG);
 
   if (existing) return;
 
   const sections = [];
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
      VALUES (?, ?, ?, ?, ?)`
-  ).run(randomUUID(), userId, MARA_SLUG, JSON.stringify(sections), nowIso());
+  , randomUUID(), userId, MARA_SLUG, JSON.stringify(sections), nowIso());
 }
 
-function ensureMaraIntegrationRecord(userId, provider) {
+async function ensureMaraIntegrationRecord(userId, provider) {
   const accountLabel = provider === "gmail" ? "Gmail inbox" : "Outlook inbox";
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_worker_integrations
       (id, user_id, worker_slug, provider, status, account_label, metadata_json, connected_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1385,7 +1479,7 @@ function ensureMaraIntegrationRecord(userId, provider) {
        metadata_json = excluded.metadata_json,
        connected_at = excluded.connected_at,
        updated_at = excluded.updated_at`
-  ).run(
+  ,
     randomUUID(),
     userId,
     MARA_SLUG,
@@ -1398,8 +1492,8 @@ function ensureMaraIntegrationRecord(userId, provider) {
   );
 }
 
-function upsertWorkerIntegration(userId, workerSlug, provider, status, accountLabel, metadata = {}) {
-  db.prepare(
+async function upsertWorkerIntegration(userId, workerSlug, provider, status, accountLabel, metadata = {}) {
+  await authStore.execute(
     `INSERT INTO office_worker_integrations
       (id, user_id, worker_slug, provider, status, account_label, metadata_json, connected_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1409,7 +1503,7 @@ function upsertWorkerIntegration(userId, workerSlug, provider, status, accountLa
        metadata_json = excluded.metadata_json,
        connected_at = excluded.connected_at,
        updated_at = excluded.updated_at`
-  ).run(
+  ,
     randomUUID(),
     userId,
     workerSlug,
@@ -1422,12 +1516,12 @@ function upsertWorkerIntegration(userId, workerSlug, provider, status, accountLa
   );
 }
 
-function getWorkerIntegration(userId, workerSlug, provider) {
-  const row = db.prepare(
-    `SELECT provider, status, account_label AS accountLabel, metadata_json AS metadataJson, connected_at AS connectedAt, updated_at AS updatedAt
+async function getWorkerIntegration(userId, workerSlug, provider) {
+  const row = await authStore.queryOne(
+    `SELECT provider, status, account_label AS "accountLabel", metadata_json AS "metadataJson", connected_at AS "connectedAt", updated_at AS "updatedAt"
      FROM office_worker_integrations
-     WHERE user_id = ? AND worker_slug = ? AND provider = ?`
-  ).get(userId, workerSlug, provider);
+     WHERE user_id = ? AND worker_slug = ? AND provider = ?`,
+    userId, workerSlug, provider);
 
   if (!row) return null;
   return {
@@ -1437,7 +1531,7 @@ function getWorkerIntegration(userId, workerSlug, provider) {
 }
 
 async function getFreshGoogleAccessToken(userId, workerSlug, provider = "gmail") {
-  const integration = getWorkerIntegration(userId, workerSlug, provider);
+  const integration = await getWorkerIntegration(userId, workerSlug, provider);
   if (!integration || integration.status !== "connected") {
     throw new Error("Gmail is not connected.");
   }
@@ -1466,12 +1560,12 @@ async function getFreshGoogleAccessToken(userId, workerSlug, provider = "gmail")
     accessToken: String(refreshed.access_token ?? ""),
     expiresAt: new Date(Date.now() + Number(refreshed.expires_in ?? 3600) * 1000).toISOString()
   };
-  upsertWorkerIntegration(userId, workerSlug, provider, "connected", integration.accountLabel, nextMetadata);
+  await upsertWorkerIntegration(userId, workerSlug, provider, "connected", integration.accountLabel, nextMetadata);
 
   return {
     accessToken: nextMetadata.accessToken,
     emailAddress: String(nextMetadata.emailAddress ?? "").trim(),
-    integration: getWorkerIntegration(userId, workerSlug, provider)
+    integration: await getWorkerIntegration(userId, workerSlug, provider)
   };
 }
 
@@ -1545,7 +1639,7 @@ function mapThreadStatusToLeadStage(threadStatus) {
   return "active";
 }
 
-function upsertOfficeLead({
+async function upsertOfficeLead({
   brandName,
   contactEmail,
   contactName = "",
@@ -1562,12 +1656,12 @@ function upsertOfficeLead({
   const safeEmail = String(contactEmail || "").trim();
   if (!safeBrandName || !safeEmail) return null;
 
-  const existing = db.prepare(
-    `SELECT id, history_json AS historyJson, metadata_json AS metadataJson
+  const existing = await authStore.queryOne(
+    `SELECT id, history_json AS "historyJson", metadata_json AS "metadataJson"
      FROM office_leads
      WHERE user_id = ? AND worker_slug = ? AND brand_name = ? AND contact_email = ?
      LIMIT 1`
-  ).get(userId, workerSlug, safeBrandName, safeEmail);
+  , userId, workerSlug, safeBrandName, safeEmail);
 
   const timestamp = nowIso();
   const historyEntry = {
@@ -1585,12 +1679,12 @@ function upsertOfficeLead({
       ...parseJson(existing.metadataJson, {}),
       ...metadata
     };
-    db.prepare(
+    await authStore.execute(
       `UPDATE office_leads
        SET contact_name = ?, lead_stage = ?, source_type = ?, source_reference_id = ?, last_activity_at = ?,
            summary = ?, history_json = ?, metadata_json = ?, updated_at = ?
        WHERE id = ?`
-    ).run(
+    ,
       contactName,
       leadStage,
       sourceType,
@@ -1606,12 +1700,12 @@ function upsertOfficeLead({
   }
 
   const id = randomUUID();
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_leads
       (id, user_id, worker_slug, brand_name, contact_name, contact_email, lead_stage, source_type, source_reference_id,
        last_activity_at, next_follow_up_at, summary, history_json, metadata_json, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+  ,
     id,
     userId,
     workerSlug,
@@ -1632,18 +1726,18 @@ function upsertOfficeLead({
   return id;
 }
 
-function syncCampaignsToLeadTracker(userId, workerSlug) {
-  const campaigns = db.prepare(
-    `SELECT id, brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail,
-            campaign_status AS campaignStatus, brief_text AS briefText, updated_at AS updatedAt
+async function syncCampaignsToLeadTracker(userId, workerSlug) {
+  const campaigns = await authStore.query(
+    `SELECT id, brand_name AS "brandName", contact_name AS "contactName", contact_email AS "contactEmail",
+            campaign_status AS "campaignStatus", brief_text AS "briefText", updated_at AS "updatedAt"
      FROM office_campaigns
      WHERE user_id = ? AND worker_slug = ?
      ORDER BY updated_at DESC`
-  ).all(userId, workerSlug);
+  , userId, workerSlug);
 
   let syncedCount = 0;
   for (const campaign of campaigns) {
-    const leadId = upsertOfficeLead({
+    const leadId = await upsertOfficeLead({
       brandName: campaign.brandName,
       contactEmail: campaign.contactEmail,
       contactName: campaign.contactName,
@@ -1661,14 +1755,14 @@ function syncCampaignsToLeadTracker(userId, workerSlug) {
   return { syncedCount };
 }
 
-function syncResearchToOfficeIntel(userId, workerSlug) {
-  const researchItems = db.prepare(
-    `SELECT id, topic, source_type AS sourceType, summary, insights_json AS insightsJson, evidence_json AS evidenceJson, created_at AS createdAt
+async function syncResearchToOfficeIntel(userId, workerSlug) {
+  const researchItems = await authStore.query(
+    `SELECT id, topic, source_type AS "sourceType", summary, insights_json AS "insightsJson", evidence_json AS "evidenceJson", created_at AS "createdAt"
      FROM worker_research_items
      WHERE user_id = ? AND worker_id = ?
      ORDER BY created_at DESC
      LIMIT 50`
-  ).all(userId, workerSlug);
+  , userId, workerSlug);
 
   let opportunityCount = 0;
   let trendSignalCount = 0;
@@ -1677,12 +1771,12 @@ function syncResearchToOfficeIntel(userId, workerSlug) {
     const insights = parseJson(item.insightsJson, []);
     const evidence = parseJson(item.evidenceJson, []);
     if (item.sourceType === "web_brand") {
-      const existing = db.prepare(
+      const existing = await authStore.queryOne(
         `SELECT id
          FROM office_brand_opportunities
          WHERE user_id = ? AND worker_slug = ? AND brand_name = ?
          LIMIT 1`
-      ).get(userId, workerSlug, item.topic);
+      , userId, workerSlug, item.topic);
       const suggestedAngle = Array.isArray(insights)
         ? String(insights.find((entry) => String(entry).startsWith("Suggested angle:")) || "").replace(/^Suggested angle:\s*/i, "").trim()
         : "";
@@ -1697,19 +1791,19 @@ function syncResearchToOfficeIntel(userId, workerSlug) {
       const ugcPotentialScore = Math.max(50, Math.min(95, 60 + (suggestedAngle ? 12 : 0)));
       const riskScore = /caution|warning|delayed payment|risk/i.test(sourceNotes) ? 58 : 24;
       if (existing) {
-        db.prepare(
+        await authStore.execute(
           `UPDATE office_brand_opportunities
            SET website = ?, fit_score = ?, ugc_potential_score = ?, risk_score = ?, content_gap = ?, suggested_angle = ?,
                source_notes = ?, updated_at = ?
            WHERE id = ?`
-        ).run(website, fitScore, ugcPotentialScore, riskScore, contentGap, suggestedAngle, sourceNotes, nowIso(), existing.id);
+        , website, fitScore, ugcPotentialScore, riskScore, contentGap, suggestedAngle, sourceNotes, nowIso(), existing.id);
       } else {
-        db.prepare(
+        await authStore.execute(
           `INSERT INTO office_brand_opportunities
             (id, user_id, worker_slug, brand_name, website, category, source, fit_score, ugc_potential_score, risk_score,
              priority, content_gap, suggested_angle, source_notes, status, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        ,
           randomUUID(),
           userId,
           workerSlug,
@@ -1733,18 +1827,18 @@ function syncResearchToOfficeIntel(userId, workerSlug) {
     }
 
     if (item.sourceType === "reddit_signal") {
-      const existingSignal = db.prepare(
+      const existingSignal = await authStore.queryOne(
         `SELECT id
          FROM office_trend_signals
          WHERE user_id = ? AND worker_slug = ? AND title = ?
          LIMIT 1`
-      ).get(userId, workerSlug, item.topic);
+      , userId, workerSlug, item.topic);
       if (!existingSignal) {
-        db.prepare(
+        await authStore.execute(
           `INSERT INTO office_trend_signals
             (id, user_id, worker_slug, niche, platform, signal_type, title, summary, hashtags_json, examples_json, confidence, source, detected_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        ,
           randomUUID(),
           userId,
           workerSlug,
@@ -1767,33 +1861,33 @@ function syncResearchToOfficeIntel(userId, workerSlug) {
   return { opportunityCount, trendSignalCount };
 }
 
-function syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights) {
+async function syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights) {
   const hashtags = Array.isArray(privateInsights?.hashtags) ? privateInsights.hashtags : [];
   const niche = String(privateInsights?.niche || "ugc").trim();
   let syncedCount = 0;
   for (const hashtag of hashtags.slice(0, 25)) {
     const title = String(hashtag?.hashtag || "").trim();
     if (!title) continue;
-    const existing = db.prepare(
+    const existing = await authStore.queryOne(
       `SELECT id
        FROM office_trend_signals
        WHERE user_id = ? AND worker_slug = ? AND title = ?
        LIMIT 1`
-    ).get(userId, workerSlug, title);
+    , userId, workerSlug, title);
     const summary = `${title} has ${String(hashtag.posts || "")} posts and ${String(hashtag.views || "")} views in ${String(privateInsights?.region || "US")} over the last ${String(privateInsights?.periodDays || 7)} days for ${niche}.`.trim();
     const examples = Array.isArray(hashtag.categories) ? hashtag.categories : [];
     if (existing) {
-      db.prepare(
+      await authStore.execute(
         `UPDATE office_trend_signals
          SET summary = ?, examples_json = ?, detected_at = ?
          WHERE id = ?`
-      ).run(summary, JSON.stringify(examples), String(privateInsights?.updatedAt || nowIso()), existing.id);
+      , summary, JSON.stringify(examples), String(privateInsights?.updatedAt || nowIso()), existing.id);
     } else {
-      db.prepare(
+      await authStore.execute(
         `INSERT INTO office_trend_signals
           (id, user_id, worker_slug, niche, platform, signal_type, title, summary, hashtags_json, examples_json, confidence, source, detected_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
+      ,
         randomUUID(),
         userId,
         workerSlug,
@@ -1814,14 +1908,14 @@ function syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsi
   return { syncedCount };
 }
 
-function syncInboxThreadsToCampaigns(userId, workerSlug) {
-  const brandThreads = db.prepare(
-    `SELECT brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail, subject, snippet,
-            received_at AS receivedAt, urgency, thread_status AS threadStatus, id
+async function syncInboxThreadsToCampaigns(userId, workerSlug) {
+  const brandThreads = await authStore.query(
+    `SELECT brand_name AS "brandName", contact_name AS "contactName", contact_email AS "contactEmail", subject, snippet,
+            received_at AS "receivedAt", urgency, thread_status AS "threadStatus", id
      FROM office_email_threads
      WHERE user_id = ? AND worker_slug = ? AND brand_related = 1
      ORDER BY received_at DESC`
-  ).all(userId, workerSlug);
+  , userId, workerSlug);
 
   const seenBrands = new Set();
   let syncedCount = 0;
@@ -1831,37 +1925,37 @@ function syncInboxThreadsToCampaigns(userId, workerSlug) {
     if (!brandKey || seenBrands.has(brandKey)) continue;
     seenBrands.add(brandKey);
 
-    const existing = db.prepare(
+    const existing = await authStore.queryOne(
       `SELECT id
        FROM office_campaigns
        WHERE user_id = ? AND worker_slug = ? AND brand_name = ? AND contact_email = ?
        LIMIT 1`
-    ).get(userId, workerSlug, thread.brandName || "Unknown brand", thread.contactEmail || "");
+    , userId, workerSlug, thread.brandName || "Unknown brand", thread.contactEmail || "");
 
     if (existing) {
-      const existingCampaign = db.prepare(
-        `SELECT last_parsed_at AS lastParsedAt, deliverables_json AS deliverablesJson
+      const existingCampaign = await authStore.queryOne(
+        `SELECT last_parsed_at AS "lastParsedAt", deliverables_json AS "deliverablesJson"
          FROM office_campaigns
          WHERE id = ?`
-      ).get(existing.id);
+      , existing.id);
       const hasParsedBrief = Boolean(existingCampaign?.lastParsedAt) || parseJson(existingCampaign?.deliverablesJson, []).length > 0;
       if (hasParsedBrief) {
-        db.prepare(
+        await authStore.execute(
           `UPDATE office_campaigns
            SET source_thread_id = ?, notes = ?, updated_at = ?
            WHERE id = ?`
-        ).run(
+        ,
           thread.id,
           `Linked to latest Gmail thread: ${thread.subject || thread.brandName || "Inbox thread"}`,
           nowIso(),
           existing.id
         );
       } else {
-        db.prepare(
+        await authStore.execute(
           `UPDATE office_campaigns
            SET campaign_name = ?, campaign_status = ?, source_thread_id = ?, brief_text = ?, notes = ?, updated_at = ?
            WHERE id = ?`
-        ).run(
+        ,
           thread.subject || `${thread.brandName || "Brand"} outreach`,
           mapThreadStatusToCampaignStatus(thread.threadStatus),
           thread.id,
@@ -1875,14 +1969,14 @@ function syncInboxThreadsToCampaigns(userId, workerSlug) {
       continue;
     }
 
-    db.prepare(
+    await authStore.execute(
       `INSERT INTO office_campaigns
         (id, user_id, worker_slug, brand_name, brand_website, contact_name, contact_email, product_name, campaign_name,
          campaign_status, source_thread_id, deliverables_json, brief_text, draft_due_date, final_due_date, payment_amount,
          payment_status, usage_rights, usage_rights_status, revision_limit, raw_footage_required, missing_fields_json,
          risk_flags_json, notes, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+    ,
       randomUUID(),
       userId,
       workerSlug,
@@ -1921,13 +2015,13 @@ function syncInboxThreadsToCampaigns(userId, workerSlug) {
  * schedules land on the calendar as real time blocks. Both are idempotent —
  * each output is harvested exactly once.
  */
-function harvestMaraOutputSideEffects(userId, workerSlug) {
+async function harvestMaraOutputSideEffects(userId, workerSlug) {
   const recentThreshold = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
-  const rows = db.prepare(
-    `SELECT id, output_type AS outputType, structured_content_json AS structuredContentJson
+  const rows = await authStore.query(
+    `SELECT id, output_type AS "outputType", structured_content_json AS "structuredContentJson"
      FROM worker_outputs
-     WHERE user_id = ? AND worker_id = ? AND created_at >= ? AND output_type IN ('market_pulse', 'weekly_schedule', 'weekly_plan')`
-  ).all(userId, workerSlug, recentThreshold);
+     WHERE user_id = ? AND worker_id = ? AND created_at >= ? AND output_type IN ('market_pulse', 'weekly_schedule', 'weekly_plan')`,
+    userId, workerSlug, recentThreshold);
 
   for (const row of rows) {
     const structured = parseJson(row.structuredContentJson, {});
@@ -1935,7 +2029,7 @@ function harvestMaraOutputSideEffects(userId, workerSlug) {
 
     // Lessons → "UGC playbook (learned)" memory section, capped at 20.
     if (row.outputType === "market_pulse" && Array.isArray(structured.lessonsLearned) && structured.lessonsLearned.length > 0 && !structured.lessonsHarvestedAt) {
-      upsertWorkerKnowledge(userId, workerSlug, (knowledge) => {
+      await upsertWorkerKnowledge(userId, workerSlug, (knowledge) => {
         const next = Array.isArray(knowledge) ? [...knowledge] : [];
         const title = "UGC playbook (learned)";
         const index = next.findIndex((section) => String(section?.title ?? "").trim() === title);
@@ -1973,11 +2067,11 @@ function harvestMaraOutputSideEffects(userId, workerSlug) {
         end.setHours(Number(endMatch[1]), Number(endMatch[2]), 0, 0);
         if (end.getTime() <= start.getTime()) continue;
 
-        db.prepare(
+        await authStore.execute(
           `INSERT INTO office_calendar_events
             (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        ,
           randomUUID(),
           userId,
           workerSlug,
@@ -1992,7 +2086,7 @@ function harvestMaraOutputSideEffects(userId, workerSlug) {
         created += 1;
       }
       if (created > 0) {
-        createWorkerActivityLog(db, {
+        await createWorkerActivityLog(maraStore, {
           description: `Placed ${created} time block${created === 1 ? "" : "s"} on your calendar for the week.`,
           eventType: "task_completed",
           metadata: { outputId: row.id },
@@ -2046,11 +2140,11 @@ function harvestMaraOutputSideEffects(userId, workerSlug) {
         end.setHours(startHour, 45, 0, 0);
         perDayCount[action.day] = usedToday + 1;
 
-        db.prepare(
+        await authStore.execute(
           `INSERT INTO office_calendar_events
             (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        ,
           randomUUID(),
           userId,
           workerSlug,
@@ -2065,7 +2159,7 @@ function harvestMaraOutputSideEffects(userId, workerSlug) {
         created += 1;
       }
       if (created > 0) {
-        createWorkerActivityLog(db, {
+        await createWorkerActivityLog(maraStore, {
           description: `Placed ${created} focus block${created === 1 ? "" : "s"} from the weekly plan on your calendar.`,
           eventType: "task_completed",
           metadata: { outputId: row.id },
@@ -2079,33 +2173,84 @@ function harvestMaraOutputSideEffects(userId, workerSlug) {
     }
 
     if (changed) {
-      db.prepare("UPDATE worker_outputs SET structured_content_json = ?, updated_at = ? WHERE id = ?")
-        .run(JSON.stringify(structured), nowIso(), row.id);
+      await authStore.execute("UPDATE worker_outputs SET structured_content_json = ?, updated_at = ? WHERE id = ?", JSON.stringify(structured), nowIso(), row.id);
     }
   }
 }
 
-function syncMaraOperationalRecords(userId, workerSlug) {
-  harvestMaraOutputSideEffects(userId, workerSlug);
-  const privateInsights = loadUserTrendInsights({
-    db,
+async function syncMaraOperationalRecords(userId, workerSlug) {
+  await harvestMaraOutputSideEffects(userId, workerSlug);
+  const privateInsights = await loadUserTrendInsights({
+    store: trendStore,
     globalPath: privateInsightsPath,
-    readAccountContext: getUserOnboardingRecord,
+    readAccountContext: getUserOnboardingRecordAsync,
     readMaraOnboarding: readMaraOnboardingAnswers,
     readWorkerKnowledge: readWorkerKnowledgeSections,
     storageRoot: resolveStorageRoot(),
     userId,
     workerId: workerSlug
   });
-  const campaignLeadSync = syncCampaignsToLeadTracker(userId, workerSlug);
-  const researchSync = syncResearchToOfficeIntel(userId, workerSlug);
-  const trendSync = syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights);
-  syncOfficeCanonicalRecords(userId, workerSlug);
+  const campaignLeadSync = await syncCampaignsToLeadTracker(userId, workerSlug);
+  const researchSync = await syncResearchToOfficeIntel(userId, workerSlug);
+  const trendSync = await syncPrivateTikTokInsightsToTrendSignals(userId, workerSlug, privateInsights);
+  await syncOfficeCanonicalRecords(userId, workerSlug);
+  const growthIntelligenceSync = await syncMaraGrowthIntelligenceFromResearch(userId, workerSlug);
   return {
     campaignLeadSyncCount: campaignLeadSync.syncedCount,
+    growthIntelligenceSyncCount: growthIntelligenceSync.syncedCount,
     opportunitySyncCount: researchSync.opportunityCount,
     trendSignalSyncCount: researchSync.trendSignalCount + trendSync.syncedCount
   };
+}
+
+async function syncMaraGrowthIntelligenceFromResearch(userId, workerSlug) {
+  const brands = await professionalStore.query(
+    `SELECT b.brand_name AS "brandName", b.website, b.identity_summary AS "identitySummary",
+            b.vibe_notes AS "vibeNotes", b.suggested_angle AS "suggestedAngle",
+            b.contact_email AS "contactEmail", b.research_item_id AS "researchItemId",
+            r.evidence_json AS "evidenceJson", r.created_at AS "researchedAt"
+     FROM worker_brands b
+     LEFT JOIN worker_research_items r ON r.id = b.research_item_id AND r.user_id = b.user_id
+     WHERE b.user_id = ? AND b.worker_id = ?`,
+    userId, workerSlug
+  );
+  let syncedCount = 0;
+  for (const brand of brands) {
+    const publicEvidence = parseJson(brand.evidenceJson, []);
+    const sourceUrl = String(publicEvidence?.[0]?.url || brand.website || "").trim() || null;
+    const evidence = [
+      { basis: "observed", claim: String(brand.identitySummary || `${brand.brandName} was found in current public research.`), sourceUrl, observedAt: brand.researchedAt, confidence: sourceUrl ? 82 : 60 },
+      { basis: "inferred", claim: String(brand.vibeNotes || "This brand appears relevant enough to evaluate against the creator's positioning."), confidence: 65 },
+      { basis: "hypothesis", claim: String(brand.suggestedAngle || "A creator-specific creative gap still needs validation against current advertising."), confidence: brand.suggestedAngle ? 58 : 35 }
+    ];
+    const brandKey = String(brand.website || brand.brandName).toLowerCase().replace(/^https?:\/\//, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 160);
+    const profile = await saveBrandProfile(professionalStore, {
+      brandKey,
+      brandName: brand.brandName,
+      website: brand.website || null,
+      profile: { description: brand.identitySummary || "", currentResearchScope: "Public brand identity and creator-fit discovery" },
+      evidence: [evidence[0]]
+    });
+    await saveCreatorBrandOpportunity(professionalStore, {
+      userId, workerId: workerSlug, brandProfileId: profile.id, status: "qualified",
+      scores: {
+        creatorFit: 70 + (brand.vibeNotes ? 10 : 0) + (brand.suggestedAngle ? 5 : 0),
+        commercialPotential: 45,
+        opportunityGap: brand.suggestedAngle ? 70 : 40,
+        outreachLikelihood: brand.contactEmail ? 75 : 35
+      },
+      opportunityThesis: brand.vibeNotes || `${brand.brandName} is a research candidate pending deeper advertising and creator-history evidence.`,
+      creativeGap: brand.suggestedAngle || "Not yet established from current evidence.",
+      brandIntelligence: { brandName: brand.brandName, website: brand.website || null, currentEvidence: brand.identitySummary || "" },
+      creatorPositioning: { fitReason: brand.vibeNotes || "Fit requires validation against creator performance evidence." },
+      pitchStrategy: { contactEmail: brand.contactEmail || null, observation: brand.identitySummary || "", conceptSummary: brand.suggestedAngle || "Research before pitching." },
+      creativeTreatment: { angle: brand.suggestedAngle || null },
+      economics: { recommendation: "Unknown until budget, usage, and creator-program evidence is collected." },
+      evidence
+    });
+    syncedCount += 1;
+  }
+  return { syncedCount };
 }
 
 async function syncGmailInbox(userId, workerSlug) {
@@ -2141,7 +2286,7 @@ async function syncGmailInbox(userId, workerSlug) {
     const brandName = deriveBrandNameFromEmail(senderEmail, senderName);
     const gmailThreadId = String(detail.threadId || "");
 
-    db.prepare(
+    await authStore.execute(
       `INSERT INTO office_email_threads
         (id, user_id, worker_slug, provider, subject, participants_json, snippet, body_text, received_at, brand_related, category, urgency, confidence, reason, brand_name, contact_name, contact_email, source_message_count, thread_status, gmail_thread_id, raw_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2164,7 +2309,7 @@ async function syncGmailInbox(userId, workerSlug) {
          gmail_thread_id = excluded.gmail_thread_id,
          raw_json = excluded.raw_json,
          updated_at = excluded.updated_at`
-    ).run(
+    ,
       String(detail.id),
       userId,
       workerSlug,
@@ -2192,10 +2337,10 @@ async function syncGmailInbox(userId, workerSlug) {
     syncedCount += 1;
   }
 
-  insertMaraSyncJob(userId, "gmail", "gmail_inbox_sync", `Synced ${syncedCount} Gmail message${syncedCount === 1 ? "" : "s"} into Mara's inbox view.`);
-  const campaignSync = syncInboxThreadsToCampaigns(userId, workerSlug);
-  const briefParse = await parseUnparsedInboxThreads(wrapSqliteHandle(db), userId, workerSlug, { fetchImpl: fetch });
-  const operationalSync = syncMaraOperationalRecords(userId, workerSlug);
+  await insertMaraSyncJob(userId, "gmail", "gmail_inbox_sync", `Synced ${syncedCount} Gmail message${syncedCount === 1 ? "" : "s"} into Mara's inbox view.`);
+  const campaignSync = await syncInboxThreadsToCampaigns(userId, workerSlug);
+  const briefParse = await parseUnparsedInboxThreads(maraStore, userId, workerSlug, { fetchImpl: fetch });
+  const operationalSync = await syncMaraOperationalRecords(userId, workerSlug);
   return {
     briefParseCount: briefParse.parsedCount,
     campaignSyncCount: campaignSync.syncedCount,
@@ -2238,40 +2383,40 @@ function buildGmailRawMessage({ body, subject, to }) {
   return Buffer.from(`${headers.join("\r\n")}\r\n\r\n${String(body ?? "").trim()}\r\n`, "utf8").toString("base64url");
 }
 
-function findBestDraftContact(userId, workerSlug, brandLabel = "") {
+async function findBestDraftContact(userId, workerSlug, brandLabel = "") {
   const normalizedBrand = String(brandLabel ?? "").trim().toLowerCase();
   if (normalizedBrand) {
-    const campaignMatch = db.prepare(
-      `SELECT brand_name AS brandName, contact_email AS contactEmail, contact_name AS contactName, campaign_name AS subject
+    const campaignMatch = await authStore.queryOne(
+      `SELECT brand_name AS "brandName", contact_email AS "contactEmail", contact_name AS "contactName", campaign_name AS subject
        FROM office_campaigns
        WHERE user_id = ? AND worker_slug = ? AND lower(brand_name) = lower(?)
          AND contact_email <> ''
        ORDER BY updated_at DESC
        LIMIT 1`
-    ).get(userId, workerSlug, brandLabel);
+    , userId, workerSlug, brandLabel);
     if (campaignMatch) return campaignMatch;
 
-    const threadMatch = db.prepare(
-      `SELECT brand_name AS brandName, contact_email AS contactEmail, contact_name AS contactName, subject
+    const threadMatch = await authStore.queryOne(
+      `SELECT brand_name AS "brandName", contact_email AS "contactEmail", contact_name AS "contactName", subject
        FROM office_email_threads
        WHERE user_id = ? AND worker_slug = ? AND contact_email <> ''
          AND (lower(brand_name) = ? OR lower(subject) LIKE ?)
        ORDER BY received_at DESC
        LIMIT 1`
-    ).get(userId, workerSlug, normalizedBrand, `%${normalizedBrand}%`);
+    , userId, workerSlug, normalizedBrand, `%${normalizedBrand}%`);
     if (threadMatch) return threadMatch;
   }
 
-  return db.prepare(
-    `SELECT brand_name AS brandName, contact_email AS contactEmail, contact_name AS contactName, subject
+  return authStore.queryOne(
+    `SELECT brand_name AS "brandName", contact_email AS "contactEmail", contact_name AS "contactName", subject
      FROM office_email_threads
      WHERE user_id = ? AND worker_slug = ? AND contact_email <> '' AND brand_related = 1
      ORDER BY received_at DESC
      LIMIT 1`
-  ).get(userId, workerSlug);
+  , userId, workerSlug);
 }
 
-function buildDraftSpecsFromOutput(outputRow) {
+async function buildDraftSpecsFromOutput(outputRow) {
   const structured = outputRow.structuredContent ?? {};
   const brandLabel = extractDraftBrandLabel(
     structured.brandName,
@@ -2279,7 +2424,7 @@ function buildDraftSpecsFromOutput(outputRow) {
     outputRow.taskTitle,
     outputRow.taskDescription
   );
-  const contact = findBestDraftContact(outputRow.userId, outputRow.workerId, brandLabel);
+  const contact = await findBestDraftContact(outputRow.userId, outputRow.workerId, brandLabel);
   const resolvedBrand = brandLabel || String(contact?.brandName ?? "Brand").trim();
   const replacements = {
     Brand: resolvedBrand,
@@ -2384,23 +2529,24 @@ async function createGmailDraftForOutput(userId, workerSlug, spec) {
 }
 
 async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = []) {
-  const gmail = getWorkerIntegration(userId, workerSlug, "gmail");
+  const gmail = await getWorkerIntegration(userId, workerSlug, "gmail");
   if (!gmail || gmail.status !== "connected") {
     return { createdCount: 0, skipped: "gmail_not_connected" };
   }
 
   const rows = (outputIds.length > 0
-    ? db.prepare(
-        `SELECT o.id, o.user_id AS userId, o.worker_id AS workerId, o.task_id AS taskId, o.output_type AS outputType,
-                o.title, o.content, o.structured_content_json AS structuredContentJson,
-                t.title AS taskTitle, t.description AS taskDescription,
-                u.name AS userName
+    ? await authStore.query(
+        `SELECT o.id, o.user_id AS "userId", o.worker_id AS "workerId", o.task_id AS "taskId", o.output_type AS "outputType",
+                o.title, o.content, o.structured_content_json AS "structuredContentJson",
+                t.title AS "taskTitle", t.description AS "taskDescription",
+                u.name AS "userName"
          FROM worker_outputs o
          LEFT JOIN worker_tasks t ON t.id = o.task_id
          LEFT JOIN users u ON u.id = o.user_id
          WHERE o.user_id = ? AND o.worker_id = ? AND o.id IN (${outputIds.map(() => "?").join(",")})
-         ORDER BY o.created_at DESC`
-      ).all(userId, workerSlug, ...outputIds)
+         ORDER BY o.created_at DESC`,
+        userId, workerSlug, ...outputIds
+      )
     : [])
     .map((row) => ({ ...row, structuredContent: parseJson(row.structuredContentJson, {}) }));
 
@@ -2416,7 +2562,7 @@ async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = [])
       continue;
     }
 
-    const draftSpecs = buildDraftSpecsFromOutput(row);
+    const draftSpecs = await buildDraftSpecsFromOutput(row);
     if (draftSpecs.length === 0) continue;
 
     const createdDrafts = [];
@@ -2430,18 +2576,18 @@ async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = [])
       gmailDrafts: createdDrafts
     };
 
-    db.prepare(
+    await authStore.execute(
       `UPDATE worker_outputs
        SET structured_content_json = ?, updated_at = ?
        WHERE id = ? AND user_id = ? AND worker_id = ?`
-    ).run(JSON.stringify(nextStructured), nowIso(), row.id, userId, workerSlug);
+    , JSON.stringify(nextStructured), nowIso(), row.id, userId, workerSlug);
 
     // The approve-and-send loop: drafts with a real recipient become a
     // one-click approval. Approving sends from the user's own Gmail.
-    const permissions = getWorkerPermissions(db, userId, workerSlug);
+    const permissions = await getWorkerPermissions(maraStore, userId, workerSlug);
     const sendableDrafts = createdDrafts.filter((draft) => String(draft.to ?? "").trim());
     if (sendableDrafts.length > 0 && permissions.canSendEmailsWithApproval) {
-      createApprovalRequest(db, {
+      await createApprovalRequest(maraStore, {
         actionType: "send_email",
         description: `Ready to go from your Gmail: ${sendableDrafts
           .map((draft) => `“${draft.subject}” → ${draft.to}`)
@@ -2461,7 +2607,7 @@ async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = [])
       });
     }
 
-    createWorkerActivityLog(db, {
+    await createWorkerActivityLog(maraStore, {
       description: `Saved ${createdDrafts.length} Gmail draft${createdDrafts.length === 1 ? "" : "s"} from ${row.title}.`,
       eventType: "gmail_draft_created",
       metadata: { draftCount: createdDrafts.length, outputId: row.id },
@@ -2477,11 +2623,11 @@ async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = [])
   return { createdCount };
 }
 
-function insertMaraSyncJob(userId, provider, jobName, summary, status = "completed") {
-  db.prepare(
+async function insertMaraSyncJob(userId, provider, jobName, summary, status = "completed") {
+  await authStore.execute(
     `INSERT INTO office_sync_jobs (id, user_id, worker_slug, job_name, provider, status, summary, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), userId, MARA_SLUG, jobName, provider, status, summary, nowIso(), nowIso());
+  , randomUUID(), userId, MARA_SLUG, jobName, provider, status, summary, nowIso(), nowIso());
 }
 
 /**
@@ -2489,7 +2635,7 @@ function insertMaraSyncJob(userId, provider, jobName, summary, status = "complet
  * threads, tasks, events, approvals) into real user offices. Scrub every
  * trace at startup so no fabricated work ever appears again. Idempotent.
  */
-function purgeLegacyDemoData() {
+async function purgeLegacyDemoData() {
   const fakeBrands = ["SageHaus", "Glow Theory", "Kinfield"];
   const brandList = fakeBrands.map(() => "?").join(", ");
   const likeClauses = fakeBrands.map(() => "title LIKE ?").join(" OR ");
@@ -2519,7 +2665,7 @@ function purgeLegacyDemoData() {
   let purged = 0;
   for (const [sql, params] of statements) {
     try {
-      purged += db.prepare(sql).run(...params).changes;
+      purged += (await authStore.execute(sql, ...params)).changes;
     } catch {
       /* table may not exist in older databases */
     }
@@ -2528,7 +2674,9 @@ function purgeLegacyDemoData() {
   // Strip fabricated memory sections earlier builds invented ("Minimum
   // rate: $350", filming days, excluded categories the user never stated).
   try {
-    const knowledgeRows = db.prepare("SELECT id, knowledge_json AS knowledgeJson FROM office_worker_knowledge").all();
+    const knowledgeRows = await authStore.query(
+      `SELECT id, knowledge_json AS "knowledgeJson" FROM office_worker_knowledge`
+    );
     const fabricatedTitles = new Set(["Creator preferences", "Preferred niches", "Excluded categories"]);
     for (const row of knowledgeRows) {
       let sections;
@@ -2543,8 +2691,10 @@ function purgeLegacyDemoData() {
       );
       if (!hasFabricatedFingerprint) continue;
       const cleaned = sections.filter((section) => !fabricatedTitles.has(String(section?.title ?? "")));
-      db.prepare("UPDATE office_worker_knowledge SET knowledge_json = ?, updated_at = ? WHERE id = ?")
-        .run(JSON.stringify(cleaned), nowIso(), row.id);
+      await authStore.execute(
+        "UPDATE office_worker_knowledge SET knowledge_json = ?, updated_at = ? WHERE id = ?",
+        JSON.stringify(cleaned), nowIso(), row.id
+      );
       purged += 1;
     }
   } catch {
@@ -2555,13 +2705,13 @@ function purgeLegacyDemoData() {
     console.log(`Purged ${purged} legacy demo record(s).`);
   }
 }
-purgeLegacyDemoData();
+await purgeLegacyDemoData();
 
 /**
  * Scraped HTML entities (&mdash; &amp; …) leaked into stored text in earlier
  * builds. Decode them in place across every user-visible column. Idempotent.
  */
-function cleanHtmlEntitiesInDatabase() {
+async function cleanHtmlEntitiesInDatabase() {
   const targets = [
     ["worker_research_items", ["topic", "summary"]],
     ["worker_brands", ["brand_name", "identity_summary", "suggested_angle", "vibe_notes"]],
@@ -2583,9 +2733,10 @@ function cleanHtmlEntitiesInDatabase() {
     for (const column of columns) {
       for (const [entity, character] of replacements) {
         try {
-          cleaned += db
-            .prepare(`UPDATE ${table} SET ${column} = REPLACE(${column}, ?, ?) WHERE ${column} LIKE ?`)
-            .run(entity, character, `%${entity}%`).changes;
+          cleaned += (await authStore.execute(
+            `UPDATE ${table} SET ${column} = REPLACE(${column}, ?, ?) WHERE ${column} LIKE ?`,
+            entity, character, `%${entity}%`
+          )).changes;
         } catch {
           /* column/table may not exist in older databases */
         }
@@ -2596,14 +2747,14 @@ function cleanHtmlEntitiesInDatabase() {
     console.log(`Decoded HTML entities in ${cleaned} stored record(s).`);
   }
 }
-cleanHtmlEntitiesInDatabase();
+await cleanHtmlEntitiesInDatabase();
 
 /**
  * Earlier scrapes stored article headlines ("15+ Wellness Brands for…") as
  * brands, producing absurd pitches. Purge every artifact built on them:
  * brand rows, research items, tasks, outputs, and displayed deliverables.
  */
-function purgeListicleArtifacts() {
+async function purgeListicleArtifacts() {
   let purged = 0;
   const titleTail = (title) => {
     const match = String(title ?? "").match(/\bfor\s+(.{4,})$/i);
@@ -2611,103 +2762,107 @@ function purgeListicleArtifacts() {
   };
 
   try {
-    for (const row of db.prepare("SELECT id, brand_name AS brandName FROM worker_brands").all()) {
+    for (const row of await authStore.query(`SELECT id, brand_name AS "brandName" FROM worker_brands`)) {
       if (isLikelyListicleTitle(row.brandName)) {
-        purged += db.prepare("DELETE FROM worker_brands WHERE id = ?").run(row.id).changes;
+        purged += (await authStore.execute("DELETE FROM worker_brands WHERE id = ?", row.id)).changes;
       }
     }
-    for (const row of db.prepare("SELECT id, topic FROM worker_research_items").all()) {
+    for (const row of await authStore.query("SELECT id, topic FROM worker_research_items")) {
       const topic = String(row.topic ?? "").replace(/^\[(Opportunity|r\/[^\]]+)\]\s*/i, "");
       if (isLikelyListicleTitle(topic) && !/^\[/.test(String(row.topic ?? ""))) {
-        purged += db.prepare("DELETE FROM worker_research_items WHERE id = ?").run(row.id).changes;
+        purged += (await authStore.execute("DELETE FROM worker_research_items WHERE id = ?", row.id)).changes;
       }
     }
-    for (const row of db.prepare("SELECT id, title FROM worker_tasks").all()) {
+    for (const row of await authStore.query("SELECT id, title FROM worker_tasks")) {
       const tail = titleTail(row.title);
       if (tail && isLikelyListicleTitle(tail)) {
-        purged += db.prepare("DELETE FROM worker_tasks WHERE id = ?").run(row.id).changes;
+        purged += (await authStore.execute("DELETE FROM worker_tasks WHERE id = ?", row.id)).changes;
       }
     }
-    for (const row of db.prepare("SELECT id, title FROM worker_outputs").all()) {
+    for (const row of await authStore.query("SELECT id, title FROM worker_outputs")) {
       const tail = titleTail(row.title);
       if (tail && isLikelyListicleTitle(tail)) {
-        db.prepare("DELETE FROM office_deliverables WHERE content_ref_id = ?").run(row.id);
-        purged += db.prepare("DELETE FROM worker_outputs WHERE id = ?").run(row.id).changes;
+        await authStore.execute("DELETE FROM office_deliverables WHERE content_ref_id = ?", row.id);
+        purged += (await authStore.execute("DELETE FROM worker_outputs WHERE id = ?", row.id)).changes;
       }
     }
-    for (const row of db.prepare("SELECT id, title FROM office_deliverables").all()) {
+    for (const row of await authStore.query("SELECT id, title FROM office_deliverables")) {
       const tail = titleTail(row.title);
       if (tail && isLikelyListicleTitle(tail)) {
-        purged += db.prepare("DELETE FROM office_deliverables WHERE id = ?").run(row.id).changes;
+        purged += (await authStore.execute("DELETE FROM office_deliverables WHERE id = ?", row.id)).changes;
       }
     }
-    for (const row of db.prepare("SELECT id, title FROM office_assignments").all()) {
+    for (const row of await authStore.query("SELECT id, title FROM office_assignments")) {
       const tail = titleTail(row.title);
       if (tail && isLikelyListicleTitle(tail)) {
-        purged += db.prepare("DELETE FROM office_assignments WHERE id = ?").run(row.id).changes;
+        purged += (await authStore.execute("DELETE FROM office_assignments WHERE id = ?", row.id)).changes;
       }
     }
   } catch (error) {
-    console.error("Listicle purge failed:", error);
+    logCaught("Listicle purge failed:", error);
   }
 
   if (purged > 0) {
     console.log(`Purged ${purged} listicle-derived record(s).`);
   }
 }
-purgeListicleArtifacts();
+await purgeListicleArtifacts();
 
-function maraIntegrations(userId) {
-  return db
-    .prepare(
-      `SELECT provider, status, account_label AS accountLabel, connected_at AS connectedAt, metadata_json AS metadataJson
-       FROM office_worker_integrations
-       WHERE user_id = ? AND worker_slug = ?
-       ORDER BY provider ASC`
-    )
-    .all(userId, MARA_SLUG)
-    .map((integration) => ({
+async function maraIntegrations(userId) {
+  const integrations = await maraStore.query(
+    `SELECT provider, status, account_label AS "accountLabel", connected_at AS "connectedAt", metadata_json AS "metadataJson"
+     FROM office_worker_integrations
+     WHERE user_id = ? AND worker_slug = ?
+     ORDER BY provider ASC`,
+    userId,
+    MARA_SLUG
+  );
+  return integrations.map((integration) => ({
       ...integration,
       metadata: decryptJson(integration.metadataJson, {})
     }));
 }
 
-function buildMaraDailyBrief(userId) {
-  const threads = db
-    .prepare(
+async function buildMaraDailyBrief(userId) {
+  const [threads, campaigns, actions, opportunities, risks] = await Promise.all([
+    maraStore.query(
       `SELECT category
        FROM office_email_threads
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-  const campaigns = db
-    .prepare(
+       WHERE user_id = ? AND worker_slug = ?`,
+      userId,
+      MARA_SLUG
+    ),
+    maraStore.query(
       `SELECT id
        FROM office_campaigns
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .all(userId, MARA_SLUG);
-  const actions = db
-    .prepare(
+       WHERE user_id = ? AND worker_slug = ?`,
+      userId,
+      MARA_SLUG
+    ),
+    maraStore.query(
       `SELECT id
        FROM office_suggested_actions
-       WHERE user_id = ? AND worker_slug = ? AND status = ?`
-    )
-    .all(userId, MARA_SLUG, "suggested");
-  const opportunities = db
-    .prepare(
+       WHERE user_id = ? AND worker_slug = ? AND status = ?`,
+      userId,
+      MARA_SLUG,
+      "suggested"
+    ),
+    maraStore.query(
       `SELECT id
        FROM office_brand_opportunities
-       WHERE user_id = ? AND worker_slug = ? AND status = ?`
-    )
-    .all(userId, MARA_SLUG, "new");
-  const risks = db
-    .prepare(
-      `SELECT risk_flags_json AS riskFlagsJson, missing_fields_json AS missingFieldsJson
+       WHERE user_id = ? AND worker_slug = ? AND status = ?`,
+      userId,
+      MARA_SLUG,
+      "new"
+    ),
+    maraStore.query(
+      `SELECT risk_flags_json AS "riskFlagsJson", missing_fields_json AS "missingFieldsJson"
        FROM office_campaigns
-       WHERE user_id = ? AND worker_slug = ?`
+       WHERE user_id = ? AND worker_slug = ?`,
+      userId,
+      MARA_SLUG
     )
-    .all(userId, MARA_SLUG);
+  ]);
 
   const countCategory = (category) => threads.filter((thread) => thread.category === category).length;
   const riskCount = risks.reduce((sum, entry) => sum + parseJson(entry.riskFlagsJson, []).length + parseJson(entry.missingFieldsJson, []).length, 0);
@@ -2728,97 +2883,109 @@ function buildMaraDailyBrief(userId) {
   };
 }
 
-function getMaraDashboard(userId) {
-  const threads = db
-    .prepare(
-      `SELECT id, provider, subject, snippet, received_at AS receivedAt, brand_related AS brandRelated, category, urgency,
-              confidence, reason, brand_name AS brandName, contact_name AS contactName, contact_email AS contactEmail,
-              source_message_count AS sourceMessageCount, thread_status AS threadStatus
+async function getMaraDashboard(userId) {
+  const [
+    threads,
+    campaignRows,
+    suggestedActionRows,
+    opportunityRows,
+    tasks,
+    trendSignalRows,
+    recentWork,
+    integrations,
+    dailyBrief
+  ] = await Promise.all([
+    maraStore.query(
+      `SELECT id, provider, subject, snippet, received_at AS "receivedAt", brand_related AS "brandRelated", category, urgency,
+              confidence, reason, brand_name AS "brandName", contact_name AS "contactName", contact_email AS "contactEmail",
+              source_message_count AS "sourceMessageCount", thread_status AS "threadStatus"
        FROM office_email_threads
        WHERE user_id = ? AND worker_slug = ?
-       ORDER BY received_at DESC`
-    )
-    .all(userId, MARA_SLUG);
-
-  const campaigns = db
-    .prepare(
-      `SELECT id, brand_name AS brandName, brand_website AS brandWebsite, contact_name AS contactName, contact_email AS contactEmail,
-              product_name AS productName, campaign_name AS campaignName, campaign_status AS campaignStatus, source_thread_id AS sourceThreadId,
-              deliverables_json AS deliverablesJson, brief_text AS briefText, draft_due_date AS draftDueDate, final_due_date AS finalDueDate,
-              payment_amount AS paymentAmount, payment_status AS paymentStatus, usage_rights AS usageRights,
-              usage_rights_status AS usageRightsStatus, revision_limit AS revisionLimit, raw_footage_required AS rawFootageRequired,
-              missing_fields_json AS missingFieldsJson, risk_flags_json AS riskFlagsJson, notes, created_at AS createdAt, updated_at AS updatedAt
+       ORDER BY received_at DESC`,
+      userId,
+      MARA_SLUG
+    ),
+    maraStore.query(
+      `SELECT id, brand_name AS "brandName", brand_website AS "brandWebsite", contact_name AS "contactName", contact_email AS "contactEmail",
+              product_name AS "productName", campaign_name AS "campaignName", campaign_status AS "campaignStatus", source_thread_id AS "sourceThreadId",
+              deliverables_json AS "deliverablesJson", brief_text AS "briefText", draft_due_date AS "draftDueDate", final_due_date AS "finalDueDate",
+              payment_amount AS "paymentAmount", payment_status AS "paymentStatus", usage_rights AS "usageRights",
+              usage_rights_status AS "usageRightsStatus", revision_limit AS "revisionLimit", raw_footage_required AS "rawFootageRequired",
+              missing_fields_json AS "missingFieldsJson", risk_flags_json AS "riskFlagsJson", notes, created_at AS "createdAt", updated_at AS "updatedAt"
        FROM office_campaigns
        WHERE user_id = ? AND worker_slug = ?
-       ORDER BY updated_at DESC`
-    )
-    .all(userId, MARA_SLUG)
-    .map((campaign) => ({
+       ORDER BY updated_at DESC`,
+      userId,
+      MARA_SLUG
+    ),
+    maraStore.query(
+      `SELECT id, action_type AS "actionType", title, description, reason, related_thread_id AS "relatedThreadId",
+              related_campaign_id AS "relatedCampaignId", related_brand_id AS "relatedBrandId", payload_json AS "payloadJson",
+              status, requires_approval AS "requiresApproval", created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM office_suggested_actions
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC`,
+      userId,
+      MARA_SLUG
+    ),
+    maraStore.query(
+      `SELECT id, brand_name AS "brandName", website, category, source, fit_score AS "fitScore",
+              ugc_potential_score AS "ugcPotentialScore", risk_score AS "riskScore", priority, content_gap AS "contentGap",
+              suggested_angle AS "suggestedAngle", source_notes AS "sourceNotes", status, created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM office_brand_opportunities
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC`,
+      userId,
+      MARA_SLUG
+    ),
+    maraStore.query(
+      `SELECT id, title, module_name AS module, owner, priority, status, due_date AS "dueDate"
+       FROM office_custom_tasks
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC`,
+      userId,
+      MARA_SLUG
+    ),
+    maraStore.query(
+      `SELECT id, niche, platform, signal_type AS "signalType", title, summary, hashtags_json AS "hashtagsJson",
+              examples_json AS "examplesJson", confidence, source, detected_at AS "detectedAt"
+       FROM office_trend_signals
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY detected_at DESC`,
+      userId,
+      MARA_SLUG
+    ),
+    maraStore.query(
+      `SELECT id, action, module_name AS module, result, created_at AS timestamp
+       FROM office_activity_logs
+       WHERE user_id = ? AND worker_slug = ?
+       ORDER BY created_at DESC`,
+      userId,
+      MARA_SLUG
+    ),
+    maraIntegrations(userId),
+    buildMaraDailyBrief(userId)
+  ]);
+
+  const campaigns = campaignRows.map((campaign) => ({
       ...campaign,
       deliverables: parseJson(campaign.deliverablesJson, []),
       missingFields: parseJson(campaign.missingFieldsJson, []),
       riskFlags: parseJson(campaign.riskFlagsJson, [])
     }));
 
-  const suggestedActions = db
-    .prepare(
-      `SELECT id, action_type AS actionType, title, description, reason, related_thread_id AS relatedThreadId,
-              related_campaign_id AS relatedCampaignId, related_brand_id AS relatedBrandId, payload_json AS payloadJson,
-              status, requires_approval AS requiresApproval, created_at AS createdAt, updated_at AS updatedAt
-       FROM office_suggested_actions
-       WHERE user_id = ? AND worker_slug = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId, MARA_SLUG)
-    .map((action) => ({
+  const suggestedActions = suggestedActionRows.map((action) => ({
       ...action,
       payload: parseJson(action.payloadJson, {})
     }));
 
-  const opportunities = db
-    .prepare(
-      `SELECT id, brand_name AS brandName, website, category, source, fit_score AS fitScore,
-              ugc_potential_score AS ugcPotentialScore, risk_score AS riskScore, priority, content_gap AS contentGap,
-              suggested_angle AS suggestedAngle, source_notes AS sourceNotes, status, created_at AS createdAt, updated_at AS updatedAt
-       FROM office_brand_opportunities
-       WHERE user_id = ? AND worker_slug = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId, MARA_SLUG)
-    .slice(0, 5);
+  const opportunities = opportunityRows.slice(0, 5);
 
-  const tasks = db
-    .prepare(
-      `SELECT id, title, module_name AS module, owner, priority, status, due_date AS dueDate
-       FROM office_custom_tasks
-       WHERE user_id = ? AND worker_slug = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId, MARA_SLUG);
-
-  const trendSignals = db
-    .prepare(
-      `SELECT id, niche, platform, signal_type AS signalType, title, summary, hashtags_json AS hashtagsJson,
-              examples_json AS examplesJson, confidence, source, detected_at AS detectedAt
-       FROM office_trend_signals
-       WHERE user_id = ? AND worker_slug = ?
-       ORDER BY detected_at DESC`
-    )
-    .all(userId, MARA_SLUG)
-    .map((signal) => ({
+  const trendSignals = trendSignalRows.map((signal) => ({
       ...signal,
       hashtags: parseJson(signal.hashtagsJson, []),
       examples: parseJson(signal.examplesJson, [])
     }));
-
-  const recentWork = db
-    .prepare(
-      `SELECT id, action, module_name AS module, result, created_at AS timestamp
-       FROM office_activity_logs
-       WHERE user_id = ? AND worker_slug = ?
-       ORDER BY created_at DESC`
-    )
-    .all(userId, MARA_SLUG);
 
   const risks = campaigns.flatMap((campaign) => [
     ...campaign.missingFields.map((flag) => ({
@@ -2854,8 +3021,8 @@ function getMaraDashboard(userId) {
   ]);
 
   return {
-    integrations: maraIntegrations(userId),
-    dailyBrief: buildMaraDailyBrief(userId),
+    integrations,
+    dailyBrief,
     threads,
     campaigns,
     suggestedActions,
@@ -2867,30 +3034,28 @@ function getMaraDashboard(userId) {
   };
 }
 
-function upsertWorkerKnowledge(userId, workerSlug, recipe) {
-  const record = db
-    .prepare(
-      `SELECT knowledge_json AS knowledgeJson
+async function upsertWorkerKnowledge(userId, workerSlug, recipe) {
+  const record = await authStore.queryOne(
+      `SELECT knowledge_json AS "knowledgeJson"
        FROM office_worker_knowledge
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .get(userId, workerSlug);
+       WHERE user_id = ? AND worker_slug = ?`,
+    userId, workerSlug);
 
   const currentKnowledge =
     record?.knowledgeJson && typeof record.knowledgeJson === "string" ? JSON.parse(record.knowledgeJson) : [];
 
   const nextKnowledge = recipe(Array.isArray(currentKnowledge) ? currentKnowledge : []);
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(user_id, worker_slug) DO UPDATE SET
        knowledge_json = excluded.knowledge_json,
        updated_at = excluded.updated_at`
-  ).run(randomUUID(), userId, workerSlug, JSON.stringify(nextKnowledge), nowIso());
+  , randomUUID(), userId, workerSlug, JSON.stringify(nextKnowledge), nowIso());
 }
 
-function replaceWorkerKnowledge(userId, workerSlug, knowledgeSections) {
+async function replaceWorkerKnowledge(userId, workerSlug, knowledgeSections) {
   const normalizedKnowledge = (Array.isArray(knowledgeSections) ? knowledgeSections : [])
     .map((section) => ({
       items: normalizeTextList(section?.items),
@@ -2898,47 +3063,31 @@ function replaceWorkerKnowledge(userId, workerSlug, knowledgeSections) {
     }))
     .filter((section) => section.title && section.items.length > 0);
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(user_id, worker_slug) DO UPDATE SET
        knowledge_json = excluded.knowledge_json,
        updated_at = excluded.updated_at`
-  ).run(randomUUID(), userId, workerSlug, JSON.stringify(normalizedKnowledge), nowIso());
+  , randomUUID(), userId, workerSlug, JSON.stringify(normalizedKnowledge), nowIso());
 }
 
-function readWorkerKnowledgeSections(userId, workerSlug) {
-  const record = db
-    .prepare(
-      `SELECT knowledge_json AS knowledgeJson
+async function readWorkerKnowledgeSections(userId, workerSlug) {
+  const record = await authStore.queryOne(
+      `SELECT knowledge_json AS "knowledgeJson"
        FROM office_worker_knowledge
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .get(userId, workerSlug);
+       WHERE user_id = ? AND worker_slug = ?`,
+    userId, workerSlug);
 
   return parseJson(record?.knowledgeJson, []);
 }
 
-function getWorkerKnowledgeSections(userId, workerSlug) {
-  const record = db
-    .prepare(
-      `SELECT knowledge_json AS knowledgeJson
-       FROM office_worker_knowledge
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .get(userId, workerSlug);
-
-  return parseJson(record?.knowledgeJson, []);
-}
-
-function readMaraOnboardingAnswers(userId, workerSlug) {
-  const record = db
-    .prepare(
-      `SELECT answers_json AS answersJson, generated_summary_json AS generatedSummaryJson, status, completed_at AS completedAt
+async function readMaraOnboardingAnswers(userId, workerSlug) {
+  const record = await authStore.queryOne(
+      `SELECT answers_json AS "answersJson", generated_summary_json AS "generatedSummaryJson", status, completed_at AS "completedAt"
        FROM office_onboarding_sessions
-       WHERE user_id = ? AND worker_slug = ?`
-    )
-    .get(userId, workerSlug);
+       WHERE user_id = ? AND worker_slug = ?`,
+    userId, workerSlug);
 
   if (!record) {
     return null;
@@ -2952,39 +3101,35 @@ function readMaraOnboardingAnswers(userId, workerSlug) {
   };
 }
 
-function readWorkerIntegrationMetadata(userId, workerSlug) {
-  return db
-    .prepare(
-      `SELECT provider, status, account_label AS accountLabel, metadata_json AS metadataJson
+async function readWorkerIntegrationMetadata(userId, workerSlug) {
+  const rows = await authStore.query(
+      `SELECT provider, status, account_label AS "accountLabel", metadata_json AS "metadataJson"
        FROM office_worker_integrations
        WHERE user_id = ? AND worker_slug = ?
-       ORDER BY updated_at DESC`
-    )
-    .all(userId, workerSlug)
-    .map((row) => ({
+       ORDER BY updated_at DESC`,
+    userId, workerSlug);
+  return rows.map((row) => ({
       ...row,
       metadata: decryptJson(row.metadataJson, {})
     }));
 }
 
-function readWorkerRecentMessages(userId, workerSlug) {
-  return db
-    .prepare(
-      `SELECT author, text, created_at AS createdAt
+async function readWorkerRecentMessages(userId, workerSlug) {
+  const rows = await authStore.query(
+      `SELECT author, text, created_at AS "createdAt"
        FROM office_chat_messages
        WHERE user_id = ? AND worker_slug = ?
        ORDER BY created_at DESC
-       LIMIT 10`
-    )
-    .all(userId, workerSlug)
-    .reverse();
+       LIMIT 10`,
+    userId, workerSlug);
+  return rows.reverse();
 }
 
-function readMaraPrivateInsights(userId, workerId) {
+async function readMaraPrivateInsights(userId, workerId) {
   return loadUserTrendInsights({
-    db,
+    store: trendStore,
     globalPath: privateInsightsPath,
-    readAccountContext: getUserOnboardingRecord,
+    readAccountContext: getUserOnboardingRecordAsync,
     readMaraOnboarding: readMaraOnboardingAnswers,
     readWorkerKnowledge: readWorkerKnowledgeSections,
     storageRoot: resolveStorageRoot(),
@@ -2995,10 +3140,11 @@ function readMaraPrivateInsights(userId, workerId) {
 
 function buildMaraExecutionReaders() {
   return {
-    readAccountContext: getUserOnboardingRecord,
+    readAccountContext: getUserOnboardingRecordAsync,
     readConnectedIntegrations: readWorkerIntegrationMetadata,
     readMaraOnboarding: readMaraOnboardingAnswers,
     readMessages: readWorkerRecentMessages,
+    readGrowthIntelligence: (userId, workerId) => getMaraGrowthIntelligenceSnapshot(professionalStore, userId, workerId),
     readPrivateInsights: readMaraPrivateInsights,
     readWorkerKnowledge: readWorkerKnowledgeSections
   };
@@ -3006,17 +3152,17 @@ function buildMaraExecutionReaders() {
 
 async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generatedSummary, normalizedKnowledge }) {
 
-  const accountContext = getUserOnboardingRecord(userId);
+  const accountContext = await getUserOnboardingRecordAsync(userId);
   const initialPlan = buildMaraInitialWorkPlan({
     accountContext,
     maraAnswers: answers
   });
   const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
-  replaceWorkerKnowledge(userId, workerSlug, mergedKnowledge);
+  await replaceWorkerKnowledge(userId, workerSlug, mergedKnowledge);
   const createdTaskIds = [];
 
   for (const task of initialPlan.tasks) {
-    const created = createApprovedTaskIfPermissionAllows(db, {
+    const created = await createApprovedTaskIfPermissionAllows(maraStore, {
       description: task.description,
       dueAt: task.priority === "high" ? "This week" : "Next 7 days",
       evidenceUsed: generatedSummary,
@@ -3031,7 +3177,7 @@ async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generate
       if (!created.duplicate) {
         createdTaskIds.push(created.id);
       } else {
-        const existingTask = listWorkerTasksForUserWorker(db, userId, workerSlug).find((entry) => entry.id === created.id);
+        const existingTask = (await listWorkerTasksForUserWorker(maraStore, userId, workerSlug)).find((entry) => entry.id === created.id);
         if (existingTask && ["approved", "in_progress"].includes(existingTask.status)) {
           createdTaskIds.push(created.id);
         }
@@ -3040,7 +3186,7 @@ async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generate
   }
 
   for (const recurring of initialPlan.recurringResponsibilities) {
-    createRecurringResponsibility(db, {
+    await createRecurringResponsibility(maraStore, {
       cadence: recurring.cadence,
       createdFrom: "onboarding",
       dayOfWeek: recurring.dayOfWeek,
@@ -3053,7 +3199,7 @@ async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generate
   }
 
   const starterResults = await autoExecuteSafeMaraTasks({
-    db,
+    store: maraStore,
     taskIds: createdTaskIds,
     userId,
     workerId: workerSlug,
@@ -3065,13 +3211,13 @@ async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generate
   }
 
   const summary = await runMaraAutonomyCycle({
-    db,
+    store: maraStore,
     mode: "interactive",
     userId,
     workerId: workerSlug,
     ...buildMaraExecutionReaders()
   });
-  syncMaraOperationalRecords(userId, workerSlug);
+  await syncMaraOperationalRecords(userId, workerSlug);
   const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
   if (outputIds.length > 0) {
     await syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds);
@@ -3079,7 +3225,7 @@ async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generate
 
   return {
     summary,
-    workspace: buildMaraWorkspace(db, userId, workerSlug, {
+    workspace: await buildMaraWorkspace(maraStore, userId, workerSlug, {
       readKnowledgeSections: readWorkerKnowledgeSections,
       readOfficeOverlays: readOfficeOverlaysForUser
     })
@@ -3089,77 +3235,90 @@ async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generate
 const DIGEST_INTERVAL_DAYS = Number.parseInt(process.env.DIGEST_INTERVAL_DAYS ?? "7", 10);
 
 /**
- * Weekly digest: what the team shipped, what's waiting on the manager.
- * The single most reliable reason to come back to the office.
+ * Weekly digest for one user. Idempotent via user_digest_log + job idempotency key.
  */
-async function sendWeeklyDigests() {
+async function sendDigestForUser(user, threshold) {
+  const outputs = await authStore.query(
+    `SELECT title, output_type AS "outputType", worker_id AS "workerId", created_at AS "createdAt"
+     FROM worker_outputs
+     WHERE user_id = ? AND created_at >= ?
+     ORDER BY created_at DESC
+     LIMIT 12`,
+    user.id, threshold
+  );
+  const approvals = await authStore.query(
+    `SELECT title FROM worker_approval_requests WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 8`,
+    user.id
+  );
+  const completedTasks = await authStore.queryOne(
+    `SELECT COUNT(*) AS count FROM worker_tasks WHERE user_id = ? AND status = 'completed' AND updated_at >= ?`,
+    user.id, threshold
+  );
+
+  if (outputs.length === 0 && approvals.length === 0) {
+    return false;
+  }
+
+  const firstName = String(user.name ?? "").split(" ")[0] || "there";
+  const shippedLines = outputs.slice(0, 8).map((output) => `• ${output.title}`);
+  const approvalLines = approvals.map((approval) => `• ${approval.title}`);
+  const textParts = [
+    `Hi ${firstName},`,
+    "",
+    `Here's what your Ryva team got done over the last ${DIGEST_INTERVAL_DAYS} days:`,
+    "",
+    outputs.length > 0 ? `Shipped (${outputs.length} deliverable${outputs.length === 1 ? "" : "s"}, ${Number(completedTasks?.count ?? 0)} tasks closed):\n${shippedLines.join("\n")}` : "",
+    approvals.length > 0 ? `\nWaiting on you (${approvals.length}):\n${approvalLines.join("\n")}` : "",
+    "",
+    `Open your office: ${appUrl}/#app/office/today`
+  ].filter((part) => part !== "");
+  const text = textParts.join("\n");
+  const html = textParts
+    .map((part) => `<p style="margin:0 0 12px;white-space:pre-line;font-family:Georgia,serif;color:#191713;">${part.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</p>`)
+    .join("");
+
+  await sendTransactionalEmail({
+    html,
+    subject:
+      approvals.length > 0
+        ? `Your team shipped ${outputs.length} deliverable${outputs.length === 1 ? "" : "s"} — ${approvals.length} thing${approvals.length === 1 ? "" : "s"} need${approvals.length === 1 ? "s" : ""} you`
+        : `Your team shipped ${outputs.length} deliverable${outputs.length === 1 ? "" : "s"} this week`,
+    text,
+    to: user.email
+  });
+
+  await authStore.execute(
+    `INSERT INTO user_digest_log (user_id, last_sent_at) VALUES (?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET last_sent_at = excluded.last_sent_at`,
+    user.id, nowIso()
+  );
+  return true;
+}
+
+/**
+ * Enqueue per-user digest jobs so multiple replicas do not double-send.
+ */
+async function enqueueWeeklyDigests() {
   if (DIGEST_INTERVAL_DAYS <= 0) return;
   const threshold = new Date(Date.now() - DIGEST_INTERVAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const weekBucket = Math.floor(Date.now() / (DIGEST_INTERVAL_DAYS * 24 * 60 * 60 * 1000));
 
-  const users = db.prepare(
+  const users = await authStore.query(
     `SELECT DISTINCT u.id, u.email, u.name
      FROM users u
      INNER JOIN hired_workers hw ON hw.user_id = u.id AND hw.status = 'active'
      LEFT JOIN user_digest_log dl ON dl.user_id = u.id
-     WHERE u.email_verified_at IS NOT NULL AND (dl.last_sent_at IS NULL OR dl.last_sent_at <= ?)`
-  ).all(threshold);
+     WHERE u.email_verified_at IS NOT NULL AND (dl.last_sent_at IS NULL OR dl.last_sent_at <= ?)`,
+    threshold
+  );
 
   for (const user of users) {
-    try {
-      const outputs = db.prepare(
-        `SELECT title, output_type AS outputType, worker_id AS workerId, created_at AS createdAt
-         FROM worker_outputs
-         WHERE user_id = ? AND created_at >= ?
-         ORDER BY created_at DESC
-         LIMIT 12`
-      ).all(user.id, threshold);
-      const approvals = db.prepare(
-        `SELECT title FROM worker_approval_requests WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 8`
-      ).all(user.id);
-      const completedTasks = db.prepare(
-        `SELECT COUNT(*) AS count FROM worker_tasks WHERE user_id = ? AND status = 'completed' AND updated_at >= ?`
-      ).get(user.id, threshold);
-
-      // Nothing shipped and nothing waiting — stay silent rather than spam.
-      if (outputs.length === 0 && approvals.length === 0) {
-        continue;
-      }
-
-      const firstName = String(user.name ?? "").split(" ")[0] || "there";
-      const shippedLines = outputs.slice(0, 8).map((output) => `• ${output.title}`);
-      const approvalLines = approvals.map((approval) => `• ${approval.title}`);
-      const textParts = [
-        `Hi ${firstName},`,
-        "",
-        `Here's what your Ryva team got done over the last ${DIGEST_INTERVAL_DAYS} days:`,
-        "",
-        outputs.length > 0 ? `Shipped (${outputs.length} deliverable${outputs.length === 1 ? "" : "s"}, ${Number(completedTasks?.count ?? 0)} tasks closed):\n${shippedLines.join("\n")}` : "",
-        approvals.length > 0 ? `\nWaiting on you (${approvals.length}):\n${approvalLines.join("\n")}` : "",
-        "",
-        `Open your office: ${appUrl}/#app/office/today`
-      ].filter((part) => part !== "");
-      const text = textParts.join("\n");
-      const html = textParts
-        .map((part) => `<p style="margin:0 0 12px;white-space:pre-line;font-family:Georgia,serif;color:#191713;">${part.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</p>`)
-        .join("");
-
-      await sendTransactionalEmail({
-        html,
-        subject:
-          approvals.length > 0
-            ? `Your team shipped ${outputs.length} deliverable${outputs.length === 1 ? "" : "s"} — ${approvals.length} thing${approvals.length === 1 ? "" : "s"} need${approvals.length === 1 ? "s" : ""} you`
-            : `Your team shipped ${outputs.length} deliverable${outputs.length === 1 ? "" : "s"} this week`,
-        text,
-        to: user.email
-      });
-
-      db.prepare(
-        `INSERT INTO user_digest_log (user_id, last_sent_at) VALUES (?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET last_sent_at = excluded.last_sent_at`
-      ).run(user.id, nowIso());
-    } catch (error) {
-      console.error(`Digest failed for ${user.id}:`, error);
-    }
+    await enqueueJob(jobStore, {
+      kind: "weekly_digest",
+      userId: user.id,
+      payload: { email: user.email, name: user.name, threshold },
+      idempotencyKey: `weekly_digest:${user.id}:${weekBucket}`
+    });
   }
 }
 
@@ -3167,51 +3326,97 @@ async function runScheduledMaraAutonomy() {
   if (maraAutonomyRunning) return;
   maraAutonomyRunning = true;
   try {
-    const workersToRun = db.prepare(
+    const workersToRun = await authStore.query(
       // Skip workers whose billing has lapsed: past_due / cancelled subscriptions
       // must not keep spending LLM budget. Empty billing_status ('') covers free
       // and admin hires and is intentionally allowed.
-      `SELECT DISTINCT hw.user_id AS userId, hw.worker_slug AS workerSlug
+      `SELECT DISTINCT hw.user_id AS "userId", hw.worker_slug AS "workerSlug"
        FROM hired_workers hw
        INNER JOIN office_onboarding_sessions os
          ON os.user_id = hw.user_id AND os.worker_slug = hw.worker_slug
        WHERE hw.status = 'active' AND hw.paused = 0 AND os.status = 'completed'
          AND hw.billing_status NOT IN ('past_due', 'cancelled')`
-    ).all();
+    );
 
+    const intervalMs = Math.max(60_000, maraAutonomyIntervalMinutes * 60 * 1000);
+    const bucket = Math.floor(Date.now() / intervalMs);
     for (const row of workersToRun) {
       if (!hasRoleConfig(row.workerSlug)) continue;
+      await enqueueJob(jobStore, {
+        kind: "worker_autonomy",
+        userId: row.userId,
+        workerId: row.workerSlug,
+        idempotencyKey: `worker_autonomy:${row.userId}:${row.workerSlug}:${bucket}`
+      });
+    }
+
+    await enqueueWeeklyDigests();
+
+    const jobs = await claimJobs(jobStore, { owner: jobLeaseOwner, limit: 20 });
+    for (const job of jobs) {
       try {
+        if (job.kind === "weekly_digest") {
+          const user = {
+            id: job.user_id,
+            email: job.payload?.email,
+            name: job.payload?.name
+          };
+          if (!user.email) {
+            const row = await authStore.queryOne("SELECT id, email, name FROM users WHERE id = ?", job.user_id);
+            if (!row) {
+              await completeJob(jobStore, job.id, jobLeaseOwner);
+              incrementMetric("jobs_completed", 1, { kind: job.kind });
+              continue;
+            }
+            user.email = row.email;
+            user.name = row.name;
+          }
+          await sendDigestForUser(user, job.payload?.threshold || new Date(Date.now() - DIGEST_INTERVAL_DAYS * 24 * 60 * 60 * 1000).toISOString());
+          await completeJob(jobStore, job.id, jobLeaseOwner);
+          incrementMetric("jobs_completed", 1, { kind: job.kind });
+          continue;
+        }
+
+        if (job.kind !== "worker_autonomy") {
+          await failJob(jobStore, job.id, jobLeaseOwner, `Unknown job kind: ${job.kind}`);
+          incrementMetric("jobs_failed", 1, { kind: job.kind });
+          continue;
+        }
+        const row = { userId: job.user_id, workerSlug: job.worker_id };
         if (row.workerSlug === MARA_SLUG) {
-          const gmail = getWorkerIntegration(row.userId, row.workerSlug, "gmail");
+          const gmail = await getWorkerIntegration(row.userId, row.workerSlug, "gmail");
           if (gmail?.status === "connected") {
             await syncGmailInbox(row.userId, row.workerSlug);
           }
           // Full mode: the scheduled loop is exactly where the heavy
           // autonomous work (research, inbox organization) should happen.
           const summary = await runMaraAutonomyCycle({
-            db,
+            store: maraStore,
             mode: "full",
             userId: row.userId,
             workerId: row.workerSlug,
             ...buildMaraExecutionReaders()
           });
-          syncMaraOperationalRecords(row.userId, row.workerSlug);
+          await syncMaraOperationalRecords(row.userId, row.workerSlug);
           const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
           if (outputIds.length > 0) {
             await syncMaraGmailDraftsForOutputs(row.userId, row.workerSlug, outputIds);
           }
         } else {
           await runAgentAutonomyCycle({
-            db,
+            store: agentStore,
             userId: row.userId,
             workerId: row.workerSlug,
             readers: buildMaraExecutionReaders()
           });
-          syncOfficeCanonicalRecords(row.userId, row.workerSlug);
+          await syncOfficeCanonicalRecords(row.userId, row.workerSlug);
         }
+        await completeJob(jobStore, job.id, jobLeaseOwner);
+        incrementMetric("jobs_completed", 1, { kind: job.kind });
       } catch (error) {
-        console.error(`Scheduled autonomy failed for ${row.userId}/${row.workerSlug}:`, error);
+        await failJob(jobStore, job.id, jobLeaseOwner, error instanceof Error ? error.message : String(error));
+        incrementMetric("jobs_failed", 1, { kind: job.kind });
+        logCaught(`Scheduled job failed (${job.kind} ${job.id})`, error);
       }
     }
   } finally {
@@ -3333,7 +3538,7 @@ async function extractWorkerMemorySections(userId, worker, text) {
 
     return normalized.length > 0 ? normalized : fallbackMemorySectionsFromText(cleaned);
   } catch (error) {
-    console.error("Worker memory extraction failed:", error);
+    logCaught("Worker memory extraction failed:", error);
     return fallbackMemorySectionsFromText(cleaned);
   }
 }
@@ -3343,7 +3548,7 @@ async function rememberWorkerDirection(userId, worker, text) {
   if (!cleaned) return;
 
   const memorySections = await extractWorkerMemorySections(userId, worker, cleaned);
-  upsertWorkerKnowledge(userId, worker.slug, (knowledge) => mergeKnowledgeSections(knowledge, memorySections));
+  await upsertWorkerKnowledge(userId, worker.slug, (knowledge) => mergeKnowledgeSections(knowledge, memorySections));
 }
 
 function formatKnowledgeForPrompt(knowledge) {
@@ -3362,9 +3567,9 @@ function formatKnowledgeForPrompt(knowledge) {
     .join("\n");
 }
 
-function buildMaraKnowledgeAdviceFallback(userId, worker, text) {
-  const modules = getMaraRelevantKnowledge({
-    db,
+async function buildMaraKnowledgeAdviceFallback(userId, worker, text) {
+  const modules = await getMaraRelevantKnowledge({
+    store: maraStore,
     userId,
     userMessage: text,
     workerId: worker.slug
@@ -3406,37 +3611,39 @@ async function generateOfficeWorkerReply(userId, worker, text) {
   }
 
   const model = process.env.ANTHROPIC_OFFICE_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
-  const onboarding = getUserOnboardingRecord(userId);
-  const knowledge = getWorkerKnowledgeSections(userId, worker.slug);
-  const recentThread = db
-    .prepare(
+  const [onboarding, knowledge, recentMessages, integrations] = await Promise.all([
+    getUserOnboardingRecordAsync(userId),
+    readWorkerKnowledgeSections(userId, worker.slug),
+    authStore.query(
       `SELECT author, text
        FROM office_chat_messages
        WHERE user_id = ? AND worker_slug = ?
        ORDER BY created_at DESC
-       LIMIT 8`
-    )
-    .all(userId, worker.slug)
-    .reverse();
-  const integrations = db
-    .prepare(
-      `SELECT provider, status, account_label AS accountLabel
+       LIMIT 8`,
+      userId,
+      worker.slug
+    ),
+    authStore.query(
+      `SELECT provider, status, account_label AS "accountLabel"
        FROM office_worker_integrations
        WHERE user_id = ? AND worker_slug = ?
-       ORDER BY updated_at DESC`
+       ORDER BY updated_at DESC`,
+      userId,
+      worker.slug
     )
-    .all(userId, worker.slug);
+  ]);
+  const recentThread = recentMessages.reverse();
   const workspace =
     worker.slug === MARA_SLUG
-      ? buildMaraWorkspace(db, userId, worker.slug, {
+      ? await buildMaraWorkspace(maraStore, userId, worker.slug, {
           readKnowledgeSections: readWorkerKnowledgeSections,
           readOfficeOverlays: readOfficeOverlaysForUser
         })
       : null;
   const relevantKnowledge =
     worker.slug === MARA_SLUG
-      ? getMaraRelevantKnowledge({
-          db,
+      ? await getMaraRelevantKnowledge({
+          store: maraStore,
           userId,
           userMessage: latestMessage,
           workerId: worker.slug
@@ -3487,11 +3694,11 @@ async function generateOfficeWorkerReply(userId, worker, text) {
   });
 }
 
-function cleanupExpiredRecords() {
+async function cleanupExpiredRecords() {
   const now = nowIso();
-  db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(now);
-  db.prepare("DELETE FROM email_verification_tokens WHERE expires_at < ? OR consumed_at IS NOT NULL").run(now);
-  db.prepare("DELETE FROM password_reset_tokens WHERE expires_at < ? OR consumed_at IS NOT NULL").run(now);
+  await authStore.execute("DELETE FROM sessions WHERE expires_at < ?", now);
+  await authStore.execute("DELETE FROM email_verification_tokens WHERE expires_at < ? OR consumed_at IS NOT NULL", now);
+  await authStore.execute("DELETE FROM password_reset_tokens WHERE expires_at < ? OR consumed_at IS NOT NULL", now);
 }
 
 function safeEqualStrings(left, right) {
@@ -3565,23 +3772,23 @@ function assertOrigin(req, res, next) {
   next();
 }
 
-function getUserBySessionToken(rawToken) {
+async function getUserBySessionToken(rawToken) {
   if (!rawToken) return null;
-  cleanupExpiredRecords();
+  await cleanupExpiredRecords();
   const tokenHash = createHash("sha256").update(rawToken).digest("hex");
 
-  return db
-    .prepare(
+  return authStore.queryOne(
       `SELECT users.*
        FROM sessions
        JOIN users ON users.id = sessions.user_id
-       WHERE sessions.token_hash = ? AND sessions.expires_at >= ?`
-    )
-    .get(tokenHash, nowIso());
+       WHERE sessions.token_hash = ? AND sessions.expires_at >= ?`,
+    tokenHash,
+    nowIso()
+  );
 }
 
 async function requireAuth(req, res, next) {
-  const user = getUserBySessionToken(req.cookies[sessionCookieName]);
+  const user = await getUserBySessionToken(req.cookies[sessionCookieName]);
   if (!user) {
     res.status(401).json({ error: "Authentication required." });
     return;
@@ -3594,11 +3801,11 @@ async function requireAuth(req, res, next) {
 async function issueEmailVerification(user) {
   const { hash, raw } = createOpaqueToken();
 
-  db.prepare("DELETE FROM email_verification_tokens WHERE user_id = ?").run(user.id);
-  db.prepare(
+  await authStore.execute("DELETE FROM email_verification_tokens WHERE user_id = ?", user.id);
+  await authStore.execute(
     `INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, consumed_at, created_at)
-     VALUES (?, ?, ?, ?, NULL, ?)`
-  ).run(randomUUID(), user.id, hash, new Date(Date.now() + emailTokenDurationMs).toISOString(), nowIso());
+     VALUES (?, ?, ?, ?, NULL, ?)`,
+    randomUUID(), user.id, hash, new Date(Date.now() + emailTokenDurationMs).toISOString(), nowIso());
 
   const verificationUrl = `${appUrl}/api/auth/verify-email?token=${raw}`;
   return sendTransactionalEmail({
@@ -3612,11 +3819,11 @@ async function issueEmailVerification(user) {
 async function issuePasswordReset(user) {
   const { hash, raw } = createOpaqueToken();
 
-  db.prepare("DELETE FROM password_reset_tokens WHERE user_id = ?").run(user.id);
-  db.prepare(
+  await authStore.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", user.id);
+  await authStore.execute(
     `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, consumed_at, created_at)
-     VALUES (?, ?, ?, ?, NULL, ?)`
-  ).run(randomUUID(), user.id, hash, new Date(Date.now() + resetTokenDurationMs).toISOString(), nowIso());
+     VALUES (?, ?, ?, ?, NULL, ?)`,
+    randomUUID(), user.id, hash, new Date(Date.now() + resetTokenDurationMs).toISOString(), nowIso());
 
   const resetUrl = `${appUrl}/?reset_token=${raw}#about`;
   return sendTransactionalEmail({
@@ -3627,12 +3834,12 @@ async function issuePasswordReset(user) {
   });
 }
 
-function createSession(userId) {
+async function createSession(userId) {
   const { hash, raw } = createOpaqueToken();
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO sessions (id, token_hash, user_id, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(randomUUID(), hash, userId, new Date(Date.now() + sessionDurationMs).toISOString(), nowIso());
+     VALUES (?, ?, ?, ?, ?)`,
+    randomUUID(), hash, userId, new Date(Date.now() + sessionDurationMs).toISOString(), nowIso());
   return raw;
 }
 
@@ -3827,7 +4034,7 @@ app.post("/api/workers/:slug/onboarding/reply", onboardingLimiter, assertOrigin,
     });
     res.json({ reply });
   } catch (error) {
-    console.error("Onboarding reply generation failed:", error);
+    logCaught("Onboarding reply generation failed:", error);
     res.json({
       reply: fallbackOnboardingReply(worker, questionLabel, answerText, String(req.body?.nextQuestionLabel ?? "").trim()),
       fallback: true
@@ -3843,7 +4050,7 @@ app.get("/api/office/workers", requireAuth, async (req, res) => {
 app.get("/api/office/workers/:slug/dashboard", requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -3853,21 +4060,21 @@ app.get("/api/office/workers/:slug/dashboard", requireAuth, async (req, res) => 
     return;
   }
 
-  ensureMaraKnowledge(req.user.id);
-  res.json(getMaraDashboard(req.user.id));
+  await ensureMaraKnowledge(req.user.id);
+  res.json(await getMaraDashboard(req.user.id));
 });
 
 app.get("/api/office/workers/:slug/workspace", requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
 
-  ensureWorkerPermissions(db, req.user.id, workerSlug);
+  await ensureWorkerPermissions(maraStore, req.user.id, workerSlug);
   res.json({
-    workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+    workspace: await buildMaraWorkspace(maraStore, req.user.id, workerSlug, {
       readKnowledgeSections: readWorkerKnowledgeSections,
       readOfficeOverlays: readOfficeOverlaysForUser
     })
@@ -3878,7 +4085,7 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
   const workerSlug = String(req.params.slug ?? "").trim();
   const taskId = String(req.params.taskId ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -3891,28 +4098,28 @@ app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAut
   try {
     let result;
     if (isMaraWorker(workerSlug)) {
-      result = await runWorkerTask(db, req.user.id, workerSlug, taskId, {
-        db,
+      result = await runWorkerTask(maraStore, req.user.id, workerSlug, taskId, {
+        store: maraStore,
         ...buildMaraExecutionReaders()
       });
-      syncMaraOperationalRecords(req.user.id, workerSlug);
+      await syncMaraOperationalRecords(req.user.id, workerSlug);
       if (result?.output?.id) {
         await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, [result.output.id]);
       }
     } else {
       result = await runAgentTask({
-        db,
+        store: agentStore,
         userId: req.user.id,
         workerId: workerSlug,
         taskId,
         readers: buildMaraExecutionReaders()
       });
-      syncOfficeCanonicalRecords(req.user.id, workerSlug);
+      await syncOfficeCanonicalRecords(req.user.id, workerSlug);
     }
     res.json({
       ok: true,
       ...result,
-      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+      workspace: await buildMaraWorkspace(maraStore, req.user.id, workerSlug, {
         readKnowledgeSections: readWorkerKnowledgeSections,
         readOfficeOverlays: readOfficeOverlaysForUser
       })
@@ -3927,13 +4134,13 @@ app.post("/api/workers/mara/tasks/:taskId/run", assertOrigin, requireAuth, async
 
   try {
     const result = await runMaraTask({
-      db,
+      store: maraStore,
       taskId,
       userId: req.user.id,
       workerId: MARA_SLUG,
       ...buildMaraExecutionReaders()
     });
-    syncMaraOperationalRecords(req.user.id, MARA_SLUG);
+    await syncMaraOperationalRecords(req.user.id, MARA_SLUG);
     if (result?.output?.id) {
       await syncMaraGmailDraftsForOutputs(req.user.id, MARA_SLUG, [result.output.id]);
     }
@@ -3947,13 +4154,13 @@ app.post("/api/office/workers/:slug/tasks/:taskId/dismiss", assertOrigin, requir
   const workerSlug = String(req.params.slug ?? "").trim();
   const taskId = String(req.params.taskId ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
 
   try {
-    const result = dismissWorkerTask(db, req.user.id, workerSlug, taskId);
+    const result = await dismissWorkerTask(maraStore, req.user.id, workerSlug, taskId);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not dismiss worker task." });
@@ -3966,7 +4173,7 @@ app.post("/api/office/workers/:slug/recommended-next/create", assertOrigin, requ
   const description = String(req.body?.description ?? "").trim();
   const priority = String(req.body?.priority ?? "high").trim().toLowerCase();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -3976,7 +4183,7 @@ app.post("/api/office/workers/:slug/recommended-next/create", assertOrigin, requ
     return;
   }
 
-  const result = createApprovedTaskIfPermissionAllows(db, {
+  const result = await createApprovedTaskIfPermissionAllows(maraStore, {
     description,
     priority: ["low", "medium", "high"].includes(priority) ? priority : "high",
     requiredPermissions: [],
@@ -3994,7 +4201,7 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
   const approvalId = String(req.params.approvalId ?? "").trim();
   const status = String(req.body?.status ?? "").trim().toLowerCase();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -4005,22 +4212,75 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
   }
 
   try {
-    const approvalRow = db
-      .prepare(
-        `SELECT action_type AS actionType, payload_json AS payloadJson, title
-         FROM worker_approval_requests
-         WHERE id = ? AND user_id = ? AND worker_id = ?`
-      )
-      .get(approvalId, req.user.id, workerSlug);
-
-    const result = await updateApprovalRequestStatus(
-      db,
-      req.user.id,
-      workerSlug,
-      approvalId,
-      status,
-      isMaraWorker(workerSlug) && status === "approved" ? buildMaraExecutionReaders() : null
+    const approvalRow = await authStore.queryOne(
+      `SELECT action_type AS "actionType", payload_json AS "payloadJson", title, status
+       FROM worker_approval_requests
+       WHERE id = ? AND user_id = ? AND worker_id = ?`,
+      approvalId, req.user.id, workerSlug
     );
+    if (!approvalRow) {
+      res.status(404).json({ error: "Approval request not found." });
+      return;
+    }
+    if (approvalRow.status !== "pending") {
+      res.status(409).json({ error: "This approval request has already been decided or requires reconciliation." });
+      return;
+    }
+
+    if (status === "approved" && approvalRow.actionType === "send_email") {
+      const permissions = await getWorkerPermissions(maraStore, req.user.id, workerSlug);
+      const gmail = await getWorkerIntegration(req.user.id, workerSlug, "gmail");
+      const policy = evaluateActionPolicy({
+        actionType: "send_email",
+        permissions,
+        integrationConnected: gmail?.status === "connected",
+        approvalId
+      });
+      await appendActionAuditEvent(auditStore, {
+        userId: req.user.id,
+        workerId: workerSlug,
+        actionType: "send_email",
+        decision: policy.allowed ? "allowed" : "denied",
+        policyVersion: policy.policyVersion,
+        reasons: policy.reasons,
+        evidence: [{ approvalId, title: approvalRow.title }],
+        approvalId,
+        idempotencyKey: `approval-policy:${approvalId}`
+      });
+      if (!policy.allowed) {
+        res.status(403).json({ error: policy.reasons.join(" ") });
+        return;
+      }
+    }
+
+    const claimed = await authStore.execute(
+      `UPDATE worker_approval_requests SET status = 'processing', updated_at = ?
+       WHERE id = ? AND user_id = ? AND worker_id = ? AND status = 'pending'`,
+      nowIso(), approvalId, req.user.id, workerSlug
+    );
+    if (claimed.changes !== 1) {
+      res.status(409).json({ error: "This approval request is already being processed." });
+      return;
+    }
+
+    let result;
+    try {
+      result = await updateApprovalRequestStatus(
+        maraStore,
+        req.user.id,
+        workerSlug,
+        approvalId,
+        status,
+        isMaraWorker(workerSlug) && status === "approved" ? buildMaraExecutionReaders() : null
+      );
+    } catch (error) {
+      await authStore.execute(
+        `UPDATE worker_approval_requests SET status = 'pending', updated_at = ?
+         WHERE id = ? AND user_id = ? AND worker_id = ? AND status = 'processing'`,
+        nowIso(), approvalId, req.user.id, workerSlug
+      );
+      throw error;
+    }
 
     // Approve-and-send: an approved send_email request actually sends the
     // Gmail drafts. If sending fails, the approval reopens for retry.
@@ -4030,9 +4290,33 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
       const draftsToSend = (Array.isArray(payload.drafts) ? payload.drafts : []).filter((draft) => draft?.gmailDraftId);
       try {
         for (const draft of draftsToSend) {
-          await sendGmailDraft(req.user.id, workerSlug, String(draft.gmailDraftId));
+          const gmailDraftId = String(draft.gmailDraftId);
+          const execution = await claimExternalAction(auditStore, {
+            userId: req.user.id,
+            workerId: workerSlug,
+            actionType: "send_email",
+            approvalId,
+            idempotencyKey: `gmail-draft:${req.user.id}:${gmailDraftId}`,
+            request: { gmailDraftId, subject: draft.subject, to: draft.to }
+          });
+          if (!execution.claimed) {
+            if (execution.status === "completed") continue;
+            throw new Error(`Email outcome requires reconciliation (${execution.status}).`);
+          }
+          let providerResult;
+          try {
+            providerResult = await sendGmailDraft(req.user.id, workerSlug, gmailDraftId);
+            await completeExternalAction(auditStore, execution.id, {
+              gmailDraftId,
+              messageId: providerResult?.id ?? providerResult?.message?.id ?? null,
+              threadId: providerResult?.threadId ?? providerResult?.message?.threadId ?? null
+            });
+          } catch (error) {
+            await markExternalActionUncertain(auditStore, execution.id, error instanceof Error ? error.message : String(error));
+            throw error;
+          }
           emailsSent += 1;
-          createWorkerActivityLog(db, {
+          await createWorkerActivityLog(maraStore, {
             description: `Sent “${draft.subject}” to ${draft.to} from your Gmail after your approval.`,
             eventType: "email_sent",
             metadata: { outputId: payload.outputId ?? null, subject: draft.subject, to: draft.to },
@@ -4042,32 +4326,38 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
           });
         }
         if (emailsSent > 0 && payload.outputId) {
-          const outputRow = db
-            .prepare("SELECT structured_content_json AS structuredContentJson FROM worker_outputs WHERE id = ? AND user_id = ? AND worker_id = ?")
-            .get(payload.outputId, req.user.id, workerSlug);
+          const outputRow = await authStore.queryOne(
+            `SELECT structured_content_json AS "structuredContentJson" FROM worker_outputs
+             WHERE id = ? AND user_id = ? AND worker_id = ?`,
+            payload.outputId, req.user.id, workerSlug
+          );
           if (outputRow) {
             const structured = parseJson(outputRow.structuredContentJson, {});
             structured.sentAt = nowIso();
             structured.sentCount = emailsSent;
-            db.prepare("UPDATE worker_outputs SET structured_content_json = ?, updated_at = ? WHERE id = ? AND user_id = ? AND worker_id = ?")
-              .run(JSON.stringify(structured), nowIso(), payload.outputId, req.user.id, workerSlug);
+            await authStore.execute(
+              "UPDATE worker_outputs SET structured_content_json = ?, updated_at = ? WHERE id = ? AND user_id = ? AND worker_id = ?",
+              JSON.stringify(structured), nowIso(), payload.outputId, req.user.id, workerSlug
+            );
           }
         }
       } catch (error) {
-        db.prepare(
-          `UPDATE worker_approval_requests SET status = 'pending', updated_at = ? WHERE id = ? AND user_id = ? AND worker_id = ?`
-        ).run(nowIso(), approvalId, req.user.id, workerSlug);
+        await authStore.execute(
+          `UPDATE worker_approval_requests SET status = 'needs_reconciliation', updated_at = ?
+           WHERE id = ? AND user_id = ? AND worker_id = ?`,
+          nowIso(), approvalId, req.user.id, workerSlug
+        );
         res.status(502).json({
-          error: `The email did not send (${error instanceof Error ? error.message.slice(0, 120) : "Gmail error"}). The approval is back in your queue — nothing went out twice.`
+          error: `Gmail did not confirm the final outcome (${error instanceof Error ? error.message.slice(0, 120) : "Gmail error"}). Ryva will not retry automatically; review the Gmail Sent folder before reconciling this action.`
         });
         return;
       }
     }
 
     if (isMaraWorker(workerSlug)) {
-      syncMaraOperationalRecords(req.user.id, workerSlug);
+      await syncMaraOperationalRecords(req.user.id, workerSlug);
     } else {
-      syncOfficeCanonicalRecords(req.user.id, workerSlug);
+      await syncOfficeCanonicalRecords(req.user.id, workerSlug);
     }
     const outputIds = Array.isArray(result.followThrough?.results)
       ? result.followThrough.results.map((entry) => entry.outputId).filter(Boolean)
@@ -4078,7 +4368,7 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
     res.json({
       ...result,
       emailsSent,
-      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+      workspace: await buildMaraWorkspace(maraStore, req.user.id, workerSlug, {
         readKnowledgeSections: readWorkerKnowledgeSections,
         readOfficeOverlays: readOfficeOverlaysForUser
       })
@@ -4092,7 +4382,7 @@ app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, a
   const workerSlug = String(req.params.slug ?? "").trim();
   const provider = String(req.body?.provider ?? "gmail").trim().toLowerCase();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -4124,12 +4414,12 @@ app.post("/api/office/workers/:slug/disconnect-email", assertOrigin, requireAuth
   const workerSlug = String(req.params.slug ?? "").trim();
   const provider = String(req.body?.provider ?? "gmail").trim().toLowerCase();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
 
-  const integration = getWorkerIntegration(req.user.id, workerSlug, provider);
+  const integration = await getWorkerIntegration(req.user.id, workerSlug, provider);
 
   // Best-effort revocation at Google so the token is dead even after we forget it.
   if (provider === "gmail" && integration?.metadata) {
@@ -4147,21 +4437,23 @@ app.post("/api/office/workers/:slug/disconnect-email", assertOrigin, requireAuth
     }
   }
 
-  db.prepare("DELETE FROM office_worker_integrations WHERE user_id = ? AND worker_slug = ? AND provider = ?")
-    .run(req.user.id, workerSlug, provider);
+  await authStore.execute(
+    "DELETE FROM office_worker_integrations WHERE user_id = ? AND worker_slug = ? AND provider = ?",
+    req.user.id, workerSlug, provider
+  );
 
   // Drop the permissions that depended on the inbox connection.
-  updateWorkerPermissions(db, req.user.id, workerSlug, {
+  await updateWorkerPermissions(maraStore, req.user.id, workerSlug, {
     canReadInbox: false,
     canDraftOutreach: false,
     canSendEmailsWithApproval: false,
     canUseConnectedIntegrations: false
   });
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Disconnected an inbox.", "Integrations", provider, nowIso());
+  , randomUUID(), req.user.id, workerSlug, "Disconnected an inbox.", "Integrations", provider, nowIso());
 
   res.json({ ok: true });
 });
@@ -4169,7 +4461,7 @@ app.post("/api/office/workers/:slug/disconnect-email", assertOrigin, requireAuth
 app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -4179,12 +4471,12 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
     return;
   }
 
-  if (isWorkerPaused(req.user.id, workerSlug)) {
+  if (await isWorkerPaused(req.user.id, workerSlug)) {
     res.status(409).json({ error: "This worker is paused. Resume them from their desk to run work." });
     return;
   }
 
-  if (isWorkerBillingLapsed(req.user.id, workerSlug)) {
+  if (await isWorkerBillingLapsed(req.user.id, workerSlug)) {
     res.status(402).json({ error: "This worker's billing is past due. Update payment to resume their work." });
     return;
   }
@@ -4195,32 +4487,32 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
       // Fast interactive pass now; heavy work (research, inbox) continues in
       // the background so the request stays responsive.
       summary = await runMaraAutonomyCycle({
-        db,
+        store: maraStore,
         mode: "interactive",
         userId: req.user.id,
         workerId: workerSlug,
         ...buildMaraExecutionReaders()
       });
-      syncMaraOperationalRecords(req.user.id, workerSlug);
+      await syncMaraOperationalRecords(req.user.id, workerSlug);
       void runMaraAutonomyCycle({
-        db,
+        store: maraStore,
         mode: "full",
         userId: req.user.id,
         workerId: workerSlug,
         ...buildMaraExecutionReaders()
       })
         .then(() => syncMaraOperationalRecords(req.user.id, workerSlug))
-        .catch((error) => console.error("Background full autonomy run failed:", error));
+        .catch((error) => logCaught("Background full autonomy run failed:", error));
     } else {
       summary = await runAgentAutonomyCycle({
-        db,
+        store: agentStore,
         userId: req.user.id,
         workerId: workerSlug,
         readers: buildMaraExecutionReaders()
       });
-      syncOfficeCanonicalRecords(req.user.id, workerSlug);
+      await syncOfficeCanonicalRecords(req.user.id, workerSlug);
     }
-    const workspace = buildMaraWorkspace(db, req.user.id, workerSlug, {
+    const workspace = await buildMaraWorkspace(maraStore, req.user.id, workerSlug, {
       readKnowledgeSections: readWorkerKnowledgeSections,
       readOfficeOverlays: readOfficeOverlaysForUser
     });
@@ -4232,7 +4524,7 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
     });
     if (isMaraWorker(workerSlug) && outputIds.length > 0) {
       void syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds).catch((error) => {
-        console.error("Mara Gmail draft sync failed after autonomy run:", error);
+        logCaught("Mara Gmail draft sync failed after autonomy run:", error);
       });
     }
   } catch (error) {
@@ -4240,30 +4532,34 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, as
   }
 });
 
-app.post("/api/office/workers/:slug/pause", assertOrigin, requireAuth, (req, res) => {
+app.post("/api/office/workers/:slug/pause", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
   const paused = Boolean(req.body?.paused);
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
 
-  db.prepare("UPDATE hired_workers SET paused = ? WHERE user_id = ? AND worker_slug = ? AND status = 'active'")
-    .run(paused ? 1 : 0, req.user.id, workerSlug);
-
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    req.user.id,
-    workerSlug,
-    paused ? "Paused autonomous work." : "Resumed autonomous work.",
-    "People",
-    paused ? "No background work or AI usage until resumed" : "Back on the clock",
-    nowIso()
-  );
+  await authStore.tx(async (transaction) => {
+    await transaction.execute(
+      "UPDATE hired_workers SET paused = ? WHERE user_id = ? AND worker_slug = ? AND status = 'active'",
+      paused ? 1 : 0,
+      req.user.id,
+      workerSlug
+    );
+    await transaction.execute(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(),
+      req.user.id,
+      workerSlug,
+      paused ? "Paused autonomous work." : "Resumed autonomous work.",
+      "People",
+      paused ? "No background work or AI usage until resumed" : "Back on the clock",
+      nowIso()
+    );
+  });
 
   res.json({ ok: true, paused });
 });
@@ -4288,7 +4584,7 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
   }
 
   try {
-    let parsed = await tryParseTrendPaste({ db, userId: req.user.id, text, niche: "" });
+    let parsed = await tryParseTrendPaste({ userId: req.user.id, text, niche: "" });
     let parsedBy = "llm";
     if (!parsed) {
       parsed = parseTrendPasteHeuristic(text);
@@ -4322,22 +4618,22 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
 
     // Invalidate every user's scoped snapshot so fresh data flows through
     // on their next cycle — silently, as if Mara found it herself.
-    const invalidated = db.prepare("DELETE FROM worker_trend_snapshots WHERE platform = 'tiktok'").run().changes;
+    const invalidated = (await authStore.execute("DELETE FROM worker_trend_snapshots WHERE platform = 'tiktok'")).changes;
 
     // Give the admin's own Mara an immediate refresh for verification.
     let outputTitle = null;
-    if (hasHiredWorker(req.user.id, workerSlug) && isMaraWorker(workerSlug)) {
-      syncUserTrendInsightsFromGlobal({
-        db,
+    if ((await hasHiredWorker(req.user.id, workerSlug)) && isMaraWorker(workerSlug)) {
+      await syncUserTrendInsightsFromGlobal({
+        store: trendStore,
         globalPath: privateInsightsPath,
-        readAccountContext: getUserOnboardingRecord,
+        readAccountContext: getUserOnboardingRecordAsync,
         readMaraOnboarding: readMaraOnboardingAnswers,
         readWorkerKnowledge: readWorkerKnowledgeSections,
         storageRoot: resolveStorageRoot(),
         userId: req.user.id,
         workerId: workerSlug
       });
-      const created = createApprovedTaskIfPermissionAllows(db, {
+      const created = await createApprovedTaskIfPermissionAllows(maraStore, {
         description: "Turn this week's trend data into a hashtag plan mapped to content gaps.",
         priority: "high",
         requiredPermissions: [],
@@ -4349,10 +4645,10 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
         workerId: workerSlug
       });
       if (created?.id) {
-        const result = await runMaraTask({ db, taskId: created.id, userId: req.user.id, workerId: workerSlug, ...buildMaraExecutionReaders() });
+        const result = await runMaraTask({ store: maraStore, taskId: created.id, userId: req.user.id, workerId: workerSlug, ...buildMaraExecutionReaders() });
         outputTitle = result?.output?.title ?? null;
       }
-      syncMaraOperationalRecords(req.user.id, workerSlug);
+      await syncMaraOperationalRecords(req.user.id, workerSlug);
     }
 
     res.json({
@@ -4364,7 +4660,7 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
       outputTitle
     });
   } catch (error) {
-    console.error("Trend intake failed:", error);
+    logCaught("Trend intake failed:", error);
     res.status(500).json({ error: "Trend intake failed. Try again." });
   }
 });
@@ -4372,7 +4668,7 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
 app.post("/api/office/workers/:slug/sync-trends", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -4384,19 +4680,19 @@ app.post("/api/office/workers/:slug/sync-trends", assertOrigin, requireAuth, asy
 
 
   try {
-    const syncResult = syncUserTrendInsightsFromGlobal({
-      db,
+    const syncResult = await syncUserTrendInsightsFromGlobal({
+      store: trendStore,
       globalPath: privateInsightsPath,
-      readAccountContext: getUserOnboardingRecord,
+      readAccountContext: getUserOnboardingRecordAsync,
       readMaraOnboarding: readMaraOnboardingAnswers,
       readWorkerKnowledge: readWorkerKnowledgeSections,
       storageRoot: resolveStorageRoot(),
       userId: req.user.id,
       workerId: workerSlug
     });
-    syncMaraOperationalRecords(req.user.id, workerSlug);
+    await syncMaraOperationalRecords(req.user.id, workerSlug);
     res.json({
-      dashboard: getMaraDashboard(req.user.id),
+      dashboard: await getMaraDashboard(req.user.id),
       insights: syncResult.insights ?? null,
       niche: syncResult.niche ?? null,
       ok: true,
@@ -4410,7 +4706,7 @@ app.post("/api/office/workers/:slug/sync-trends", assertOrigin, requireAuth, asy
 app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -4420,13 +4716,12 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
     return;
   }
 
-  const hasConnectedEmail = db
-    .prepare(
-      `SELECT id
-       FROM office_worker_integrations
-       WHERE user_id = ? AND worker_slug = ? AND provider IN ('gmail', 'outlook') AND status = ?`
-    )
-    .get(req.user.id, workerSlug, "connected");
+  const hasConnectedEmail = await authStore.queryOne(
+    `SELECT id
+     FROM office_worker_integrations
+     WHERE user_id = ? AND worker_slug = ? AND provider IN ('gmail', 'outlook') AND status = ?`,
+    req.user.id, workerSlug, "connected"
+  );
 
   if (!hasConnectedEmail) {
     res.status(400).json({
@@ -4438,26 +4733,26 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
   try {
     const syncResult = await syncGmailInbox(req.user.id, workerSlug);
     const summary = await runMaraAutonomyCycle({
-      db,
+      store: maraStore,
       userId: req.user.id,
       workerId: workerSlug,
       ...buildMaraExecutionReaders()
     });
-    syncMaraOperationalRecords(req.user.id, workerSlug);
+    await syncMaraOperationalRecords(req.user.id, workerSlug);
     const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
     if (outputIds.length > 0) {
       await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, outputIds);
     }
-    insertMaraSyncJob(req.user.id, "gmail", "generate_daily_mara_brief", `Mara synced ${syncResult.syncedCount} Gmail message${syncResult.syncedCount === 1 ? "" : "s"} and refreshed her working brief.`);
+    await insertMaraSyncJob(req.user.id, "gmail", "generate_daily_mara_brief", `Mara synced ${syncResult.syncedCount} Gmail message${syncResult.syncedCount === 1 ? "" : "s"} and refreshed her working brief.`);
   } catch (error) {
     res.status(502).json({ error: error instanceof Error ? error.message : "Could not sync Gmail right now." });
     return;
   }
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+  ,
     randomUUID(),
     req.user.id,
     MARA_SLUG,
@@ -4467,7 +4762,7 @@ app.post("/api/office/workers/:slug/run-scan", assertOrigin, requireAuth, async 
     nowIso()
   );
 
-  res.json({ ok: true, dashboard: getMaraDashboard(req.user.id) });
+  res.json({ ok: true, dashboard: await getMaraDashboard(req.user.id) });
 });
 
 app.post("/api/office/workers/:slug/suggested-actions/:actionId", assertOrigin, requireAuth, async (req, res) => {
@@ -4476,7 +4771,7 @@ app.post("/api/office/workers/:slug/suggested-actions/:actionId", assertOrigin, 
   const decision = String(req.body?.decision ?? "").trim().toLowerCase();
   const note = String(req.body?.note ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -4486,13 +4781,12 @@ app.post("/api/office/workers/:slug/suggested-actions/:actionId", assertOrigin, 
     return;
   }
 
-  const action = db
-    .prepare(
-      `SELECT *
-       FROM office_suggested_actions
-       WHERE id = ? AND user_id = ? AND worker_slug = ?`
-    )
-    .get(actionId, req.user.id, workerSlug);
+  const action = await authStore.queryOne(
+    `SELECT *
+     FROM office_suggested_actions
+     WHERE id = ? AND user_id = ? AND worker_slug = ?`,
+    actionId, req.user.id, workerSlug
+  );
 
   if (!action) {
     res.status(404).json({ error: "Suggested action not found." });
@@ -4503,85 +4797,69 @@ app.post("/api/office/workers/:slug/suggested-actions/:actionId", assertOrigin, 
     res.status(400).json({ error: "Unsupported decision." });
     return;
   }
+  if (!["suggested", "edited"].includes(String(action.status))) {
+    res.status(409).json({ error: "This suggested action has already been decided." });
+    return;
+  }
 
   const payload = parseJson(action.payload_json, {});
   const nextStatus = decision === "approve" ? "approved" : decision === "reject" ? "rejected" : "edited";
-  db.prepare(
-    `UPDATE office_suggested_actions
-     SET status = ?, updated_at = ?
-     WHERE id = ? AND user_id = ?`
-  ).run(nextStatus, nowIso(), actionId, req.user.id);
-
-  if (decision === "approve") {
-    if (action.action_type === "create_calendar_event" && payload?.event?.title) {
+  await authStore.tx(async (transaction) => {
+    const claimed = await transaction.execute(
+      `UPDATE office_suggested_actions SET status = ?, updated_at = ?
+       WHERE id = ? AND user_id = ? AND status IN ('suggested', 'edited')`,
+      nextStatus, nowIso(), actionId, req.user.id
+    );
+    if (claimed.changes !== 1) {
+      const error = new Error("This suggested action has already been decided.");
+      error.statusCode = 409;
+      throw error;
+    }
+    if (decision === "approve" && action.action_type === "create_calendar_event" && payload?.event?.title) {
       const startsAt = new Date(Date.now() + 1000 * 60 * 60 * 22).toISOString();
       const endsAt = new Date(Date.now() + 1000 * 60 * 60 * 23).toISOString();
-      db.prepare(
+      await transaction.execute(
         `INSERT INTO office_calendar_events
           (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        randomUUID(),
-        req.user.id,
-        workerSlug,
-        payload.event.title,
-        startsAt,
-        endsAt,
-        String(payload.event.eventType ?? "Focus"),
-        "Approved from Mara's suggested actions.",
-        nowIso(),
-        nowIso()
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, payload.event.title, startsAt, endsAt,
+        String(payload.event.eventType ?? "Focus"), "Approved from Mara's suggested actions.", nowIso(), nowIso()
       );
     }
-
-    if (action.action_type === "draft_email") {
-      db.prepare(
-        `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(
-        randomUUID(),
-        req.user.id,
-        workerSlug,
-        "Worker",
-        `Draft approved: ${String(payload?.draftText ?? action.title)}`,
-        nowIso()
+    if (decision === "approve" && action.action_type === "draft_email") {
+      await transaction.execute(
+        `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, "Worker", `Draft approved: ${String(payload?.draftText ?? action.title)}`, nowIso()
       );
     }
-  }
-
-  if ((decision === "revise" || decision === "edit") && note) {
-    db.prepare(
-      `UPDATE office_suggested_actions
-       SET description = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`
-    ).run(
-      `${action.description} ${decision === "edit" ? "Edit requested" : "Revision requested"}: ${note}`,
-      nowIso(),
-      actionId,
-      req.user.id
+    if ((decision === "revise" || decision === "edit") && note) {
+      await transaction.execute(
+        `UPDATE office_suggested_actions SET description = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+        `${action.description} ${decision === "edit" ? "Edit requested" : "Revision requested"}: ${note}`,
+        nowIso(), actionId, req.user.id
+      );
+    }
+    await transaction.execute(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), req.user.id, workerSlug,
+      decision === "approve" ? "Approved suggested action." : decision === "reject" ? "Rejected suggested action." : decision === "edit" ? "Requested edit." : "Requested revision.",
+      "Mara", action.title, nowIso()
     );
-  }
+    await appendActionAuditEvent(transaction, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      actionType: String(action.action_type || "suggested_action"),
+      decision: decision === "approve" ? "allowed" : decision === "reject" ? "denied" : "revision_requested",
+      policyVersion: "manager-decision/2026-07-12.1",
+      reasons: [`Manager selected ${decision}.`],
+      evidence: [{ actionId, title: action.title }],
+      approvalId: decision === "approve" ? actionId : null,
+      idempotencyKey: `suggested-action:${actionId}:${decision}`
+    });
+  });
 
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    req.user.id,
-    workerSlug,
-    decision === "approve"
-      ? "Approved suggested action."
-      : decision === "reject"
-        ? "Rejected suggested action."
-        : decision === "edit"
-          ? "Requested edit."
-          : "Requested revision.",
-    "Mara",
-    action.title,
-    nowIso()
-  );
-
-  res.json({ ok: true, dashboard: getMaraDashboard(req.user.id) });
+  res.json({ ok: true, dashboard: await getMaraDashboard(req.user.id) });
 });
 
 app.post("/api/office/workers/:slug/opportunities/:opportunityId", assertOrigin, requireAuth, async (req, res) => {
@@ -4589,7 +4867,7 @@ app.post("/api/office/workers/:slug/opportunities/:opportunityId", assertOrigin,
   const opportunityId = String(req.params.opportunityId ?? "").trim();
   const status = String(req.body?.status ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -4604,56 +4882,53 @@ app.post("/api/office/workers/:slug/opportunities/:opportunityId", assertOrigin,
     return;
   }
 
-  const opportunity = db
-    .prepare(
-      `SELECT brand_name AS brandName
+  const opportunity = await authStore.queryOne(
+      `SELECT brand_name AS "brandName"
        FROM office_brand_opportunities
-       WHERE id = ? AND user_id = ? AND worker_slug = ?`
-    )
-    .get(opportunityId, req.user.id, workerSlug);
+       WHERE id = ? AND user_id = ? AND worker_slug = ?`,
+    opportunityId, req.user.id, workerSlug);
 
   if (!opportunity) {
     res.status(404).json({ error: "Opportunity not found." });
     return;
   }
 
-  db.prepare(
+  await authStore.execute(
     `UPDATE office_brand_opportunities
      SET status = ?, updated_at = ?
      WHERE id = ? AND user_id = ?`
-  ).run(status, nowIso(), opportunityId, req.user.id);
+  , status, nowIso(), opportunityId, req.user.id);
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Updated brand opportunity.", "Mara", `${opportunity.brandName} → ${status}`, nowIso());
+  , randomUUID(), req.user.id, workerSlug, "Updated brand opportunity.", "Mara", `${opportunity.brandName} → ${status}`, nowIso());
 
-  res.json({ ok: true, dashboard: getMaraDashboard(req.user.id) });
+  res.json({ ok: true, dashboard: await getMaraDashboard(req.user.id) });
 });
 
-app.get("/api/office/overlays", requireAuth, (req, res) => {
+app.get("/api/office/overlays", requireAuth, async (req, res) => {
   try {
     ensureOfficeSchema();
-    const workerRows = db
-      .prepare(
-        `SELECT worker_slug AS workerSlug
-         FROM hired_workers
-         WHERE user_id = ? AND status = 'active'`
-      )
-      .all(req.user.id);
+    const workerRows = await authStore.query(
+      `SELECT worker_slug AS "workerSlug"
+       FROM hired_workers
+       WHERE user_id = ? AND status = 'active'`,
+      req.user.id
+    );
 
     for (const row of workerRows) {
-      syncOfficeCanonicalRecords(req.user.id, row.workerSlug);
+      await syncOfficeCanonicalRecords(req.user.id, row.workerSlug);
     }
 
-    res.json(readOfficeOverlaysForUser(req.user.id));
+    res.json(await readOfficeOverlaysForUser(req.user.id));
   } catch (error) {
-    console.error("Office overlays load failed:", error);
+    logCaught("Office overlays load failed:", error);
     res.status(500).json({ error: "The office could not finish loading right now." });
   }
 });
 
-app.post("/api/office/calendar/events", assertOrigin, requireAuth, (req, res) => {
+app.post("/api/office/calendar/events", assertOrigin, requireAuth, async (req, res) => {
   const title = String(req.body?.title ?? "").trim();
   const startsAt = String(req.body?.startsAt ?? "").trim();
   const endsAt = String(req.body?.endsAt ?? "").trim();
@@ -4667,20 +4942,18 @@ app.post("/api/office/calendar/events", assertOrigin, requireAuth, (req, res) =>
   }
 
   const id = randomUUID();
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_calendar_events
       (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, req.user.id, workerSlug, title, startsAt, endsAt, eventType, notes, nowIso(), nowIso());
+  , id, req.user.id, workerSlug, title, startsAt, endsAt, eventType, notes, nowIso(), nowIso());
 
   res.status(201).json({ ok: true, id });
 });
 
-app.post("/api/office/calendar/events/:eventId", assertOrigin, requireAuth, (req, res) => {
+app.post("/api/office/calendar/events/:eventId", assertOrigin, requireAuth, async (req, res) => {
   const eventId = String(req.params.eventId ?? "").trim();
-  const existing = db
-    .prepare(`SELECT id FROM office_calendar_events WHERE id = ? AND user_id = ?`)
-    .get(eventId, req.user.id);
+  const existing = await authStore.queryOne(`SELECT id FROM office_calendar_events WHERE id = ? AND user_id = ?`, eventId, req.user.id);
 
   if (!existing) {
     res.status(404).json({ error: "Calendar event not found." });
@@ -4699,40 +4972,36 @@ app.post("/api/office/calendar/events/:eventId", assertOrigin, requireAuth, (req
     return;
   }
 
-  db.prepare(
+  await authStore.execute(
     `UPDATE office_calendar_events
      SET worker_slug = ?, title = ?, starts_at = ?, ends_at = ?, event_type = ?, notes = ?, updated_at = ?
      WHERE id = ? AND user_id = ?`
-  ).run(workerSlug, title, startsAt, endsAt, eventType, notes, nowIso(), eventId, req.user.id);
+  , workerSlug, title, startsAt, endsAt, eventType, notes, nowIso(), eventId, req.user.id);
 
   res.json({ ok: true });
 });
 
-app.post("/api/office/calendar/events/:eventId/delete", assertOrigin, requireAuth, (req, res) => {
+app.post("/api/office/calendar/events/:eventId/delete", assertOrigin, requireAuth, async (req, res) => {
   const eventId = String(req.params.eventId ?? "").trim();
-  const existing = db
-    .prepare(`SELECT id FROM office_calendar_events WHERE id = ? AND user_id = ?`)
-    .get(eventId, req.user.id);
+  const existing = await authStore.queryOne(`SELECT id FROM office_calendar_events WHERE id = ? AND user_id = ?`, eventId, req.user.id);
 
   if (!existing) {
     res.status(404).json({ error: "Calendar event not found." });
     return;
   }
 
-  db.prepare(`DELETE FROM office_calendar_events WHERE id = ? AND user_id = ?`).run(eventId, req.user.id);
+  await authStore.execute(`DELETE FROM office_calendar_events WHERE id = ? AND user_id = ?`, eventId, req.user.id);
   res.json({ ok: true });
 });
 
-app.get("/api/office/deliverables/:deliverableId", requireAuth, (req, res) => {
+app.get("/api/office/deliverables/:deliverableId", requireAuth, async (req, res) => {
   const deliverableId = String(req.params.deliverableId ?? "").trim();
-  const deliverable = db
-    .prepare(
-      `SELECT id, worker_slug AS workerSlug, source_type AS sourceType, source_id AS sourceId, title, summary,
-              deliverable_type AS deliverableType, preview_text AS previewText, content_ref_id AS contentRefId
+  const deliverable = await authStore.queryOne(
+      `SELECT id, worker_slug AS "workerSlug", source_type AS "sourceType", source_id AS "sourceId", title, summary,
+              deliverable_type AS "deliverableType", preview_text AS "previewText", content_ref_id AS "contentRefId"
        FROM office_deliverables
-       WHERE id = ? AND user_id = ?`
-    )
-    .get(deliverableId, req.user.id);
+       WHERE id = ? AND user_id = ?`,
+    deliverableId, req.user.id);
 
   if (!deliverable) {
     res.status(404).json({ error: "Deliverable not found." });
@@ -4744,25 +5013,23 @@ app.get("/api/office/deliverables/:deliverableId", requireAuth, (req, res) => {
   if (deliverable.sourceType === "worker_output" || deliverable.contentRefId || deliverable.sourceId) {
     // Resolve the full output through a fallback chain so the reader never
     // silently degrades to a truncated summary: ref id → source id → title.
-    const outputQuery = `SELECT output_type AS outputType, title, content, structured_content_json AS structuredContentJson
+    const outputQuery = `SELECT output_type AS "outputType", title, content, structured_content_json AS "structuredContentJson"
        FROM worker_outputs
        WHERE id = ? AND user_id = ? AND worker_id = ?`;
     let output = deliverable.contentRefId
-      ? db.prepare(outputQuery).get(deliverable.contentRefId, req.user.id, deliverable.workerSlug)
+      ? await authStore.queryOne(outputQuery, deliverable.contentRefId, req.user.id, deliverable.workerSlug)
       : null;
     if (!output && deliverable.sourceId && deliverable.sourceId !== deliverable.contentRefId) {
-      output = db.prepare(outputQuery).get(deliverable.sourceId, req.user.id, deliverable.workerSlug);
+      output = await authStore.queryOne(outputQuery, deliverable.sourceId, req.user.id, deliverable.workerSlug);
     }
     if (!output) {
-      output = db
-        .prepare(
-          `SELECT output_type AS outputType, title, content, structured_content_json AS structuredContentJson
+      output = await authStore.queryOne(
+          `SELECT output_type AS "outputType", title, content, structured_content_json AS "structuredContentJson"
            FROM worker_outputs
            WHERE user_id = ? AND worker_id = ? AND title = ?
            ORDER BY created_at DESC
-           LIMIT 1`
-        )
-        .get(req.user.id, deliverable.workerSlug, deliverable.title);
+           LIMIT 1`,
+        req.user.id, deliverable.workerSlug, deliverable.title);
     }
 
     if (output) {
@@ -4809,24 +5076,24 @@ app.get("/api/office/deliverables/:deliverableId", requireAuth, (req, res) => {
 });
 
 app.get("/api/office/files/:fileId/download", requireAuth, async (req, res) => {
-  const file = db
-    .prepare(
+  const file = await authStore.queryOne(
       `SELECT id, user_id, name, type, stored_name
        FROM office_uploaded_files
-       WHERE id = ? AND user_id = ?`
-    )
-    .get(req.params.fileId, req.user.id);
+       WHERE id = ? AND user_id = ?`,
+    req.params.fileId,
+    req.user.id
+  );
 
   if (!file) {
     res.status(404).json({ error: "File not found." });
     return;
   }
 
-  const fullPath = path.join(uploadsDir, req.user.id, file.stored_name);
-
   try {
-    await fs.access(fullPath);
-    res.download(fullPath, file.name);
+    const body = await objectStorage.get({ userId: req.user.id, storedName: file.stored_name });
+    res.setHeader("Content-Type", file.type || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`);
+    res.send(body);
   } catch {
     res.status(404).json({ error: "Stored file is missing." });
   }
@@ -4873,7 +5140,7 @@ app.get("/api/auth/google/callback", async (req, res) => {
       return;
     }
 
-    let user = db.prepare("SELECT * FROM users WHERE email = ?").get(normalizedEmail);
+    let user = await authStore.queryOne("SELECT * FROM users WHERE email = ?", normalizedEmail);
     if (!user) {
       const createdAt = nowIso();
       const newUser = {
@@ -4885,10 +5152,10 @@ app.get("/api/auth/google/callback", async (req, res) => {
         password_hash: hashPassword(randomUUID())
       };
 
-      db.prepare(
+      await authStore.execute(
         `INSERT INTO users (id, email, name, password_hash, email_verified_at, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(
+      ,
         newUser.id,
         newUser.email,
         newUser.name,
@@ -4900,8 +5167,8 @@ app.get("/api/auth/google/callback", async (req, res) => {
       user = newUser;
     }
 
-    db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
-    const sessionToken = createSession(user.id);
+    await authStore.execute("DELETE FROM sessions WHERE user_id = ?", user.id);
+    const sessionToken = await createSession(user.id);
     setSessionCookie(res, sessionToken);
     res.redirect(`${appUrl}/#app/office`);
   } catch {
@@ -4909,10 +5176,10 @@ app.get("/api/auth/google/callback", async (req, res) => {
   }
 });
 
-app.get("/api/office/workers/:slug/connect-email/google", requireAuth, (req, res) => {
+app.get("/api/office/workers/:slug/connect-email/google", requireAuth, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -4970,7 +5237,7 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
     return;
   }
 
-  if (!hasHiredWorker(statePayload.userId, workerSlug)) {
+  if (!(await hasHiredWorker(statePayload.userId, workerSlug))) {
     res.redirect(`${appUrl}/?notice=gmail-connect-failed#app/office`);
     return;
   }
@@ -4991,8 +5258,8 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
       expiresAt: new Date(Date.now() + Number(tokens.expires_in ?? 3600) * 1000).toISOString(),
       refreshToken: String(tokens.refresh_token ?? "").trim()
     };
-    upsertWorkerIntegration(statePayload.userId, workerSlug, "gmail", "connected", "Gmail inbox", nextMetadata);
-    updateWorkerPermissions(db, statePayload.userId, workerSlug, {
+    await upsertWorkerIntegration(statePayload.userId, workerSlug, "gmail", "connected", "Gmail inbox", nextMetadata);
+    await updateWorkerPermissions(maraStore, statePayload.userId, workerSlug, {
       canDraftOutreach: true,
       canReadInbox: true,
       canSendEmailsWithApproval: true,
@@ -5001,12 +5268,12 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
     await syncGmailInbox(statePayload.userId, workerSlug);
     {
       const summary = await runMaraAutonomyCycle({
-        db,
+        store: maraStore,
         userId: statePayload.userId,
         workerId: workerSlug,
         ...buildMaraExecutionReaders()
       });
-      syncMaraOperationalRecords(statePayload.userId, workerSlug);
+      await syncMaraOperationalRecords(statePayload.userId, workerSlug);
       const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
       if (outputIds.length > 0) {
         await syncMaraGmailDraftsForOutputs(statePayload.userId, workerSlug, outputIds);
@@ -5014,7 +5281,7 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
     }
     res.redirect(`${appUrl}/?notice=gmail-connected#app/office/desk/${workerSlug}`);
   } catch (error) {
-    console.error("Gmail connect failed:", error);
+    logCaught("Gmail connect failed:", error);
     res.redirect(`${appUrl}/?notice=gmail-connect-failed#app/office`);
   }
 });
@@ -5039,7 +5306,7 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
   }
 
   const normalizedEmail = normalizeEmail(email);
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(normalizedEmail);
+  const existing = await authStore.queryOne("SELECT id FROM users WHERE email = ?", normalizedEmail);
   if (existing) {
     res.status(409).json({ error: "An account with that email already exists." });
     return;
@@ -5053,20 +5320,20 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
     password_hash: hashPassword(String(password))
   };
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO users (id, email, name, password_hash, email_verified_at, created_at)
      VALUES (?, ?, ?, ?, NULL, ?)`
-  ).run(user.id, user.email, user.name, user.password_hash, user.created_at);
+  , user.id, user.email, user.name, user.password_hash, user.created_at);
 
-  const sessionToken = createSession(user.id);
+  const sessionToken = await createSession(user.id);
   setSessionCookie(res, sessionToken);
   res.status(201).json({
     emailVerificationQueued: true,
-    user: toSafeUser(user)
+    user: await toSafeUser(user)
   });
 
   void issueEmailVerification(user).catch((error) => {
-    console.error("Email verification delivery failed on register:", error);
+    logCaught("Email verification delivery failed on register:", error);
   });
 });
 
@@ -5077,36 +5344,36 @@ app.post("/api/auth/login", authLimiter, assertOrigin, async (req, res) => {
     return;
   }
 
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(normalizeEmail(email));
+  const user = await authStore.queryOne("SELECT * FROM users WHERE email = ?", normalizeEmail(email));
   if (!user || !verifyPassword(String(password), user.password_hash)) {
     res.status(401).json({ error: "Invalid email or password." });
     return;
   }
 
-  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
-  const sessionToken = createSession(user.id);
+  await authStore.execute("DELETE FROM sessions WHERE user_id = ?", user.id);
+  const sessionToken = await createSession(user.id);
   setSessionCookie(res, sessionToken);
-  res.json({ user: toSafeUser(user) });
+  res.json({ user: await toSafeUser(user) });
 });
 
-app.post("/api/auth/logout", assertOrigin, (req, res) => {
+app.post("/api/auth/logout", assertOrigin, async (req, res) => {
   const rawToken = req.cookies[sessionCookieName];
   if (rawToken) {
     const tokenHash = createHash("sha256").update(rawToken).digest("hex");
-    db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+    await authStore.execute("DELETE FROM sessions WHERE token_hash = ?", tokenHash);
   }
 
   clearSessionCookie(res);
   res.status(204).end();
 });
 
-app.get("/api/auth/me", (req, res) => {
-  const user = getUserBySessionToken(req.cookies[sessionCookieName]);
-  res.json({ user: user ? toSafeUser(user) : null });
+app.get("/api/auth/me", async (req, res) => {
+  const user = await getUserBySessionToken(req.cookies[sessionCookieName]);
+  res.json({ user: user ? await toSafeUser(user) : null });
 });
 
-app.get("/api/onboarding", requireAuth, (req, res) => {
-  const onboarding = getUserOnboardingRecord(req.user.id);
+app.get("/api/onboarding", requireAuth, async (req, res) => {
+  const onboarding = await getUserOnboardingRecordAsync(req.user.id);
   res.json({
     onboarding,
     user: {
@@ -5116,7 +5383,7 @@ app.get("/api/onboarding", requireAuth, (req, res) => {
   });
 });
 
-app.post("/api/onboarding/complete", assertOrigin, requireAuth, (req, res) => {
+app.post("/api/onboarding/complete", assertOrigin, requireAuth, async (req, res) => {
   const name = String(req.body?.name ?? "").trim();
   const brandName = String(req.body?.brandName ?? "").trim();
   const whatYouDo = String(req.body?.whatYouDo ?? "").trim();
@@ -5136,23 +5403,24 @@ app.post("/api/onboarding/complete", assertOrigin, requireAuth, (req, res) => {
     return;
   }
 
-  db.prepare("UPDATE users SET name = ? WHERE id = ?").run(name, req.user.id);
-  db.prepare(
-    `INSERT INTO user_onboarding (user_id, brand_name, what_you_do, completed_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET
-       brand_name = excluded.brand_name,
-       what_you_do = excluded.what_you_do,
-       completed_at = excluded.completed_at`
-  ).run(req.user.id, brandName, whatYouDo, nowIso());
+  await authStore.tx(async (transaction) => {
+    await transaction.execute("UPDATE users SET name = ? WHERE id = ?", name, req.user.id);
+    await transaction.execute(
+      `INSERT INTO user_onboarding (user_id, brand_name, what_you_do, completed_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET brand_name = excluded.brand_name,
+         what_you_do = excluded.what_you_do, completed_at = excluded.completed_at`,
+      req.user.id, brandName, whatYouDo, nowIso()
+    );
+  });
 
-  const refreshedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
-  const onboarding = getUserOnboardingRecord(req.user.id);
-  seedOfficeSettingsFromOnboarding(refreshedUser, onboarding);
+  const refreshedUser = await authStore.queryOne("SELECT * FROM users WHERE id = ?", req.user.id);
+  const onboarding = await getUserOnboardingRecordAsync(req.user.id);
+  await seedOfficeSettingsFromOnboarding(refreshedUser, onboarding);
 
   res.json({
     ok: true,
-    user: toSafeUser(refreshedUser)
+    user: await toSafeUser(refreshedUser)
   });
 });
 
@@ -5165,7 +5433,7 @@ app.post("/api/auth/resend-verification", authLimiter, assertOrigin, requireAuth
     const mailResult = await issueEmailVerification(req.user);
     res.json({ ok: true, preview: mailResult.preview, alreadyVerified: false, sent: Boolean(mailResult.sent) });
   } catch (error) {
-    console.error("Email verification resend failed:", error);
+    logCaught("Email verification resend failed:", error);
     res.status(502).json({ error: "We couldn't send the verification email right now. Please try again shortly." });
   }
 });
@@ -5173,20 +5441,23 @@ app.post("/api/auth/resend-verification", authLimiter, assertOrigin, requireAuth
 app.get("/api/auth/verify-email", async (req, res) => {
   const token = String(req.query.token ?? "");
   const tokenHash = createHash("sha256").update(token).digest("hex");
-  const record = db
-    .prepare(
+  const record = await authStore.queryOne(
       `SELECT * FROM email_verification_tokens
-       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at >= ?`
-    )
-    .get(tokenHash, nowIso());
+       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at >= ?`,
+    tokenHash,
+    nowIso()
+  );
 
   if (!record) {
     res.redirect(`${appUrl}/?notice=verification-invalid#about`);
     return;
   }
 
-  db.prepare("UPDATE email_verification_tokens SET consumed_at = ? WHERE id = ?").run(nowIso(), record.id);
-  db.prepare("UPDATE users SET email_verified_at = ? WHERE id = ?").run(nowIso(), record.user_id);
+  await authStore.tx(async (transaction) => {
+    const verifiedAt = nowIso();
+    await transaction.execute("UPDATE email_verification_tokens SET consumed_at = ? WHERE id = ?", verifiedAt, record.id);
+    await transaction.execute("UPDATE users SET email_verified_at = ? WHERE id = ?", verifiedAt, record.user_id);
+  });
   res.redirect(`${appUrl}/?notice=email-verified#workers`);
 });
 
@@ -5197,14 +5468,14 @@ app.post("/api/auth/request-password-reset", authLimiter, assertOrigin, async (r
     return;
   }
 
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get(normalizeEmail(email));
+  const user = await authStore.queryOne("SELECT * FROM users WHERE email = ?", normalizeEmail(email));
   if (user) {
     try {
       const mailResult = await issuePasswordReset(user);
       res.json({ ok: true, preview: mailResult.preview, sent: Boolean(mailResult.sent) });
       return;
     } catch (error) {
-      console.error("Password reset delivery failed:", error);
+      logCaught("Password reset delivery failed:", error);
       res.status(502).json({ error: "We couldn't send the reset email right now. Please try again shortly." });
       return;
     }
@@ -5226,21 +5497,23 @@ app.post("/api/auth/reset-password", authLimiter, assertOrigin, async (req, res)
   }
 
   const tokenHash = createHash("sha256").update(String(token)).digest("hex");
-  const record = db
-    .prepare(
+  const record = await authStore.queryOne(
       `SELECT * FROM password_reset_tokens
-       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at >= ?`
-    )
-    .get(tokenHash, nowIso());
+       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at >= ?`,
+    tokenHash,
+    nowIso()
+  );
 
   if (!record) {
     res.status(400).json({ error: "Password reset token is invalid or expired." });
     return;
   }
 
-  db.prepare("UPDATE password_reset_tokens SET consumed_at = ? WHERE id = ?").run(nowIso(), record.id);
-  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(String(password)), record.user_id);
-  db.prepare("DELETE FROM sessions WHERE user_id = ?").run(record.user_id);
+  await authStore.tx(async (transaction) => {
+    await transaction.execute("UPDATE password_reset_tokens SET consumed_at = ? WHERE id = ?", nowIso(), record.id);
+    await transaction.execute("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(String(password)), record.user_id);
+    await transaction.execute("DELETE FROM sessions WHERE user_id = ?", record.user_id);
+  });
   res.json({ ok: true });
 });
 
@@ -5260,7 +5533,7 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
     return;
   }
 
-  if (hasHiredWorker(req.user.id, workerSlug)) {
+  if (await hasHiredWorker(req.user.id, workerSlug)) {
     res.status(409).json({ error: "You have already hired this worker." });
     return;
   }
@@ -5269,19 +5542,21 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
   const checkoutId = randomUUID();
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (unitAmount === 0 || isAdmin) {
-    db.prepare(
-      `INSERT INTO checkout_sessions (id, user_id, worker_slug, amount_cents, stripe_session_id, status, created_at, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(checkoutId, req.user.id, worker.slug, unitAmount, null, "completed", nowIso(), nowIso());
-
-    db.prepare(
-      `INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(user_id, worker_slug) DO UPDATE SET
-         checkout_session_id = excluded.checkout_session_id,
-         status = excluded.status,
-         hired_at = excluded.hired_at`
-    ).run(randomUUID(), req.user.id, worker.slug, checkoutId, "active", nowIso());
+    await authStore.tx(async (transaction) => {
+      const timestamp = nowIso();
+      await transaction.execute(
+        `INSERT INTO checkout_sessions (id, user_id, worker_slug, amount_cents, stripe_session_id, status, created_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        checkoutId, req.user.id, worker.slug, unitAmount, null, "completed", timestamp, timestamp
+      );
+      await transaction.execute(
+        `INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, worker_slug) DO UPDATE SET checkout_session_id = excluded.checkout_session_id,
+           status = excluded.status, hired_at = excluded.hired_at`,
+        randomUUID(), req.user.id, worker.slug, checkoutId, "active", timestamp
+      );
+    });
 
     res.json({
       free: true,
@@ -5323,12 +5598,12 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
       userId: req.user.id,
       workerSlug: worker.slug
     }
-  });
+  }, { idempotencyKey: checkoutId });
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO checkout_sessions (id, user_id, worker_slug, amount_cents, stripe_session_id, status, created_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`
-  ).run(checkoutId, req.user.id, worker.slug, unitAmount, session.id, "pending", nowIso());
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+    checkoutId, req.user.id, worker.slug, unitAmount, session.id, "pending", nowIso());
 
   res.json({ url: session.url });
 });
@@ -5340,7 +5615,10 @@ app.post("/api/payments/portal", assertOrigin, requireAuth, async (req, res) => 
     return;
   }
 
-  const customerId = db.prepare("SELECT stripe_customer_id AS customerId FROM users WHERE id = ?").get(req.user.id)?.customerId;
+  const customerId = (await authStore.queryOne(
+    `SELECT stripe_customer_id AS "customerId" FROM users WHERE id = ?`,
+    req.user.id
+  ))?.customerId;
   if (!customerId) {
     res.status(404).json({ error: "No billing account yet — you'll get one with your first paid hire." });
     return;
@@ -5354,7 +5632,7 @@ app.post("/api/payments/portal", assertOrigin, requireAuth, async (req, res) => 
     });
     res.json({ url: session.url });
   } catch (error) {
-    console.error("Billing portal session failed:", error);
+    logCaught("Billing portal session failed:", error);
     res.status(502).json({ error: "Could not open the billing portal. Try again shortly." });
   }
 });
@@ -5381,80 +5659,67 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
     // Idempotency: record the event id first. Stripe retries deliver the same
     // event.id; a duplicate insert affects 0 rows, so we ack and skip — no
     // double billing-state mutations.
-    const seen = db
-      .prepare(
+    const outcome = await authStore.tx(async (transaction) => {
+      const seen = await transaction.execute(
         `INSERT INTO stripe_webhook_events (event_id, type, received_at) VALUES (?, ?, ?)
-         ON CONFLICT(event_id) DO NOTHING`
-      )
-      .run(String(event.id), String(event.type), nowIso());
-    if (seen.changes === 0) {
+         ON CONFLICT(event_id) DO NOTHING`,
+        String(event.id), String(event.type), nowIso()
+      );
+      if (seen.changes === 0) return { duplicate: true };
+
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+        const checkoutId = session.metadata?.checkoutId;
+        const userId = session.metadata?.userId;
+        const workerSlug = session.metadata?.workerSlug;
+
+        if (checkoutId) {
+          await transaction.execute(
+            "UPDATE checkout_sessions SET status = ?, completed_at = ? WHERE id = ?",
+            "completed", nowIso(), checkoutId
+          );
+        }
+        if (userId && session.customer) {
+          await transaction.execute("UPDATE users SET stripe_customer_id = ? WHERE id = ?", String(session.customer), userId);
+        }
+        if (checkoutId && userId && workerSlug) {
+          await transaction.execute(
+            `INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at, stripe_subscription_id, billing_status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(user_id, worker_slug) DO UPDATE SET checkout_session_id = excluded.checkout_session_id,
+               status = excluded.status, hired_at = excluded.hired_at,
+               stripe_subscription_id = excluded.stripe_subscription_id, billing_status = excluded.billing_status`,
+            randomUUID(), userId, workerSlug, checkoutId, "active", nowIso(),
+            session.subscription ? String(session.subscription) : null, "active"
+          );
+        }
+      }
+
+      if (event.type === "customer.subscription.deleted") {
+        await transaction.execute(
+          "UPDATE hired_workers SET status = 'terminated', billing_status = 'cancelled' WHERE stripe_subscription_id = ?",
+          String(event.data.object.id)
+        );
+      }
+
+      if (event.type === "invoice.payment_failed" && event.data.object.subscription) {
+        await transaction.execute(
+          "UPDATE hired_workers SET billing_status = 'past_due' WHERE stripe_subscription_id = ?",
+          String(event.data.object.subscription)
+        );
+      }
+
+      if (event.type === "invoice.payment_succeeded" && event.data.object.subscription) {
+        await transaction.execute(
+          "UPDATE hired_workers SET billing_status = 'active' WHERE stripe_subscription_id = ? AND billing_status = 'past_due'",
+          String(event.data.object.subscription)
+        );
+      }
+      return { duplicate: false };
+    });
+    if (outcome.duplicate) {
       res.json({ received: true, duplicate: true });
       return;
-    }
-
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      const checkoutId = session.metadata?.checkoutId;
-      const userId = session.metadata?.userId;
-      const workerSlug = session.metadata?.workerSlug;
-
-      if (checkoutId) {
-        db.prepare(
-          `UPDATE checkout_sessions
-           SET status = ?, completed_at = ?
-           WHERE id = ?`
-        ).run("completed", nowIso(), checkoutId);
-      }
-
-      if (userId && session.customer) {
-        db.prepare("UPDATE users SET stripe_customer_id = ? WHERE id = ?").run(String(session.customer), userId);
-      }
-
-      if (checkoutId && userId && workerSlug) {
-        db.prepare(
-          `INSERT INTO hired_workers (id, user_id, worker_slug, checkout_session_id, status, hired_at, stripe_subscription_id, billing_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(user_id, worker_slug) DO UPDATE SET
-             checkout_session_id = excluded.checkout_session_id,
-             status = excluded.status,
-             hired_at = excluded.hired_at,
-             stripe_subscription_id = excluded.stripe_subscription_id,
-             billing_status = excluded.billing_status`
-        ).run(randomUUID(), userId, workerSlug, checkoutId, "active", nowIso(), session.subscription ? String(session.subscription) : null, "active");
-      }
-    }
-
-    if (event.type === "customer.subscription.deleted") {
-      const subscription = event.data.object;
-      db.prepare(
-        `UPDATE hired_workers
-         SET status = 'terminated', billing_status = 'cancelled'
-         WHERE stripe_subscription_id = ?`
-      ).run(String(subscription.id));
-    }
-
-    if (event.type === "invoice.payment_failed") {
-      const invoice = event.data.object;
-      const subscriptionId = invoice.subscription ? String(invoice.subscription) : null;
-      if (subscriptionId) {
-        db.prepare(
-          `UPDATE hired_workers
-           SET billing_status = 'past_due'
-           WHERE stripe_subscription_id = ?`
-        ).run(subscriptionId);
-      }
-    }
-
-    if (event.type === "invoice.payment_succeeded") {
-      const invoice = event.data.object;
-      const subscriptionId = invoice.subscription ? String(invoice.subscription) : null;
-      if (subscriptionId) {
-        db.prepare(
-          `UPDATE hired_workers
-           SET billing_status = 'active'
-           WHERE stripe_subscription_id = ? AND billing_status = 'past_due'`
-        ).run(subscriptionId);
-      }
     }
 
     res.json({ received: true });
@@ -5463,9 +5728,9 @@ app.post("/api/payments/webhook", express.raw({ type: "application/json", limit:
   }
 });
 
-function mergeChatMemories(userId, workerSlug, memories) {
+async function mergeChatMemories(userId, workerSlug, memories) {
   for (const memory of memories) {
-    upsertWorkerKnowledge(userId, workerSlug, (knowledge) => {
+    await upsertWorkerKnowledge(userId, workerSlug, (knowledge) => {
       const next = Array.isArray(knowledge) ? [...knowledge] : [];
       const index = next.findIndex((section) => String(section?.title ?? "").trim() === memory.title);
       const existingItems = index >= 0 && Array.isArray(next[index]?.items) ? next[index].items : [];
@@ -5494,7 +5759,7 @@ function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, trigg
       const executedResults = [];
       if (workerSlug === MARA_SLUG) {
         const results = await autoExecuteSafeMaraTasks({
-          db,
+          store: maraStore,
           taskIds,
           userId,
           workerId: workerSlug,
@@ -5505,12 +5770,12 @@ function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, trigg
         if (outputIds.length > 0) {
           await syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds);
         }
-        syncMaraOperationalRecords(userId, workerSlug);
+        await syncMaraOperationalRecords(userId, workerSlug);
       } else {
         for (const taskId of taskIds) {
           try {
             const result = await runAgentTask({
-              db,
+              store: agentStore,
               userId,
               workerId: workerSlug,
               taskId,
@@ -5518,10 +5783,10 @@ function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, trigg
             });
             if (result) executedResults.push(result);
           } catch (error) {
-            console.error(`Background chat task failed for ${workerSlug}:`, error);
+            logCaught(`Background chat task failed for ${workerSlug}:`, error);
           }
         }
-        syncOfficeCanonicalRecords(userId, workerSlug);
+        await syncOfficeCanonicalRecords(userId, workerSlug);
       }
 
       const completed = executedResults.filter((result) => result?.output?.content && !result.blockerReason);
@@ -5540,15 +5805,15 @@ function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, trigg
       }
 
       if (replyParts.length > 0) {
-        db.prepare(
+        await authStore.execute(
           `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(randomUUID(), userId, workerSlug, workerChatAuthor(worker, workerSlug), replyParts.join("\n\n"), nowIso());
+        , randomUUID(), userId, workerSlug, workerChatAuthor(worker, workerSlug), replyParts.join("\n\n"), nowIso());
       }
 
       for (const result of executedResults) {
         if (result?.task?.id) {
-          createWorkerActivityLog(db, {
+          await createWorkerActivityLog(maraStore, {
             description: triggerText,
             eventType: "chat_task_executed",
             metadata: { outputId: result.output?.id ?? null },
@@ -5560,7 +5825,7 @@ function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, trigg
         }
       }
     } catch (error) {
-      console.error(`Background chat execution failed for ${workerSlug}:`, error);
+      logCaught(`Background chat execution failed for ${workerSlug}:`, error);
     }
   })();
 }
@@ -5574,7 +5839,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
     return;
   }
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -5583,10 +5848,10 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
   const worker = workers.find((entry) => entry.slug === workerSlug);
   const createdAt = nowIso();
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "You", text, createdAt);
+  , randomUUID(), req.user.id, workerSlug, "You", text, createdAt);
   if (worker) {
     await rememberWorkerDirection(req.user.id, worker, text);
   }
@@ -5596,18 +5861,18 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
   if (worker && hasRoleConfig(workerSlug) && isAgentLlmConfigured()) {
     try {
       const agentResult = await handleAgentChatMessage({
-        db,
+        store: agentStore,
         userId: req.user.id,
         workerId: workerSlug,
         message: text,
         readers: buildMaraExecutionReaders()
       });
       if (agentResult) {
-        mergeChatMemories(req.user.id, workerSlug, agentResult.memoriesToSave);
-        db.prepare(
+        await mergeChatMemories(req.user.id, workerSlug, agentResult.memoriesToSave);
+        await authStore.execute(
           `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(
+        ,
           randomUUID(),
           req.user.id,
           workerSlug,
@@ -5615,7 +5880,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
           agentResult.reply,
           new Date(Date.now() + 1000).toISOString()
         );
-        const paused = isWorkerPaused(req.user.id, workerSlug);
+        const paused = await isWorkerPaused(req.user.id, workerSlug);
         res.status(201).json({ ok: true, executing: !paused && agentResult.createdTaskIds.length > 0 });
         if (!paused) {
           executeChatTasksInBackground(req.user.id, workerSlug, worker, agentResult.createdTaskIds, text);
@@ -5623,25 +5888,24 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
         return;
       }
     } catch (error) {
-      console.error("Agent chat interpretation failed, falling back:", error);
+      logCaught("Agent chat interpretation failed, falling back:", error);
     }
   }
 
   if (workerSlug === MARA_SLUG && worker) {
-    ensureWorkerPermissions(db, req.user.id, workerSlug);
+    await ensureWorkerPermissions(maraStore, req.user.id, workerSlug);
     const createdChatTaskIds = [];
     const detectorResult = runMaraActionDetector({
-      openTasks: listWorkerTasksForUserWorker(db, req.user.id, workerSlug),
-      permissions: getWorkerPermissions(db, req.user.id, workerSlug),
-      recentMessages: db
-        .prepare(
-          `SELECT author, text
-           FROM office_chat_messages
-           WHERE user_id = ? AND worker_slug = ?
-           ORDER BY created_at DESC
-           LIMIT 6`
-        )
-        .all(req.user.id, workerSlug),
+      openTasks: await listWorkerTasksForUserWorker(maraStore, req.user.id, workerSlug),
+      permissions: await getWorkerPermissions(maraStore, req.user.id, workerSlug),
+      recentMessages: await authStore.query(
+        `SELECT author, text
+         FROM office_chat_messages
+         WHERE user_id = ? AND worker_slug = ?
+         ORDER BY created_at DESC
+         LIMIT 6`,
+        req.user.id, workerSlug
+      ),
       triggerText: text,
       triggerType: "chat_message",
       userId: req.user.id,
@@ -5649,7 +5913,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
     });
 
     for (const memory of detectorResult.memoriesToSave) {
-      upsertWorkerKnowledge(req.user.id, workerSlug, (knowledge) => {
+      await upsertWorkerKnowledge(req.user.id, workerSlug, (knowledge) => {
         const next = Array.isArray(knowledge) ? [...knowledge] : [];
         const index = next.findIndex((section) => String(section?.title ?? "").trim() === memory.title);
         const existingItems = index >= 0 && Array.isArray(next[index]?.items) ? next[index].items : [];
@@ -5663,15 +5927,15 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
 
     for (const task of detectorResult.tasksToCreate) {
       if (task.status === "approved") {
-        const created = createApprovedTaskIfPermissionAllows(db, {
+        const created = await createApprovedTaskIfPermissionAllows(maraStore, {
           ...task,
           userId: req.user.id,
           workerId: workerSlug
         });
         if (!created.duplicate && created.id) {
           createdChatTaskIds.push(created.id);
-          const createdTask = listWorkerTasksForUserWorker(db, req.user.id, workerSlug).find((entry) => entry.id === created.id);
-          createWorkerActivityLog(db, {
+          const createdTask = (await listWorkerTasksForUserWorker(maraStore, req.user.id, workerSlug)).find((entry) => entry.id === created.id);
+          await createWorkerActivityLog(maraStore, {
             description: text,
             eventType: "chat_task_created",
             metadata: { taskType: createdTask?.taskType || null },
@@ -5682,7 +5946,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
           });
         }
       } else {
-        createSuggestedTask(db, {
+        await createSuggestedTask(maraStore, {
           ...task,
           userId: req.user.id,
           workerId: workerSlug
@@ -5691,7 +5955,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
     }
 
     for (const recurring of detectorResult.recurringResponsibilitiesToSuggest) {
-      createRecurringResponsibility(db, {
+      await createRecurringResponsibility(maraStore, {
         ...recurring,
         isActive: false,
         userId: req.user.id,
@@ -5700,7 +5964,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
     }
 
     for (const research of detectorResult.researchItemsToCreate) {
-      createResearchItem(db, {
+      await createResearchItem(maraStore, {
         ...research,
         userId: req.user.id,
         workerId: workerSlug
@@ -5708,7 +5972,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
     }
 
     for (const approval of detectorResult.approvalRequests) {
-      createApprovalRequest(db, {
+      await createApprovalRequest(maraStore, {
         ...approval,
         userId: req.user.id,
         workerId: workerSlug
@@ -5716,7 +5980,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
     }
 
     const executedResults = await autoExecuteSafeMaraTasks({
-        db,
+        store: maraStore,
         taskIds: createdChatTaskIds,
         userId: req.user.id,
         workerId: workerSlug,
@@ -5729,7 +5993,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
 
     for (const result of executedResults) {
       if (result?.task?.id) {
-        createWorkerActivityLog(db, {
+        await createWorkerActivityLog(maraStore, {
           description: text,
           eventType: "chat_task_executed",
           metadata: { outputId: result.output?.id ?? null },
@@ -5756,35 +6020,35 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req
 
       if (replyParts.length > 0) {
         const replyCreatedAt = new Date(Date.now() + 1000).toISOString();
-        db.prepare(
+        await authStore.execute(
           `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
            VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(randomUUID(), req.user.id, workerSlug, "Mara", replyParts.join("\n\n"), replyCreatedAt);
+        , randomUUID(), req.user.id, workerSlug, "Mara", replyParts.join("\n\n"), replyCreatedAt);
         res.status(201).json({ ok: true });
         return;
       }
     }
   }
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Sent a chat message.", "Chat", "Worker memory and conversation context updated", createdAt);
+  , randomUUID(), req.user.id, workerSlug, "Sent a chat message.", "Chat", "Worker memory and conversation context updated", createdAt);
 
   let replyText = makeWorkerReply(worker?.name);
   if (worker) {
     try {
       replyText = await generateOfficeWorkerReply(req.user.id, worker, text);
     } catch (error) {
-      console.error("Office worker reply generation failed:", error);
+      logCaught("Office worker reply generation failed:", error);
     }
   }
   const chatAuthor = workerSlug === MARA_SLUG ? "Mara" : "Worker";
   const replyCreatedAt = new Date(Date.now() + 1000).toISOString();
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, chatAuthor, replyText, replyCreatedAt);
+  , randomUUID(), req.user.id, workerSlug, chatAuthor, replyText, replyCreatedAt);
 
   res.status(201).json({ ok: true });
 });
@@ -5798,32 +6062,33 @@ app.post("/api/office/workers/:slug/tasks", assertOrigin, requireAuth, async (re
     return;
   }
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
 
   const createdAt = nowIso();
-  db.prepare(
-    `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    req.user.id,
-    workerSlug,
-    String(title),
-    String(module),
-    owner === "You" ? "You" : "Worker",
-    priority === "Low" || priority === "Medium" || priority === "High" ? priority : "Medium",
-    "To Do",
-    String(dueDate || "This week"),
-    createdAt
-  );
-
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Created a task.", String(module), String(title), createdAt);
+  await authStore.tx(async (transaction) => {
+    await transaction.execute(
+      `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(),
+      req.user.id,
+      workerSlug,
+      String(title),
+      String(module),
+      owner === "You" ? "You" : "Worker",
+      priority === "Low" || priority === "Medium" || priority === "High" ? priority : "Medium",
+      "To Do",
+      String(dueDate || "This week"),
+      createdAt
+    );
+    await transaction.execute(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), req.user.id, workerSlug, "Created a task.", String(module), String(title), createdAt
+    );
+  });
 
   res.status(201).json({ ok: true });
 });
@@ -5833,7 +6098,7 @@ app.post("/api/office/workers/:slug/tasks/:taskId/status", assertOrigin, require
   const taskId = req.params.taskId;
   const status = String(req.body?.status ?? "");
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -5844,26 +6109,20 @@ app.post("/api/office/workers/:slug/tasks/:taskId/status", assertOrigin, require
     return;
   }
 
-  const updated = db
-    .prepare(
-      `UPDATE office_custom_tasks
-       SET status = ?
-       WHERE id = ? AND user_id = ? AND worker_slug = ?`
-    )
-    .run(status, taskId, req.user.id, workerSlug);
+  const updated = await authStore.execute(
+    `UPDATE office_custom_tasks SET status = ? WHERE id = ? AND user_id = ? AND worker_slug = ?`,
+    status, taskId, req.user.id, workerSlug
+  );
 
   if (updated.changes === 0) {
     res.status(404).json({ error: "Custom task not found." });
     return;
   }
 
-  const workerTask = db
-    .prepare(
-      `SELECT id, status
-       FROM worker_tasks
-       WHERE id = ? AND user_id = ? AND worker_id = ?`
-    )
-    .get(taskId, req.user.id, workerSlug);
+  const workerTask = await authStore.queryOne(
+    `SELECT id, status FROM worker_tasks WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    taskId, req.user.id, workerSlug
+  );
 
   if (workerTask && hasRoleConfig(workerSlug)) {
     const officeToEngine = {
@@ -5876,19 +6135,19 @@ app.post("/api/office/workers/:slug/tasks/:taskId/status", assertOrigin, require
     };
     const nextStatus = officeToEngine[status];
     if (nextStatus) {
-      updateWorkerTaskStatus(db, req.user.id, workerSlug, taskId, nextStatus);
+      await updateWorkerTaskStatus(maraStore, req.user.id, workerSlug, taskId, nextStatus);
     }
   }
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Updated task status.", "Tasks", `${taskId} -> ${status}`, nowIso());
+  , randomUUID(), req.user.id, workerSlug, "Updated task status.", "Tasks", `${taskId} -> ${status}`, nowIso());
 
   if (isMaraWorker(workerSlug)) {
-    syncMaraOperationalRecords(req.user.id, workerSlug);
+    await syncMaraOperationalRecords(req.user.id, workerSlug);
   } else if (hasRoleConfig(workerSlug)) {
-    syncOfficeCanonicalRecords(req.user.id, workerSlug);
+    await syncOfficeCanonicalRecords(req.user.id, workerSlug);
   }
 
   res.json({ ok: true });
@@ -5898,7 +6157,7 @@ app.post("/api/office/workers/:slug/tasks/:taskId/approve", assertOrigin, requir
   const workerSlug = String(req.params.slug ?? "").trim();
   const taskId = String(req.params.taskId ?? "").trim();
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -5911,26 +6170,26 @@ app.post("/api/office/workers/:slug/tasks/:taskId/approve", assertOrigin, requir
   try {
     let result;
     if (isMaraWorker(workerSlug)) {
-      result = await approveWorkerProposedTask(db, req.user.id, workerSlug, taskId, {
-        db,
+      result = await approveWorkerProposedTask(maraStore, req.user.id, workerSlug, taskId, {
+        store: maraStore,
         ...buildMaraExecutionReaders()
       });
-      syncMaraOperationalRecords(req.user.id, workerSlug);
+      await syncMaraOperationalRecords(req.user.id, workerSlug);
     } else {
-      updateWorkerTaskStatus(db, req.user.id, workerSlug, taskId, "approved");
+      await updateWorkerTaskStatus(maraStore, req.user.id, workerSlug, taskId, "approved");
       result = await runAgentTask({
-        db,
+        store: agentStore,
         userId: req.user.id,
         workerId: workerSlug,
         taskId,
         readers: buildMaraExecutionReaders()
       });
-      syncOfficeCanonicalRecords(req.user.id, workerSlug);
+      await syncOfficeCanonicalRecords(req.user.id, workerSlug);
     }
     res.json({
       ok: true,
       ...result,
-      workspace: buildMaraWorkspace(db, req.user.id, workerSlug, {
+      workspace: await buildMaraWorkspace(maraStore, req.user.id, workerSlug, {
         readKnowledgeSections: readWorkerKnowledgeSections,
         readOfficeOverlays: readOfficeOverlaysForUser
       })
@@ -5945,7 +6204,7 @@ app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin,
   const briefingId = req.params.briefingId;
   const action = String(req.body?.action ?? "");
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -5953,75 +6212,62 @@ app.post("/api/office/workers/:slug/briefings/:briefingId/action", assertOrigin,
   const createdAt = nowIso();
 
   if (action === "approve") {
-    db.prepare(
-      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), req.user.id, workerSlug, "Approved a briefing.", "Briefings", briefingId, createdAt);
-    // Clear the briefing (and any duplicate copies of it) so approving it
-    // actually removes it from the review queue instead of leaving it in place.
-    const briefing = db
-      .prepare(
-        `SELECT title, date_label AS dateLabel FROM office_custom_briefings
-         WHERE id = ? AND user_id = ? AND worker_slug = ?`
-      )
-      .get(briefingId, req.user.id, workerSlug);
-    if (briefing) {
-      db.prepare(
-        `DELETE FROM office_custom_briefings
-         WHERE user_id = ? AND worker_slug = ? AND title = ? AND date_label = ?`
-      ).run(req.user.id, workerSlug, briefing.title, briefing.dateLabel);
-    } else {
-      db.prepare(`DELETE FROM office_custom_briefings WHERE id = ? AND user_id = ?`).run(briefingId, req.user.id);
-    }
+    await authStore.tx(async (transaction) => {
+      await transaction.execute(
+        `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, "Approved a briefing.", "Briefings", briefingId, createdAt
+      );
+      const briefing = await transaction.queryOne(
+        `SELECT title, date_label AS "dateLabel" FROM office_custom_briefings
+         WHERE id = ? AND user_id = ? AND worker_slug = ?`,
+        briefingId, req.user.id, workerSlug
+      );
+      if (briefing) {
+        await transaction.execute(
+          `DELETE FROM office_custom_briefings WHERE user_id = ? AND worker_slug = ? AND title = ? AND date_label = ?`,
+          req.user.id, workerSlug, briefing.title, briefing.dateLabel
+        );
+      } else {
+        await transaction.execute(`DELETE FROM office_custom_briefings WHERE id = ? AND user_id = ?`, briefingId, req.user.id);
+      }
+    });
     res.json({ ok: true });
     return;
   }
 
   if (action === "followup") {
     const followupText = "Please prepare follow-up notes and update the queue before the next review.";
-    db.prepare(
-      `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      req.user.id,
-      workerSlug,
-      "You",
-      followupText,
-      createdAt
-    );
-    rememberWorkerDirection(req.user.id, workerSlug, followupText);
-    db.prepare(
-      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), req.user.id, workerSlug, "Requested briefing follow-up.", "Briefings", briefingId, createdAt);
-    // Sending a briefing back moves the conversation forward, so it should
-    // also leave the review queue instead of lingering there.
-    db.prepare(`DELETE FROM office_custom_briefings WHERE id = ? AND user_id = ?`).run(briefingId, req.user.id);
+    await authStore.tx(async (transaction) => {
+      await transaction.execute(
+        `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, "You", followupText, createdAt
+      );
+      await transaction.execute(
+        `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, "Requested briefing follow-up.", "Briefings", briefingId, createdAt
+      );
+      await transaction.execute(`DELETE FROM office_custom_briefings WHERE id = ? AND user_id = ?`, briefingId, req.user.id);
+    });
+    void rememberWorkerDirection(req.user.id, workerSlug, followupText).catch((error) => {
+      logCaught("Could not retain briefing follow-up direction:", error);
+    });
     res.json({ ok: true });
     return;
   }
 
   if (action === "task") {
-    db.prepare(
-      `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      req.user.id,
-      workerSlug,
-      "Follow up on briefing decisions",
-      "Briefings",
-      "Worker",
-      "High",
-      "To Do",
-      "Tomorrow",
-      createdAt
-    );
-    db.prepare(
-      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), req.user.id, workerSlug, "Created a task from briefing.", "Briefings", briefingId, createdAt);
+    await authStore.tx(async (transaction) => {
+      await transaction.execute(
+        `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, "Follow up on briefing decisions", "Briefings", "Worker", "High", "To Do", "Tomorrow", createdAt
+      );
+      await transaction.execute(
+        `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, "Created a task from briefing.", "Briefings", briefingId, createdAt
+      );
+    });
     res.json({ ok: true });
     return;
   }
@@ -6033,7 +6279,7 @@ app.post("/api/office/workers/:slug/settings", assertOrigin, requireAuth, async 
   const workerSlug = req.params.slug;
   const settings = req.body?.settings;
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -6043,18 +6289,21 @@ app.post("/api/office/workers/:slug/settings", assertOrigin, requireAuth, async 
     return;
   }
 
-  db.prepare(
-    `INSERT INTO office_worker_settings (id, user_id, worker_slug, settings_json, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
-       settings_json = excluded.settings_json,
-       updated_at = excluded.updated_at`
-  ).run(randomUUID(), req.user.id, workerSlug, JSON.stringify(settings), nowIso());
-
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Updated worker settings.", "Settings", "Office preferences saved", nowIso());
+  await authStore.tx(async (transaction) => {
+    await transaction.execute(
+      `INSERT INTO office_worker_settings (id, user_id, worker_slug, settings_json, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+         settings_json = excluded.settings_json,
+         updated_at = excluded.updated_at`,
+      randomUUID(), req.user.id, workerSlug, JSON.stringify(settings), nowIso()
+    );
+    await transaction.execute(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), req.user.id, workerSlug, "Updated worker settings.", "Settings", "Office preferences saved", nowIso()
+    );
+  });
 
   res.json({ ok: true });
 });
@@ -6062,18 +6311,17 @@ app.post("/api/office/workers/:slug/settings", assertOrigin, requireAuth, async 
 app.post("/api/office/workers/:slug/fire", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = req.params.slug;
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
 
-  const worker = db
-    .prepare(
-      `SELECT worker_slug, stripe_subscription_id AS stripeSubscriptionId
-       FROM hired_workers
-       WHERE user_id = ? AND worker_slug = ? AND status = ?`
-    )
-    .get(req.user.id, workerSlug, "active");
+  const worker = await authStore.queryOne(
+    `SELECT worker_slug AS "workerSlug", stripe_subscription_id AS "stripeSubscriptionId"
+     FROM hired_workers
+     WHERE user_id = ? AND worker_slug = ? AND status = ?`,
+    req.user.id, workerSlug, "active"
+  );
 
   if (!worker) {
     res.status(404).json({ error: "Hired worker not found." });
@@ -6086,7 +6334,7 @@ app.post("/api/office/workers/:slug/fire", assertOrigin, requireAuth, async (req
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
       await stripe.subscriptions.cancel(worker.stripeSubscriptionId);
     } catch (error) {
-      console.error(`Stripe subscription cancel failed for ${worker.stripeSubscriptionId}:`, error);
+      logCaught(`Stripe subscription cancel failed for ${worker.stripeSubscriptionId}:`, error);
       res.status(502).json({
         error: "The worker was not removed because their subscription could not be cancelled. Please try again or contact support so you are not billed."
       });
@@ -6094,16 +6342,19 @@ app.post("/api/office/workers/:slug/fire", assertOrigin, requireAuth, async (req
     }
   }
 
-  db.prepare(
-    `UPDATE hired_workers
-     SET status = ?, billing_status = 'cancelled'
-     WHERE user_id = ? AND worker_slug = ? AND status = ?`
-  ).run("terminated", req.user.id, workerSlug, "active");
-
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Ended worker engagement.", "People", "Worker removed from active office roster", nowIso());
+  await authStore.tx(async (transaction) => {
+    await transaction.execute(
+      `UPDATE hired_workers
+       SET status = ?, billing_status = 'cancelled'
+       WHERE user_id = ? AND worker_slug = ? AND status = ?`,
+      "terminated", req.user.id, workerSlug, "active"
+    );
+    await transaction.execute(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), req.user.id, workerSlug, "Ended worker engagement.", "People", "Worker removed from active office roster", nowIso()
+    );
+  });
 
   res.json({ ok: true });
 });
@@ -6112,7 +6363,7 @@ app.post("/api/office/workers/:slug/knowledge", assertOrigin, requireAuth, async
   const workerSlug = req.params.slug;
   const knowledge = req.body?.knowledge;
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -6129,18 +6380,21 @@ app.post("/api/office/workers/:slug/knowledge", assertOrigin, requireAuth, async
     }))
     .filter((section) => section.title && section.items.length > 0);
 
-  db.prepare(
-    `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(user_id, worker_slug) DO UPDATE SET
-       knowledge_json = excluded.knowledge_json,
-       updated_at = excluded.updated_at`
-  ).run(randomUUID(), req.user.id, workerSlug, JSON.stringify(normalizedKnowledge), nowIso());
-
-  db.prepare(
-    `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Updated worker knowledge.", "Memory", "Operating context saved", nowIso());
+  await authStore.tx(async (transaction) => {
+    await transaction.execute(
+      `INSERT INTO office_worker_knowledge (id, user_id, worker_slug, knowledge_json, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, worker_slug) DO UPDATE SET
+         knowledge_json = excluded.knowledge_json,
+         updated_at = excluded.updated_at`,
+      randomUUID(), req.user.id, workerSlug, JSON.stringify(normalizedKnowledge), nowIso()
+    );
+    await transaction.execute(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), req.user.id, workerSlug, "Updated worker knowledge.", "Memory", "Operating context saved", nowIso()
+    );
+  });
 
   res.json({ ok: true });
 });
@@ -6148,36 +6402,42 @@ app.post("/api/office/workers/:slug/knowledge", assertOrigin, requireAuth, async
 app.post("/api/office/workers/:slug/files", assertOrigin, requireAuth, async (req, res) => {
   const workerSlug = req.params.slug;
   const name = String(req.body?.name ?? "").trim();
-  const type = String(req.body?.type ?? "File").trim();
+  const type = String(req.body?.type ?? "").trim();
   const contentBase64 = String(req.body?.contentBase64 ?? "");
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
 
-  if (!name || !contentBase64) {
-    res.status(400).json({ error: "File name and content are required." });
+  let validated;
+  try {
+    validated = validateTenantUpload({ name, type, contentBase64 });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "File is invalid." });
     return;
   }
 
   const fileId = randomUUID();
   const storedName = `${fileId}-${name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-  const userDir = path.join(uploadsDir, req.user.id);
-  await fs.mkdir(userDir, { recursive: true });
-  await fs.writeFile(path.join(userDir, storedName), Buffer.from(contentBase64, "base64"));
+  await objectStorage.put({
+    userId: req.user.id,
+    storedName,
+    body: validated.body,
+    contentType: validated.contentType
+  });
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_uploaded_files (id, user_id, worker_slug, name, type, stored_name, uploaded_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(fileId, req.user.id, workerSlug, name, type || "File", storedName, nowIso());
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    fileId, req.user.id, workerSlug, name, type || "File", storedName, nowIso());
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Uploaded a file.", "Files", name, nowIso());
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    randomUUID(), req.user.id, workerSlug, "Uploaded a file.", "Files", name, nowIso());
 
-  syncOfficeCanonicalRecords(req.user.id, workerSlug);
+  await syncOfficeCanonicalRecords(req.user.id, workerSlug);
 
   res.status(201).json({ ok: true });
 });
@@ -6186,38 +6446,37 @@ app.post("/api/office/workers/:slug/files/:fileId/delete", assertOrigin, require
   const workerSlug = req.params.slug;
   const fileId = req.params.fileId;
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
 
-  const file = db
-    .prepare(
+  const file = await authStore.queryOne(
       `SELECT stored_name, name
        FROM office_uploaded_files
-       WHERE id = ? AND user_id = ? AND worker_slug = ?`
-    )
-    .get(fileId, req.user.id, workerSlug);
+       WHERE id = ? AND user_id = ? AND worker_slug = ?`,
+    fileId, req.user.id, workerSlug
+  );
 
   if (!file) {
     res.status(404).json({ error: "File not found." });
     return;
   }
 
-  db.prepare("DELETE FROM office_uploaded_files WHERE id = ? AND user_id = ?").run(fileId, req.user.id);
+  await authStore.execute("DELETE FROM office_uploaded_files WHERE id = ? AND user_id = ?", fileId, req.user.id);
 
   try {
-    await fs.unlink(path.join(uploadsDir, req.user.id, file.stored_name));
+    await objectStorage.delete({ userId: req.user.id, storedName: file.stored_name });
   } catch {
     // Ignore missing file on disk if metadata was present.
   }
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Removed a file.", "Files", file.name, nowIso());
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    randomUUID(), req.user.id, workerSlug, "Removed a file.", "Files", file.name, nowIso());
 
-  syncOfficeCanonicalRecords(req.user.id, workerSlug);
+  await syncOfficeCanonicalRecords(req.user.id, workerSlug);
 
   res.json({ ok: true });
 });
@@ -6226,7 +6485,7 @@ app.post("/api/office/workers/:slug/briefings", assertOrigin, requireAuth, async
   const workerSlug = req.params.slug;
   const { agenda, dateLabel, decisionsNeeded, recommendedActions, summary, title } = req.body ?? {};
 
-  if (!hasHiredWorker(req.user.id, workerSlug)) {
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
     res.status(404).json({ error: "Hired worker not found." });
     return;
   }
@@ -6237,11 +6496,10 @@ app.post("/api/office/workers/:slug/briefings", assertOrigin, requireAuth, async
   }
 
   const briefingId = randomUUID();
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_custom_briefings
      (id, user_id, worker_slug, title, date_label, summary, agenda_json, decisions_json, actions_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     briefingId,
     req.user.id,
     workerSlug,
@@ -6254,10 +6512,10 @@ app.post("/api/office/workers/:slug/briefings", assertOrigin, requireAuth, async
     nowIso()
   );
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(randomUUID(), req.user.id, workerSlug, "Scheduled a briefing.", "Briefings", String(title), nowIso());
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    randomUUID(), req.user.id, workerSlug, "Scheduled a briefing.", "Briefings", String(title), nowIso());
 
   res.status(201).json({ ok: true });
 });
@@ -6289,23 +6547,21 @@ app.post("/api/office/settings", assertOrigin, requireAuth, async (req, res) => 
     timezone: String(settings.timezone ?? "America/New_York")
   };
 
-  db.prepare(
+  await authStore.execute(
     `INSERT INTO office_global_settings (user_id, settings_json, updated_at)
      VALUES (?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
       settings_json = excluded.settings_json,
       updated_at = excluded.updated_at`
-  ).run(req.user.id, JSON.stringify(normalizedSettings), nowIso());
+  , req.user.id, JSON.stringify(normalizedSettings), nowIso());
 
-  const workerRows = db
-    .prepare(
-      `SELECT worker_slug AS workerSlug
+  const workerRows = await authStore.query(
+      `SELECT worker_slug AS "workerSlug"
        FROM hired_workers
-       WHERE user_id = ? AND status = 'active'`
-    )
-    .all(req.user.id);
+       WHERE user_id = ? AND status = 'active'`,
+    req.user.id);
   for (const row of workerRows) {
-    syncHandbookEntries(req.user.id, row.workerSlug);
+    await syncHandbookEntries(req.user.id, row.workerSlug);
   }
 
   res.json({ ok: true });
@@ -6317,7 +6573,7 @@ app.post("/api/office/workers/:slug/onboarding/save", assertOrigin, requireAuth,
     const answers = req.body?.answers;
     const generatedSummary = req.body?.generatedSummary;
 
-    if (!hasHiredWorker(req.user.id, workerSlug)) {
+    if (!(await hasHiredWorker(req.user.id, workerSlug))) {
       res.status(404).json({ error: "Hired worker not found." });
       return;
     }
@@ -6327,7 +6583,7 @@ app.post("/api/office/workers/:slug/onboarding/save", assertOrigin, requireAuth,
       return;
     }
 
-    db.prepare(
+    await authStore.execute(
       `INSERT INTO office_onboarding_sessions
        (id, user_id, worker_slug, status, answers_json, generated_summary_json, completed_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
@@ -6336,7 +6592,7 @@ app.post("/api/office/workers/:slug/onboarding/save", assertOrigin, requireAuth,
          answers_json = excluded.answers_json,
          generated_summary_json = excluded.generated_summary_json,
          updated_at = excluded.updated_at`
-    ).run(
+    ,
       randomUUID(),
       req.user.id,
       workerSlug,
@@ -6347,11 +6603,11 @@ app.post("/api/office/workers/:slug/onboarding/save", assertOrigin, requireAuth,
       nowIso()
     );
 
-    syncHandbookEntries(req.user.id, workerSlug);
+    await syncHandbookEntries(req.user.id, workerSlug);
 
     res.json({ ok: true });
   } catch (error) {
-    console.error("Worker onboarding save failed:", error);
+    logCaught("Worker onboarding save failed:", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Unable to save onboarding progress." });
   }
 });
@@ -6366,7 +6622,7 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
     const briefing = req.body?.briefing;
     const worklogEntry = req.body?.worklogEntry;
 
-    if (!hasHiredWorker(req.user.id, workerSlug)) {
+    if (!(await hasHiredWorker(req.user.id, workerSlug))) {
       res.status(404).json({ error: "Hired worker not found." });
       return;
     }
@@ -6376,17 +6632,15 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       return;
     }
 
-    const existing = db
-      .prepare(
+    const existing = await authStore.queryOne(
         `SELECT status
          FROM office_onboarding_sessions
-         WHERE user_id = ? AND worker_slug = ?`
-      )
-      .get(req.user.id, workerSlug);
+         WHERE user_id = ? AND worker_slug = ?`,
+      req.user.id, workerSlug);
 
     const timestamp = nowIso();
 
-    db.prepare(
+    await authStore.execute(
       `INSERT INTO office_onboarding_sessions
        (id, user_id, worker_slug, status, answers_json, generated_summary_json, completed_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -6396,7 +6650,7 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
          generated_summary_json = excluded.generated_summary_json,
          completed_at = excluded.completed_at,
          updated_at = excluded.updated_at`
-    ).run(
+    ,
       randomUUID(),
       req.user.id,
       workerSlug,
@@ -6415,13 +6669,13 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       }))
       .filter((section) => section.title && section.items.length > 0);
 
-    replaceWorkerKnowledge(req.user.id, workerSlug, normalizedKnowledge);
+    await replaceWorkerKnowledge(req.user.id, workerSlug, normalizedKnowledge);
 
-    ensureWorkerPermissions(db, req.user.id, workerSlug);
+    await ensureWorkerPermissions(maraStore, req.user.id, workerSlug);
     if (workerSlug === MARA_SLUG) {
-      const gmail = getWorkerIntegration(req.user.id, workerSlug, "gmail");
-      updateWorkerPermissions(
-        db,
+      const gmail = await getWorkerIntegration(req.user.id, workerSlug, "gmail");
+      await updateWorkerPermissions(
+        maraStore,
         req.user.id,
         workerSlug,
         deriveMaraPermissionsFromOnboarding(answers, { inboxConnected: gmail?.status === "connected" })
@@ -6432,23 +6686,21 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
     const maraHasOutputs =
       workerSlug === MARA_SLUG
         ? Number(
-            db
-              .prepare(
+            (await authStore.queryOne(
                 `SELECT COUNT(*) AS count
                  FROM worker_outputs
-                 WHERE user_id = ? AND worker_id = ?`
-              )
-              .get(req.user.id, workerSlug)?.count || 0
+                 WHERE user_id = ? AND worker_id = ?`,
+              req.user.id, workerSlug))?.count || 0
           ) > 0
         : true;
 
     if (existing?.status !== "completed") {
       if (workerSlug !== MARA_SLUG) {
         for (const task of tasks) {
-          db.prepare(
+          await authStore.execute(
             `INSERT INTO office_custom_tasks (id, user_id, worker_slug, title, module_name, owner, priority, status, due_date, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(
+          ,
             randomUUID(),
             req.user.id,
             workerSlug,
@@ -6463,11 +6715,11 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
         }
       }
 
-      db.prepare(
+      await authStore.execute(
       `INSERT INTO office_custom_briefings
        (id, user_id, worker_slug, title, date_label, summary, agenda_json, decisions_json, actions_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+    ,
       randomUUID(),
       req.user.id,
       workerSlug,
@@ -6491,18 +6743,18 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
     // background so starter deliverables land on their desk right away.
     if (workerSlug !== MARA_SLUG && hasRoleConfig(workerSlug)) {
       void runAgentAutonomyCycle({
-        db,
+        store: agentStore,
         userId: req.user.id,
         workerId: workerSlug,
         readers: buildMaraExecutionReaders()
       })
         .then(() => syncOfficeCanonicalRecords(req.user.id, workerSlug))
-        .catch((error) => console.error(`First-day agent cycle failed for ${workerSlug}:`, error));
+        .catch((error) => logCaught(`First-day agent cycle failed for ${workerSlug}:`, error));
     }
-    db.prepare(
+    await authStore.execute(
       `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+    ,
       randomUUID(),
       req.user.id,
       workerSlug,
@@ -6523,8 +6775,8 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
           normalizedKnowledge
         });
       } catch (error) {
-        console.error("Mara onboarding automation failed:", error);
-        createWorkerActivityLog(db, {
+        logCaught("Mara onboarding automation failed:", error);
+        await createWorkerActivityLog(maraStore, {
           description: "I finished onboarding, but my first work pass needs another try.",
           eventType: "onboarding_automation_failed",
           metadata: { message: error instanceof Error ? error.message : String(error) },
@@ -6534,10 +6786,13 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
           workerId: workerSlug
         });
       } finally {
-        syncOfficeCanonicalRecords(req.user.id, workerSlug);
+        await syncOfficeCanonicalRecords(req.user.id, workerSlug);
       }
     } else {
-      syncOfficeCanonicalRecords(req.user.id, workerSlug);
+      await syncOfficeCanonicalRecords(req.user.id, workerSlug);
+    }
+    if (workerSlug === MARA_SLUG) {
+      await syncMaraGrowthIntelligenceFromResearch(req.user.id, workerSlug);
     }
 
     res.json({
@@ -6545,15 +6800,94 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       workspace:
         maraAutomationResult?.workspace ??
         (workerSlug === MARA_SLUG
-          ? buildMaraWorkspace(db, req.user.id, workerSlug, {
+          ? await buildMaraWorkspace(maraStore, req.user.id, workerSlug, {
               readKnowledgeSections: readWorkerKnowledgeSections,
               readOfficeOverlays: readOfficeOverlaysForUser
             })
           : null)
     });
   } catch (error) {
-    console.error("Worker onboarding completion failed:", error);
+    logCaught("Worker onboarding completion failed:", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Unable to complete onboarding." });
+  }
+});
+
+app.get("/api/office/workers/:slug/intelligence", requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Growth intelligence is currently available for Mara." });
+    return;
+  }
+  res.json({ intelligence: await getMaraGrowthIntelligenceSnapshot(professionalStore, req.user.id, workerSlug) });
+});
+
+app.post("/api/office/workers/:slug/intelligence/outcomes", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Growth intelligence is currently available for Mara." });
+    return;
+  }
+  try {
+    const id = await recordCommercialOutcome(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      opportunityId: req.body?.opportunityId || null,
+      contacted: Boolean(req.body?.contacted),
+      responded: Boolean(req.body?.responded),
+      conceptAccepted: Boolean(req.body?.conceptAccepted),
+      hired: Boolean(req.body?.hired),
+      rehired: Boolean(req.body?.rehired),
+      revenueAmount: req.body?.revenueAmount || 0,
+      currency: req.body?.currency || "USD",
+      occurredAt: req.body?.occurredAt || null,
+      details: req.body?.details || {}
+    });
+    await authStore.execute(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), req.user.id, workerSlug, "Recorded a commercial outcome.", "Growth intelligence", id, nowIso()
+    );
+    res.status(201).json({ ok: true, id, metrics: (await getMaraGrowthIntelligenceSnapshot(professionalStore, req.user.id, workerSlug)).metrics });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not record commercial outcome." });
+  }
+});
+
+app.post("/api/office/workers/:slug/intelligence/creative-analyses", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Growth intelligence is currently available for Mara." });
+    return;
+  }
+  try {
+    const saved = await saveCreativeAnalysis(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      assetType: req.body?.assetType,
+      assetRef: req.body?.assetRef,
+      analysis: req.body?.analysis,
+      evidence: req.body?.evidence
+    });
+    await authStore.execute(
+      `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      randomUUID(), req.user.id, workerSlug, "Saved timestamped creative analysis.", "Growth intelligence", saved.id, nowIso()
+    );
+    res.status(201).json({ ok: true, analysis: saved });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not save creative analysis." });
   }
 });
 
@@ -6598,24 +6932,32 @@ const USER_SCOPED_TABLES = [
   "worker_outputs",
   "worker_brands",
   "worker_trend_snapshots",
-  "agent_llm_usage"
+  "agent_llm_usage",
+  "action_audit_events",
+  "durable_jobs",
+  "external_action_executions",
+  "mara_creator_performance_profiles",
+  "mara_creator_brand_opportunities",
+  "mara_creative_analyses",
+  "mara_commercial_outcomes"
 ];
 
 // Data portability (GDPR/CCPA): download everything we hold about the account.
-app.get("/api/account/export", requireAuth, (req, res) => {
+app.get("/api/account/export", requireAuth, async (req, res) => {
   const userId = req.user.id;
   const data = {
     exportedAt: nowIso(),
-    account:
-      db
-        .prepare("SELECT id, email, name, email_verified_at AS emailVerifiedAt, created_at AS createdAt FROM users WHERE id = ?")
-        .get(userId) ?? null
+    account: await authStore.queryOne(
+      `SELECT id, email, name, email_verified_at AS "emailVerifiedAt", created_at AS "createdAt"
+       FROM users WHERE id = ?`,
+      userId
+    )
   };
   for (const table of USER_SCOPED_TABLES) {
     // Never export session or credential-reset material.
     if (["sessions", "email_verification_tokens", "password_reset_tokens"].includes(table)) continue;
     try {
-      data[table] = db.prepare(`SELECT * FROM ${table} WHERE user_id = ?`).all(userId);
+      data[table] = await authStore.query(`SELECT * FROM ${table} WHERE user_id = ?`, userId);
     } catch {
       data[table] = [];
     }
@@ -6633,7 +6975,10 @@ app.get("/api/account/export", requireAuth, (req, res) => {
 app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (req, res) => {
   const userId = req.user.id;
   const password = String(req.body?.password ?? "");
-  const user = db.prepare("SELECT id, password_hash AS passwordHash FROM users WHERE id = ?").get(userId);
+  const user = await authStore.queryOne(
+    `SELECT id, password_hash AS "passwordHash" FROM users WHERE id = ?`,
+    userId
+  );
   if (!user) {
     res.status(404).json({ error: "Account not found." });
     return;
@@ -6645,9 +6990,10 @@ app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (r
 
   // Stop billing first: cancel any active Stripe subscriptions.
   if (process.env.STRIPE_SECRET_KEY) {
-    const subs = db
-      .prepare("SELECT stripe_subscription_id AS id FROM hired_workers WHERE user_id = ? AND stripe_subscription_id IS NOT NULL")
-      .all(userId);
+    const subs = await authStore.query(
+      "SELECT stripe_subscription_id AS id FROM hired_workers WHERE user_id = ? AND stripe_subscription_id IS NOT NULL",
+      userId
+    );
     if (subs.length > 0) {
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
       for (const sub of subs) {
@@ -6655,31 +7001,31 @@ app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (r
           await stripe.subscriptions.cancel(sub.id);
         } catch (error) {
           log.error("stripe_cancel_failed_on_delete", { userId, error: error?.message });
+          res.status(502).json({ error: "We couldn't stop billing safely. Your account was not deleted; please retry or contact support." });
+          return;
         }
       }
     }
   }
 
   // Remove uploaded files from disk.
-  const files = db.prepare("SELECT stored_name AS storedName FROM office_uploaded_files WHERE user_id = ?").all(userId);
+  const files = await authStore.query(
+    `SELECT stored_name AS "storedName" FROM office_uploaded_files WHERE user_id = ?`,
+    userId
+  );
   for (const file of files) {
     if (file.storedName) {
-      try {
-        await fs.unlink(path.join(uploadsDir, file.storedName));
-      } catch {
-        /* file already gone */
-      }
+      await objectStorage.delete({ userId, storedName: file.storedName });
     }
   }
 
   // Atomically delete every user-scoped row, then the account itself.
-  const wipe = db.transaction(() => {
+  await authStore.tx(async (transaction) => {
     for (const table of USER_SCOPED_TABLES) {
-      db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+      await transaction.execute(`DELETE FROM ${table} WHERE user_id = ?`, userId);
     }
-    db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    await transaction.execute("DELETE FROM users WHERE id = ?", userId);
   });
-  wipe();
 
   clearSessionCookie(res);
   log.info("account_deleted", { userId });
@@ -6712,10 +7058,8 @@ const server = app.listen(port, host, () => {
     const intervalMs = maraAutonomyIntervalMinutes * 60 * 1000;
     maraAutonomyTimer = setInterval(() => {
       void runScheduledMaraAutonomy();
-      void sendWeeklyDigests();
     }, intervalMs);
     void runScheduledMaraAutonomy();
-    void sendWeeklyDigests();
     log.info("autonomy_scheduler_enabled", { minutes: maraAutonomyIntervalMinutes });
   }
 });

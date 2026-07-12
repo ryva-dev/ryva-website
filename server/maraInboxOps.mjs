@@ -23,9 +23,9 @@ function mergeCampaignField(existingValue, nextValue) {
 
 export async function listThreadsNeedingBriefParse(store, userId, workerSlug, limit = DEFAULT_PARSE_LIMIT) {
   return store.query(
-    `SELECT id, gmail_thread_id AS gmailThreadId, brand_name AS brandName, contact_name AS contactName,
-            contact_email AS contactEmail, subject, snippet, body_text AS bodyText, received_at AS receivedAt,
-            urgency, thread_status AS threadStatus, parsed_at AS parsedAt, updated_at AS updatedAt
+    `SELECT id, gmail_thread_id AS "gmailThreadId", brand_name AS "brandName", contact_name AS "contactName",
+            contact_email AS "contactEmail", subject, snippet, body_text AS "bodyText", received_at AS "receivedAt",
+            urgency, thread_status AS "threadStatus", parsed_at AS "parsedAt", updated_at AS "updatedAt"
      FROM office_email_threads
      WHERE user_id = ? AND worker_slug = ? AND brand_related = 1
        AND (coalesce(body_text, '') != '' OR coalesce(snippet, '') != '')
@@ -40,8 +40,8 @@ export async function listThreadsNeedingBriefParse(store, userId, workerSlug, li
 
 export async function upsertCampaignFromParsedBrief(store, userId, workerSlug, thread, parsed, timestamp = new Date().toISOString()) {
   const existing = await store.queryOne(
-    `SELECT id, payment_amount AS paymentAmount, usage_rights AS usageRights, revision_limit AS revisionLimit,
-            deliverables_json AS deliverablesJson, draft_due_date AS draftDueDate, final_due_date AS finalDueDate
+    `SELECT id, payment_amount AS "paymentAmount", usage_rights AS "usageRights", revision_limit AS "revisionLimit",
+            deliverables_json AS "deliverablesJson", draft_due_date AS "draftDueDate", final_due_date AS "finalDueDate"
      FROM office_campaigns
      WHERE user_id = ? AND worker_slug = ? AND brand_name = ? AND contact_email = ?
      LIMIT 1`,
@@ -174,9 +174,9 @@ export async function parseUnparsedInboxThreads(store, userId, workerSlug, { fet
 
 export async function listCampaignsWithGaps(store, userId, workerSlug, limit = 10) {
   const rows = await store.query(
-    `SELECT id, brand_name AS brandName, campaign_name AS campaignName, campaign_status AS campaignStatus,
-            deliverables_json AS deliverablesJson, draft_due_date AS draftDueDate, final_due_date AS finalDueDate,
-            missing_fields_json AS missingFieldsJson, risk_flags_json AS riskFlagsJson, brief_text AS briefText
+    `SELECT id, brand_name AS "brandName", campaign_name AS "campaignName", campaign_status AS "campaignStatus",
+            deliverables_json AS "deliverablesJson", draft_due_date AS "draftDueDate", final_due_date AS "finalDueDate",
+            missing_fields_json AS "missingFieldsJson", risk_flags_json AS "riskFlagsJson", brief_text AS "briefText"
      FROM office_campaigns
      WHERE user_id = ? AND worker_slug = ?
      ORDER BY updated_at DESC
@@ -198,7 +198,7 @@ export async function listCampaignsWithGaps(store, userId, workerSlug, limit = 1
 export async function buildInboxOpsSummary(store, userId, workerSlug) {
   const campaigns = await listCampaignsWithGaps(store, userId, workerSlug, 12);
   const urgentThreads = await store.query(
-    `SELECT brand_name AS brandName, subject, snippet, thread_status AS threadStatus
+    `SELECT brand_name AS "brandName", subject, snippet, thread_status AS "threadStatus"
      FROM office_email_threads
      WHERE user_id = ? AND worker_slug = ? AND urgency = 'high'
      ORDER BY received_at DESC
@@ -208,7 +208,7 @@ export async function buildInboxOpsSummary(store, userId, workerSlug) {
   );
 
   const upcomingDeadlines = await store.query(
-    `SELECT brand_name AS brandName, campaign_name AS campaignName, draft_due_date AS draftDueDate, final_due_date AS finalDueDate
+    `SELECT brand_name AS "brandName", campaign_name AS "campaignName", draft_due_date AS "draftDueDate", final_due_date AS "finalDueDate"
      FROM office_campaigns
      WHERE user_id = ? AND worker_slug = ?
        AND (draft_due_date IS NOT NULL OR final_due_date IS NOT NULL)

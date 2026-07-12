@@ -457,7 +457,7 @@ const EMPTY_OVERLAYS: Overlays = {
 };
 
 type Tab = "today" | "assignments" | "reviews" | "workers" | "deliverables" | "calendar" | "handbook" | "settings" | "worker-onboarding";
-type WorkbenchSection = "desk" | "conversation" | "knowledge" | "history";
+type WorkbenchSection = "desk" | "conversation" | "intelligence" | "knowledge" | "history";
 const WORKER_DEPENDENT: Tab[] = ["today", "assignments", "reviews", "workers", "deliverables"];
 async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -481,7 +481,7 @@ function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null; 
   }
   if (parts[2] === "workers" && parts[3]) {
     const rawSection = parts[4] as WorkbenchSection | undefined;
-    const section: WorkbenchSection = rawSection && (["desk", "conversation", "knowledge", "history"] as WorkbenchSection[]).includes(rawSection)
+    const section: WorkbenchSection = rawSection && (["desk", "conversation", "intelligence", "knowledge", "history"] as WorkbenchSection[]).includes(rawSection)
       ? rawSection
       : "desk";
     return { tab: "workers", workerSlug: parts[3], section };
@@ -1758,12 +1758,14 @@ function ChatView({
 
 function WorkbenchTabNav({
   active,
-  onChange
+  onChange,
+  showIntelligence = false
 }: {
   active: WorkbenchSection;
   onChange: (section: WorkbenchSection) => void;
+  showIntelligence?: boolean;
 }) {
-  const items: WorkbenchSection[] = ["desk", "conversation", "knowledge", "history"];
+  const items: WorkbenchSection[] = ["desk", "conversation", ...(showIntelligence ? ["intelligence" as const] : []), "knowledge", "history"];
   return (
     <div className="ro-workbench-tabs" role="tablist" aria-label="Worker sections">
       {items.map((item) => (
@@ -2011,6 +2013,136 @@ function WorkerHistoryView({ desk }: { desk: WorkerDesk }) {
   );
 }
 
+type GrowthOpportunity = {
+  id: string;
+  brandName: string;
+  scoreTotal: number;
+  status: string;
+  opportunityPackage: {
+    opportunityThesis?: string;
+    creativeGap?: string;
+    confidence?: number;
+    evidence?: Array<{ basis: string; claim: string }>;
+  };
+  evidence?: Array<{ basis: string; claim: string }>;
+};
+
+type GrowthIntelligence = {
+  opportunities: GrowthOpportunity[];
+  metrics: {
+    revenueInfluenced: number;
+    positiveResponseRate: number;
+    pitchToDealConversion: number;
+    conceptsAccepted: number;
+    deals: number;
+    repeatDeals: number;
+  };
+  creativeAnalyses: Array<{
+    id: string;
+    assetRef: string;
+    assetType: string;
+    analysis: { assetSummary?: string; timestampedFeedback?: Array<{ at: string; observation: string; consequence: string; revision: string }> };
+  }>;
+};
+
+function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
+  const [intelligence, setIntelligence] = useState<GrowthIntelligence | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState({ opportunityId: "", revenueAmount: "", contacted: true, responded: false, conceptAccepted: false, hired: false, rehired: false });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = await officeJson<{ intelligence: GrowthIntelligence }>(`/api/office/workers/${workerSlug}/intelligence`);
+      setIntelligence(payload.intelligence);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load growth intelligence.");
+    } finally {
+      setLoading(false);
+    }
+  }, [workerSlug]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const saveOutcome = async () => {
+    if (saving) return;
+    setSaving(true);
+    setNotice(null);
+    try {
+      await officeJson(`/api/office/workers/${workerSlug}/intelligence/outcomes`, {
+        method: "POST",
+        body: JSON.stringify({ ...outcome, opportunityId: outcome.opportunityId || null, revenueAmount: Number(outcome.revenueAmount || 0), currency: "USD" })
+      });
+      setOutcome({ opportunityId: "", revenueAmount: "", contacted: true, responded: false, conceptAccepted: false, hired: false, rehired: false });
+      setNotice("Outcome saved. Mara will use it in future targeting and weekly briefs.");
+      await load();
+    } catch (saveError) {
+      setNotice(saveError instanceof Error ? saveError.message : "Could not save the outcome.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <p className="ro-blank">Loading Mara's growth intelligence…</p>;
+  if (error || !intelligence) return <p className="ro-review-notice">{error || "Growth intelligence is unavailable."}</p>;
+  const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+  return (
+    <div className="ro-review-layout">
+      <div>
+        <section className="ro-sec ro-sec-lead">
+          <div className="ro-sec-head"><h2>Creator revenue influenced</h2><span className="ro-sec-n">North Star</span></div>
+          <div className="ro-plain-list">
+            <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.revenueInfluenced || 0)}</strong><span>Recorded revenue connected to Mara's opportunities</span></div>
+            <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.positiveResponseRate || 0) * 100)}% positive-response rate</strong><span>{intelligence.metrics.deals || 0} deals · {intelligence.metrics.repeatDeals || 0} repeat deals</span></div>
+            <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.pitchToDealConversion || 0) * 100)}% pitch-to-deal conversion</strong><span>{intelligence.metrics.conceptsAccepted || 0} concepts accepted</span></div>
+          </div>
+        </section>
+
+        <section className="ro-sec">
+          <div className="ro-sec-head"><h2>Ranked opportunities</h2><span className="ro-sec-n">Creator-specific</span></div>
+          {intelligence.opportunities.length ? (
+            <div className="ro-plain-list">
+              {intelligence.opportunities.slice(0, 8).map((item) => (
+                <div className="ro-plain-row" key={item.id}>
+                  <strong>{item.brandName} · {item.scoreTotal}/100</strong>
+                  <p>{item.opportunityPackage.opportunityThesis || "Opportunity thesis still needs evidence."}</p>
+                  <div className="ro-handbook-meta"><span>Gap: {item.opportunityPackage.creativeGap || "Not established"}</span><span>Confidence: {item.opportunityPackage.confidence || 0}%</span></div>
+                  {(item.evidence || []).slice(0, 2).map((evidence, index) => <small key={`${item.id}-${index}`}>{sentenceCase(evidence.basis)}: {evidence.claim}</small>)}
+                </div>
+              ))}
+            </div>
+          ) : <p className="ro-blank">No evidence-qualified opportunities yet. Mara will not invent them.</p>}
+        </section>
+
+        <section className="ro-sec">
+          <div className="ro-sec-head"><h2>Recent creative reviews</h2><span className="ro-sec-n">Timestamped</span></div>
+          {intelligence.creativeAnalyses.length ? (
+            <div className="ro-plain-list">{intelligence.creativeAnalyses.slice(0, 5).map((item) => (
+              <div className="ro-plain-row" key={item.id}><strong>{item.analysis.assetSummary || item.assetRef}</strong><span>{item.analysis.timestampedFeedback?.length || 0} actionable timestamps</span></div>
+            ))}</div>
+          ) : <p className="ro-blank">No analyzed rough cuts or portfolio videos yet.</p>}
+        </section>
+      </div>
+
+      <aside className="ro-review-rail">
+        <section className="ro-sec ro-sec-lead">
+          <div className="ro-sec-head"><h2>Record an outcome</h2><span className="ro-sec-n">Teach Mara</span></div>
+          <label className="ro-field"><span>Opportunity</span><select value={outcome.opportunityId} onChange={(event) => setOutcome((current) => ({ ...current, opportunityId: event.target.value }))}><option value="">General / not linked</option>{intelligence.opportunities.map((item) => <option key={item.id} value={item.id}>{item.brandName}</option>)}</select></label>
+          <label className="ro-field"><span>Revenue influenced (USD)</span><input min="0" step="0.01" type="number" value={outcome.revenueAmount} onChange={(event) => setOutcome((current) => ({ ...current, revenueAmount: event.target.value }))} /></label>
+          {(["contacted", "responded", "conceptAccepted", "hired", "rehired"] as const).map((key) => <label className="ro-check" key={key}><input type="checkbox" checked={outcome[key]} onChange={(event) => setOutcome((current) => ({ ...current, [key]: event.target.checked }))} /><span>{sentenceCase(key.replace(/([A-Z])/g, " $1"))}</span></label>)}
+          <button className="r-btn r-btn-accent" type="button" disabled={saving} onClick={() => void saveOutcome()}>{saving ? "Saving…" : "Save outcome"}</button>
+          {notice ? <p className="ro-review-notice">{notice}</p> : null}
+        </section>
+      </aside>
+    </div>
+  );
+}
+
 function WorkerDeskView({
   activeWorker,
   busyId,
@@ -2113,6 +2245,12 @@ function WorkerDeskView({
         />
       </div>
     );
+  } else if (section === "intelligence" && isMaraWorker(activeWorker.slug)) {
+    body = (
+      <div className="ro-worker-page-main">
+        <WorkerIntelligenceView workerSlug={activeWorker.slug} />
+      </div>
+    );
   } else if (section === "history") {
     body = (
       <div className="ro-worker-page-main">
@@ -2173,7 +2311,7 @@ function WorkerDeskView({
       {manageNotice ? <p className="ro-review-notice">{manageNotice}</p> : null}
 
       <div className="ro-worker-page-layout">
-        <WorkbenchTabNav active={section} onChange={setSection} />
+        <WorkbenchTabNav active={section} onChange={setSection} showIntelligence={isMaraWorker(activeWorker.slug)} />
         {body}
       </div>
 

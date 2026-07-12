@@ -137,18 +137,21 @@
   },
   {
     "name": "Mara Vale",
-    "title": "UGC Production Coordinator",
+    "title": "Creator Growth and Creative Intelligence Manager",
     "department": "Talent Management",
     "experience": "2 yrs experience",
     "salary": "$40/mo",
     "status": "Available",
-    "description": "Mara keeps your UGC work organized behind the scenes. She checks brand emails, detects campaigns, breaks down briefs, tracks deadlines, creates tasks, flags missing details, prepares simple replies for approval, and finds a small number of aligned brand opportunities each day.",
+    "description": "Mara grows creator revenue by continuously researching brand demand, finding creator-specific creative gaps, building evidence-supported opportunity packages, improving pitches and content, and learning from commercial outcomes. She also runs the inbox, campaign, deadline, and approval systems that turn that intelligence into completed work.",
     "skills": [
       "Email intelligence",
       "Brief parsing",
       "Campaign tracking",
       "Deadline management",
-      "Brand opportunities"
+      "Brand opportunities",
+      "Creative performance intelligence",
+      "Creator-brand fit scoring",
+      "Revenue influence tracking"
     ],
     "imageUrl": "",
     "slug": "mara-vale",
@@ -180,7 +183,7 @@
         "Approval prep",
         "Junior-level brand research"
       ],
-      "summaryTitle": "UGC Production Coordinator"
+    "summaryTitle": "Creator Growth and Creative Intelligence Manager"
     },
     "originalSalary": "$410/mo",
     "dealLabel": "New employee deal"

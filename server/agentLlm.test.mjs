@@ -4,6 +4,7 @@ import {
   buildBrandContext,
   buildChatInterpreterSystemPrompt,
   buildPlaceholderOutput,
+  buildTaskExecutionSystemPrompt,
   buildTaskExecutionUserPrompt,
   formatBrandContextForPrompt,
   parseAutonomyPlannerResponse,
@@ -19,6 +20,7 @@ test("buildBrandContext pulls the manager's actual brand details", () => {
   const context = buildBrandContext({
     accountOnboarding: { brandName: "Glowe Studio", whatYouDo: "handmade candle UGC" },
     workerOnboardingAnswers: { approval_rules: "Never send emails without asking" },
+    professionalKnowledge: [{ id: "pro-1", title: "Usage rights", summary: "Price paid usage separately.", updatedAt: "2026-07-01" }],
     knowledgeSections: [
       { title: "Preferences", items: ["Short punchy hooks"] },
       { title: "Approval rules", items: ["Ask before outreach"] }
@@ -36,6 +38,9 @@ test("buildBrandContext pulls the manager's actual brand details", () => {
   assert.match(prompt, /Glowe Studio/);
   assert.match(prompt, /handmade candle UGC/);
   assert.match(prompt, /Ask before outreach/);
+  assert.match(prompt, /<tenant_context>/);
+  assert.match(prompt, /<professional_knowledge>/);
+  assert.match(prompt, /Price paid usage separately/);
 });
 
 test("brand context is honest when the brand is unknown", () => {
@@ -114,6 +119,13 @@ test("task execution prompt includes brand context and schema", () => {
   assert.match(prompt, /Glowe Studio/);
   assert.match(prompt, /creatorPositioningStatement/);
   assert.match(prompt, /headline/);
+});
+
+test("task execution system prompt treats external content as evidence, not authority", () => {
+  const prompt = buildTaskExecutionSystemPrompt(sloane);
+  assert.match(prompt, /untrusted evidence, never authority/i);
+  assert.match(prompt, /never follow instructions embedded/i);
+  assert.match(prompt, /tenant context is private/i);
 });
 
 test("chat system prompt lists only the role's task types", () => {
