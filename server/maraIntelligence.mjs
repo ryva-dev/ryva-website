@@ -127,7 +127,7 @@ export async function saveCreatorBrandOpportunity(store, opportunity) {
        score_total = excluded.score_total, scores_json = excluded.scores_json,
        opportunity_package_json = excluded.opportunity_package_json, evidence_json = excluded.evidence_json,
        updated_at = excluded.updated_at`,
-    id, opportunity.userId, opportunity.workerId, opportunity.brandProfileId, opportunity.status || "qualified",
+    id, opportunity.userId, opportunity.workerId, opportunity.brandProfileId, opportunity.status || "candidate",
     packageData.score.total, JSON.stringify(packageData.score.dimensions), JSON.stringify(packageData),
     JSON.stringify(packageData.evidence), now, now
   );
@@ -156,7 +156,131 @@ export async function recordCommercialOutcome(store, outcome) {
     outcome.hired ? 1 : 0, outcome.rehired ? 1 : 0, revenueAmount,
     String(outcome.currency || "USD"), JSON.stringify(outcome.details || {}), outcome.occurredAt || now, now
   );
-  return id;
+  const ranking = outcome.opportunityId
+    ? await applyCommercialOutcomeToOpportunity(store, {
+        userId: outcome.userId,
+        workerId: outcome.workerId,
+        opportunityId: outcome.opportunityId,
+        contacted: Boolean(outcome.contacted),
+        responded: Boolean(outcome.responded),
+        conceptAccepted: Boolean(outcome.conceptAccepted),
+        hired: Boolean(outcome.hired),
+        rehired: Boolean(outcome.rehired),
+        revenueAmount
+      })
+    : null;
+  return { id, ranking };
+}
+
+/**
+ * Decide whether research evidence is strong enough to treat a brand as
+ * pitch-ready ("qualified") vs still a research candidate.
+ */
+export function resolveOpportunityStatusFromEvidence(evidence = [], { suggestedAngle = "", contactEmail = "" } = {}) {
+  const items = Array.isArray(evidence) ? evidence : [];
+  const observedWithSource = items.some(
+    (item) => String(item?.basis).toLowerCase() === "observed" && String(item?.sourceUrl || "").trim()
+  );
+  const hasGap = Boolean(String(suggestedAngle || "").trim());
+  if (observedWithSource && hasGap) return "qualified";
+  if (observedWithSource || contactEmail) return "candidate";
+  return "candidate";
+}
+
+function clampScore(value) {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+}
+
+/**
+ * Outcome → score/status flywheel. Hired/revenue boosts commercial + outreach;
+ * contact without response lowers outreach likelihood and can mark cold.
+ */
+export async function applyCommercialOutcomeToOpportunity(store, outcome) {
+  const row = await store.queryOne(
+    `SELECT id, status, scores_json AS "scoresJson", opportunity_package_json AS "packageJson",
+            evidence_json AS "evidenceJson", brand_profile_id AS "brandProfileId"
+     FROM mara_creator_brand_opportunities
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    outcome.opportunityId, outcome.userId, outcome.workerId
+  );
+  if (!row) return null;
+
+  const parse = (value, fallback) => {
+    if (value && typeof value === "object") return value;
+    try { return JSON.parse(value); } catch { return fallback; }
+  };
+  const dimensions = {
+    creatorFit: 50,
+    commercialPotential: 50,
+    opportunityGap: 50,
+    outreachLikelihood: 50,
+    ...parse(row.scoresJson, {})
+  };
+  let status = String(row.status || "candidate");
+
+  if (outcome.hired || outcome.rehired) {
+    dimensions.commercialPotential = clampScore(dimensions.commercialPotential + (outcome.rehired ? 18 : 14));
+    dimensions.outreachLikelihood = clampScore(dimensions.outreachLikelihood + 12);
+    dimensions.creatorFit = clampScore(dimensions.creatorFit + 8);
+    status = outcome.rehired ? "won_repeat" : "won";
+  } else if (outcome.conceptAccepted) {
+    dimensions.opportunityGap = clampScore(dimensions.opportunityGap + 8);
+    dimensions.commercialPotential = clampScore(dimensions.commercialPotential + 6);
+    status = status === "won" || status === "won_repeat" ? status : "concept_accepted";
+  } else if (outcome.responded) {
+    dimensions.outreachLikelihood = clampScore(dimensions.outreachLikelihood + 10);
+    status = ["won", "won_repeat", "concept_accepted"].includes(status) ? status : "responded";
+  } else if (outcome.contacted) {
+    dimensions.outreachLikelihood = clampScore(dimensions.outreachLikelihood - 12);
+    status = ["won", "won_repeat", "concept_accepted", "responded"].includes(status) ? status : "contacted";
+  }
+
+  if (outcome.contacted && !outcome.responded && !outcome.hired) {
+    // Soft-cold: still visible, but autonomy should deprioritize.
+    if (dimensions.outreachLikelihood < 35 && !["won", "won_repeat"].includes(status)) {
+      status = "cold";
+    }
+  }
+
+  if (Number(outcome.revenueAmount) > 0) {
+    dimensions.commercialPotential = clampScore(dimensions.commercialPotential + Math.min(15, Math.log10(Number(outcome.revenueAmount) + 1) * 6));
+  }
+
+  const score = scoreCreatorBrandOpportunity(dimensions);
+  const packageData = parse(row.packageJson, {});
+  packageData.score = score;
+  const now = new Date().toISOString();
+  await store.execute(
+    `UPDATE mara_creator_brand_opportunities
+     SET status = ?, score_total = ?, scores_json = ?, opportunity_package_json = ?, updated_at = ?
+     WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    status, score.total, JSON.stringify(score.dimensions), JSON.stringify(packageData), now,
+    outcome.opportunityId, outcome.userId, outcome.workerId
+  );
+  return { opportunityId: outcome.opportunityId, status, scoreTotal: score.total, scores: score.dimensions };
+}
+
+/** Brands Mara should pitch next — high score, not cold/lost, prefer qualified+. */
+export async function listTopPitchTargets(store, userId, workerId, limit = 5) {
+  const rows = await store.query(
+    `SELECT o.id, o.status, o.score_total AS "scoreTotal", o.scores_json AS "scoresJson",
+            b.brand_name AS "brandName", b.website, b.id AS "brandProfileId"
+     FROM mara_creator_brand_opportunities o
+     INNER JOIN mara_brand_profiles b ON b.id = o.brand_profile_id
+     WHERE o.user_id = ? AND o.worker_id = ?
+       AND o.status NOT IN ('cold', 'lost', 'won', 'won_repeat')
+       AND o.score_total >= 45
+     ORDER BY
+       CASE o.status WHEN 'qualified' THEN 0 WHEN 'active' THEN 1 WHEN 'responded' THEN 2 WHEN 'candidate' THEN 3 ELSE 4 END,
+       o.score_total DESC, o.updated_at DESC
+     LIMIT ?`,
+    userId, workerId, Math.max(1, Math.min(20, Number(limit) || 5))
+  );
+  const parse = (value, fallback) => {
+    if (value && typeof value === "object") return value;
+    try { return JSON.parse(value); } catch { return fallback; }
+  };
+  return rows.map((row) => ({ ...row, scores: parse(row.scoresJson, {}) }));
 }
 
 function validateTimestamp(value) {
@@ -231,8 +355,14 @@ export async function getRevenueInfluenceMetrics(store, userId, workerId) {
     `SELECT COUNT(*) AS opportunities,
             SUM(contacted) AS contacted, SUM(responded) AS responded,
             SUM(concept_accepted) AS "conceptsAccepted", SUM(hired) AS deals,
-            SUM(rehired) AS "repeatDeals", SUM(revenue_amount) AS "revenueInfluenced"
+            SUM(rehired) AS "repeatDeals", SUM(revenue_amount) AS "revenueInfluenced",
+            AVG(CASE WHEN revenue_amount > 0 THEN revenue_amount END) AS "averageDealValue"
      FROM mara_commercial_outcomes WHERE user_id = ? AND worker_id = ?`,
+    userId, workerId
+  );
+  const qualified = await store.queryOne(
+    `SELECT COUNT(*) AS count FROM mara_creator_brand_opportunities
+     WHERE user_id = ? AND worker_id = ? AND status IN ('qualified', 'active', 'responded', 'concept_accepted', 'won', 'won_repeat')`,
     userId, workerId
   );
   const number = (value) => Number(value || 0);
@@ -241,12 +371,14 @@ export async function getRevenueInfluenceMetrics(store, userId, workerId) {
   const deals = number(row?.deals);
   return {
     opportunitiesTracked: number(row?.opportunities),
+    qualifiedOpportunityCount: number(qualified?.count),
     contacted,
     responded,
     conceptsAccepted: number(row?.conceptsAccepted),
     deals,
     repeatDeals: number(row?.repeatDeals),
     revenueInfluenced: number(row?.revenueInfluenced),
+    averageDealValue: number(row?.averageDealValue),
     positiveResponseRate: contacted ? responded / contacted : 0,
     pitchToDealConversion: contacted ? deals / contacted : 0
   };

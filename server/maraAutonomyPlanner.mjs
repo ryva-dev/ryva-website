@@ -162,7 +162,10 @@ export function planMaraAutonomyActions(context) {
       brandId: brand.id,
       brandName: brand.brandName,
       kind: "personalized_pitch",
-      researchItemId: brand.researchItemId ?? null
+      researchItemId: brand.researchItemId ?? null,
+      opportunityId: brand.opportunityId ?? null,
+      scoreTotal: brand.scoreTotal ?? null,
+      source: brand.source || "worker_brands"
     });
   }
 
@@ -258,6 +261,7 @@ export function buildAutonomyPlannerContext({
   brandResearchRemaining = 0,
   brands = [],
   dueRecurring = [],
+  growthPitchTargets = [],
   hasConnectedEmail = false,
   integrations = [],
   leadCount = 0,
@@ -285,12 +289,36 @@ export function buildAutonomyPlannerContext({
     return isArtifactStale(brand.lastContentIdeasAt, 24 * 7);
   });
 
-  const brandsNeedingPitches = brands.filter((brand) => {
+  const stalePitchBrands = brands.filter((brand) => {
     if (!brand.lastPitchAt) {
       return true;
     }
     return isArtifactStale(brand.lastPitchAt, 24 * 14);
   });
+
+  // Prefer Mara-ranked opportunities when available; fall back to raw worker_brands.
+  const rankedTargets = Array.isArray(growthPitchTargets) ? growthPitchTargets : [];
+  const brandsNeedingPitches = rankedTargets.length
+    ? rankedTargets.map((target) => {
+        const matched = brands.find(
+          (brand) =>
+            String(brand.brandName || "").toLowerCase() === String(target.brandName || "").toLowerCase() ||
+            (brand.website && target.website && String(brand.website).toLowerCase() === String(target.website).toLowerCase())
+        );
+        return {
+          id: matched?.id || target.brandProfileId,
+          brandName: target.brandName,
+          researchItemId: matched?.researchItemId ?? null,
+          lastPitchAt: matched?.lastPitchAt ?? null,
+          opportunityId: target.id,
+          scoreTotal: target.scoreTotal,
+          source: "mara_opportunity"
+        };
+      }).filter((brand) => {
+        if (!brand.lastPitchAt) return true;
+        return isArtifactStale(brand.lastPitchAt, 24 * 14);
+      })
+    : stalePitchBrands;
 
   const runnableApprovedTasks = tasks
     .filter((task) => task.status === "approved")

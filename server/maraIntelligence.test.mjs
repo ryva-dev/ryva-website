@@ -42,11 +42,54 @@ test("commercial outcomes calculate revenue-influenced North Star metrics", asyn
   const metrics = await getRevenueInfluenceMetrics(store, "creator-1", "mara-vale");
   assert.equal(metrics.revenueInfluenced, 1200);
   assert.equal(metrics.pitchToDealConversion, 1);
+  assert.equal(metrics.averageDealValue, 1200);
+  const ranked = await store.queryOne(
+    `SELECT status, score_total AS "scoreTotal" FROM mara_creator_brand_opportunities WHERE id = ?`,
+    opportunity.id
+  );
+  assert.equal(ranked.status, "won");
+  assert.ok(ranked.scoreTotal >= opportunity.score.total);
   await assert.rejects(
     recordCommercialOutcome(store, { userId: "other-creator", workerId: "mara-vale", opportunityId: opportunity.id, contacted: true }),
     /not found for this creator/
   );
   await store.close();
+});
+
+test("contact without response lowers outreach score and can mark opportunity cold", async () => {
+  const store = createStore({ databasePath: ":memory:" });
+  await initMaraIntelligence(store);
+  const brand = await saveBrandProfile(store, {
+    brandKey: "quiet-brand", brandName: "Quiet Brand",
+    evidence: [{ basis: "observed", claim: "Public site", sourceUrl: "https://example.com" }]
+  });
+  const opportunity = await saveCreatorBrandOpportunity(store, {
+    userId: "creator-1", workerId: "mara-vale", brandProfileId: brand.id, status: "qualified",
+    scores: { creatorFit: 70, commercialPotential: 50, opportunityGap: 60, outreachLikelihood: 40 },
+    opportunityThesis: "Possible fit", creativeGap: "Demo gap",
+    evidence: [{ basis: "observed", claim: "Site exists", sourceUrl: "https://example.com" }, { basis: "hypothesis", claim: "May hire" }]
+  });
+  await recordCommercialOutcome(store, { userId: "creator-1", workerId: "mara-vale", opportunityId: opportunity.id, contacted: true, responded: false });
+  const row = await store.queryOne(`SELECT status, scores_json AS "scoresJson" FROM mara_creator_brand_opportunities WHERE id = ?`, opportunity.id);
+  const scores = JSON.parse(row.scoresJson);
+  assert.ok(scores.outreachLikelihood < 40);
+  assert.equal(row.status, "cold");
+  const { listTopPitchTargets } = await import("./maraIntelligence.mjs");
+  const targets = await listTopPitchTargets(store, "creator-1", "mara-vale", 5);
+  assert.equal(targets.some((entry) => entry.id === opportunity.id), false);
+  await store.close();
+});
+
+test("resolveOpportunityStatusFromEvidence requires observed source + gap for qualified", async () => {
+  const { resolveOpportunityStatusFromEvidence } = await import("./maraIntelligence.mjs");
+  assert.equal(
+    resolveOpportunityStatusFromEvidence([{ basis: "observed", claim: "Ad found", sourceUrl: "https://x.com" }], { suggestedAngle: "Beginner diary" }),
+    "qualified"
+  );
+  assert.equal(
+    resolveOpportunityStatusFromEvidence([{ basis: "inferred", claim: "Seems related" }], { suggestedAngle: "" }),
+    "candidate"
+  );
 });
 
 test("creative analysis stores timestamped consequences and remains tenant scoped", async () => {

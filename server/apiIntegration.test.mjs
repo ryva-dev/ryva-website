@@ -21,22 +21,26 @@ test("authenticated upload is tenant-scoped and account deletion erases the obje
   const root = await mkdtemp(path.join(os.tmpdir(), "ryva-api-"));
   const port = 19000 + Math.floor(Math.random() * 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
+  const env = {
+    ...process.env,
+    NODE_ENV: "development",
+    PORT: String(port),
+    HOST: "127.0.0.1",
+    APP_URL: baseUrl,
+    DATABASE_PATH: path.join(root, "app.db"),
+    STORAGE_ROOT: root,
+    OBJECT_STORAGE_DRIVER: "local",
+    MARA_AUTONOMY_INTERVAL_MINUTES: "0",
+    MAIL_DELIVERY_MODE: "log",
+    STRIPE_SECRET_KEY: "sk_test_ryva_integration",
+    STRIPE_WEBHOOK_SECRET: "whsec_ryva_integration"
+  };
+  // Integration tests must use isolated SQLite, not the developer's Postgres .env.
+  // Empty string blocks loadEnv from filling DATABASE_URL from the project .env.
+  env.DATABASE_URL = "";
   const child = spawn(process.execPath, ["server/index.mjs"], {
     cwd: path.resolve("."),
-    env: {
-      ...process.env,
-      NODE_ENV: "development",
-      PORT: String(port),
-      HOST: "127.0.0.1",
-      APP_URL: baseUrl,
-      DATABASE_PATH: path.join(root, "app.db"),
-      STORAGE_ROOT: root,
-      OBJECT_STORAGE_DRIVER: "local",
-      MARA_AUTONOMY_INTERVAL_MINUTES: "0",
-      MAIL_DELIVERY_MODE: "log",
-      STRIPE_SECRET_KEY: "sk_test_ryva_integration",
-      STRIPE_WEBHOOK_SECRET: "whsec_ryva_integration"
-    },
+    env,
     stdio: ["ignore", "pipe", "pipe"]
   });
   let serverErrors = "";

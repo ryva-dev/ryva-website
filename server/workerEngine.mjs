@@ -17,6 +17,7 @@ import {
 import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
+import { initMaraIntelligence, listTopPitchTargets } from "./maraIntelligence.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -2228,8 +2229,12 @@ function executeGeneralInternalTask(context) {
 function executeWeeklyGrowthIntelligenceBriefTask(context) {
   const opportunities = Array.isArray(context.growthIntelligence?.opportunities) ? context.growthIntelligence.opportunities : [];
   const metrics = context.growthIntelligence?.metrics || {};
-  const qualified = opportunities.filter((entry) => ["qualified", "new", "active"].includes(String(entry.status))).slice(0, 5);
-  const deprioritize = opportunities.filter((entry) => Number(entry.scoreTotal || 0) < 55).slice(0, 2);
+  const qualified = opportunities
+    .filter((entry) => ["qualified", "active", "responded", "concept_accepted"].includes(String(entry.status)))
+    .slice(0, 5);
+  const deprioritize = opportunities
+    .filter((entry) => Number(entry.scoreTotal || 0) < 55 || ["cold", "candidate", "lost"].includes(String(entry.status)))
+    .slice(0, 2);
   const evidence = qualified.flatMap((entry) => entry.evidence || []).slice(0, 20);
   const conceptTerritories = qualified.slice(0, 3).map((entry) => ({
     brandName: entry.brandName,
@@ -2263,7 +2268,7 @@ function executeWeeklyGrowthIntelligenceBriefTask(context) {
     content: buildRichContent([
       { title: "Highest-fit opportunities", value: structuredContent.highFitBrands.length ? structuredContent.highFitBrands.map((item) => `${item.brandName} — ${item.score}/100 — ${item.opportunityThesis || "Opportunity thesis needs refinement"}`) : ["No evidence-qualified opportunities yet. Research is the next required action."] },
       { title: "Concept territories", value: conceptTerritories.length ? conceptTerritories.map((item) => `${item.brandName}: ${item.creativeGap}`) : ["No evidence-supported concept territory yet."] },
-      { title: "Commercial outcomes", value: [`Revenue influenced: ${Number(metrics.revenueInfluenced || 0)}`, `Positive-response rate: ${Math.round(Number(metrics.positiveResponseRate || 0) * 100)}%`, `Pitch-to-deal conversion: ${Math.round(Number(metrics.pitchToDealConversion || 0) * 100)}%`] },
+      { title: "Commercial outcomes", value: [`Revenue influenced: ${Number(metrics.revenueInfluenced || 0)}`, `Avg deal value: ${Number(metrics.averageDealValue || 0)}`, `Qualified opportunities: ${Number(metrics.qualifiedOpportunityCount || 0)}`, `Positive-response rate: ${Math.round(Number(metrics.positiveResponseRate || 0) * 100)}%`, `Pitch-to-deal conversion: ${Math.round(Number(metrics.pitchToDealConversion || 0) * 100)}%`] },
       { title: "Evidence limitations", value: structuredContent.unknowns }
     ]),
     outputType: "growth_intelligence_brief",
@@ -3503,12 +3508,20 @@ export async function runMaraAutonomyCycle({
   };
 
   const latestTrendSnapshot = await getLatestTrendSnapshot(store, userId, workerId);
+  let growthPitchTargets = [];
+  try {
+    await initMaraIntelligence(store);
+    growthPitchTargets = await listTopPitchTargets(store, userId, workerId, 8);
+  } catch {
+    growthPitchTargets = [];
+  }
   const plannerContext = buildAutonomyPlannerContext({
     approvals: (await listApprovalRequests(store, userId, workerId)).filter((entry) => entry.status === "pending"),
     blockedTasks: (await listWorkerTasksForUserWorker(store, userId, workerId)).filter((entry) => entry.status === "blocked"),
     brandResearchRemaining: Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - await countBrandResearchItemsToday(store, userId, workerId)),
     brands: await listWorkerBrands(store, userId, workerId),
     dueRecurring: (await listRecurringResponsibilities(store, userId, workerId)).filter((entry) => isRecurringDue(entry)),
+    growthPitchTargets,
     hasConnectedEmail: hasConnectedEmailIntegration(integrations),
     integrations,
     leadCount: await countOfficeLeads(store, userId, workerId),

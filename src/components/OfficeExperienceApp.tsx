@@ -2073,12 +2073,16 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
     setSaving(true);
     setNotice(null);
     try {
-      await officeJson(`/api/office/workers/${workerSlug}/intelligence/outcomes`, {
+      const payload = await officeJson<{ ok: boolean; ranking?: { status: string; scoreTotal: number } | null }>(`/api/office/workers/${workerSlug}/intelligence/outcomes`, {
         method: "POST",
         body: JSON.stringify({ ...outcome, opportunityId: outcome.opportunityId || null, revenueAmount: Number(outcome.revenueAmount || 0), currency: "USD" })
       });
       setOutcome({ opportunityId: "", revenueAmount: "", contacted: true, responded: false, conceptAccepted: false, hired: false, rehired: false });
-      setNotice("Outcome saved. Mara will use it in future targeting and weekly briefs.");
+      setNotice(
+        payload.ranking
+          ? `Outcome saved. Rank updated to ${payload.ranking.scoreTotal}/100 (${payload.ranking.status.replace(/_/g, " ")}). Mara will prefer higher-scoring brands in future pitches.`
+          : "Outcome saved. Link it to an opportunity next time so Mara can re-rank targeting."
+      );
       await load();
     } catch (saveError) {
       setNotice(saveError instanceof Error ? saveError.message : "Could not save the outcome.");
@@ -2109,7 +2113,7 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
             <div className="ro-plain-list">
               {intelligence.opportunities.slice(0, 8).map((item) => (
                 <div className="ro-plain-row" key={item.id}>
-                  <strong>{item.brandName} · {item.scoreTotal}/100</strong>
+                  <strong>{item.brandName} · {item.scoreTotal}/100 · {sentenceCase(String(item.status || "candidate").replace(/_/g, " "))}</strong>
                   <p>{item.opportunityPackage.opportunityThesis || "Opportunity thesis still needs evidence."}</p>
                   <div className="ro-handbook-meta"><span>Gap: {item.opportunityPackage.creativeGap || "Not established"}</span><span>Confidence: {item.opportunityPackage.confidence || 0}%</span></div>
                   {(item.evidence || []).slice(0, 2).map((evidence, index) => <small key={`${item.id}-${index}`}>{sentenceCase(evidence.basis)}: {evidence.claim}</small>)}

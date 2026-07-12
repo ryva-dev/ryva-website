@@ -65,7 +65,7 @@ import { initProfessionalIntelligence } from "./professionalIntelligence.mjs";
 import { appendActionAuditEvent, evaluateActionPolicy, initActionAudit } from "./actionPolicy.mjs";
 import { validateTenantUpload } from "./uploadSecurity.mjs";
 import { claimExternalAction, completeExternalAction, initExternalActions, markExternalActionUncertain } from "./externalActions.mjs";
-import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, recordCommercialOutcome, saveBrandProfile, saveCreatorBrandOpportunity, saveCreativeAnalysis } from "./maraIntelligence.mjs";
+import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, listTopPitchTargets, recordCommercialOutcome, resolveOpportunityStatusFromEvidence, saveBrandProfile, saveCreatorBrandOpportunity, saveCreativeAnalysis } from "./maraIntelligence.mjs";
 
 function logCaught(message, error, fields = {}) {
   const errMessage = error instanceof Error ? error.message : String(error);
@@ -2231,8 +2231,12 @@ async function syncMaraGrowthIntelligenceFromResearch(userId, workerSlug) {
       profile: { description: brand.identitySummary || "", currentResearchScope: "Public brand identity and creator-fit discovery" },
       evidence: [evidence[0]]
     });
+    const status = resolveOpportunityStatusFromEvidence(evidence, {
+      suggestedAngle: brand.suggestedAngle || "",
+      contactEmail: brand.contactEmail || ""
+    });
     await saveCreatorBrandOpportunity(professionalStore, {
-      userId, workerId: workerSlug, brandProfileId: profile.id, status: "qualified",
+      userId, workerId: workerSlug, brandProfileId: profile.id, status,
       scores: {
         creatorFit: 70 + (brand.vibeNotes ? 10 : 0) + (brand.suggestedAngle ? 5 : 0),
         commercialPotential: 45,
@@ -6836,7 +6840,7 @@ app.post("/api/office/workers/:slug/intelligence/outcomes", assertOrigin, requir
     return;
   }
   try {
-    const id = await recordCommercialOutcome(professionalStore, {
+    const recorded = await recordCommercialOutcome(professionalStore, {
       userId: req.user.id,
       workerId: workerSlug,
       opportunityId: req.body?.opportunityId || null,
@@ -6853,9 +6857,16 @@ app.post("/api/office/workers/:slug/intelligence/outcomes", assertOrigin, requir
     await authStore.execute(
       `INSERT INTO office_activity_logs (id, user_id, worker_slug, action, module_name, result, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      randomUUID(), req.user.id, workerSlug, "Recorded a commercial outcome.", "Growth intelligence", id, nowIso()
+      randomUUID(), req.user.id, workerSlug, "Recorded a commercial outcome.", "Growth intelligence", recorded.id, nowIso()
     );
-    res.status(201).json({ ok: true, id, metrics: (await getMaraGrowthIntelligenceSnapshot(professionalStore, req.user.id, workerSlug)).metrics });
+    const snapshot = await getMaraGrowthIntelligenceSnapshot(professionalStore, req.user.id, workerSlug);
+    res.status(201).json({
+      ok: true,
+      id: recorded.id,
+      ranking: recorded.ranking,
+      metrics: snapshot.metrics,
+      intelligence: snapshot
+    });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not record commercial outcome." });
   }
