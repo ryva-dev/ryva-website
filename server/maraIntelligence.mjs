@@ -295,7 +295,8 @@ export async function listTopPitchTargets(store, userId, workerId, limit = 5) {
     `SELECT o.id, o.status, o.score_total AS "scoreTotal", o.scores_json AS "scoresJson",
             COALESCE(pb.brand_name, b.brand_name) AS "brandName",
             COALESCE(pb.website, b.website) AS website,
-            COALESCE(o.public_brand_id, o.brand_profile_id) AS "brandProfileId"
+            COALESCE(o.public_brand_id, o.brand_profile_id) AS "brandProfileId",
+            o.public_brand_id AS "publicBrandId"
      FROM mara_creator_brand_opportunities o
      LEFT JOIN mara_public_brands pb ON pb.id = COALESCE(o.public_brand_id, o.brand_profile_id)
      LEFT JOIN mara_brand_profiles b ON b.id = o.brand_profile_id
@@ -312,7 +313,32 @@ export async function listTopPitchTargets(store, userId, workerId, limit = 5) {
     if (value && typeof value === "object") return value;
     try { return JSON.parse(value); } catch { return fallback; }
   };
-  return rows.map((row) => ({ ...row, scores: parse(row.scoresJson, {}) }));
+  const { findBestOutreachContact } = await import("./maraContactDiscovery.mjs");
+  const enriched = [];
+  for (const row of rows) {
+    const publicBrandId = row.publicBrandId || row.brandProfileId;
+    let outreachContact = null;
+    if (publicBrandId) {
+      try {
+        outreachContact = await findBestOutreachContact(store, userId, workerId, publicBrandId);
+      } catch {
+        outreachContact = null;
+      }
+    }
+    enriched.push({
+      ...row,
+      scores: parse(row.scoresJson, {}),
+      publicBrandId,
+      outreachReady: Boolean(outreachContact?.value?.includes("@")),
+      contactEmail: outreachContact?.value || null,
+      outreachContact: outreachContact
+        ? { id: outreachContact.id, value: outreachContact.value, contactType: outreachContact.contactType }
+        : null
+    });
+  }
+  return enriched.sort(
+    (left, right) => Number(Boolean(right.outreachReady)) - Number(Boolean(left.outreachReady))
+  );
 }
 
 function validateTimestamp(value) {

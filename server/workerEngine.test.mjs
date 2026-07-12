@@ -536,7 +536,7 @@ test("runMaraTask marks task blocked when required context is missing", async ()
   });
 
   const result = await runMaraTask({ store: db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
-  assert.match(result.blockerReason, /requires pasted brand message text/i);
+  assert.match(result.blockerReason, /requires brand message text/i);
   assert.equal(db.prepare("SELECT status FROM worker_tasks WHERE id = ?").get(created.id).status, "blocked");
 });
 

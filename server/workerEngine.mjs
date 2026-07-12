@@ -17,16 +17,16 @@ import {
 import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
-import { initMaraIntelligence, listTopPitchTargets } from "./maraIntelligence.mjs";
+import { initMaraIntelligence, listTopPitchTargets, getRevenueInfluenceMetrics } from "./maraIntelligence.mjs";
 import { inferAndRecordCommercialOutcomes } from "./maraOutcomeInference.mjs";
 import { deepResearchBrand } from "./maraResearchProviders.mjs";
 import { createOrUpdateOpportunityFromResearch } from "./maraOpportunityPackages.mjs";
 import { getCreatorIntelligenceProfile } from "./maraCreatorProfile.mjs";
-import { findBestOutreachContact, discoverAndPersistBrandContacts } from "./maraContactDiscovery.mjs";
-import { buildConceptFromGap, saveConceptIfNovel, markHypothesisClearly } from "./maraConceptEngine.mjs";
-import { listDueOutreachSequences, advanceOutreachSequenceAfterDraft, startOutreachSequence } from "./maraOutreachSequences.mjs";
+import { findBestOutreachContact, discoverAndPersistBrandContacts, findOutreachContactByBrandName } from "./maraContactDiscovery.mjs";
+import { buildConceptFromGap, saveConceptIfNovel, markHypothesisClearly, listCreativeConcepts } from "./maraConceptEngine.mjs";
+import { listDueOutreachSequences, prepareDueFollowUpDraft, startOutreachSequence, stopOutreachSequence, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
 import { EVIDENCE_KINDS, createEvidenceItem } from "./maraEvidence.mjs";
-import { assertWithinBrandResearchLimit } from "./maraAutonomyLimits.mjs";
+import { assertWithinBrandResearchLimit, assertWithinOutreachDraftLimit } from "./maraAutonomyLimits.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -1654,55 +1654,121 @@ async function executePitchTemplateTask(context) {
 
 function executeFollowUpSequenceTask(context) {
   const followUpModule = getKnowledgeModule(context, "follow_ups");
+  const brandLabel = String(context.currentTask?.title || "")
+    .replace(/^Follow-up for\s+/i, "")
+    .trim() || "Brand";
+  const description = String(context.currentTask?.description || "");
+  const subjectMatch = description.match(/Subject hint:\s*(.+?)(?:\.|$)/i);
+  const subject = subjectMatch?.[1]?.trim() || `Quick follow-up — ${brandLabel}`;
+  const emailMatch = description.match(/follow-up to\s+(\S+@\S+)/i);
+  const contactEmail = emailMatch?.[1] || null;
+  const body = contactEmail
+    ? `Hi — wanted to bump this in case it got buried. Happy to send a few quick concept angles for ${brandLabel} if useful.`
+    : `Wanted to bump this in case it got buried. Happy to send a few quick concept angles if useful.`;
   const structuredContent = {
-    followUp1: "Wanted to bump this in case it got buried. Happy to send a few quick concept angles if useful.",
-    followUp2: "Circling back once more in case creator content is still on your plate this month. I can keep it simple and tailored to your current product focus.",
-    finalCloseLoop: "I'll close the loop here for now, but if creator content comes up again later I'd be happy to revisit it.",
-    timingRecommendations: getStructuredList(followUpModule, "cadence", ["Send follow-up 1 after 3 days", "Send follow-up 2 after 7 days", "Use the final closeout after 14 days"]),
+    brandName: brandLabel,
+    contactEmail,
+    emailPitch: body,
+    subjectLineOptions: [subject],
+    followUp1: body,
+    followUp2: `Circling back once more in case creator content for ${brandLabel} is still on your plate this month.`,
+    finalCloseLoop: `I'll close the loop here for now, but if creator content for ${brandLabel} comes up again later I'd be happy to revisit it.`,
+    timingRecommendations: getStructuredList(followUpModule, "cadence", [
+      "Send follow-up 1 after 3 days",
+      "Send follow-up 2 after 7 days",
+      "Use the final closeout after 14 days"
+    ]),
     whenNotToFollowUp: ["If the brand already said no", "If legal or payment questions are unresolved", "If the timing window has clearly passed"]
   };
 
   return {
     content: buildRichContent([
-      { title: "Follow-up 1", value: structuredContent.followUp1 },
-      { title: "Follow-up 2", value: structuredContent.followUp2 },
-      { title: "Final close-the-loop message", value: structuredContent.finalCloseLoop },
+      { title: "Follow-up email", value: structuredContent.followUp1 },
+      { title: "Subject", value: subject },
       { title: "Timing recommendations", value: structuredContent.timingRecommendations },
       { title: "When not to follow up", value: structuredContent.whenNotToFollowUp }
     ]),
     outputType: "follow_up_sequence",
     structuredContent,
-    title: "Follow-up sequence"
+    title: `Follow-up for ${brandLabel}`
   };
 }
 
-function executeContentIdeaBatchTask(context) {
+async function executeContentIdeaBatchTask(context) {
   const profile = buildContextProfile(context);
   const contentStrategyModule = getKnowledgeModule(context, "content_strategy");
   const contentFormatsModule = getKnowledgeModule(context, "content_formats");
+  const tiktokGrowthModule = getKnowledgeModule(context, "tiktok_growth");
   const hookIdeas = getStructuredList(contentStrategyModule, "hookIdeas", ["Problem-first", "Why this works", "Before you buy"]);
   const formats = getStructuredList(contentStrategyModule, "formats", getStructuredList(contentFormatsModule, "formatGuide", ["Demo", "Routine", "Testimonial"]));
+  const growthTactics = getStructuredList(tiktokGrowthModule, "tactics", getStructuredList(tiktokGrowthModule, "principles", []));
   const insightGaps = extractPrivateInsightItems(context.privateInsights).slice(0, 5);
-  const ideas = Array.from({ length: 10 }, (_, index) => ({
-    difficultyLevel: index < 3 ? "Low" : index < 7 ? "Medium" : "Medium",
-    format: formats[index % formats.length],
-    hook: `${hookIdeas[index % hookIdeas.length]} ${insightGaps[index % Math.max(insightGaps.length, 1)] || "[product / category]"}`,
-    idea: insightGaps[index]
-      ? `${profile.niche} concept ${index + 1}: ${insightGaps[index]}`
-      : `${profile.niche} concept ${index + 1}`,
-    productFit: profile.niche,
-    whyItWorks: "Ties a clear user problem to an easy visual payoff."
-  }));
+  const hashtags = Array.isArray(context.privateInsights?.hashtags) ? context.privateInsights.hashtags.slice(0, 8) : [];
+  const nicheAnchor = `#${String(profile.niche || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "creator"}`;
+
+  const ideas = [];
+  const savedConceptIds = [];
+  for (let index = 0; index < 10; index += 1) {
+    const gap = insightGaps[index % Math.max(insightGaps.length, 1)] || `${profile.niche} beginner friction`;
+    const concept = buildConceptFromGap({
+      creatorProfile: {
+        business: { currentNiches: [profile.niche], activePlatforms: ["tiktok"] },
+        creative: { strongestFormats: [formats[index % formats.length]], deliveryStyles: ["natural_first_person"] }
+      },
+      brandName: profile.niche || "category",
+      thesis: markHypothesisClearly(gap)
+    });
+    const rotation = hashtags.length
+      ? hashtags.slice(index % hashtags.length).concat(hashtags).slice(0, 3).map((item) => item.hashtag)
+      : [];
+    const idea = {
+      difficultyLevel: index < 3 ? "Low" : index < 7 ? "Medium" : "Medium",
+      format: concept.visualFormat || formats[index % formats.length],
+      hook: concept.hookOptions?.[0]
+        ? `${hookIdeas[index % hookIdeas.length]} — ${concept.hookOptions[0]}`
+        : `${hookIdeas[index % hookIdeas.length]} ${gap}`,
+      idea: insightGaps[index]
+        ? `${profile.niche} concept ${index + 1}: ${insightGaps[index]}`
+        : `${profile.niche} concept ${index + 1}: ${gap}`,
+      productFit: profile.niche,
+      whyItWorks: concept.strategicRationale || "Ties a clear user problem to an easy visual payoff.",
+      storyStructure: concept.storyStructure,
+      shotList: concept.shotList,
+      onScreenText: concept.onScreenText,
+      hashtags: [...new Set([...rotation, nicheAnchor, "#ugccreator"])].slice(0, 5),
+      growthTactic: growthTactics[index % Math.max(growthTactics.length, 1)] || null,
+      conceptSignature: concept.signature
+    };
+    ideas.push(idea);
+    if (context.store && index < 5) {
+      try {
+        const saved = await saveConceptIfNovel(context.store, {
+          userId: context.userId,
+          workerId: context.workerId,
+          opportunityId: null,
+          publicBrandId: null,
+          concept
+        });
+        if (saved?.id && !saved.deduplicated) savedConceptIds.push(saved.id);
+      } catch {
+        /* concepts table may be unavailable in light test stores */
+      }
+    }
+  }
 
   return {
     content: buildRichContent([
       {
         title: "10 UGC content ideas",
         value: ideas.map((idea) => `${idea.idea}: ${idea.hook} | ${idea.format} | ${idea.whyItWorks} | Difficulty: ${idea.difficultyLevel}`)
+      },
+      {
+        title: "Shot lists (first 5)",
+        value: ideas.slice(0, 5).map((idea) => `${idea.idea} — ${(idea.shotList || []).join(", ")}`)
       }
     ]),
     outputType: "content_ideas",
-    structuredContent: { ideas, privateContentGapsUsed: insightGaps },
+    structuredContent: { ideas, privateContentGapsUsed: insightGaps, savedConceptIds },
     title: "Content idea batch"
   };
 }
@@ -2124,25 +2190,44 @@ function executePastedMessageAnalysisTask(context) {
   };
 }
 
-function executeDraftBrandReplyTask(context) {
+function getLatestBrandMessageForReply(context) {
   const pasted = getLatestPastedBrandMessage(context);
-  if (!pasted) {
+  if (pasted) return { text: pasted, source: "chat_paste" };
+  const description = String(context.currentTask?.description || "");
+  const marker = "Brand message:";
+  const idx = description.indexOf(marker);
+  if (idx >= 0) {
+    return { text: description.slice(idx + marker.length).trim(), source: "inbox_thread" };
+  }
+  return { text: "", source: null };
+}
+
+function executeDraftBrandReplyTask(context) {
+  const message = getLatestBrandMessageForReply(context);
+  if (!message.text) {
     return {
       blocked: true,
-      blockerReason: "This task requires pasted brand message text before Mara can draft a reply.",
-      neededFromUser: "Paste the brand message you want a reply to.",
+      blockerReason: "This task requires brand message text (from inbox or chat) before Mara can draft a reply.",
+      neededFromUser: "Connect Gmail so Mara can draft from inbox, or paste the brand message in chat.",
       suggestedNextStep: "Drop the full brand message into chat and Mara can draft the reply."
     };
   }
 
   const preferences = buildContextProfile(context).preferences[0] || "short, clear, and confident";
   const negotiationModule = getKnowledgeModule(context, "negotiation");
+  const brandMatch = String(context.currentTask?.title || "").match(/reply for\s+(.+)$/i);
+  const brandLabel = brandMatch?.[1]?.trim() || "Brand";
+  const emailMatch = String(context.currentTask?.description || "").match(/to\s+(\S+@\S+)/i);
   const structuredContent = {
+    brandName: brandLabel,
+    contactEmail: emailMatch?.[1] || null,
     approvalReminder: "Sending this externally still requires approval and any needed integration setup.",
-    professionalVersion: `Hi [Brand], thanks for reaching out. I'm interested and would be glad to move this forward. Before confirming, I'd love to align on deliverables, timing, and usage details so I can respond clearly.`,
+    professionalVersion: `Hi ${brandLabel}, thanks for reaching out. I'm interested and would be glad to move this forward. Before confirming, I'd love to align on deliverables, timing, and usage details so I can respond clearly.`,
     questionsToClarify: ["What deliverables are needed?", "What timing are you targeting?", "How will the content be used?", ...getStructuredList(negotiationModule, "anchors", []).slice(0, 1)],
-    replyDraft: `Hi [Brand], thanks for reaching out. I'd be happy to explore this. Before I confirm anything, can you share a bit more on deliverables, timeline, and how you'd want the content used?`,
-    warmerVersion: `Hey [Brand], appreciate the note. I'd love to hear a little more about what you're looking for so I can respond in a way that actually matches the scope.`
+    replyDraft: `Hi ${brandLabel}, thanks for reaching out. I'd be happy to explore this. Before I confirm anything, can you share a bit more on deliverables, timeline, and how you'd want the content used?`,
+    warmerVersion: `Hey ${brandLabel}, appreciate the note. I'd love to hear a little more about what you're looking for so I can respond in a way that actually matches the scope.`,
+    sourceMessageExcerpt: message.text.slice(0, 400),
+    source: message.source
   };
 
   return {
@@ -2156,7 +2241,7 @@ function executeDraftBrandReplyTask(context) {
     ]),
     outputType: "reply_draft",
     structuredContent,
-    title: "Draft brand reply"
+    title: `Draft brand reply for ${brandLabel}`
   };
 }
 
@@ -2164,12 +2249,53 @@ function executePortfolioRecommendationsTask(context) {
   const profile = buildContextProfile(context);
   const portfolioModule = getKnowledgeModule(context, "portfolio");
   const roadmapModule = getKnowledgeModule(context, "beginner_roadmap");
+  const insightGaps = extractPrivateInsightItems(context.privateInsights).slice(0, 5);
+  const opportunities = Array.isArray(context.growthIntelligence?.opportunities) ? context.growthIntelligence.opportunities : [];
+  const creativeGaps = opportunities
+    .map((entry) => entry.opportunityPackage?.creativeGap || entry.opportunityPackage?.opportunityThesis?.underrepresented)
+    .filter(Boolean)
+    .slice(0, 4);
+  const analyses = Array.isArray(context.growthIntelligence?.creativeAnalyses) ? context.growthIntelligence.creativeAnalyses : [];
+  const analysisRevisions = analyses
+    .flatMap((row) => (row.analysis?.timestampedFeedback || []).map((item) => item.revision))
+    .filter(Boolean)
+    .slice(0, 4);
+  const analysisOpenings = analyses
+    .map((row) => row.analysis?.execution?.openingClarity || row.analysis?.videoStructure?.openingClarity)
+    .filter(Boolean);
+
+  const sampleProjectsToCreate = [
+    ...insightGaps.slice(0, 3).map((gap) => `${profile.niche} sample: ${gap}`),
+    ...creativeGaps.slice(0, 2).map((gap) => `Brand-fit sample: ${gap}`),
+    ...getStructuredList(portfolioModule, "sampleProjects", [`${profile.niche} routine walkthrough`, "Problem / solution testimonial", "Product close-up plus talking head"])
+  ].filter(Boolean).slice(0, 6);
+
+  const currentLikelyGaps = [
+    ...(insightGaps.length === 0 ? ["Trend-backed content gaps not loaded yet — paste weekly trends or sync Creative Center."] : []),
+    ...(creativeGaps.length === 0 ? ["No brand creative gaps on file — deep research a target brand."] : [`Open brand creative gaps: ${creativeGaps.slice(0, 2).join("; ")}`]),
+    ...(analysisOpenings.some((value) => /mixed|unclear|unknown/i.test(String(value)))
+      ? ["Recent rough cuts: product/opening clarity needs work in the first 2 seconds."]
+      : []),
+    ...(!analyses.length ? ["No rough-cut analyses yet — upload a draft for Mara to revise."] : []),
+    "Before/after proof",
+    "Category-specific examples"
+  ].slice(0, 6);
+
+  const nextThreeImprovements = [
+    ...(analysisRevisions.slice(0, 2)),
+    sampleProjectsToCreate[0] ? `Shoot: ${sampleProjectsToCreate[0]}` : "Add two niche-specific sample projects",
+    "Write a tighter intro using the positioning output"
+  ].filter(Boolean).slice(0, 3);
+
   const structuredContent = {
-    currentLikelyGaps: ["Before/after proof", "Category-specific examples", "A clear creator positioning section"],
-    nextThreeImprovements: ["Add two niche-specific sample projects", "Write a tighter intro using the positioning output", "Show one simple case-study layout"],
+    currentLikelyGaps,
+    nextThreeImprovements,
     recommendedPortfolioSections: getStructuredList(portfolioModule, "include", ["About", "Best-fit niches", "Sample UGC concepts", "Process / deliverables", "Contact"]),
-    sampleProjectsToCreate: getStructuredList(portfolioModule, "sampleProjects", [`${profile.niche} routine walkthrough`, "Problem / solution testimonial", "Product close-up plus talking head"]),
-    positionBeginnerWork: "Frame early work as concept-driven sample campaigns that show taste, structure, and platform understanding."
+    sampleProjectsToCreate,
+    positionBeginnerWork: "Frame early work as concept-driven sample campaigns that show taste, structure, and platform understanding.",
+    privateContentGapsUsed: insightGaps,
+    brandCreativeGapsUsed: creativeGaps,
+    analysisCount: analyses.length
   };
 
   return {
@@ -2251,6 +2377,23 @@ function executeWeeklyGrowthIntelligenceBriefTask(context) {
     treatment: entry.opportunityPackage?.creativeTreatment || {},
     basis: (entry.evidence || []).map((item) => item.basis)
   }));
+  const analyses = Array.isArray(context.growthIntelligence?.creativeAnalyses) ? context.growthIntelligence.creativeAnalyses : [];
+  const videoToRevise = analyses
+    .map((row) => {
+      const feedback = row.analysis?.timestampedFeedback || [];
+      const first = feedback[0];
+      return {
+        assetRef: row.assetRef,
+        assetType: row.assetType,
+        assetSummary: row.analysis?.assetSummary || null,
+        feedbackCount: feedback.length,
+        priorityRevision: first?.revision || null,
+        openingIssue: first?.observation || null,
+        updatedAt: row.updatedAt
+      };
+    })
+    .sort((a, b) => Number(b.feedbackCount) - Number(a.feedbackCount))[0] || null;
+
   const structuredContent = {
     highFitBrands: qualified.map((entry) => ({
       brandName: entry.brandName,
@@ -2265,18 +2408,20 @@ function executeWeeklyGrowthIntelligenceBriefTask(context) {
     saturatedFormat: null,
     conceptTerritories,
     portfolioGap: qualified[0]?.opportunityPackage?.creatorPositioning?.portfolioGap || null,
-    videoToRevise: null,
+    videoToRevise,
     revenueMetrics: metrics,
     evidence,
     unknowns: [
       ...(qualified.length < 5 ? [`Only ${qualified.length} evidence-qualified brand opportunity${qualified.length === 1 ? " is" : "ies are"} currently available.`] : []),
-      "Category shifts, saturation, and video revision recommendations remain empty unless current evidence supports them."
+      ...(videoToRevise ? [] : ["No rough-cut analyses on file yet — upload a draft for Mara to revise."]),
+      "Category shifts and saturation remain empty unless current evidence supports them."
     ]
   };
   return {
     content: buildRichContent([
       { title: "Highest-fit opportunities", value: structuredContent.highFitBrands.length ? structuredContent.highFitBrands.map((item) => `${item.brandName} — ${item.score}/100 — ${item.opportunityThesis || "Opportunity thesis needs refinement"}`) : ["No evidence-qualified opportunities yet. Research is the next required action."] },
       { title: "Concept territories", value: conceptTerritories.length ? conceptTerritories.map((item) => `${item.brandName}: ${item.creativeGap}`) : ["No evidence-supported concept territory yet."] },
+      { title: "Video to revise", value: videoToRevise ? [`${videoToRevise.assetSummary || videoToRevise.assetRef}: ${videoToRevise.priorityRevision || videoToRevise.openingIssue}`] : ["No analyzed rough cuts yet."] },
       { title: "Commercial outcomes", value: [`Revenue influenced: ${Number(metrics.revenueInfluenced || 0)}`, `Avg deal value: ${Number(metrics.averageDealValue || 0)}`, `Qualified opportunities: ${Number(metrics.qualifiedOpportunityCount || 0)}`, `Positive-response rate: ${Math.round(Number(metrics.positiveResponseRate || 0) * 100)}%`, `Pitch-to-deal conversion: ${Math.round(Number(metrics.pitchToDealConversion || 0) * 100)}%`] },
       { title: "Evidence limitations", value: structuredContent.unknowns }
     ]),
@@ -3016,6 +3161,24 @@ async function runMaraBrandResearchCycle({
         website: brand.website || brand.url || "",
         workerId
       });
+      // Hunt sendable contacts immediately so pitch drafts can get a To: field.
+      try {
+        const { savePublicBrand } = await import("./maraBrandCanonical.mjs");
+        const publicBrand = await savePublicBrand(store, {
+          brandName: brand.brandName,
+          website: brand.website || brand.url || ""
+        });
+        await discoverAndPersistBrandContacts(store, {
+          userId,
+          workerId,
+          publicBrandId: publicBrand.id,
+          brandName: brand.brandName,
+          website: brand.website || brand.url || "",
+          fetchImpl
+        });
+      } catch {
+        /* contact discovery is best-effort during research */
+      }
       const pitchTask = await convertResearchItemToTask(store, userId, workerId, research.id, {
         description: `Draft a personalized pitch using the brand's identity, site language, ${brand.suggestedAngle || "the strongest current angle"}, and current fit with ${niche}.`,
         priority: "high",
@@ -3055,7 +3218,8 @@ async function runMaraBrandResearchCycle({
 
 async function runMaraInboxOrganizationCycle({ store, fetchImpl, userId, workerId }) {
   const threads = await store.query(
-    `SELECT subject, brand_name AS brandName, contact_email AS contactEmail, thread_status AS threadStatus, urgency, snippet
+    `SELECT subject, brand_name AS brandName, contact_email AS contactEmail, thread_status AS threadStatus,
+            urgency, snippet, body_text AS bodyText
      FROM office_email_threads
      WHERE user_id = ? AND worker_slug = ?
      ORDER BY received_at DESC
@@ -3104,7 +3268,61 @@ async function runMaraInboxOrganizationCycle({ store, fetchImpl, userId, workerI
     workerId
   });
 
-  return { output, parsedCount: briefParse.parsedCount };
+  // Stop follow-up sequences when a brand has replied; draft replies from inbox without paste.
+  const replyCandidates = threads
+    .filter((thread) => thread.brandName && (thread.bodyText || thread.snippet) && String(thread.threadStatus || "").toLowerCase() !== "closed")
+    .slice(0, 3);
+  const createdReplyTaskIds = [];
+  for (const thread of replyCandidates) {
+    try {
+      const opportunity = await store.queryOne(
+        `SELECT o.id FROM mara_creator_brand_opportunities o
+         LEFT JOIN mara_public_brands pb ON pb.id = COALESCE(o.public_brand_id, o.brand_profile_id)
+         WHERE o.user_id = ? AND o.worker_id = ? AND lower(pb.brand_name) = lower(?)
+         ORDER BY o.updated_at DESC LIMIT 1`,
+        userId,
+        workerId,
+        thread.brandName
+      );
+      if (opportunity?.id) {
+        await stopOutreachSequence(store, {
+          userId,
+          workerId,
+          opportunityId: opportunity.id,
+          reason: SEQUENCE_STOP_REASONS.REPLY_RECEIVED
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const body = String(thread.bodyText || thread.snippet || "").trim();
+    if (body.length < 20) continue;
+    const existing = await store.queryOne(
+      `SELECT id FROM worker_tasks
+       WHERE user_id = ? AND worker_id = ? AND task_type = 'draft_brand_reply'
+         AND title = ? AND status IN ('approved', 'queued', 'in_progress', 'blocked')
+       ORDER BY created_at DESC LIMIT 1`,
+      userId,
+      workerId,
+      `Draft brand reply for ${thread.brandName}`
+    );
+    if (existing?.id) continue;
+    const created = await createApprovedTaskIfPermissionAllows(store, {
+      userId,
+      workerId,
+      title: `Draft brand reply for ${thread.brandName}`,
+      description: `Draft a reply to ${thread.contactEmail || "the brand"}. Brand message:\n${body.slice(0, 2500)}`,
+      taskType: "draft_brand_reply",
+      source: "autonomy_inbox_reply",
+      status: "approved",
+      priority: String(thread.urgency).toLowerCase() === "high" ? "high" : "medium",
+      requiredPermissions: []
+    });
+    if (created?.id && !created.duplicate) createdReplyTaskIds.push(created.id);
+  }
+
+  return { output, parsedCount: briefParse.parsedCount, createdReplyTaskIds };
 }
 
 async function countOfficeLeads(store, userId, workerId) {
@@ -3247,12 +3465,37 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
       return;
     }
     case "personalized_pitch": {
-      let outreachContact = null;
       try {
-        const { findOutreachContactByBrandName } = await import("./maraContactDiscovery.mjs");
-        outreachContact = await findOutreachContactByBrandName(store, userId, workerId, action.brandName);
-      } catch {
-        outreachContact = null;
+        await assertWithinOutreachDraftLimit(store, userId, workerId);
+      } catch (error) {
+        if (error?.code === "MARA_OUTREACH_DRAFT_LIMIT") {
+          summary.notes.push(error.message);
+          return;
+        }
+        throw error;
+      }
+
+      let outreachContact = null;
+      const website = action.website || null;
+      const publicBrandId = action.publicBrandId || null;
+      if (publicBrandId || website || action.brandName) {
+        try {
+          if (publicBrandId || website) {
+            await discoverAndPersistBrandContacts(store, {
+              userId,
+              workerId,
+              publicBrandId,
+              brandName: action.brandName,
+              website,
+              fetchImpl
+            });
+          }
+          outreachContact =
+            (publicBrandId && (await findBestOutreachContact(store, userId, workerId, publicBrandId))) ||
+            (await findOutreachContactByBrandName(store, userId, workerId, action.brandName));
+        } catch {
+          outreachContact = await findOutreachContactByBrandName(store, userId, workerId, action.brandName).catch(() => null);
+        }
       }
       const taskId = await createAndRunAutonomyTask(
         store,
@@ -3279,22 +3522,14 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
       if (result?.output) {
         summary.outputs.push(result.output);
-        if (outreachContact?.value?.includes("@") && action.opportunityId) {
-          try {
-            await startOutreachSequence(store, {
-              userId,
-              workerId,
-              opportunityId: action.opportunityId,
-              publicBrandId: outreachContact.publicBrandId || null,
-              contactId: outreachContact.id
-            });
-            summary.notes.push(`Started follow-up sequence for ${action.brandName} (sends still require approval).`);
-          } catch {
-            /* sequence start is best-effort */
-          }
-        } else if (!outreachContact?.value?.includes("@")) {
+        // Sequence starts only after an approved send — drafting must not schedule follow-ups.
+        if (!outreachContact?.value?.includes("@")) {
           summary.notes.push(
             `Pitch drafted for ${action.brandName} without a sendable contact. Mara will keep hunting public emails / Gmail matches before requesting send approval.`
+          );
+        } else {
+          summary.notes.push(
+            `Pitch drafted for ${action.brandName} to ${outreachContact.value}. Follow-up sequence starts after you approve the send.`
           );
         }
       }
@@ -3439,21 +3674,100 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
     }
     case "prepare_opportunity_packages": {
       const targets = await listTopPitchTargets(store, userId, workerId, action.limit || 2);
-      summary.notes.push(`Reviewed ${targets.length} pitch target${targets.length === 1 ? "" : "s"} for opportunity packages.`);
+      let attached = 0;
+      for (const target of targets) {
+        const opportunityId = target.id || target.opportunityId;
+        const publicBrandId = target.publicBrandId || null;
+        if (!opportunityId) continue;
+        const concepts = await listCreativeConcepts(store, userId, workerId, {
+          opportunityId,
+          publicBrandId,
+          limit: 3
+        });
+        if (!concepts.length) continue;
+        const row = await store.queryOne(
+          `SELECT opportunity_package_json AS "opportunityPackageJson"
+           FROM mara_creator_brand_opportunities WHERE id = ? AND user_id = ? AND worker_id = ?`,
+          opportunityId,
+          userId,
+          workerId
+        );
+        if (!row) continue;
+        let packageData = {};
+        try {
+          packageData = typeof row.opportunityPackageJson === "object"
+            ? row.opportunityPackageJson
+            : JSON.parse(row.opportunityPackageJson || "{}");
+        } catch {
+          packageData = {};
+        }
+        const topConcept = concepts[0].concept;
+        packageData.recommendedConceptTerritory = topConcept;
+        packageData.attachedConcepts = concepts.map((entry) => ({
+          id: entry.id,
+          messagingAngle: entry.concept?.messagingAngle,
+          hookOptions: entry.concept?.hookOptions,
+          visualFormat: entry.concept?.visualFormat,
+          signature: entry.concept?.signature || entry.signature
+        }));
+        if (!packageData.creativeGap && topConcept?.pain) {
+          packageData.creativeGap = topConcept.pain;
+        }
+        await store.execute(
+          `UPDATE mara_creator_brand_opportunities
+           SET opportunity_package_json = ?, updated_at = ?
+           WHERE id = ? AND user_id = ? AND worker_id = ?`,
+          JSON.stringify(packageData),
+          new Date().toISOString(),
+          opportunityId,
+          userId,
+          workerId
+        );
+        attached += 1;
+      }
+      summary.notes.push(
+        `Reviewed ${targets.length} pitch target${targets.length === 1 ? "" : "s"}; attached concepts to ${attached} package${attached === 1 ? "" : "s"}.`
+      );
       return;
     }
     case "prepare_due_followups": {
       const due = await listDueOutreachSequences(store, userId, workerId);
       for (const sequence of due) {
-        const advanced = await advanceOutreachSequenceAfterDraft(store, { userId, workerId, sequenceId: sequence.id });
-        if (advanced?.proposedFollowUp) {
+        try {
+          await assertWithinOutreachDraftLimit(store, userId, workerId);
+        } catch (error) {
+          if (error?.code === "MARA_OUTREACH_DRAFT_LIMIT") {
+            summary.notes.push(error.message);
+            break;
+          }
+          throw error;
+        }
+        const prepared = await prepareDueFollowUpDraft(store, { userId, workerId, sequenceId: sequence.id });
+        if (prepared?.proposedFollowUp) {
+          let brandName = "brand";
+          let contactEmail = "";
+          if (sequence.publicBrandId) {
+            const brand = await store.queryOne(
+              `SELECT brand_name AS "brandName" FROM mara_public_brands WHERE id = ?`,
+              sequence.publicBrandId
+            );
+            brandName = brand?.brandName || brandName;
+            const contact = await findBestOutreachContact(store, userId, workerId, sequence.publicBrandId);
+            contactEmail = contact?.value || "";
+          }
+          const stepKind = prepared.proposedFollowUp.kind || "follow_up";
+          const subject = String(prepared.proposedFollowUp.subjectTemplate || "Quick follow-up")
+            .replace(/\{brand\}/gi, brandName)
+            .replace(/\{creatorAngle\}/gi, "UGC");
           const taskId = await createAndRunAutonomyTask(
             store,
             {
               userId,
               workerId,
-              title: `Follow-up draft for opportunity`,
-              description: `Prepare follow-up step ${advanced.attemptCount} for approval. Do not send without approval. Sequence ${sequence.id}.`,
+              title: `Follow-up for ${brandName}`,
+              description: contactEmail
+                ? `Prepare ${stepKind} follow-up to ${contactEmail} for ${brandName}. Subject hint: ${subject}. Do not send without approval. Sequence ${sequence.id}.`
+                : `Prepare ${stepKind} follow-up for ${brandName}. Subject hint: ${subject}. No sendable contact yet — draft only. Sequence ${sequence.id}.`,
               taskType: "follow_up_sequence",
               source: "autonomy_followup",
               status: "approved",
@@ -3466,9 +3780,29 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
           if (taskId) {
             const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
             if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
-            if (result?.output) summary.outputs.push(result.output);
+            if (result?.output) {
+              // Stamp brand + sequence metadata so Gmail draft sync can fill To:.
+              const structured = {
+                ...(typeof result.output.structuredContent === "object" ? result.output.structuredContent : {}),
+                brandName,
+                contactEmail: contactEmail || null,
+                sequenceId: sequence.id,
+                opportunityId: sequence.opportunityId || prepared.opportunityId || null,
+                followUpSubject: subject
+              };
+              await store.execute(
+                `UPDATE worker_outputs SET structured_content_json = ?, title = ?, updated_at = ? WHERE id = ?`,
+                JSON.stringify(structured),
+                `Follow-up for ${brandName}`,
+                new Date().toISOString(),
+                result.output.id
+              );
+              summary.outputs.push({ ...result.output, structuredContent: structured, title: `Follow-up for ${brandName}` });
+            }
           }
-          summary.notes.push(`Prepared follow-up draft for sequence ${sequence.id} (approval still required to send).`);
+          summary.notes.push(
+            `Prepared follow-up draft for ${brandName} (sequence ${sequence.id}; send still requires approval; attempt counter advances only after send).`
+          );
         }
       }
       if (!due.length) summary.notes.push("No follow-up sequences due.");
@@ -4799,16 +5133,47 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     hasTrackedWork
   });
 
+  let commercialNorthStar = {
+    revenueInfluenced: 0,
+    averageDealValue: 0,
+    deals: 0,
+    qualifiedOpportunityCount: 0,
+    positiveResponseRate: 0,
+    contacted: 0,
+    responded: 0
+  };
+  let outreachReadyQueue = [];
+  try {
+    await initMaraIntelligence(store);
+    commercialNorthStar = await getRevenueInfluenceMetrics(store, userId, workerId);
+    const pitchTargets = await listTopPitchTargets(store, userId, workerId, 6);
+    outreachReadyQueue = pitchTargets
+      .filter((target) => target.outreachReady && target.contactEmail)
+      .slice(0, 5)
+      .map((target) => ({
+        id: target.id,
+        brandName: target.brandName,
+        scoreTotal: target.scoreTotal,
+        status: target.status,
+        contactEmail: target.contactEmail,
+        decision: target.decision || null
+      }));
+  } catch {
+    /* growth intel tables may be unavailable in light stores */
+  }
+
   return {
     blockedTasks: blockedTaskDetails,
     completedTasks,
     completedWork: workerOutputs,
+    commercialNorthStar,
     currentFocus,
     currentWork,
     llmConfigured: isMaraLlmConfigured(),
     inboxLeadSnapshot,
     latestOutputs,
     openTasks,
+    outreachReadyQueue,
     pendingApprovals: approvals,
     permissions,
     proposedTasks,

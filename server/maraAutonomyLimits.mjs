@@ -74,3 +74,25 @@ export async function assertWithinBrandResearchLimit(store, userId, workerId) {
   }
   return { remaining: limits.maxBrandsResearchedPerDay - count, limits };
 }
+
+/** Weekly cap on pitch + follow-up draft outputs (send still separately approval-gated). */
+export async function assertWithinOutreachDraftLimit(store, userId, workerId) {
+  const limits = await getAutonomyLimits(store, userId, workerId);
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const row = await store.queryOne(
+    `SELECT COUNT(*) AS count FROM worker_outputs
+     WHERE user_id = ? AND worker_id = ?
+       AND output_type IN ('pitch_draft', 'pitch_template', 'follow_up_sequence', 'reply_draft')
+       AND created_at >= ?`,
+    userId,
+    workerId,
+    weekAgo
+  );
+  const count = Number(row?.count || 0);
+  if (count >= limits.maxOutreachDraftsPerWeek) {
+    const error = new Error(`Weekly outreach draft limit reached (${limits.maxOutreachDraftsPerWeek}).`);
+    error.code = "MARA_OUTREACH_DRAFT_LIMIT";
+    throw error;
+  }
+  return { remaining: limits.maxOutreachDraftsPerWeek - count, limits };
+}

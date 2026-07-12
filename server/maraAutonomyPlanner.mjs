@@ -184,6 +184,8 @@ export function planMaraAutonomyActions(context) {
       kind: "personalized_pitch",
       researchItemId: brand.researchItemId ?? null,
       opportunityId: brand.opportunityId ?? null,
+      publicBrandId: brand.publicBrandId ?? null,
+      website: brand.website ?? null,
       scoreTotal: brand.scoreTotal ?? null,
       outreachReady: Boolean(brand.outreachReady),
       source: brand.source || "worker_brands"
@@ -249,6 +251,11 @@ export function planMaraAutonomyActions(context) {
     isArtifactStale(recentOutputTypes.market_pulse ?? null, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.tiktok_trends)
   ) {
     actions.push({ kind: "tiktok_trends", reason: "Refresh niche-scoped TikTok trend insights for this creator." });
+  } else if (!trendSnapshotUpdatedAt) {
+    actions.push({
+      kind: "blocked",
+      reason: "Trend intelligence is empty — ops need a Creative Center sync or weekly trend paste before Mara can plan hashtag/content work."
+    });
   }
 
   if (runnableApprovedTasks.length > 0) {
@@ -329,12 +336,19 @@ export function buildAutonomyPlannerContext({
         return {
           id: matched?.id || target.brandProfileId,
           brandName: target.brandName,
+          website: target.website || matched?.website || null,
           researchItemId: matched?.researchItemId ?? null,
           lastPitchAt: matched?.lastPitchAt ?? null,
           opportunityId: target.id,
           scoreTotal: target.scoreTotal,
           contactEmail: matched?.contactEmail || target.contactEmail || null,
-          outreachReady: Boolean(matched?.contactEmail || target.outreachReady),
+          outreachReady: Boolean(
+            matched?.contactEmail ||
+              target.outreachReady ||
+              target.contactEmail ||
+              target.outreachContact?.value
+          ),
+          publicBrandId: target.publicBrandId || target.brandProfileId || null,
           source: "mara_opportunity"
         };
       }).filter((brand) => {

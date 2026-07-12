@@ -104,6 +104,15 @@ export async function listDueOutreachSequences(store, userId, workerId, now = ne
 }
 
 export async function advanceOutreachSequenceAfterDraft(store, { userId, workerId, sequenceId }) {
+  // Deprecated name kept for callers: preparing a draft must NOT burn attempts.
+  return prepareDueFollowUpDraft(store, { userId, workerId, sequenceId });
+}
+
+/**
+ * Propose the next follow-up copy without advancing attempt_count.
+ * Attempts advance only after an approved send (advanceOutreachSequenceAfterSend).
+ */
+export async function prepareDueFollowUpDraft(store, { userId, workerId, sequenceId }) {
   const row = await store.queryOne(
     `SELECT * FROM mara_outreach_sequences WHERE id = ? AND user_id = ? AND worker_id = ?`,
     sequenceId,
@@ -112,8 +121,7 @@ export async function advanceOutreachSequenceAfterDraft(store, { userId, workerI
   );
   if (!row || row.status !== "active") return null;
   const steps = typeof row.steps_json === "object" ? row.steps_json : JSON.parse(row.steps_json || "[]");
-  const attemptCount = Number(row.attempt_count || 0) + 1;
-  const now = new Date();
+  const attemptCount = Number(row.attempt_count || 0);
   if (attemptCount >= Number(row.max_attempts || 3)) {
     await stopOutreachSequence(store, {
       userId,
@@ -123,6 +131,48 @@ export async function advanceOutreachSequenceAfterDraft(store, { userId, workerI
     });
     return { status: "stopped", reason: SEQUENCE_STOP_REASONS.MAX_ATTEMPTS };
   }
+  const nextStep = steps[Math.min(attemptCount, steps.length - 1)] || steps[steps.length - 1];
+  return {
+    status: "active",
+    attemptCount,
+    proposedFollowUp: nextStep,
+    requiresApproval: true,
+    publicBrandId: row.public_brand_id || row.publicBrandId || null,
+    contactId: row.contact_id || row.contactId || null,
+    opportunityId: row.opportunity_id || row.opportunityId || null
+  };
+}
+
+/** Call after an approved send so the next follow-up is scheduled. */
+export async function advanceOutreachSequenceAfterSend(store, { userId, workerId, sequenceId = null, opportunityId = null }) {
+  const row = sequenceId
+    ? await store.queryOne(
+        `SELECT * FROM mara_outreach_sequences WHERE id = ? AND user_id = ? AND worker_id = ?`,
+        sequenceId,
+        userId,
+        workerId
+      )
+    : await store.queryOne(
+        `SELECT * FROM mara_outreach_sequences
+         WHERE user_id = ? AND worker_id = ? AND opportunity_id = ? AND status = 'active'
+         ORDER BY updated_at DESC LIMIT 1`,
+        userId,
+        workerId,
+        opportunityId
+      );
+  if (!row || row.status !== "active") return null;
+  const steps = typeof row.steps_json === "object" ? row.steps_json : JSON.parse(row.steps_json || "[]");
+  const attemptCount = Number(row.attempt_count || 0) + 1;
+  const now = new Date();
+  if (attemptCount >= Number(row.max_attempts || 3)) {
+    await stopOutreachSequence(store, {
+      userId,
+      workerId,
+      sequenceId: row.id,
+      reason: SEQUENCE_STOP_REASONS.MAX_ATTEMPTS
+    });
+    return { status: "stopped", reason: SEQUENCE_STOP_REASONS.MAX_ATTEMPTS, attemptCount };
+  }
   const nextStep = steps[Math.min(attemptCount, steps.length - 1)];
   const nextRun = new Date(now.getTime() + (nextStep?.offsetDays || 7) * 86_400_000).toISOString();
   await store.execute(
@@ -130,15 +180,9 @@ export async function advanceOutreachSequenceAfterDraft(store, { userId, workerI
     attemptCount,
     nextRun,
     now.toISOString(),
-    sequenceId
+    row.id
   );
-  return {
-    status: "active",
-    attemptCount,
-    nextRunAt: nextRun,
-    proposedFollowUp: nextStep,
-    requiresApproval: true
-  };
+  return { status: "active", attemptCount, nextRunAt: nextRun, sequenceId: row.id };
 }
 
 export function shouldStopOnReply(threadText = "") {

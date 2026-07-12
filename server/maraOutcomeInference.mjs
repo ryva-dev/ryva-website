@@ -183,6 +183,19 @@ export async function inferAndRecordCommercialOutcomes(store, userId, workerId, 
       ranking: result.ranking,
       claim: inference.claim
     });
+    if (inference.responded || inference.hired || inference.declined) {
+      try {
+        const { stopOutreachSequence, SEQUENCE_STOP_REASONS } = await import("./maraOutreachSequences.mjs");
+        await stopOutreachSequence(store, {
+          userId,
+          workerId,
+          opportunityId: opportunity.id,
+          reason: SEQUENCE_STOP_REASONS.REPLY_RECEIVED
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 
   for (const campaign of campaigns) {

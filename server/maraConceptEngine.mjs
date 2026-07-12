@@ -155,6 +155,69 @@ export async function saveConceptIfNovel(store, { userId, workerId, opportunityI
   return { id, deduplicated: false, concept };
 }
 
+export async function listCreativeConcepts(store, userId, workerId, { opportunityId = null, publicBrandId = null, limit = 20 } = {}) {
+  const capped = Math.max(1, Math.min(50, Number(limit) || 20));
+  let rows;
+  if (opportunityId && publicBrandId) {
+    rows = await store.query(
+      `SELECT id, opportunity_id AS "opportunityId", public_brand_id AS "publicBrandId",
+              concept_json AS "conceptJson", signature, status, created_at AS "createdAt"
+       FROM mara_creative_concepts
+       WHERE user_id = ? AND worker_id = ? AND (opportunity_id = ? OR public_brand_id = ?)
+       ORDER BY created_at DESC LIMIT ?`,
+      userId,
+      workerId,
+      opportunityId,
+      publicBrandId,
+      capped
+    );
+  } else if (opportunityId) {
+    rows = await store.query(
+      `SELECT id, opportunity_id AS "opportunityId", public_brand_id AS "publicBrandId",
+              concept_json AS "conceptJson", signature, status, created_at AS "createdAt"
+       FROM mara_creative_concepts
+       WHERE user_id = ? AND worker_id = ? AND opportunity_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+      userId,
+      workerId,
+      opportunityId,
+      capped
+    );
+  } else if (publicBrandId) {
+    rows = await store.query(
+      `SELECT id, opportunity_id AS "opportunityId", public_brand_id AS "publicBrandId",
+              concept_json AS "conceptJson", signature, status, created_at AS "createdAt"
+       FROM mara_creative_concepts
+       WHERE user_id = ? AND worker_id = ? AND public_brand_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+      userId,
+      workerId,
+      publicBrandId,
+      capped
+    );
+  } else {
+    rows = await store.query(
+      `SELECT id, opportunity_id AS "opportunityId", public_brand_id AS "publicBrandId",
+              concept_json AS "conceptJson", signature, status, created_at AS "createdAt"
+       FROM mara_creative_concepts
+       WHERE user_id = ? AND worker_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+      userId,
+      workerId,
+      capped
+    );
+  }
+  const parse = (value) => {
+    if (value && typeof value === "object") return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  };
+  return rows.map((row) => ({ ...row, concept: parse(row.conceptJson) }));
+}
+
 export function markHypothesisClearly(text) {
   const body = String(text || "").trim();
   if (!body) return body;

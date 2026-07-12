@@ -232,7 +232,9 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
       researchToday: [],
       recommendedNext: null,
       waitingOnUser: [],
-      workInMotion: []
+      workInMotion: [],
+      commercialNorthStar: null,
+      outreachReadyQueue: []
     };
   }
 
@@ -278,6 +280,8 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
     workerSlug: worker.slug,
     llmConfigured: workspace.llmConfigured !== false,
     approvals,
+    commercialNorthStar: workspace.commercialNorthStar || null,
+    outreachReadyQueue: workspace.outreachReadyQueue || [],
     connectedTools: integrations.map((integration) => ({
       provider: integration.provider,
       status: integration.status,
@@ -371,6 +375,23 @@ type MaraWorkspace = {
   runnableTasks: MaraWorkspaceTask[];
   waitingOnUser: MaraWorkspaceWaitingItem[];
   whatMaraKnows: MaraWorkspaceKnowledge[];
+  commercialNorthStar?: {
+    revenueInfluenced: number;
+    averageDealValue: number;
+    deals: number;
+    qualifiedOpportunityCount: number;
+    positiveResponseRate: number;
+    contacted: number;
+    responded: number;
+  };
+  outreachReadyQueue?: Array<{
+    id: string;
+    brandName: string;
+    scoreTotal: number;
+    status: string;
+    contactEmail: string;
+    decision?: string | null;
+  }>;
 };
 
 type WorkerDeskMemory = {
@@ -434,6 +455,22 @@ type WorkerDesk = {
   memory: WorkerDeskMemory[];
   connectedTools: Array<{ provider: string; status: string; label: string }>;
   recommendedNext: string | null;
+  commercialNorthStar?: {
+    revenueInfluenced: number;
+    averageDealValue: number;
+    deals: number;
+    qualifiedOpportunityCount: number;
+    positiveResponseRate: number;
+    contacted: number;
+    responded: number;
+  } | null;
+  outreachReadyQueue?: Array<{
+    id: string;
+    brandName: string;
+    scoreTotal: number;
+    status: string;
+    contactEmail: string;
+  }>;
 };
 
 type Overlays = {
@@ -1237,6 +1274,10 @@ function WorkerDeskSections({
   onViewDeliverable: (deliverable: WorkerDeskDeliverable) => void;
 }) {
   const isMara = isMaraWorker(activeWorker.slug);
+  const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const sendApprovals = desk.approvals.filter((item) => /send/i.test(item.type) || /send|gmail|email/i.test(`${item.title} ${item.summary}`));
+  const northStar = desk.commercialNorthStar;
+  const outreachQueue = desk.outreachReadyQueue || [];
 
   return (
     <>
@@ -1246,6 +1287,16 @@ function WorkerDeskSections({
           <p>
             My reasoning engine isn't connected yet, so I can queue work but not produce finished deliverables.
             Add the platform AI key to bring me fully online — I won't pass generic filler off as real work.
+          </p>
+        </section>
+      ) : null}
+      {isMara && northStar ? (
+        <section className="ro-worker-drawer-section ro-desk-focus">
+          <span className="ro-section-kicker">Creator revenue influenced</span>
+          <h3>{money.format(northStar.revenueInfluenced || 0)}</h3>
+          <p>
+            {northStar.deals || 0} deals · avg {money.format(northStar.averageDealValue || 0)} ·{" "}
+            {Math.round((northStar.positiveResponseRate || 0) * 100)}% response · {northStar.qualifiedOpportunityCount || 0} qualified
           </p>
         </section>
       ) : null}
@@ -1295,6 +1346,39 @@ function WorkerDeskSections({
           <p className="ro-worker-note">{isMara ? "Nothing is blocking me right now." : "Nothing is blocked right now."}</p>
         )}
       </section>
+
+      {isMara && (sendApprovals.length > 0 || outreachQueue.length > 0) ? (
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Ready to send / outreach queue</strong>
+            <span>{sendApprovals.length + outreachQueue.length} ready</span>
+          </div>
+          <div className="ro-plain-list">
+            {sendApprovals.slice(0, 3).map((item) => (
+              <div className="ro-plain-row" key={`send-${item.id}`}>
+                <div>
+                  <strong>Send approval: {item.title}</strong>
+                  <p>{item.summary}</p>
+                </div>
+                <div className="ro-inline-actions">
+                  <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(item.id)} disabled={busyId === item.id}>Deny</button>
+                  <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(item.id)} disabled={busyId === item.id}>
+                    {busyId === item.id ? "Sending..." : "Approve send"}
+                  </button>
+                </div>
+              </div>
+            ))}
+            {outreachQueue.slice(0, 4).map((item) => (
+              <div className="ro-plain-row" key={`ready-${item.id}`}>
+                <div>
+                  <strong>{item.brandName} · {item.scoreTotal}/100</strong>
+                  <p>Outreach-ready: {item.contactEmail} · {sentenceCase(String(item.status || "").replace(/_/g, " "))}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="ro-worker-drawer-section">
         <div className="ro-worker-drawer-row">
@@ -2019,6 +2103,7 @@ type GrowthOpportunity = {
   scoreTotal: number;
   status: string;
   decision?: string;
+  decisionReason?: string;
   confidence?: number;
   publicBrandId?: string;
   outreachReady?: boolean;
@@ -2037,6 +2122,7 @@ type GrowthOpportunity = {
     creativeGap?: string;
     confidence?: number;
     evidence?: Array<{ basis: string; claim: string }>;
+    recommendedConceptTerritory?: { messagingAngle?: string; hookOptions?: string[] };
   };
   evidence?: Array<{ basis?: string; kind?: string; claim: string }>;
 };
@@ -2045,6 +2131,10 @@ type GrowthIntelligence = {
   opportunities: GrowthOpportunity[];
   metrics: {
     revenueInfluenced: number;
+    averageDealValue?: number;
+    opportunitiesTracked?: number;
+    contacted?: number;
+    responded?: number;
     positiveResponseRate: number;
     pitchToDealConversion: number;
     conceptsAccepted: number;
@@ -2059,6 +2149,20 @@ type GrowthIntelligence = {
     analysis: { assetSummary?: string; timestampedFeedback?: Array<{ at: string; observation: string; consequence: string; revision: string }> };
   }>;
 };
+
+const DEAL_STAGE_ORDER = ["candidate", "qualified", "active", "responded", "concept_accepted", "won", "won_repeat"] as const;
+
+function opportunityStageStrip(status: string) {
+  const normalized = String(status || "candidate").toLowerCase();
+  const activeIndex = Math.max(0, DEAL_STAGE_ORDER.findIndex((stage) => stage === normalized));
+  return DEAL_STAGE_ORDER.filter((stage) => stage !== "won_repeat" || normalized === "won_repeat").map((stage, index) => {
+    const label = sentenceCase(stage.replace(/_/g, " "));
+    if (normalized === "cold" || normalized === "lost") {
+      return `${index === 0 ? "●" : "○"} ${label}`;
+    }
+    return `${index <= activeIndex ? "●" : "○"} ${label}`;
+  }).join(" → ");
+}
 
 function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
   const [intelligence, setIntelligence] = useState<GrowthIntelligence | null>(null);
@@ -2167,7 +2271,8 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
           </p>
           <div className="ro-plain-list">
             <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.revenueInfluenced || 0)}</strong><span>Recorded revenue connected to Mara's opportunities</span></div>
-            <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.positiveResponseRate || 0) * 100)}% positive-response rate</strong><span>{intelligence.metrics.deals || 0} deals · {intelligence.metrics.repeatDeals || 0} repeat deals</span></div>
+            <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.averageDealValue || 0)} avg deal</strong><span>{intelligence.metrics.deals || 0} deals · {intelligence.metrics.repeatDeals || 0} repeat · {intelligence.metrics.opportunitiesTracked || 0} outcomes tracked</span></div>
+            <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.positiveResponseRate || 0) * 100)}% positive-response rate</strong><span>{intelligence.metrics.contacted || 0} contacted · {intelligence.metrics.responded || 0} responded</span></div>
             <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.pitchToDealConversion || 0) * 100)}% pitch-to-deal conversion</strong><span>{intelligence.metrics.conceptsAccepted || 0} concepts accepted · {intelligence.metrics.qualifiedOpportunityCount || 0} qualified opportunities</span></div>
           </div>
         </section>
@@ -2182,6 +2287,7 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
                     {item.brandName} · {item.scoreTotal}/100 · {sentenceCase(String(item.status || "candidate").replace(/_/g, " "))}
                     {item.decision ? ` · ${sentenceCase(String(item.decision).replace(/_/g, " "))}` : ""}
                   </strong>
+                  <p className="ro-handbook-meta" style={{ marginTop: 4 }}>{opportunityStageStrip(item.status)}</p>
                   <p>
                     {typeof item.opportunityPackage?.opportunityThesis === "string"
                       ? item.opportunityPackage.opportunityThesis
@@ -2189,6 +2295,9 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
                         item.opportunityPackage?.creativeGap ||
                         "Opportunity thesis still needs evidence."}
                   </p>
+                  {item.opportunityPackage?.recommendedConceptTerritory?.messagingAngle ? (
+                    <p>Concept: {item.opportunityPackage.recommendedConceptTerritory.messagingAngle}</p>
+                  ) : null}
                   <div className="ro-handbook-meta">
                     <span>Gap: {item.opportunityPackage?.creativeGap || item.opportunityPackage?.opportunityThesis?.underrepresented || "Not established"}</span>
                     <span>Confidence: {item.confidence ?? item.opportunityPackage?.confidence ?? 0}%</span>
@@ -2200,6 +2309,7 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
                           : "No outreach-ready email"}
                     </span>
                   </div>
+                  {item.decisionReason ? <small>Decision: {item.decisionReason}</small> : null}
                   {(item.contacts || []).filter((contact) => contact.inferred).slice(0, 1).map((contact) => (
                     <div key={contact.id} style={{ marginTop: 8 }}>
                       <small>Inferred contact needs your confirmation: {contact.value}</small>
@@ -2242,9 +2352,16 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
         <section className="ro-sec">
           <div className="ro-sec-head"><h2>Recent creative reviews</h2><span className="ro-sec-n">Timestamped</span></div>
           {intelligence.creativeAnalyses.length ? (
-            <div className="ro-plain-list">{intelligence.creativeAnalyses.slice(0, 5).map((item) => (
-              <div className="ro-plain-row" key={item.id}><strong>{item.analysis.assetSummary || item.assetRef}</strong><span>{item.analysis.timestampedFeedback?.length || 0} actionable timestamps</span></div>
-            ))}</div>
+            <div className="ro-plain-list">{intelligence.creativeAnalyses.slice(0, 5).map((item) => {
+              const tip = item.analysis.timestampedFeedback?.[0];
+              return (
+                <div className="ro-plain-row" key={item.id}>
+                  <strong>{item.analysis.assetSummary || item.assetRef}</strong>
+                  <span>{item.analysis.timestampedFeedback?.length || 0} actionable timestamps · {item.assetType}</span>
+                  {tip ? <p>{tip.at}: {tip.revision || tip.observation}</p> : null}
+                </div>
+              );
+            })}</div>
           ) : <p className="ro-blank">No analyzed rough cuts or portfolio videos yet.</p>}
         </section>
       </div>

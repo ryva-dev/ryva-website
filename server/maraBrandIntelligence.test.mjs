@@ -158,6 +158,8 @@ test("video mime sniffing rejects non-video payloads", () => {
 test("mock video analysis completes for tenant asset", async () => {
   const store = makeStore();
   await initMaraBrandArchitecture(store);
+  const { listCreativeAnalyses, initMaraIntelligence } = await import("./maraIntelligence.mjs");
+  await initMaraIntelligence(store);
   await initJobQueue(store);
   const mp4 = Buffer.alloc(32);
   mp4.write("ftyp", 4);
@@ -176,6 +178,10 @@ test("mock video analysis completes for tenant asset", async () => {
   await processVideoAnalysisJob(store, { analysisId, mediaAssetId, userId: "u1", workerId: "mara-vale" });
   const row = await store.queryOne(`SELECT status FROM mara_video_analyses WHERE id = ? AND user_id = ?`, analysisId, "u1");
   assert.equal(row.status, "completed");
+  const reviews = await listCreativeAnalyses(store, "u1", "mara-vale", 5);
+  assert.ok(reviews.length >= 1, "video pipeline should mirror into growth creative analyses");
+  assert.equal(reviews[0].assetRef, mediaAssetId);
+  assert.ok(reviews[0].analysis?.timestampedFeedback?.length >= 1);
   const leaked = await store.queryOne(`SELECT id FROM mara_video_analyses WHERE id = ? AND user_id = ?`, analysisId, "u2");
   assert.equal(leaked, null);
   for (const job of jobs) await completeJob(store, job.id, "test").catch(() => null);

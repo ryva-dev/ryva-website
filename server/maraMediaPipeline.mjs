@@ -194,6 +194,57 @@ export async function enqueueVideoAnalysis(store, { userId, workerId, mediaAsset
   return analysisId;
 }
 
+function formatSecondsAsTimestamp(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+/**
+ * Map pipeline analysis JSON into mara_creative_analyses shape
+ * (required by validateCreativeAnalysis).
+ */
+export function mapPipelineAnalysisToCreativeIntel(analysis, { fileName = "rough cut" } = {}) {
+  const strategic = analysis?.strategic || {};
+  const execution = analysis?.execution || {};
+  const feedback = Array.isArray(analysis?.timestampedFeedback) ? analysis.timestampedFeedback : [];
+  return {
+    assetSummary: `${fileName}: ${strategic.messagingAngle || "UGC rough-cut review"}`,
+    videoStructure: {
+      durationSeconds: analysis?.durationSeconds ?? null,
+      openingClarity: execution.openingClarity || "unknown",
+      productVisibility: execution.productVisibility || "unknown",
+      transcriptBeatCount: Array.isArray(analysis?.transcript) ? analysis.transcript.length : 0
+    },
+    creativeStrategy: {
+      intendedPersona: strategic.intendedPersona || null,
+      awarenessStage: strategic.awarenessStage || null,
+      messagingAngle: strategic.messagingAngle || null,
+      hookMechanism: strategic.hookMechanism || null,
+      proofMechanism: strategic.proofMechanism || null,
+      cta: strategic.cta || null
+    },
+    performanceMechanics: {
+      note: strategic.judgmentNote || "Mechanics are model judgments until platform metrics are attached.",
+      unknowns: analysis?.unknowns || []
+    },
+    execution: {
+      openingClarity: execution.openingClarity || null,
+      productVisibility: execution.productVisibility || null,
+      claimRisks: execution.claimRisks || [],
+      technical: analysis?.technical || {}
+    },
+    timestampedFeedback: feedback.map((item) => ({
+      at: formatSecondsAsTimestamp(item.start_seconds ?? item.start ?? 0),
+      observation: String(item.observation || "").trim() || "Observation not captured.",
+      consequence: String(item.likely_consequence || item.consequence || "").trim() || "Impact not captured.",
+      revision: String(item.recommended_change || item.revision || "").trim() || "Revision not captured."
+    })),
+    unknowns: Array.isArray(analysis?.unknowns) ? analysis.unknowns : []
+  };
+}
+
 export async function processVideoAnalysisJob(store, { analysisId, mediaAssetId, userId, workerId }) {
   const now = new Date().toISOString();
   const asset = await store.queryOne(
@@ -241,6 +292,32 @@ export async function processVideoAnalysisJob(store, { analysisId, mediaAssetId,
       now,
       mediaAssetId
     );
+
+    // Mirror into growth-intel creative reviews so desk + weekly brief can use it.
+    try {
+      const { saveCreativeAnalysis } = await import("./maraIntelligence.mjs");
+      const meta = typeof asset.metadata_json === "object"
+        ? asset.metadata_json
+        : (() => { try { return JSON.parse(asset.metadata_json || "{}"); } catch { return {}; } })();
+      const fileName = meta.fileName || meta.originalName || "rough cut";
+      await saveCreativeAnalysis(store, {
+        userId,
+        workerId,
+        assetType: "rough_cut",
+        assetRef: mediaAssetId,
+        analysis: mapPipelineAnalysisToCreativeIntel(analysis, { fileName }),
+        evidence: [
+          {
+            basis: "observed",
+            claim: `Video analysis completed for media asset ${mediaAssetId} (${transcription.provider}).`,
+            confidence: Number(analysis.confidence) || 55
+          }
+        ]
+      });
+    } catch {
+      /* best-effort — pipeline row is still completed */
+    }
+
     return { status: "completed", analysisId };
   } catch (error) {
     await store.execute(

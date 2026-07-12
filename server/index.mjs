@@ -2598,18 +2598,19 @@ async function buildDraftSpecsFromOutput(outputRow) {
   }
 
   if (outputRow.outputType === "follow_up_sequence") {
-    const followUps = [
-      ["Follow-up 1", structured.followUp1],
-      ["Follow-up 2", structured.followUp2],
-      ["Final close-the-loop", structured.finalCloseLoop]
-    ].filter(([, body]) => String(body ?? "").trim());
-
-    for (const [label, body] of followUps) {
+    const to = String(structured.contactEmail || contact?.contactEmail || "").trim();
+    const primaryBody = structured.emailPitch || structured.followUp1 || outputRow.content;
+    if (String(primaryBody ?? "").trim()) {
       drafts.push({
-        body: normalizePlaceholderText(body, replacements),
-        subject: `${label} for ${resolvedBrand}`,
-        title: `${label} draft for ${resolvedBrand}`,
-        to: String(contact?.contactEmail ?? "").trim()
+        body: normalizePlaceholderText(primaryBody, replacements),
+        subject: normalizePlaceholderText(
+          structured.followUpSubject ||
+            (Array.isArray(structured.subjectLineOptions) ? structured.subjectLineOptions[0] : null) ||
+            `Follow-up for ${resolvedBrand}`,
+          replacements
+        ),
+        title: `Follow-up draft for ${resolvedBrand}`,
+        to
       });
     }
   }
@@ -2702,7 +2703,9 @@ async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = [])
     }
 
     const existingDrafts = Array.isArray(row.structuredContent?.gmailDrafts) ? row.structuredContent.gmailDrafts : [];
-    if (existingDrafts.length > 0) {
+    const hasSendableDraft = existingDrafts.some((draft) => String(draft?.to ?? "").trim());
+    // Refresh when drafts exist but none have a To: (contact was found after first sync).
+    if (existingDrafts.length > 0 && hasSendableDraft) {
       continue;
     }
 
@@ -4428,7 +4431,7 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
         }
         if (emailsSent > 0 && payload.outputId) {
           const outputRow = await authStore.queryOne(
-            `SELECT structured_content_json AS "structuredContentJson" FROM worker_outputs
+            `SELECT structured_content_json AS "structuredContentJson", title FROM worker_outputs
              WHERE id = ? AND user_id = ? AND worker_id = ?`,
             payload.outputId, req.user.id, workerSlug
           );
@@ -4440,6 +4443,49 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
               "UPDATE worker_outputs SET structured_content_json = ?, updated_at = ? WHERE id = ? AND user_id = ? AND worker_id = ?",
               JSON.stringify(structured), nowIso(), payload.outputId, req.user.id, workerSlug
             );
+            // Start or advance follow-up sequence only after a real approved send.
+            try {
+              const { advanceOutreachSequenceAfterSend, startOutreachSequence } = await import("./maraOutreachSequences.mjs");
+              const opportunityId = structured.opportunityId || null;
+              const sequenceId = structured.sequenceId || null;
+              if (sequenceId || opportunityId) {
+                await advanceOutreachSequenceAfterSend(professionalStore, {
+                  userId: req.user.id,
+                  workerId: workerSlug,
+                  sequenceId,
+                  opportunityId
+                });
+              } else if (structured.brandName || outputRow.title) {
+                const brandLabel = String(structured.brandName || outputRow.title || "").replace(/^Personalized pitch for\s+/i, "").trim();
+                const opp = brandLabel
+                  ? await professionalStore.queryOne(
+                      `SELECT o.id, o.public_brand_id AS "publicBrandId"
+                       FROM mara_creator_brand_opportunities o
+                       LEFT JOIN mara_public_brands pb ON pb.id = COALESCE(o.public_brand_id, o.brand_profile_id)
+                       WHERE o.user_id = ? AND o.worker_id = ? AND lower(pb.brand_name) = lower(?)
+                       ORDER BY o.updated_at DESC LIMIT 1`,
+                      req.user.id,
+                      workerSlug,
+                      brandLabel
+                    )
+                  : null;
+                if (opp?.id) {
+                  const { findBestOutreachContact } = await import("./maraContactDiscovery.mjs");
+                  const contact = opp.publicBrandId
+                    ? await findBestOutreachContact(professionalStore, req.user.id, workerSlug, opp.publicBrandId)
+                    : null;
+                  await startOutreachSequence(professionalStore, {
+                    userId: req.user.id,
+                    workerId: workerSlug,
+                    opportunityId: opp.id,
+                    publicBrandId: opp.publicBrandId || null,
+                    contactId: contact?.id || null
+                  });
+                }
+              }
+            } catch (error) {
+              log.warn("outreach_sequence_after_send_failed", { error: error?.message });
+            }
           }
         }
       } catch (error) {
@@ -4602,7 +4648,15 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, ex
         workerId: workerSlug,
         ...buildMaraExecutionReaders()
       })
-        .then(() => syncMaraOperationalRecords(req.user.id, workerSlug))
+        .then(async (fullSummary) => {
+          await syncMaraOperationalRecords(req.user.id, workerSlug);
+          const fullOutputIds = Array.isArray(fullSummary?.outputs)
+            ? fullSummary.outputs.map((output) => output?.id).filter(Boolean)
+            : [];
+          if (fullOutputIds.length > 0) {
+            await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, fullOutputIds);
+          }
+        })
         .catch((error) => logCaught("Background full autonomy run failed:", error));
     } else {
       summary = await runAgentAutonomyCycle({
@@ -4751,6 +4805,30 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
       if (created?.id) {
         const result = await runMaraTask({ store: maraStore, taskId: created.id, userId: req.user.id, workerId: workerSlug, ...buildMaraExecutionReaders() });
         outputTitle = result?.output?.title ?? null;
+      }
+      // Seed the creative loop: content ideas + portfolio samples from the same intake.
+      for (const followOn of [
+        {
+          taskType: "content_idea_batch",
+          title: "Content idea batch from this week's trends",
+          description: "Build 10 UGC concepts from this week's content gaps and trending hashtags.",
+          priority: "high"
+        },
+        {
+          taskType: "portfolio_recommendations",
+          title: "Portfolio samples from this week's gaps",
+          description: "Recommend portfolio sample projects grounded in current trend gaps and brand creative gaps.",
+          priority: "medium"
+        }
+      ]) {
+        await createApprovedTaskIfPermissionAllows(maraStore, {
+          ...followOn,
+          requiredPermissions: [],
+          source: "autonomy_tiktok_trends",
+          status: "approved",
+          userId: req.user.id,
+          workerId: workerSlug
+        });
       }
       await syncMaraOperationalRecords(req.user.id, workerSlug);
     }
@@ -7136,6 +7214,21 @@ app.post("/api/office/workers/:slug/contacts/:contactId/confirm", assertOrigin, 
       workerId: workerSlug,
       contactId: req.params.contactId
     });
+    // Rebuild Gmail drafts that were stuck without a To: field.
+    const recentOutputs = await professionalStore.query(
+      `SELECT id FROM worker_outputs
+       WHERE user_id = ? AND worker_id = ? AND output_type IN ('pitch_draft', 'pitch_template', 'follow_up_sequence', 'reply_draft')
+       ORDER BY created_at DESC LIMIT 20`,
+      req.user.id,
+      workerSlug
+    );
+    if (recentOutputs.length) {
+      void syncMaraGmailDraftsForOutputs(
+        req.user.id,
+        workerSlug,
+        recentOutputs.map((row) => row.id)
+      ).catch((error) => logCaught("Draft refresh after contact confirm failed:", error));
+    }
     res.json({ ok: true, contactId: id });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not confirm contact." });
@@ -7166,6 +7259,20 @@ app.post("/api/office/workers/:slug/brands/:brandId/contacts", assertOrigin, req
       verificationState: "user_provided",
       forceAllow: true
     });
+    const recentOutputs = await professionalStore.query(
+      `SELECT id FROM worker_outputs
+       WHERE user_id = ? AND worker_id = ? AND output_type IN ('pitch_draft', 'pitch_template', 'follow_up_sequence', 'reply_draft')
+       ORDER BY created_at DESC LIMIT 20`,
+      req.user.id,
+      workerSlug
+    );
+    if (recentOutputs.length) {
+      void syncMaraGmailDraftsForOutputs(
+        req.user.id,
+        workerSlug,
+        recentOutputs.map((row) => row.id)
+      ).catch((error) => logCaught("Draft refresh after contact save failed:", error));
+    }
     res.status(201).json({ ok: true, contactId: id, mayUseForOutreach: true });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Could not save contact." });
