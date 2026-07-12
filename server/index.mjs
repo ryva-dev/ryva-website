@@ -7174,11 +7174,16 @@ app.post("/api/office/workers/:slug/creator-profile", assertOrigin, requireAuth,
 });
 
 app.get("/api/office/workers/:slug/research/providers", requireAuth, async (req, res) => {
+  // Ops-only: platform API keys are server-owned, not a creator setting.
+  if (!isAdminUser(req.user)) {
+    res.status(403).json({ error: "Not available." });
+    return;
+  }
   if (!(await hasHiredWorker(req.user.id, String(req.params.slug || "").trim()))) {
     res.status(404).json({ error: "Not found." });
     return;
   }
-  res.json({ ok: true, providers: listResearchProviders() });
+  res.json({ ok: true, providers: await listResearchProviders() });
 });
 
 app.post("/api/office/workers/:slug/research/deep", assertOrigin, requireAuth, llmHeavyLimiter, async (req, res) => {
@@ -7196,7 +7201,18 @@ app.post("/api/office/workers/:slug/research/deep", assertOrigin, requireAuth, l
       niche: req.body?.niche,
       fetchImpl: fetch
     });
-    res.json({ ok: true, research });
+    // Creators see outcomes, not provider/key plumbing.
+    const publicResearch = {
+      id: research.id,
+      brandName: research.brandName,
+      website: research.website,
+      socialProfiles: research.socialProfiles || {},
+      observationCount: (research.runs || []).reduce((sum, run) => sum + (run.observations?.length || 0), 0),
+      sourcesUsed: (research.runs || [])
+        .filter((run) => run.status === "ok" && (run.observations?.length || 0) > 0)
+        .map((run) => run.providerName)
+    };
+    res.json({ ok: true, research: publicResearch });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Deep research failed." });
   }

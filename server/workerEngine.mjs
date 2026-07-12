@@ -2499,33 +2499,29 @@ function executeWeeklyGrowthIntelligenceBriefTask(context) {
 
 async function executeUgcStrategyBriefTask(context) {
   const profile = buildContextProfile(context);
-  const { researchUgcStrategyAcrossPlatforms, listSocialResearchProviders } = await import("./maraSocialResearch.mjs");
+  const { researchUgcStrategyAcrossPlatforms } = await import("./maraSocialResearch.mjs");
   const research = await researchUgcStrategyAcrossPlatforms({
     niche: profile.niche || "UGC",
     insights: context.privateInsights,
     fetchImpl: context.fetchImpl || globalThis.fetch
   });
-  const providers = listSocialResearchProviders();
+  // Creator-facing brief: strategy only. Platform API keys are ops-owned — never surface provider/key status.
   const structuredContent = {
     niche: profile.niche,
     platformsCovered: research.platformsCovered,
     whatWorks: research.whatWorks.map((item) => item.claim).slice(0, 12),
     antiPatterns: research.antiPatterns.map((item) => item.claim).slice(0, 12),
-    unknowns: research.unknowns,
-    providerStatus: providers.map((item) => `${item.name}: ${item.status}${item.configured ? "" : " (needs key)"}`),
     evidence: [...research.whatWorks, ...research.antiPatterns].slice(0, 24)
   };
   return {
     content: buildRichContent([
       { title: "What appears to work", value: structuredContent.whatWorks.length ? structuredContent.whatWorks : ["No live strategy signals this cycle."] },
       { title: "What to avoid / verify", value: structuredContent.antiPatterns.length ? structuredContent.antiPatterns : ["No anti-pattern signals this cycle."] },
-      { title: "Platforms covered", value: structuredContent.platformsCovered.length ? structuredContent.platformsCovered : ["None returned live observations."] },
-      { title: "Provider status", value: structuredContent.providerStatus },
       {
-        title: "Still unknown without keys",
-        value: structuredContent.unknowns.length
-          ? structuredContent.unknowns
-          : ["Keyed platforms either ran or were skipped cleanly."]
+        title: "Sources Mara used",
+        value: structuredContent.platformsCovered.length
+          ? structuredContent.platformsCovered
+          : ["No platform observations returned this cycle — Mara will keep researching."]
       }
     ]),
     outputType: "strategy",
@@ -3796,7 +3792,7 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
         const liveCount = research.runs.filter((run) => !["not_configured", "unknown_provider"].includes(run.status)).length;
         const unavailableCount = research.unavailable?.length || research.runs.filter((run) => run.status === "not_configured").length;
         summary.notes.push(
-          `Deep-researched ${research.brandName || action.brandName} via ${liveCount} live provider${liveCount === 1 ? "" : "s"} (${unavailableCount} ad/social provider${unavailableCount === 1 ? "" : "s"} unavailable — no ads fabricated). Decision: ${opportunity.package.decision}.`
+          `Deep-researched ${research.brandName || action.brandName} across ${liveCount} live source${liveCount === 1 ? "" : "s"}. Decision: ${opportunity.package.decision}.`
         );
         if (contacts?.value?.includes("@")) {
           summary.notes.push(`Outreach-ready contact: ${contacts.value}`);
