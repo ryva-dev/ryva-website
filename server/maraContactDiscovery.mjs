@@ -596,13 +596,62 @@ export async function discoverAndPersistBrandContacts(store, {
     ? await discoverContactsFromBrandSite(store, { userId, workerId, publicBrandId, website, fetchImpl })
     : { savedIds: [], emails: [], pagesFetched: 0, status: "no_website", outreachReady: false };
   const fromGmail = await syncGmailContactsForBrand(store, { userId, workerId, publicBrandId, brandName });
+
+  let enrichment = { providers: [], savedIds: [], emailsFound: [] };
+  if (website && !fromSite.outreachReady) {
+    try {
+      const { enrichAndPersistBrandContacts } = await import("./maraContactEnrichment.mjs");
+      enrichment = await enrichAndPersistBrandContacts(store, {
+        userId,
+        workerId,
+        publicBrandId,
+        website,
+        fetchImpl
+      });
+    } catch {
+      enrichment = { providers: [], savedIds: [], emailsFound: [], error: "enrichment_failed" };
+    }
+  }
+
   const best = await findBestOutreachContact(store, userId, workerId, publicBrandId);
+  const failurePlan = !best?.value?.includes("@")
+    ? buildContactDiscoveryFailurePlan({
+        emails: [...new Set([...(fromSite.emails || []), ...(enrichment.emailsFound || [])])],
+        outreachReady: false,
+        pagesFetched: Number(fromSite.pagesFetched || 0),
+        hasForm: Boolean(fromSite.nextRoutes?.some?.((r) => r.route === "contact_form") || fromSite.status === "contacts_not_outreach_ready")
+      })
+    : { status: "contact_found", failureReason: null, nextRoutes: [], scheduleRecheckHours: null, deprioritize: false };
+
+  // Schedule contact recheck metadata on the opportunity when still stuck.
+  if (!best?.value?.includes("@") && failurePlan.scheduleRecheckHours) {
+    try {
+      await store.execute(
+        `UPDATE mara_creator_brand_opportunities
+         SET next_action_due_at = ?, blocking_reason = COALESCE(blocking_reason, ?), updated_at = ?
+         WHERE user_id = ? AND worker_id = ? AND (public_brand_id = ? OR brand_profile_id = ?)
+           AND COALESCE(lifecycle_stage, status) IN ('qualified', 'contact_needed', 'candidate', 'discovered', 'researching')`,
+        new Date(Date.now() + failurePlan.scheduleRecheckHours * 3600_000).toISOString(),
+        failurePlan.failureReason || "No outreach-ready contact",
+        new Date().toISOString(),
+        userId,
+        workerId,
+        publicBrandId,
+        publicBrandId
+      );
+    } catch {
+      /* optional columns */
+    }
+  }
+
   return {
-    savedIds: [...new Set([...fromSeed, ...(fromSite.savedIds || [])])],
+    savedIds: [...new Set([...fromSeed, ...(fromSite.savedIds || []), ...(enrichment.savedIds || [])])],
     gmailSynced: fromGmail.synced,
     site: fromSite,
+    enrichment,
     outreachReady: Boolean(best?.value?.includes("@")),
     bestContact: best,
-    skippedRediscovery: false
+    skippedRediscovery: false,
+    ...failurePlan
   };
 }

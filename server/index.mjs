@@ -3449,7 +3449,8 @@ async function runScheduledMaraAutonomy() {
             analysisId: job.payload?.analysisId,
             mediaAssetId: job.payload?.mediaAssetId,
             userId: job.user_id,
-            workerId: job.worker_id
+            workerId: job.worker_id,
+            objectStorage
           });
           await completeJob(jobStore, job.id, jobLeaseOwner);
           incrementMetric("jobs_completed", 1, { kind: job.kind });

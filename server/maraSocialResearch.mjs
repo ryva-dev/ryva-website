@@ -300,7 +300,7 @@ export async function metaAdLibraryProvider({ brandName, fetchImpl = globalThis.
     });
   }
   try {
-    const url = `https://graph.facebook.com/v19.0/ads_archive?search_terms=${encodeURIComponent(brandName)}&ad_reached_countries=['US']&ad_type=ALL&limit=10&access_token=${encodeURIComponent(token)}&fields=page_name,ad_creative_bodies,ad_creative_link_titles,ad_delivery_start_time`;
+    const url = `https://graph.facebook.com/v19.0/ads_archive?search_terms=${encodeURIComponent(brandName)}&ad_reached_countries=['US']&ad_active_status=ALL&ad_type=ALL&limit=15&access_token=${encodeURIComponent(token)}&fields=page_name,ad_creative_bodies,ad_creative_link_titles,ad_delivery_start_time,ad_snapshot_url,publisher_platforms`;
     const text = await fetchText(fetchImpl, url);
     const parsed = JSON.parse(text);
     if (parsed.error) throw new Error(parsed.error.message || "Meta API error");
@@ -313,11 +313,21 @@ export async function metaAdLibraryProvider({ brandName, fetchImpl = globalThis.
         title,
         body,
         startedAt: ad.ad_delivery_start_time,
+        publisherPlatforms: ad.publisher_platforms || [],
+        snapshotUrl: ad.ad_snapshot_url || null,
+        observation: {
+          messagingAngle: title || null,
+          hook: String(body || "").slice(0, 120) || null,
+          visualFormat: Array.isArray(ad.publisher_platforms) && ad.publisher_platforms.includes("instagram")
+            ? "instagram_or_facebook_ad"
+            : "meta_ad",
+          persona: null
+        },
         evidence: [
           createEvidenceItem({
             kind: EVIDENCE_KINDS.OBSERVED,
             claim: `Meta Ad Library creative observed for ${ad.page_name || brandName}.`,
-            sourceUrl: `https://www.facebook.com/ads/library/?q=${encodeURIComponent(brandName)}`,
+            sourceUrl: ad.ad_snapshot_url || `https://www.facebook.com/ads/library/?q=${encodeURIComponent(brandName)}`,
             confidence: 80,
             rawExcerpt: `${title} ${body}`.trim().slice(0, 280)
           })
@@ -493,6 +503,7 @@ export async function tiktokOfflineInsightsProvider({ niche = "", brandName = ""
 
 export async function tiktokLiveProvider({ brandName, fetchImpl = globalThis.fetch } = {}) {
   const token = String(process.env.TIKTOK_ACCESS_TOKEN || "").trim();
+  const advertiserId = String(process.env.TIKTOK_ADVERTISER_ID || "").trim();
   if (!token) {
     return createProviderResult({
       providerName: "tiktok_creative_center_live",
@@ -504,16 +515,108 @@ export async function tiktokLiveProvider({ brandName, fetchImpl = globalThis.fet
       observations: []
     });
   }
-  // Official Marketing API surfaces vary by account; fail closed with clear error until adapter is completed.
-  return createProviderResult({
-    providerName: "tiktok_creative_center_live",
-    researchType: "advertising_observations",
-    query: brandName,
-    status: "not_configured",
-    reliability: 0,
-    error: "TikTok live adapter is scaffolded but not fully mapped for this token type yet. Offline insights remain active.",
-    observations: []
-  });
+
+  // Marketing API keyword tool — works with access token; advertiser improves relevance.
+  try {
+    const body = {
+      advertiser_id: advertiserId || undefined,
+      keywords: [String(brandName || "").slice(0, 80)],
+      category: "ALL"
+    };
+    const response = await fetchImpl("https://business-api.tiktok.com/open_api/v1.3/search/keyword/recommend/", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "Access-Token": token
+      },
+      body: JSON.stringify(body)
+    });
+    const text = await response.text();
+    let parsed = {};
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = {};
+    }
+    if (!response.ok || Number(parsed.code) !== 0) {
+      // Fall through to video insights search when keyword recommend is unavailable for this token type.
+      const searchResponse = await fetchImpl(
+        `https://business-api.tiktok.com/open_api/v1.3/tool/video/suggest/?advertiser_id=${encodeURIComponent(advertiserId || "")}`,
+        {
+          method: "GET",
+          headers: { "Access-Token": token }
+        }
+      );
+      if (!searchResponse.ok) {
+        return createProviderResult({
+          providerName: "tiktok_creative_center_live",
+          researchType: "advertising_observations",
+          query: brandName,
+          status: "unavailable",
+          reliability: 0,
+          error: parsed.message || `TikTok API HTTP ${response.status}. Offline insights remain active.`,
+          observations: []
+        });
+      }
+    }
+
+    const keywords = parsed?.data?.keywords || parsed?.data?.list || [];
+    const observations = (Array.isArray(keywords) ? keywords : []).slice(0, 8).map((item, index) => {
+      const word = typeof item === "string" ? item : item.keyword || item.keyword_recommend || item.name || "";
+      return {
+        platform: "tiktok",
+        keyword: word,
+        observation: {
+          messagingAngle: word,
+          hook: word,
+          visualFormat: "short_form_video"
+        },
+        evidence: [
+          createEvidenceItem({
+            kind: EVIDENCE_KINDS.OBSERVED,
+            claim: `TikTok Marketing API keyword signal related to ${brandName}: ${word}`,
+            sourceUrl: "https://ads.tiktok.com/business/creativecenter",
+            confidence: advertiserId ? 70 : 55,
+            rawExcerpt: String(word).slice(0, 180)
+          })
+        ],
+        id: `tt-kw-${index}`
+      };
+    });
+
+    if (!observations.length) {
+      return createProviderResult({
+        providerName: "tiktok_creative_center_live",
+        researchType: "advertising_observations",
+        query: brandName,
+        status: advertiserId ? "empty" : "unavailable",
+        reliability: 0.4,
+        error: advertiserId
+          ? "TikTok API returned no keyword observations."
+          : "Set TIKTOK_ADVERTISER_ID for fuller TikTok ad observations. Offline insights remain active.",
+        observations: []
+      });
+    }
+
+    return createProviderResult({
+      providerName: "tiktok_creative_center_live",
+      researchType: "advertising_observations",
+      query: brandName,
+      status: "ok",
+      reliability: advertiserId ? 0.75 : 0.55,
+      observations
+    });
+  } catch (error) {
+    return createProviderResult({
+      providerName: "tiktok_creative_center_live",
+      researchType: "advertising_observations",
+      query: brandName,
+      status: "unavailable",
+      reliability: 0,
+      error: String(error?.message || error),
+      observations: []
+    });
+  }
 }
 
 export function listSocialResearchProviders() {
@@ -525,7 +628,12 @@ export function listSocialResearchProviders() {
     { name: "reddit_ugc_strategy", configured: true, status: "implemented", researchType: "ugc_strategy" },
     { name: "reddit_brand_social", configured: true, status: "implemented", researchType: "brand_social_mentions" },
     { name: "tiktok_offline_insights", configured: true, status: "implemented", researchType: "ugc_strategy" },
-    { name: "tiktok_creative_center_live", configured: tiktokLiveConfigured, status: tiktokLiveConfigured ? "scaffolded" : "not_configured", researchType: "advertising_observations" },
+    {
+      name: "tiktok_creative_center_live",
+      configured: tiktokLiveConfigured,
+      status: tiktokLiveConfigured ? "implemented" : "not_configured",
+      researchType: "advertising_observations"
+    },
     { name: "meta_ad_library", configured: metaConfigured, status: metaConfigured ? "implemented" : "not_configured", researchType: "advertising_observations" },
     { name: "instagram_graph", configured: igConfigured, status: igConfigured ? "implemented" : "not_configured", researchType: "brand_social_mentions" },
     { name: "x_recent_search", configured: xConfigured, status: xConfigured ? "implemented" : "not_configured", researchType: "brand_social_mentions" }

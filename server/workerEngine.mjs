@@ -3920,6 +3920,22 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
       }
       return;
     }
+    case "advance_won_opportunities": {
+      try {
+        const { runPostWinOpsPass } = await import("./maraPostWinOps.mjs");
+        const result = await runPostWinOpsPass(store, userId, workerId, { limit: 4 });
+        if (result.processed) {
+          summary.notes.push(
+            `Advanced ${result.processed} won/production opportunit${result.processed === 1 ? "y" : "ies"} toward brief, production, or payment.`
+          );
+        } else {
+          summary.notes.push("No won opportunities needed production/payment advancement.");
+        }
+      } catch (error) {
+        summary.notes.push(`Post-win ops skipped: ${error instanceof Error ? error.message : "unavailable"}`);
+      }
+      return;
+    }
     case "deep_brand_research": {
       try {
         await assertWithinBrandResearchLimit(store, userId, workerId);

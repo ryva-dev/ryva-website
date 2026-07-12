@@ -199,10 +199,54 @@ export function createAnthropicMultimodalProvider({ fetchImpl = globalThis.fetch
   };
 }
 
+/** OpenAI Whisper transcription — accepts mp4/webm/audio when OPENAI_API_KEY is set. */
+export function createOpenAiWhisperProvider({ fetchImpl = globalThis.fetch } = {}) {
+  return {
+    name: "openai_whisper",
+    async transcribe({ durationSeconds = 15, mediaBuffer = null, fileName = "rough-cut.mp4", contentType = "video/mp4" } = {}) {
+      const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+      if (!apiKey) {
+        throw new Error("OPENAI_API_KEY is required for openai Whisper transcription.");
+      }
+      if (!mediaBuffer || !Buffer.isBuffer(mediaBuffer) && !(mediaBuffer instanceof Uint8Array)) {
+        throw new Error("openai Whisper requires the media file bytes — storage lookup failed.");
+      }
+      const form = new FormData();
+      const blob = new Blob([mediaBuffer], { type: contentType || "video/mp4" });
+      form.append("file", blob, fileName || "rough-cut.mp4");
+      form.append("model", String(process.env.OPENAI_WHISPER_MODEL || "whisper-1"));
+      form.append("response_format", "verbose_json");
+      const response = await fetchImpl("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form
+      });
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`OpenAI Whisper failed (${response.status}): ${errText.slice(0, 200)}`);
+      }
+      const payload = await response.json();
+      const segments = Array.isArray(payload.segments) ? payload.segments : [];
+      return {
+        provider: "openai_whisper",
+        confidence: 0.82,
+        durationSeconds: Number(payload.duration || durationSeconds) || durationSeconds,
+        transcript: String(payload.text || ""),
+        segments: segments.map((seg) => ({
+          at: Number(seg.start || 0),
+          text: String(seg.text || "").trim()
+        }))
+      };
+    }
+  };
+}
+
 export function getTranscriptionProvider() {
   const name = String(process.env.MARA_TRANSCRIPTION_PROVIDER || "mock").toLowerCase();
   if (name === "mock") return createMockTranscriptionProvider();
-  // Whisper/Deepgram adapters not shipped yet — fail closed instead of silent mock.
+  if (name === "openai" || name === "whisper" || name === "openai_whisper") {
+    return createOpenAiWhisperProvider();
+  }
   return createUnconfiguredTranscriptionProvider(name);
 }
 
@@ -325,7 +369,7 @@ export function mapPipelineAnalysisToCreativeIntel(analysis, { fileName = "rough
   };
 }
 
-export async function processVideoAnalysisJob(store, { analysisId, mediaAssetId, userId, workerId }) {
+export async function processVideoAnalysisJob(store, { analysisId, mediaAssetId, userId, workerId, objectStorage = null }) {
   const now = new Date().toISOString();
   const asset = await store.queryOne(
     `SELECT * FROM mara_media_assets WHERE id = ? AND user_id = ? AND worker_id = ?`,
@@ -340,8 +384,30 @@ export async function processVideoAnalysisJob(store, { analysisId, mediaAssetId,
     if (durationSeconds > MAX_DURATION_SECONDS) {
       throw new Error(`Video duration exceeds limit of ${MAX_DURATION_SECONDS}s.`);
     }
-    const transcription = await getTranscriptionProvider().transcribe({ durationSeconds });
-    const multimodal = await getMultimodalProvider().analyzeTimeline({ transcript: transcription.transcript, durationSeconds });
+
+    let mediaBuffer = null;
+    const providerName = String(process.env.MARA_TRANSCRIPTION_PROVIDER || "mock").toLowerCase();
+    if (providerName !== "mock" && objectStorage) {
+      // Uploads store as mara-media/{basename}; storage_key is the logical tenant path.
+      const key = String(asset.storage_key || "");
+      const storedName = `mara-media/${path.basename(key)}`;
+      try {
+        mediaBuffer = await objectStorage.get({ userId, storedName });
+      } catch {
+        mediaBuffer = null;
+      }
+    }
+
+    const transcription = await getTranscriptionProvider().transcribe({
+      durationSeconds,
+      mediaBuffer,
+      fileName: path.basename(String(asset.storage_key || "rough-cut.mp4")),
+      contentType: asset.content_type || "video/mp4"
+    });
+    const multimodal = await getMultimodalProvider().analyzeTimeline({
+      transcript: transcription.transcript,
+      durationSeconds: transcription.durationSeconds || durationSeconds
+    });
     const usingMock = transcription.provider === "mock_transcription" || multimodal.provider === "mock_multimodal";
     if (usingMock && String(process.env.MARA_REQUIRE_REAL_MEDIA || "").trim() === "1") {
       throw new Error("Real media providers required (MARA_REQUIRE_REAL_MEDIA=1); refusing mock analysis.");
