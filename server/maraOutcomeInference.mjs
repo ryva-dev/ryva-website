@@ -21,30 +21,33 @@ export function inferOutcomeFromText({ subject = "", body = "", snippet = "", pa
   const text = [subject, snippet, body, paymentAmount].filter(Boolean).join("\n");
   if (!String(text).trim()) return null;
 
-  const hired = HIRED_RE.test(text);
+  const hiredLanguage = HIRED_RE.test(text);
   const conceptAccepted = CONCEPT_RE.test(text);
-  const responded = hired || conceptAccepted || RESPONDED_RE.test(text);
-  const paymentHit = PAYMENT_RE.test(text);
+  const respondedInterest = RESPONDED_RE.test(text);
+  // Bare venmo/paypal/$ alone is too weak — require hire language or explicit payment-sent phrasing.
+  const paymentSent = /\b(payment (sent|processed|on the way)|paid via|invoice (paid|received)|wired \$)\b/i.test(text)
+    || (PAYMENT_RE.test(text) && hiredLanguage);
   const declined = DECLINE_RE.test(text);
   const revenueAmount = Math.max(parseMoney(text), parseMoney(paymentAmount));
+  const hired = hiredLanguage || (paymentSent && (hiredLanguage || conceptAccepted || Number(paymentAmount) > 0));
 
-  if (!hired && !conceptAccepted && !responded && !paymentHit && !declined) {
+  if (!hired && !conceptAccepted && !respondedInterest && !paymentSent && !declined) {
     return null;
   }
 
   return {
     contacted: true,
-    responded: responded || hired || conceptAccepted || paymentHit,
+    responded: respondedInterest || hired || conceptAccepted || paymentSent,
     conceptAccepted: conceptAccepted || hired,
-    hired: hired || paymentHit,
+    hired,
     rehired: false,
-    revenueAmount: hired || paymentHit ? revenueAmount : 0,
+    revenueAmount: hired || paymentSent ? revenueAmount : 0,
     declined,
     basis: "observed",
-    claim: hired
+    claim: hiredLanguage
       ? "Inbox language indicates the creator was hired or contracted."
-      : paymentHit
-        ? "Inbox or campaign payment language indicates money moved."
+      : paymentSent
+        ? "Explicit payment-sent language indicates money moved."
         : conceptAccepted
           ? "Brand accepted or green-lit a concept."
           : declined
@@ -75,11 +78,8 @@ async function findOpportunityForBrand(store, userId, workerId, brandName) {
     userId,
     workerId
   );
-  return (
-    rows.find((row) => normalizeBrand(row.brandName) === needle) ||
-    rows.find((row) => normalizeBrand(row.brandName).includes(needle) || needle.includes(normalizeBrand(row.brandName))) ||
-    null
-  );
+  // Exact normalized match only — fuzzy includes() caused wrong-opportunity attribution.
+  return rows.find((row) => normalizeBrand(row.brandName) === needle) || null;
 }
 
 async function alreadyRecordedSimilar(store, userId, workerId, opportunityId, inference) {

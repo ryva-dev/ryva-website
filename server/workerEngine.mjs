@@ -1604,9 +1604,22 @@ async function executePitchTemplateTask(context) {
         suggestedNextStep: "Run brand research again or point me at a specific brand you want pitched."
       };
     }
+    try {
+      await assertWithinOutreachDraftLimit(context.store, context.userId, context.workerId);
+    } catch (error) {
+      if (error?.code === "MARA_OUTREACH_DRAFT_LIMIT") {
+        return {
+          blocked: true,
+          blockerReason: error.message,
+          neededFromUser: "Raise the weekly outreach draft budget or wait until next week.",
+          suggestedNextStep: "Focus on replies and follow-ups already in your queue."
+        };
+      }
+      // Missing limit tables in light/test stores should not block pitches.
+    }
     const llmResult = await tryGenerateMaraPersonalizedPitch(context);
     if (llmResult) {
-      return llmResult;
+      return await stampPitchOutreachMetadata(context, llmResult);
     }
   }
 
@@ -1636,7 +1649,7 @@ async function executePitchTemplateTask(context) {
     generatedBy: context.currentTask.taskType === "personalized_pitch" ? "template" : undefined
   };
 
-  return {
+  return stampPitchOutreachMetadata(context, {
     content: buildRichContent([
       { title: "Short email pitch", value: structuredContent.emailPitch },
       { title: "Short DM pitch", value: structuredContent.warmDmPitch },
@@ -1649,7 +1662,58 @@ async function executePitchTemplateTask(context) {
     outputType: context.currentTask.taskType === "personalized_pitch" ? "pitch_draft" : "pitch_template",
     structuredContent,
     title: context.currentTask.taskType === "personalized_pitch" ? `Personalized pitch for ${brandLabel}` : "Pitch template"
-  };
+  });
+}
+
+async function stampPitchOutreachMetadata(context, result) {
+  if (!result || result.blocked) return result;
+  const structured = { ...(result.structuredContent || {}) };
+  const brandLabel =
+    structured.brandName ||
+    extractPersonalizedBrandTarget(context)?.brandName ||
+    String(result.title || "").replace(/^Personalized pitch for\s+/i, "").trim() ||
+    null;
+  if (brandLabel) structured.brandName = brandLabel;
+
+  let contactEmail = String(structured.contactEmail || "").trim();
+  let opportunityId = structured.opportunityId || null;
+  let publicBrandId = structured.publicBrandId || null;
+
+  if (context.store && brandLabel && brandLabel !== "[Brand]") {
+    try {
+      if (!contactEmail) {
+        const contact = await findOutreachContactByBrandName(context.store, context.userId, context.workerId, brandLabel);
+        if (contact?.value?.includes("@") && Number(contact.mayUseForOutreach) === 1) {
+          contactEmail = contact.value;
+          publicBrandId = contact.publicBrandId || publicBrandId;
+        }
+      }
+      if (!opportunityId) {
+        const opp = await context.store.queryOne(
+          `SELECT o.id, COALESCE(o.public_brand_id, o.brand_profile_id) AS "publicBrandId"
+           FROM mara_creator_brand_opportunities o
+           LEFT JOIN mara_public_brands pb ON pb.id = COALESCE(o.public_brand_id, o.brand_profile_id)
+           WHERE o.user_id = ? AND o.worker_id = ? AND lower(pb.brand_name) = lower(?)
+           ORDER BY o.updated_at DESC LIMIT 1`,
+          context.userId,
+          context.workerId,
+          brandLabel
+        );
+        if (opp?.id) {
+          opportunityId = opp.id;
+          publicBrandId = opp.publicBrandId || publicBrandId;
+        }
+      }
+    } catch {
+      /* light stores may lack tables */
+    }
+  }
+
+  if (contactEmail) structured.contactEmail = contactEmail;
+  if (opportunityId) structured.opportunityId = opportunityId;
+  if (publicBrandId) structured.publicBrandId = publicBrandId;
+
+  return { ...result, structuredContent: structured };
 }
 
 function executeFollowUpSequenceTask(context) {
@@ -2628,13 +2692,13 @@ export async function runMaraTask({
   };
   await completeWorkerTask(store, userId, workerId, taskId, JSON.stringify(previewPayload));
 
-  if (task.targetBrandId) {
-    if (savedOutput.outputType === "content_ideas") {
-      await touchWorkerBrandActivity(store, userId, workerId, task.targetBrandId, "content");
-    }
-    if (savedOutput.outputType === "pitch_draft" || savedOutput.outputType === "pitch_template") {
-      await touchWorkerBrandActivity(store, userId, workerId, task.targetBrandId, "pitch");
-    }
+  if (savedOutput.outputType === "content_ideas" || savedOutput.outputType === "pitch_draft" || savedOutput.outputType === "pitch_template") {
+    const brandName =
+      savedOutput.structuredContent?.brandName ||
+      String(task.title || "").replace(/^Draft personalized pitch for\s+/i, "").replace(/^Personalized pitch for\s+/i, "").trim() ||
+      null;
+    const field = savedOutput.outputType === "content_ideas" ? "content" : "pitch";
+    await touchWorkerBrandActivity(store, userId, workerId, task.targetBrandId || null, field, { brandName });
   }
 
   await createWorkerActivityLog(store, {
@@ -3270,7 +3334,15 @@ async function runMaraInboxOrganizationCycle({ store, fetchImpl, userId, workerI
 
   // Stop follow-up sequences when a brand has replied; draft replies from inbox without paste.
   const replyCandidates = threads
-    .filter((thread) => thread.brandName && (thread.bodyText || thread.snippet) && String(thread.threadStatus || "").toLowerCase() !== "closed")
+    .filter((thread) => {
+      if (!thread.brandName || !(thread.bodyText || thread.snippet)) return false;
+      const status = String(thread.threadStatus || "").toLowerCase();
+      if (status === "closed" || status === "outbound" || status === "sent") return false;
+      // Prefer threads that look like inbound replies / needs attention.
+      if (status === "needs_reply" || status === "replied" || status === "inbound") return true;
+      const urgency = String(thread.urgency || "").toLowerCase();
+      return urgency === "high" || urgency === "medium";
+    })
     .slice(0, 3);
   const createdReplyTaskIds = [];
   for (const thread of replyCandidates) {
@@ -3612,8 +3684,19 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
         niche: action.brandName,
         fetchImpl
       });
-      const primary = research.runs.flatMap((run) => run.observations || [])[0] || {};
-      const evidence = (primary.evidence || []).map((item) => createEvidenceItem(item));
+      const liveObservations = research.runs
+        .filter((run) => run.status === "ok" || run.status === "empty")
+        .flatMap((run) => run.observations || []);
+      const evidence = [];
+      const seenClaims = new Set();
+      for (const observation of liveObservations) {
+        for (const item of observation.evidence || []) {
+          const claim = String(item.claim || "").trim();
+          if (!claim || seenClaims.has(claim)) continue;
+          seenClaims.add(claim);
+          evidence.push(createEvidenceItem(item));
+        }
+      }
       if (action.brandName && !evidence.some((item) => item.kind === EVIDENCE_KINDS.HYPOTHESIS)) {
         evidence.push(
           createEvidenceItem({
@@ -3625,23 +3708,34 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
       }
       const creatorProfile = await getCreatorIntelligenceProfile(store, userId, workerId);
       try {
+        // Persist brand first so we can discover contacts before scoring.
+        const { savePublicBrand } = await import("./maraBrandCanonical.mjs");
+        const publicBrand = await savePublicBrand(store, {
+          brandName: research.brandName || action.brandName,
+          website: research.website || action.website || liveObservations.find((obs) => obs.website)?.website || null
+        });
+        const seedEmails = liveObservations.flatMap((obs) => obs.mailtoEmails || []);
+        const partnershipEmails = liveObservations.flatMap((obs) => obs.partnershipEmails || []);
+        const contactDiscovery = await discoverAndPersistBrandContacts(store, {
+          userId,
+          workerId,
+          publicBrandId: publicBrand.id,
+          brandName: research.brandName || action.brandName,
+          website: research.website || action.website || publicBrand.website,
+          seedEmails,
+          partnershipEmails,
+          fetchImpl
+        });
+        const { listBrandContacts } = await import("./maraContactDiscovery.mjs");
+        const contactRows = await listBrandContacts(store, userId, workerId, publicBrand.id);
         const opportunity = await createOrUpdateOpportunityFromResearch(store, {
           userId,
           workerId,
           brandName: research.brandName || action.brandName,
-          website: research.website || action.website,
+          website: research.website || action.website || publicBrand.website,
           evidence,
-          creatorProfile
-        });
-        const contactDiscovery = await discoverAndPersistBrandContacts(store, {
-          userId,
-          workerId,
-          publicBrandId: opportunity.publicBrandId,
-          brandName: research.brandName || action.brandName,
-          website: research.website || action.website,
-          seedEmails: primary.mailtoEmails || [],
-          partnershipEmails: primary.partnershipEmails || [],
-          fetchImpl
+          creatorProfile,
+          contacts: contactRows
         });
         const contacts = contactDiscovery.bestContact || (await findBestOutreachContact(store, userId, workerId, opportunity.publicBrandId));
         const concept = buildConceptFromGap({
@@ -3657,8 +3751,10 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
           publicBrandId: opportunity.publicBrandId,
           concept
         });
+        const liveCount = research.runs.filter((run) => !["not_configured", "unknown_provider"].includes(run.status)).length;
+        const unavailableCount = research.unavailable?.length || research.runs.filter((run) => run.status === "not_configured").length;
         summary.notes.push(
-          `Deep-researched ${research.brandName || action.brandName} via ${research.runs.length} providers (${research.unavailable.length} unavailable). Decision: ${opportunity.package.decision}.`
+          `Deep-researched ${research.brandName || action.brandName} via ${liveCount} live provider${liveCount === 1 ? "" : "s"} (${unavailableCount} ad/social provider${unavailableCount === 1 ? "" : "s"} unavailable — no ads fabricated). Decision: ${opportunity.package.decision}.`
         );
         if (contacts?.value?.includes("@")) {
           summary.notes.push(`Outreach-ready contact: ${contacts.value}`);
@@ -4014,17 +4110,25 @@ export async function runMaraAutonomyCycle({
 
   const latestTrendSnapshot = await getLatestTrendSnapshot(store, userId, workerId);
   let growthPitchTargets = [];
+  let dueFollowUpCount = 0;
   try {
     await initMaraIntelligence(store);
     growthPitchTargets = await listTopPitchTargets(store, userId, workerId, 8);
   } catch {
     growthPitchTargets = [];
   }
+  try {
+    const due = await listDueOutreachSequences(store, userId, workerId);
+    dueFollowUpCount = due.length;
+  } catch {
+    dueFollowUpCount = 0;
+  }
   const plannerContext = buildAutonomyPlannerContext({
     approvals: (await listApprovalRequests(store, userId, workerId)).filter((entry) => entry.status === "pending"),
     blockedTasks: (await listWorkerTasksForUserWorker(store, userId, workerId)).filter((entry) => entry.status === "blocked"),
     brandResearchRemaining: Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - await countBrandResearchItemsToday(store, userId, workerId)),
     brands: await listWorkerBrands(store, userId, workerId),
+    dueFollowUpCount,
     dueRecurring: (await listRecurringResponsibilities(store, userId, workerId)).filter((entry) => isRecurringDue(entry)),
     growthPitchTargets,
     hasConnectedEmail: hasConnectedEmailIntegration(integrations),
@@ -4366,15 +4470,26 @@ export async function upsertWorkerBrand(store, brand) {
   return { id, updated: false };
 }
 
-export async function touchWorkerBrandActivity(store, userId, workerId, brandId, field) {
+export async function touchWorkerBrandActivity(store, userId, workerId, brandId, field, { brandName = null } = {}) {
   const timestamp = new Date().toISOString();
   const column = field === "pitch" ? "last_pitch_at" : "last_content_ideas_at";
-  await store.execute(
-    `UPDATE worker_brands
-     SET ${column} = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND worker_id = ?`,
-    timestamp, timestamp, brandId, userId, workerId
-  );
+  if (brandId) {
+    await store.execute(
+      `UPDATE worker_brands
+       SET ${column} = ?, updated_at = ?
+       WHERE id = ? AND user_id = ? AND worker_id = ?`,
+      timestamp, timestamp, brandId, userId, workerId
+    );
+  }
+  // Also stamp by brand name when opportunity-driven pitches lack worker_brands.id.
+  if (brandName) {
+    await store.execute(
+      `UPDATE worker_brands
+       SET ${column} = ?, updated_at = ?
+       WHERE user_id = ? AND worker_id = ? AND lower(brand_name) = lower(?)`,
+      timestamp, timestamp, userId, workerId, brandName
+    );
+  }
 }
 
 export async function listResearchItems(store, userId, workerId) {

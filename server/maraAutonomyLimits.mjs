@@ -16,14 +16,18 @@ export const DEFAULT_AUTONOMY_LIMITS = Object.freeze({
 });
 
 export async function getAutonomyLimits(store, userId, workerId) {
-  const row = await store.queryOne(
-    `SELECT limits_json AS "limitsJson" FROM mara_autonomy_limits WHERE user_id = ? AND worker_id = ?`,
-    userId,
-    workerId
-  );
-  if (!row) return { ...DEFAULT_AUTONOMY_LIMITS };
-  const parsed = typeof row.limitsJson === "object" ? row.limitsJson : JSON.parse(row.limitsJson || "{}");
-  return { ...DEFAULT_AUTONOMY_LIMITS, ...parsed };
+  try {
+    const row = await store.queryOne(
+      `SELECT limits_json AS "limitsJson" FROM mara_autonomy_limits WHERE user_id = ? AND worker_id = ?`,
+      userId,
+      workerId
+    );
+    if (!row) return { ...DEFAULT_AUTONOMY_LIMITS };
+    const parsed = typeof row.limitsJson === "object" ? row.limitsJson : JSON.parse(row.limitsJson || "{}");
+    return { ...DEFAULT_AUTONOMY_LIMITS, ...parsed };
+  } catch {
+    return { ...DEFAULT_AUTONOMY_LIMITS };
+  }
 }
 
 export async function saveAutonomyLimits(store, userId, workerId, limits) {
@@ -78,17 +82,21 @@ export async function assertWithinBrandResearchLimit(store, userId, workerId) {
 /** Weekly cap on pitch + follow-up draft outputs (send still separately approval-gated). */
 export async function assertWithinOutreachDraftLimit(store, userId, workerId) {
   const limits = await getAutonomyLimits(store, userId, workerId);
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const row = await store.queryOne(
-    `SELECT COUNT(*) AS count FROM worker_outputs
-     WHERE user_id = ? AND worker_id = ?
-       AND output_type IN ('pitch_draft', 'pitch_template', 'follow_up_sequence', 'reply_draft')
-       AND created_at >= ?`,
-    userId,
-    workerId,
-    weekAgo
-  );
-  const count = Number(row?.count || 0);
+  let count = 0;
+  try {
+    const row = await store.queryOne(
+      `SELECT COUNT(*) AS count FROM worker_outputs
+       WHERE user_id = ? AND worker_id = ?
+         AND output_type IN ('pitch_draft', 'pitch_template', 'follow_up_sequence', 'reply_draft')
+         AND created_at >= ?`,
+      userId,
+      workerId,
+      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    );
+    count = Number(row?.count || 0);
+  } catch {
+    return { remaining: limits.maxOutreachDraftsPerWeek, limits };
+  }
   if (count >= limits.maxOutreachDraftsPerWeek) {
     const error = new Error(`Weekly outreach draft limit reached (${limits.maxOutreachDraftsPerWeek}).`);
     error.code = "MARA_OUTREACH_DRAFT_LIMIT";

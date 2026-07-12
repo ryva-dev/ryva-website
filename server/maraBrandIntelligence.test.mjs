@@ -8,7 +8,8 @@ import { scoreOpportunityDimensions, SCORE_VERSION } from "./maraOpportunityScor
 import { createOrUpdateOpportunityFromResearch } from "./maraOpportunityPackages.mjs";
 import { upsertBrandContact, assessContactUsability, CONTACT_TYPES } from "./maraContactDiscovery.mjs";
 import { buildConceptFromGap, conceptsAreNearDuplicates, saveConceptIfNovel } from "./maraConceptEngine.mjs";
-import { startOutreachSequence, stopOutreachSequence, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
+import { startOutreachSequence, stopOutreachSequence, prepareDueFollowUpDraft, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
+import { decideOpportunityAction } from "./maraOpportunityScoring.mjs";
 import { sanitizeUntrustedText } from "./maraEvidence.mjs";
 import { detectVideoMime, validateVideoUpload, processVideoAnalysisJob, registerMediaAsset, enqueueVideoAnalysis } from "./maraMediaPipeline.mjs";
 import { initJobQueue, claimJobs, completeJob } from "./jobQueue.mjs";
@@ -185,6 +186,70 @@ test("mock video analysis completes for tenant asset", async () => {
   const leaked = await store.queryOne(`SELECT id FROM mara_video_analyses WHERE id = ? AND user_id = ?`, analysisId, "u2");
   assert.equal(leaked, null);
   for (const job of jobs) await completeJob(store, job.id, "test").catch(() => null);
+});
+
+test("prepareDueFollowUpDraft holds next_run_at so the sequence is not due again immediately", async () => {
+  const store = makeStore();
+  await initMaraBrandArchitecture(store);
+  const brand = await savePublicBrand(store, { brandName: "Hold Co", website: "https://hold.example", brandKey: "hold-co" });
+  const started = await startOutreachSequence(store, {
+    userId: "u1",
+    workerId: "mara-vale",
+    opportunityId: "opp-hold",
+    publicBrandId: brand.id,
+    contactId: null,
+    maxAttempts: 3
+  });
+  await store.execute(
+    `UPDATE mara_outreach_sequences SET next_run_at = ? WHERE id = ?`,
+    new Date(Date.now() - 60_000).toISOString(),
+    started.id
+  );
+  const prepared = await prepareDueFollowUpDraft(store, {
+    userId: "u1",
+    workerId: "mara-vale",
+    sequenceId: started.id,
+    holdHours: 48
+  });
+  assert.equal(prepared.status, "draft_pending");
+  const row = await store.queryOne(`SELECT next_run_at AS "nextRunAt" FROM mara_outreach_sequences WHERE id = ?`, started.id);
+  assert.ok(new Date(row.nextRunAt).getTime() > Date.now() + 24 * 3_600_000);
+});
+
+test("pursue requires an outreach-ready contact", () => {
+  const withContact = decideOpportunityAction({
+    total: 70,
+    confidence: 60,
+    hasContact: true,
+    hasObservedSource: true
+  });
+  assert.equal(withContact.decision, "pursue");
+  const withoutContact = decideOpportunityAction({
+    total: 70,
+    confidence: 60,
+    hasContact: false,
+    hasObservedSource: true
+  });
+  assert.equal(withoutContact.decision, "monitor");
+});
+
+test("support mailboxes are not outreach-ready", () => {
+  assert.equal(
+    assessContactUsability({
+      contactType: CONTACT_TYPES.PUBLIC_EMPLOYEE_EMAIL,
+      source: "mailto",
+      value: "support@brand.example"
+    }).mayUseForOutreach,
+    false
+  );
+  assert.equal(
+    assessContactUsability({
+      contactType: CONTACT_TYPES.PUBLIC_EMPLOYEE_EMAIL,
+      source: "mailto",
+      value: "partners@brand.example"
+    }).mayUseForOutreach,
+    true
+  );
 });
 
 test("email injection content is neutralized before research labeling", () => {

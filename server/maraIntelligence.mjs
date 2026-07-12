@@ -195,6 +195,7 @@ export async function recordCommercialOutcome(store, outcome) {
         conceptAccepted: Boolean(outcome.conceptAccepted),
         hired: Boolean(outcome.hired),
         rehired: Boolean(outcome.rehired),
+        declined: Boolean(outcome.details?.declined || outcome.declined),
         revenueAmount
       })
     : null;
@@ -247,7 +248,11 @@ export async function applyCommercialOutcomeToOpportunity(store, outcome) {
   };
   let status = String(row.status || "candidate");
 
-  if (outcome.hired || outcome.rehired) {
+  if (outcome.declined && !outcome.hired && !outcome.rehired) {
+    dimensions.outreachLikelihood = clampScore(dimensions.outreachLikelihood - 25);
+    dimensions.commercialPotential = clampScore(dimensions.commercialPotential - 10);
+    status = "lost";
+  } else if (outcome.hired || outcome.rehired) {
     dimensions.commercialPotential = clampScore(dimensions.commercialPotential + (outcome.rehired ? 18 : 14));
     dimensions.outreachLikelihood = clampScore(dimensions.outreachLikelihood + 12);
     dimensions.creatorFit = clampScore(dimensions.creatorFit + 8);
@@ -301,7 +306,7 @@ export async function listTopPitchTargets(store, userId, workerId, limit = 5) {
      LEFT JOIN mara_public_brands pb ON pb.id = COALESCE(o.public_brand_id, o.brand_profile_id)
      LEFT JOIN mara_brand_profiles b ON b.id = o.brand_profile_id
      WHERE o.user_id = ? AND o.worker_id = ?
-       AND o.status NOT IN ('cold', 'lost', 'won', 'won_repeat')
+       AND o.status NOT IN ('cold', 'lost', 'won', 'won_repeat', 'responded', 'concept_accepted')
        AND o.score_total >= 45
      ORDER BY
        CASE o.status WHEN 'qualified' THEN 0 WHEN 'active' THEN 1 WHEN 'responded' THEN 2 WHEN 'candidate' THEN 3 ELSE 4 END,

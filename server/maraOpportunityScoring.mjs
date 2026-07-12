@@ -136,8 +136,11 @@ export function decideOpportunityAction({ total, confidence, riskScore, hasConta
   if (total >= 70 && confidence >= 55 && hasContact) {
     return { decision: "pursue", reason: "Strong fit, creative opportunity, and reachable contact path." };
   }
-  if (total >= 55 && confidence >= 40) {
-    return { decision: "pursue", reason: "Qualified opportunity with enough evidence to pitch carefully." };
+  if (total >= 55 && confidence >= 40 && hasContact) {
+    return { decision: "pursue", reason: "Qualified opportunity with a sendable contact — pitch carefully." };
+  }
+  if (total >= 55 && confidence >= 40 && !hasContact) {
+    return { decision: "monitor", reason: "Fit is promising, but no outreach-ready contact yet — discover or confirm a contact before pitching." };
   }
   if (total < 40) {
     return { decision: "deprioritize", reason: "Low composite fit relative to alternatives." };

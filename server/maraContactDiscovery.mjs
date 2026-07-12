@@ -16,7 +16,7 @@ export const CONTACT_TYPES = Object.freeze({
 
 const PARTNERSHIP_LOCAL = /^(partners?|partnerships?|collab|collaborations?|creators?|creator|influencer|ugc|press|hello|hi|team|marketing)$/i;
 
-export function assessContactUsability({ contactType, verificationState, inferred, source }) {
+export function assessContactUsability({ contactType, verificationState, inferred, source, value = "" }) {
   if (inferred || contactType === CONTACT_TYPES.INFERRED_PATTERN) {
     return { mayUseForOutreach: false, reason: "Inferred contacts require explicit user confirmation." };
   }
@@ -27,7 +27,17 @@ export function assessContactUsability({ contactType, verificationState, inferre
     return { mayUseForOutreach: true, reason: "Public or user-owned contact path." };
   }
   if (contactType === CONTACT_TYPES.PUBLIC_EMPLOYEE_EMAIL && source === "mailto") {
-    return { mayUseForOutreach: true, reason: "Publicly listed mailto address." };
+    const local = String(value || "").split("@")[0] || "";
+    if (/^(support|help|noreply|no-reply|donotreply|billing|careers|jobs|privacy|legal)$/i.test(local)) {
+      return { mayUseForOutreach: false, reason: "Public support/ops mailbox — not a creator outreach path." };
+    }
+    if (
+      /^(partners?|partnerships?|collab|collaborations?|creators?|creator|influencer|ugc|press|hello|hi|team|marketing)$/i.test(local) ||
+      /partner|collab|creator|influencer|ugc|press/i.test(local)
+    ) {
+      return { mayUseForOutreach: true, reason: "Publicly listed outreach-style mailto address." };
+    }
+    return { mayUseForOutreach: false, reason: "Public employee email needs confirmation before outreach." };
   }
   if ([CONTACT_TYPES.CREATOR_PROGRAM, CONTACT_TYPES.AFFILIATE, CONTACT_TYPES.CONTACT_FORM].includes(contactType)) {
     return { mayUseForOutreach: false, reason: "Application/form path — useful for strategy, not direct email send." };
@@ -100,7 +110,8 @@ export async function upsertBrandContact(store, input) {
     contactType: input.contactType,
     verificationState: input.verificationState || "unverified",
     inferred,
-    source: input.source
+    source: input.source,
+    value
   });
   const existing = await store.queryOne(
     `SELECT id FROM mara_brand_contacts
@@ -470,8 +481,38 @@ export async function discoverAndPersistBrandContacts(store, {
   website,
   seedEmails = [],
   partnershipEmails = [],
-  fetchImpl = globalThis.fetch
+  fetchImpl = globalThis.fetch,
+  forceRefresh = false,
+  cacheTtlHours = 72
 }) {
+  const existingBest = await findBestOutreachContact(store, userId, workerId, publicBrandId).catch(() => null);
+  if (!forceRefresh && existingBest?.value?.includes("@") && Number(existingBest.mayUseForOutreach) === 1) {
+    let fresh = false;
+    try {
+      const recent = await store.queryOne(
+        `SELECT MAX(updated_at) AS "updatedAt" FROM mara_brand_contacts
+         WHERE user_id = ? AND worker_id = ? AND public_brand_id = ? AND may_use_for_outreach = 1`,
+        userId,
+        workerId,
+        publicBrandId
+      );
+      const ageMs = recent?.updatedAt ? Date.now() - new Date(recent.updatedAt).getTime() : Infinity;
+      fresh = ageMs < Math.max(1, Number(cacheTtlHours) || 72) * 3_600_000;
+    } catch {
+      fresh = false;
+    }
+    if (fresh) {
+      return {
+        savedIds: [],
+        gmailSynced: 0,
+        site: { status: "cache_hit", pagesFetched: 0 },
+        outreachReady: true,
+        bestContact: existingBest,
+        skippedRediscovery: true
+      };
+    }
+  }
+
   const fromSeed = await ingestObservedEmails(store, {
     userId,
     workerId,
@@ -490,6 +531,7 @@ export async function discoverAndPersistBrandContacts(store, {
     gmailSynced: fromGmail.synced,
     site: fromSite,
     outreachReady: Boolean(best?.value?.includes("@")),
-    bestContact: best
+    bestContact: best,
+    skippedRediscovery: false
   };
 }

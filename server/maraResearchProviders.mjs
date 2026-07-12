@@ -146,47 +146,132 @@ export async function duckDuckGoBrandSearchProvider({ query, limit = 5, fetchImp
   }
 }
 
-/** Official-ish page research: title/meta + mailto + creator-program link heuristics. */
+/** Official site research: homepage + linked contact/creator/about pages. Never fabricates. */
 export async function officialSiteResearchProvider({ url, fetchImpl = globalThis.fetch }) {
   try {
-    const html = await fetchText(fetchImpl, url);
-    const sanitized = sanitizeUntrustedText(html, { maxLength: 50_000, label: "brand_website" });
-    const pageTitle = stripHtml(html.match(/<title[^>]*>(.*?)<\/title>/is)?.[1] || "");
+    const homeHtml = await fetchText(fetchImpl, url);
+    const sanitized = sanitizeUntrustedText(homeHtml, { maxLength: 50_000, label: "brand_website" });
+    const pageTitle = stripHtml(homeHtml.match(/<title[^>]*>(.*?)<\/title>/is)?.[1] || "");
     const metaDescription = sanitizeUntrustedText(
-      html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] || "",
+      homeHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] || "",
       { maxLength: 600 }
     ).text;
-    const links = [...html.matchAll(/href=["']([^"']+)["']/gi)].map((m) => m[1]);
+    const links = [...homeHtml.matchAll(/href=["']([^"']+)["']/gi)].map((m) => m[1]);
+    const resolve = (href) => {
+      try {
+        return new URL(href, url).toString();
+      } catch {
+        return null;
+      }
+    };
+    const absoluteLinks = links.map(resolve).filter(Boolean);
     const creatorProgramUrl =
-      links.find((href) => /creator|ambassador|influencer|ugc|affiliate/i.test(href)) || null;
-    const contactPageUrl = links.find((href) => /contact|partnership/i.test(href)) || null;
-    const mailto = [...html.matchAll(/mailto:([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase());
+      absoluteLinks.find((href) => /creator|ambassador|influencer|ugc|collab/i.test(href)) || null;
+    const affiliateUrl = absoluteLinks.find((href) => /affiliate/i.test(href)) || null;
+    const contactPageUrl =
+      absoluteLinks.find((href) => /contact|partnership|work-with|workwith|collaborate/i.test(href)) || null;
+    const aboutPageUrl = absoluteLinks.find((href) => /\/about|our-story|who-we-are/i.test(href)) || null;
+    const mailtoHome = [...homeHtml.matchAll(/mailto:([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) =>
+      m[1].toLowerCase()
+    );
+
+    const pagesToFetch = [...new Set([contactPageUrl, creatorProgramUrl, affiliateUrl, aboutPageUrl].filter(Boolean))].slice(0, 3);
+    const pageNotes = [];
+    const mailtoAll = new Set(mailtoHome);
+    const partnershipEmails = new Set(
+      [...mailtoHome].filter((email) => /partner|collab|creator|influencer|ugc|press|hello|hi|team|marketing/i.test(email.split("@")[0] || ""))
+    );
+
+    for (const pageUrl of pagesToFetch) {
+      try {
+        const html = await fetchText(fetchImpl, pageUrl);
+        const title = stripHtml(html.match(/<title[^>]*>(.*?)<\/title>/is)?.[1] || pageUrl);
+        const emails = [...html.matchAll(/mailto:([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi)].map((m) => m[1].toLowerCase());
+        const visible = [...html.matchAll(/\b([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})\b/gi)]
+          .map((m) => m[1].toLowerCase())
+          .filter((email) => !/(example\.com|sentry\.io|wixpress|cloudflare|schema\.org)$/i.test(email));
+        for (const email of [...emails, ...visible]) {
+          mailtoAll.add(email);
+          if (/partner|collab|creator|influencer|ugc|press|hello|hi|team|marketing/i.test(email.split("@")[0] || "")) {
+            partnershipEmails.add(email);
+          }
+        }
+        const hasForm = /<form[\s\S]*?(contact|partner|creator|collab)[\s\S]*?<\/form>/i.test(html);
+        pageNotes.push({
+          pageUrl,
+          pageTitle: title,
+          hasContactForm: hasForm,
+          emailCount: emails.length + visible.length
+        });
+      } catch {
+        continue;
+      }
+    }
+
+    const evidence = [
+      createEvidenceItem({
+        kind: EVIDENCE_KINDS.OBSERVED,
+        claim: metaDescription
+          ? `Site meta description observed for ${extractCanonicalDomain(url) || url}.`
+          : `Official homepage retrieved for ${extractCanonicalDomain(url) || url}.`,
+        sourceUrl: url,
+        confidence: metaDescription ? 85 : 70,
+        rawExcerpt: metaDescription || pageTitle
+      })
+    ];
+    if (creatorProgramUrl) {
+      evidence.push(
+        createEvidenceItem({
+          kind: EVIDENCE_KINDS.OBSERVED,
+          claim: `Public creator/collab program link observed on site.`,
+          sourceUrl: creatorProgramUrl,
+          confidence: 80
+        })
+      );
+    }
+    if (contactPageUrl) {
+      evidence.push(
+        createEvidenceItem({
+          kind: EVIDENCE_KINDS.OBSERVED,
+          claim: `Public contact/partnership page link observed on site.`,
+          sourceUrl: contactPageUrl,
+          confidence: 75
+        })
+      );
+    }
+    if (partnershipEmails.size) {
+      evidence.push(
+        createEvidenceItem({
+          kind: EVIDENCE_KINDS.OBSERVED,
+          claim: `Public partnership-style mailto address(es) observed on brand pages.`,
+          sourceUrl: url,
+          confidence: 88,
+          rawExcerpt: [...partnershipEmails].slice(0, 3).join(", ")
+        })
+      );
+    }
+
     return createProviderResult({
       providerName: "official_site_html",
       researchType: "brand_official",
       query: url,
       retrievedUrl: url,
       status: "ok",
-      reliability: 0.7,
+      reliability: 0.78,
       observations: [
         {
           pageTitle,
           metaDescription,
           creatorProgramUrl,
+          affiliateUrl,
           contactPageUrl,
-          mailtoEmails: [...new Set(mailto)].slice(0, 8),
+          aboutPageUrl,
+          pagesCrawled: [url, ...pagesToFetch],
+          pageNotes,
+          mailtoEmails: [...mailtoAll].slice(0, 12),
+          partnershipEmails: [...partnershipEmails].slice(0, 6),
           injectionDetected: sanitized.injectionDetected,
-          evidence: [
-            createEvidenceItem({
-              kind: EVIDENCE_KINDS.OBSERVED,
-              claim: metaDescription
-                ? `Site meta description observed for ${extractCanonicalDomain(url) || url}.`
-                : `Official page retrieved for ${extractCanonicalDomain(url) || url}.`,
-              sourceUrl: url,
-              confidence: metaDescription ? 85 : 70,
-              rawExcerpt: metaDescription || pageTitle
-            })
-          ]
+          evidence
         }
       ]
     });

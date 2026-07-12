@@ -111,8 +111,9 @@ export async function advanceOutreachSequenceAfterDraft(store, { userId, workerI
 /**
  * Propose the next follow-up copy without advancing attempt_count.
  * Attempts advance only after an approved send (advanceOutreachSequenceAfterSend).
+ * Holding next_run_at prevents the same due row from re-firing every autonomy cycle.
  */
-export async function prepareDueFollowUpDraft(store, { userId, workerId, sequenceId }) {
+export async function prepareDueFollowUpDraft(store, { userId, workerId, sequenceId, holdHours = 48 } = {}) {
   const row = await store.queryOne(
     `SELECT * FROM mara_outreach_sequences WHERE id = ? AND user_id = ? AND worker_id = ?`,
     sequenceId,
@@ -132,11 +133,23 @@ export async function prepareDueFollowUpDraft(store, { userId, workerId, sequenc
     return { status: "stopped", reason: SEQUENCE_STOP_REASONS.MAX_ATTEMPTS };
   }
   const nextStep = steps[Math.min(attemptCount, steps.length - 1)] || steps[steps.length - 1];
+  const holdMs = Math.max(1, Number(holdHours) || 48) * 3_600_000;
+  const holdUntil = new Date(Date.now() + holdMs).toISOString();
+  const now = new Date().toISOString();
+  await store.execute(
+    `UPDATE mara_outreach_sequences SET next_run_at = ?, updated_at = ? WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    holdUntil,
+    now,
+    sequenceId,
+    userId,
+    workerId
+  );
   return {
-    status: "active",
+    status: "draft_pending",
     attemptCount,
     proposedFollowUp: nextStep,
     requiresApproval: true,
+    nextRunAt: holdUntil,
     publicBrandId: row.public_brand_id || row.publicBrandId || null,
     contactId: row.contact_id || row.contactId || null,
     opportunityId: row.opportunity_id || row.opportunityId || null

@@ -2512,52 +2512,51 @@ function buildGmailRawMessage({ body, subject, to }) {
 
 async function findBestDraftContact(userId, workerSlug, brandLabel = "") {
   const normalizedBrand = String(brandLabel ?? "").trim().toLowerCase();
-  if (normalizedBrand) {
-    try {
-      const { findOutreachContactByBrandName } = await import("./maraContactDiscovery.mjs");
-      const maraContact = await findOutreachContactByBrandName(professionalStore, userId, workerSlug, brandLabel);
-      if (maraContact?.value?.includes("@") && Number(maraContact.mayUseForOutreach) === 1) {
-        return {
-          brandName: maraContact.brandName || brandLabel,
-          contactEmail: maraContact.value,
-          contactName: "",
-          subject: "",
-          contactId: maraContact.id,
-          source: "mara_brand_contacts"
-        };
-      }
-    } catch {
-      /* table may be missing mid-migrate */
+  // Never fall back to a different brand's thread — wrong To: is worse than empty To:.
+  if (!normalizedBrand) return null;
+
+  try {
+    const { findOutreachContactByBrandName } = await import("./maraContactDiscovery.mjs");
+    const maraContact = await findOutreachContactByBrandName(professionalStore, userId, workerSlug, brandLabel);
+    if (maraContact?.value?.includes("@") && Number(maraContact.mayUseForOutreach) === 1) {
+      return {
+        brandName: maraContact.brandName || brandLabel,
+        contactEmail: maraContact.value,
+        contactName: "",
+        subject: "",
+        contactId: maraContact.id,
+        source: "mara_brand_contacts"
+      };
     }
-
-    const campaignMatch = await authStore.queryOne(
-      `SELECT brand_name AS "brandName", contact_email AS "contactEmail", contact_name AS "contactName", campaign_name AS subject
-       FROM office_campaigns
-       WHERE user_id = ? AND worker_slug = ? AND lower(brand_name) = lower(?)
-         AND contact_email <> ''
-       ORDER BY updated_at DESC
-       LIMIT 1`
-    , userId, workerSlug, brandLabel);
-    if (campaignMatch) return campaignMatch;
-
-    const threadMatch = await authStore.queryOne(
-      `SELECT brand_name AS "brandName", contact_email AS "contactEmail", contact_name AS "contactName", subject
-       FROM office_email_threads
-       WHERE user_id = ? AND worker_slug = ? AND contact_email <> ''
-         AND (lower(brand_name) = ? OR lower(subject) LIKE ?)
-       ORDER BY received_at DESC
-       LIMIT 1`
-    , userId, workerSlug, normalizedBrand, `%${normalizedBrand}%`);
-    if (threadMatch) return threadMatch;
+  } catch {
+    /* table may be missing mid-migrate */
   }
+
+  const campaignMatch = await authStore.queryOne(
+    `SELECT brand_name AS "brandName", contact_email AS "contactEmail", contact_name AS "contactName", campaign_name AS subject
+     FROM office_campaigns
+     WHERE user_id = ? AND worker_slug = ? AND lower(brand_name) = lower(?)
+       AND contact_email <> ''
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    userId,
+    workerSlug,
+    brandLabel
+  );
+  if (campaignMatch) return campaignMatch;
 
   return authStore.queryOne(
     `SELECT brand_name AS "brandName", contact_email AS "contactEmail", contact_name AS "contactName", subject
      FROM office_email_threads
-     WHERE user_id = ? AND worker_slug = ? AND contact_email <> '' AND brand_related = 1
+     WHERE user_id = ? AND worker_slug = ? AND contact_email <> ''
+       AND (lower(brand_name) = ? OR lower(subject) LIKE ?)
      ORDER BY received_at DESC
-     LIMIT 1`
-  , userId, workerSlug);
+     LIMIT 1`,
+    userId,
+    workerSlug,
+    normalizedBrand,
+    `%${normalizedBrand}%`
+  );
 }
 
 async function buildDraftSpecsFromOutput(outputRow) {
@@ -2568,13 +2567,17 @@ async function buildDraftSpecsFromOutput(outputRow) {
     outputRow.taskTitle,
     outputRow.taskDescription
   );
-  const contact = await findBestDraftContact(outputRow.userId, outputRow.workerId, brandLabel);
+  const stampedEmail = String(structured.contactEmail ?? "").trim();
+  const contact = stampedEmail
+    ? { brandName: brandLabel, contactEmail: stampedEmail, contactName: "", subject: String(structured.followUpSubject || structured.subject || "") }
+    : await findBestDraftContact(outputRow.userId, outputRow.workerId, brandLabel);
   const resolvedBrand = brandLabel || String(contact?.brandName ?? "Brand").trim();
   const replacements = {
     Brand: resolvedBrand,
     "Your name": outputRow.userName || "Your name"
   };
   const drafts = [];
+  const to = String(stampedEmail || contact?.contactEmail || "").trim();
 
   if (outputRow.outputType === "pitch_template" || outputRow.outputType === "pitch_draft") {
     drafts.push({
@@ -2584,7 +2587,7 @@ async function buildDraftSpecsFromOutput(outputRow) {
         replacements
       ),
       title: outputRow.outputType === "pitch_draft" ? `Personalized pitch draft for ${resolvedBrand}` : `Pitch template draft for ${resolvedBrand}`,
-      to: String(contact?.contactEmail ?? "").trim()
+      to
     });
   }
 
@@ -2593,12 +2596,11 @@ async function buildDraftSpecsFromOutput(outputRow) {
       body: normalizePlaceholderText(structured.replyDraft || outputRow.content, replacements),
       subject: String(contact?.subject ?? "").trim() ? `Re: ${String(contact.subject).trim()}` : `Reply for ${resolvedBrand}`,
       title: `Brand reply draft for ${resolvedBrand}`,
-      to: String(contact?.contactEmail ?? "").trim()
+      to
     });
   }
 
   if (outputRow.outputType === "follow_up_sequence") {
-    const to = String(structured.contactEmail || contact?.contactEmail || "").trim();
     const primaryBody = structured.emailPitch || structured.followUp1 || outputRow.content;
     if (String(primaryBody ?? "").trim()) {
       drafts.push({
@@ -2712,11 +2714,25 @@ async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = [])
     const draftSpecs = await buildDraftSpecsFromOutput(row);
     if (draftSpecs.length === 0) continue;
 
+    // Prefer stamped contactEmail from the output; never create endless empty-To drafts.
+    const anyRecipient = draftSpecs.some((spec) => String(spec.to || "").trim());
+    if (!anyRecipient) {
+      if (existingDrafts.length > 0) {
+        // Keep the existing empty draft record; wait for a real contact before recreating in Gmail.
+        continue;
+      }
+      // Still create one internal draft record only when structured content already has To:.
+      // Without a recipient, skip Gmail API creation entirely.
+      continue;
+    }
+
     const createdDrafts = [];
     for (const spec of draftSpecs) {
+      if (!String(spec.to || "").trim()) continue;
       const created = await createGmailDraftForOutput(userId, workerSlug, spec);
       createdDrafts.push(created);
     }
+    if (createdDrafts.length === 0) continue;
 
     const nextStructured = {
       ...row.structuredContent,

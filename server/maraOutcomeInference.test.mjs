@@ -73,6 +73,8 @@ test("inferOutcomeFromText detects hire, interest, concept, payment, and decline
   assert.equal(inferOutcomeFromText({ body: "Love this concept, green-lit for August." })?.conceptAccepted, true);
   assert.equal(inferOutcomeFromText({ body: "You're hired. Contract attached." })?.hired, true);
   assert.equal(inferOutcomeFromText({ body: "Payment sent for $1,250.00" })?.revenueAmount, 1250);
+  assert.equal(inferOutcomeFromText({ body: "Payment sent for $1,250.00" })?.hired, false);
+  assert.equal(inferOutcomeFromText({ body: "Just venmo me $50 sometime" }), null);
   assert.equal(inferOutcomeFromText({ body: "We'll pass this time." })?.declined, true);
 });
 

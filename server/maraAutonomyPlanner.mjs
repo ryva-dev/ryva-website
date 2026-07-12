@@ -175,7 +175,10 @@ export function planMaraAutonomyActions(context) {
   }
 
   // Draft follow-ups that are due (approval still required to send).
-  actions.push({ kind: "prepare_due_followups" });
+  // Only schedule when the context knows there are due rows — otherwise skip noise.
+  if (context.dueFollowUpCount == null || Number(context.dueFollowUpCount) > 0) {
+    actions.push({ kind: "prepare_due_followups" });
+  }
 
   for (const brand of brandsNeedingPitches.slice(0, 2)) {
     actions.push({
@@ -252,10 +255,7 @@ export function planMaraAutonomyActions(context) {
   ) {
     actions.push({ kind: "tiktok_trends", reason: "Refresh niche-scoped TikTok trend insights for this creator." });
   } else if (!trendSnapshotUpdatedAt) {
-    actions.push({
-      kind: "blocked",
-      reason: "Trend intelligence is empty — ops need a Creative Center sync or weekly trend paste before Mara can plan hashtag/content work."
-    });
+    // Soft note only — do not block the commercial loop on missing trends.
   }
 
   if (runnableApprovedTasks.length > 0) {
@@ -288,6 +288,7 @@ export function buildAutonomyPlannerContext({
   blockedTasks = [],
   brandResearchRemaining = 0,
   brands = [],
+  dueFollowUpCount = null,
   dueRecurring = [],
   growthPitchTargets = [],
   hasConnectedEmail = false,
@@ -383,7 +384,9 @@ export function buildAutonomyPlannerContext({
     brandsNeedingContentIdeas,
     brandsNeedingPitches: pitchQueue,
     canRunInbox: Boolean(permissions.canReadInbox && connected),
+    dueFollowUpCount,
     dueRecurring,
+    growthPitchTargets: rankedTargets,
     hasConnectedEmail: connected,
     leadCount,
     onboardingComplete: onboarding?.status === "completed",
