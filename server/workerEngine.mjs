@@ -8,6 +8,11 @@ import {
 } from "./maraAutonomyPlanner.mjs";
 import { isMaraLlmConfigured, tryGenerateMaraBrandContentIdeas, tryGenerateMaraPersonalizedPitch } from "./maraLlm.mjs";
 import {
+  ensureWeeklyPlanCalendarReady,
+  ensureWeeklyScheduleCalendarReady,
+  harvestWeeklyOutputToCalendar
+} from "./maraCalendarSync.mjs";
+import {
   buildBrandContext,
   classifyRedditSignalsHeuristic,
   tryClassifyRedditSignals,
@@ -162,6 +167,7 @@ const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "tiktok_trend_pulse",
   "ugc_strategy_brief",
   "update_brand_tracker",
+  "weekly_action_plan",
   "weekly_schedule",
   "weekly_growth_intelligence_brief"
 ]);
@@ -569,6 +575,12 @@ function inferTaskTypeFromMessage(text) {
   if (/pitch template|write me a pitch|pitch for/.test(lower)) return "pitch_template";
   if (/content ideas?|idea batch/.test(lower)) return "content_idea_batch";
   if (/follow up|follow-up/.test(lower)) return "follow_up_sequence";
+  if (/weekly schedule|time[- ]?block|put .* on (the )?calendar|calendar schedule/.test(lower)) {
+    return "weekly_schedule";
+  }
+  if (/weekly (action )?plan|week(ly)? plan|plan (my|the) week/.test(lower)) {
+    return "weekly_action_plan";
+  }
   if (/tracker/.test(lower)) return "brand_tracker_structure";
   if (/portfolio/.test(lower)) return "portfolio_recommendations";
   if (/positioning|niche/.test(lower)) return "creator_positioning";
@@ -625,7 +637,23 @@ export function inferMaraTaskType(title, source = "") {
   if (normalized.includes("follow up sequence") || normalized.includes("follow-up sequence")) return "follow_up_sequence";
   if (normalized.includes("content idea")) return "content_idea_batch";
   if (normalized.includes("shot list")) return "ugc_shot_list";
-  if (normalized.includes("weekly action plan")) return "weekly_action_plan";
+  if (
+    normalized.includes("weekly schedule") ||
+    normalized.includes("time block") ||
+    normalized.includes("timeblocked") ||
+    normalized.includes("calendar schedule")
+  ) {
+    return "weekly_schedule";
+  }
+  if (
+    normalized.includes("weekly action plan") ||
+    normalized.includes("weekly plan") ||
+    normalized.includes("week plan") ||
+    normalized.includes("plan my week") ||
+    normalized.includes("plan the week")
+  ) {
+    return "weekly_action_plan";
+  }
   if (normalized.includes("growth intelligence brief")) return "weekly_growth_intelligence_brief";
   if (normalized.includes("brand tracker structure") || normalized.includes("tracker structure")) return "brand_tracker_structure";
   if (normalized.includes("update brand tracker") || normalized.includes("refresh brand tracker")) return "update_brand_tracker";
@@ -1715,6 +1743,57 @@ async function stampPitchOutreachMetadata(context, result) {
   if (opportunityId) structured.opportunityId = opportunityId;
   if (publicBrandId) structured.publicBrandId = publicBrandId;
 
+  try {
+    const { runPitchQualityChecks, detectUnsupportedBuyingClaim } = await import("./maraPitchQuality.mjs");
+    const body = structured.emailPitch || structured.professionalVersion || result.content || "";
+    const subject = Array.isArray(structured.subjectLineOptions) ? structured.subjectLineOptions[0] : "";
+    const claimsBuying = detectUnsupportedBuyingClaim(body);
+    const quality = runPitchQualityChecks({
+      body,
+      subject,
+      brandName: brandLabel,
+      contactEmail,
+      expectedBrandName: brandLabel,
+      expectedContactEmail: contactEmail,
+      hasObservedEvidence: Boolean(structured.hasObservedEvidence),
+      claimsBrandIsBuying: claimsBuying,
+      evidenceSupportsBuying: Boolean(structured.evidenceSupportsBuying)
+    });
+    structured.pitchQuality = quality;
+    const hardBlockCodes = new Set(["wrong_brand", "wrong_contact", "unsupported_buying_claim", "unsupported_factual_claim", "fake_familiarity"]);
+    const hardBlocks = quality.issues.filter((item) => item.severity === "critical" && hardBlockCodes.has(item.code));
+    if (hardBlocks.length && context.currentTask?.taskType === "personalized_pitch") {
+      return {
+        blocked: true,
+        blockerReason: hardBlocks.map((item) => item.message).join(" "),
+        neededFromUser: "Review the pitch issues before I redraft.",
+        suggestedNextStep: "Fix the critical pitch issues, then ask me to redraft."
+      };
+    }
+    // Missing contact is a send blocker, not a draft-blocker — keep the deliverable.
+  } catch {
+    /* quality gate best-effort */
+  }
+
+  if (opportunityId && context.store) {
+    try {
+      const { transitionOpportunityStage } = await import("./maraOpportunityStateEngine.mjs");
+      await transitionOpportunityStage(context.store, {
+        userId: context.userId,
+        workerId: context.workerId,
+        opportunityId,
+        toStage: contactEmail ? "pitch_preparing" : "contact_needed",
+        confidence: 80,
+        evidence: [{ claim: "Personalized pitch draft prepared" }],
+        source: "pitch_draft",
+        reason: "Pitch drafted",
+        force: true
+      });
+    } catch {
+      /* optional */
+    }
+  }
+
   return { ...result, structuredContent: structured };
 }
 
@@ -1871,7 +1950,7 @@ function executeWeeklyActionPlanTask(context) {
   const roadmapModule = getKnowledgeModule(context, "beginner_roadmap");
   const openTaskTitles = context.relatedOpenTasks.slice(0, 4).map((task) => task.title);
   const insightGaps = extractPrivateInsightItems(context.privateInsights).slice(0, 3);
-  const structuredContent = {
+  const structuredContent = ensureWeeklyPlanCalendarReady({
     adminTasks: ["Update the brand tracker", "Review priorities for next approvals"],
     dailySuggestedActions: [
       "Monday: tighten outreach assets",
@@ -1883,12 +1962,13 @@ function executeWeeklyActionPlanTask(context) {
     followUpTasks: ["Review stalled conversations", "Queue the next follow-up touchpoint"],
     outreachTasks: openTaskTitles.length > 0 ? openTaskTitles : ["Use the pitch template on best-fit brand targets"],
     priority: "Get the first creator outreach system working end to end.",
+    focusForTheWeek: "Get the first creator outreach system working end to end.",
     trendSignals: insightGaps,
     userNeeds: ["Approve anything external before it is sent", "Provide pasted brand messages when you want reply drafting"],
-    whatMaraCanDoNext: ["Run another safe internal task", "Draft replies to pasted messages", "Create a shot list or weekly plan"],
+    whatMaraCanDoNext: ["Run another safe internal task", "Draft replies to pasted messages", "Create a shot list or weekly schedule"],
     roadmapReference: getStructuredList(roadmapModule, "steps", []).slice(0, 4),
     contentTasks: ["Create one content idea batch", "Turn best ideas into a shot list"]
-  };
+  });
 
   return {
     content: buildRichContent([
@@ -1906,6 +1986,48 @@ function executeWeeklyActionPlanTask(context) {
     outputType: "weekly_plan",
     structuredContent,
     title: "Weekly action plan"
+  };
+}
+
+function executeWeeklyScheduleTask(context) {
+  const profile = buildContextProfile(context);
+  const structuredContent = ensureWeeklyScheduleCalendarReady(
+    {
+      weekTheme: `Balanced outreach, filming, and posting for ${profile.niche || "your niche"}`,
+      postingSlots: [
+        { day: "Monday", time: "19:00", contentType: "short-form" },
+        { day: "Thursday", time: "19:00", contentType: "short-form" }
+      ],
+      storyCadence: "2–3 Stories mid-week to keep the account warm",
+      notes: [
+        "Blocks are on your Ryva Office calendar — adjust times to match your real life.",
+        "Outreach and filming are protected windows; posting sits in evening slots."
+      ]
+    },
+    { niche: profile.niche || "UGC" }
+  );
+
+  return {
+    content: buildRichContent([
+      { title: "Week theme", value: structuredContent.weekTheme },
+      {
+        title: "Time blocks",
+        value: structuredContent.blocks.map(
+          (block) => `${block.day} ${block.start}–${block.end}: ${block.activity}${block.goal ? ` (${block.goal})` : ""}`
+        )
+      },
+      {
+        title: "Posting slots",
+        value: (structuredContent.postingSlots || []).map(
+          (slot) => `${slot.day} ${slot.time}: ${slot.contentType}`
+        )
+      },
+      { title: "Story cadence", value: structuredContent.storyCadence },
+      { title: "Notes", value: structuredContent.notes }
+    ]),
+    outputType: "weekly_schedule",
+    structuredContent,
+    title: "Weekly schedule"
   };
 }
 
@@ -2549,6 +2671,8 @@ async function executeTaskByType(context) {
       return executeUGCShotListTask(context);
     case "weekly_action_plan":
       return executeWeeklyActionPlanTask(context);
+    case "weekly_schedule":
+      return executeWeeklyScheduleTask(context);
     case "weekly_growth_intelligence_brief":
       return executeWeeklyGrowthIntelligenceBriefTask(context);
     case "brand_tracker_structure":
@@ -2711,6 +2835,24 @@ export async function runMaraTask({
     return markTaskBlocked(store, userId, workerId, taskId, result);
   }
 
+  // Calendar-ready normalization: LLM and template plans/schedules must always
+  // carry day-anchored actions or timed blocks before we persist.
+  if (result?.structuredContent && typeof result.structuredContent === "object") {
+    const outputType = result.outputType || TASK_TYPE_OUTPUT_TYPE_MAP[task.taskType] || "summary";
+    if (outputType === "weekly_plan" || task.taskType === "weekly_action_plan") {
+      result.outputType = "weekly_plan";
+      result.structuredContent = ensureWeeklyPlanCalendarReady(result.structuredContent);
+    }
+    if (outputType === "weekly_schedule" || task.taskType === "weekly_schedule") {
+      const niche =
+        context.accountContext?.niche ||
+        context.workerOnboarding?.answers?.niche ||
+        "UGC";
+      result.outputType = "weekly_schedule";
+      result.structuredContent = ensureWeeklyScheduleCalendarReady(result.structuredContent, { niche });
+    }
+  }
+
   const savedOutput = await createWorkerOutput(store, {
     content: result.content,
     outputType: result.outputType || TASK_TYPE_OUTPUT_TYPE_MAP[task.taskType] || "summary",
@@ -2721,6 +2863,42 @@ export async function runMaraTask({
     userId,
     workerId
   });
+
+  // Place weekly plan/schedule on the Office calendar immediately (idempotent).
+  if (
+    savedOutput.outputType === "weekly_plan" ||
+    savedOutput.outputType === "weekly_schedule"
+  ) {
+    try {
+      const niche =
+        context.accountContext?.niche ||
+        context.workerOnboarding?.answers?.niche ||
+        "UGC";
+      const harvested = await harvestWeeklyOutputToCalendar(store, {
+        userId,
+        workerSlug: workerId,
+        outputId: savedOutput.id,
+        outputType: savedOutput.outputType,
+        structured: savedOutput.structuredContent || {},
+        niche,
+        createActivityLog: (payload) => createWorkerActivityLog(store, payload)
+      });
+      if (harvested?.structured && harvested.structured !== savedOutput.structuredContent) {
+        savedOutput.structuredContent = harvested.structured;
+        await store.execute(
+          `UPDATE worker_outputs SET structured_content_json = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+          JSON.stringify(harvested.structured),
+          new Date().toISOString(),
+          savedOutput.id,
+          userId
+        );
+      }
+    } catch {
+      // Calendar harvest is best-effort; deliverable still stands. Operational
+      // sync will retry unsynced weekly outputs.
+    }
+  }
+
   const previewPayload = {
     outputId: savedOutput.id,
     preview: buildPreviewFromContent(savedOutput.content),
@@ -3703,6 +3881,42 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
         });
       } else {
         summary.notes.push("Checked inbox and campaigns for commercial outcomes; nothing new to record.");
+      }
+      return;
+    }
+    case "manage_stalled_opportunities": {
+      try {
+        const { listStalledOpportunities, syncOpportunityCommercialFields, ensureOpportunityLifecycleSchema } =
+          await import("./maraOpportunityStateEngine.mjs");
+        await ensureOpportunityLifecycleSchema(store);
+        const stalled = await listStalledOpportunities(store, userId, workerId);
+        let acted = 0;
+        for (const item of stalled.slice(0, 5)) {
+          await syncOpportunityCommercialFields(store, {
+            userId,
+            workerId,
+            opportunityId: item.id,
+            hasOutreachContact: Boolean(item.nextAction && !/contact/i.test(item.blockingReason || "")),
+            estimatedDealValue: item.estimatedDealValue
+          });
+          if (item.stall?.canActAutomatically && item.stall?.nextAction?.action === "discover_contact") {
+            // Contact rediscovery is handled by pitch/research paths; mark blocking reason clearly.
+            acted += 1;
+          } else if (item.stall?.canActAutomatically && item.stall?.nextAction?.action === "prepare_follow_up") {
+            acted += 1;
+          } else if (item.stall?.requiresUserInput) {
+            acted += 1;
+          }
+        }
+        if (stalled.length) {
+          summary.notes.push(
+            `Reviewed ${stalled.length} stalled opportunit${stalled.length === 1 ? "y" : "ies"}; ${acted} need attention or autonomous follow-through.`
+          );
+        } else {
+          summary.notes.push("No stalled opportunities above threshold.");
+        }
+      } catch (error) {
+        summary.notes.push(`Stuck-opportunity pass skipped: ${error instanceof Error ? error.message : "unavailable"}`);
       }
       return;
     }
@@ -4980,6 +5194,38 @@ export function runMaraActionDetector({
     }
   }
 
+  if (/weekly schedule|time[- ]?block|put (it |them )?on (the |my )?calendar|calendar for (the |my )?week/.test(lower)) {
+    const scheduleTitle = "Build weekly schedule";
+    if (!existingTaskTitles.has(normalizeForComparison(scheduleTitle))) {
+      tasksToCreate.push({
+        description:
+          "Build a time-blocked working week (outreach, filming, posting, admin) and place the blocks on the Office calendar.",
+        evidenceUsed: [normalizedText],
+        priority: "high",
+        requiredPermissions: [],
+        source: "chat_direct_request",
+        status: permissions.canCreateTasks ? "approved" : "proposed",
+        taskType: "weekly_schedule",
+        title: scheduleTitle
+      });
+    }
+  } else if (/weekly (action )?plan|week(ly)? plan|plan (my|the) week|build (a |my )?week/.test(lower)) {
+    const planTitle = "Create weekly action plan";
+    if (!existingTaskTitles.has(normalizeForComparison(planTitle))) {
+      tasksToCreate.push({
+        description:
+          "Create this week's action plan with day-anchored focus work and place those focus blocks on the Office calendar.",
+        evidenceUsed: [normalizedText],
+        priority: "high",
+        requiredPermissions: [],
+        source: "chat_direct_request",
+        status: permissions.canCreateTasks ? "approved" : "proposed",
+        taskType: "weekly_action_plan",
+        title: planTitle
+      });
+    }
+  }
+
   if (/positioning/.test(lower)) {
     if (!existingTaskTitles.has(normalizeForComparison("Define creator positioning"))) {
       tasksToCreate.push({
@@ -5321,6 +5567,8 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     responded: 0
   };
   let outreachReadyQueue = [];
+  let commercialBriefing = null;
+  let bookOfBusiness = [];
   try {
     await initMaraIntelligence(store);
     commercialNorthStar = await getRevenueInfluenceMetrics(store, userId, workerId);
@@ -5336,6 +5584,10 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
         contactEmail: target.contactEmail,
         decision: target.decision || null
       }));
+    const { buildCommercialReturnBriefing } = await import("./maraCommercialBriefing.mjs");
+    const { listBookOfBusiness } = await import("./maraOpportunityStateEngine.mjs");
+    commercialBriefing = await buildCommercialReturnBriefing(store, userId, workerId, { sinceHours: 72 });
+    bookOfBusiness = await listBookOfBusiness(store, userId, workerId, { limit: 20 });
   } catch {
     /* growth intel tables may be unavailable in light stores */
   }
@@ -5345,6 +5597,8 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     completedTasks,
     completedWork: workerOutputs,
     commercialNorthStar,
+    commercialBriefing,
+    bookOfBusiness,
     currentFocus,
     currentWork,
     llmConfigured: isMaraLlmConfigured(),

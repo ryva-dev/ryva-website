@@ -85,6 +85,18 @@ export async function initMaraIntelligence(store) {
   )`);
   const { initMaraBrandArchitecture } = await import("./maraBrandCanonical.mjs");
   await initMaraBrandArchitecture(store);
+  try {
+    const { ensureOpportunityLifecycleSchema } = await import("./maraOpportunityStateEngine.mjs");
+    await ensureOpportunityLifecycleSchema(store);
+  } catch {
+    /* best-effort */
+  }
+  try {
+    const { ensureLearningSchema } = await import("./maraLearningLoop.mjs");
+    await ensureLearningSchema(store);
+  } catch {
+    /* best-effort */
+  }
 }
 
 export async function saveBrandProfile(store, profile) {
@@ -284,6 +296,19 @@ export async function applyCommercialOutcomeToOpportunity(store, outcome) {
   const packageData = parse(row.packageJson, {});
   packageData.score = score;
   const now = new Date().toISOString();
+
+  const { LEGACY_STATUS_TO_LIFECYCLE, buildNextAction, legacyStatusFromLifecycle } = await import("./maraOpportunityLifecycle.mjs");
+  let lifecycleStage = LEGACY_STATUS_TO_LIFECYCLE[status] || status;
+  if (Number(outcome.revenueAmount) > 0 && (outcome.hired || outcome.rehired)) {
+    lifecycleStage = "paid";
+    status = "won";
+  }
+  const nextAction = buildNextAction({ lifecycleStage });
+  const giftedOnly = Boolean(outcome.details?.giftedOnly || outcome.giftedOnly);
+  if (giftedOnly && lifecycleStage === "paid") {
+    lifecycleStage = "interested";
+  }
+
   await store.execute(
     `UPDATE mara_creator_brand_opportunities
      SET status = ?, score_total = ?, scores_json = ?, opportunity_package_json = ?, updated_at = ?
@@ -291,7 +316,54 @@ export async function applyCommercialOutcomeToOpportunity(store, outcome) {
     status, score.total, JSON.stringify(score.dimensions), JSON.stringify(packageData), now,
     outcome.opportunityId, outcome.userId, outcome.workerId
   );
-  return { opportunityId: outcome.opportunityId, status, scoreTotal: score.total, scores: score.dimensions };
+
+  try {
+    await store.execute(
+      `UPDATE mara_creator_brand_opportunities
+       SET lifecycle_stage = ?, previous_lifecycle_stage = COALESCE(lifecycle_stage, previous_lifecycle_stage),
+           stage_changed_at = ?, next_action_json = ?, blocking_reason = ?,
+           actual_revenue = CASE WHEN ? > 0 THEN ? ELSE actual_revenue END,
+           confirmed_deal_value = CASE WHEN ? > 0 THEN ? ELSE confirmed_deal_value END,
+           loss_reason = COALESCE(?, loss_reason)
+       WHERE id = ? AND user_id = ?`,
+      lifecycleStage,
+      now,
+      JSON.stringify(nextAction),
+      nextAction.blockingReason,
+      Number(outcome.revenueAmount || 0),
+      Number(outcome.revenueAmount || 0),
+      Number(outcome.revenueAmount || 0),
+      Number(outcome.revenueAmount || 0),
+      outcome.declined ? "Brand declined" : null,
+      outcome.opportunityId,
+      outcome.userId
+    );
+  } catch {
+    /* lifecycle columns optional until migration */
+  }
+
+  try {
+    const { applyOutcomeToLearning } = await import("./maraLearningLoop.mjs");
+    await applyOutcomeToLearning(store, {
+      userId: outcome.userId,
+      workerId: outcome.workerId,
+      hired: Boolean(outcome.hired || outcome.rehired),
+      declined: Boolean(outcome.declined),
+      responded: Boolean(outcome.responded),
+      giftedOnly
+    });
+  } catch {
+    /* learning is best-effort */
+  }
+
+  return {
+    opportunityId: outcome.opportunityId,
+    status,
+    lifecycleStage,
+    legacyStatus: legacyStatusFromLifecycle(lifecycleStage),
+    scoreTotal: score.total,
+    scores: score.dimensions
+  };
 }
 
 /** Brands Mara should pitch next — high score, not cold/lost, prefer qualified+. */

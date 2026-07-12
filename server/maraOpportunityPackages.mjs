@@ -180,23 +180,44 @@ export async function createOrUpdateOpportunityFromResearch(store, {
 
   const now = new Date().toISOString();
   const existing = await store.queryOne(
-    `SELECT id, score_total AS "scoreTotal" FROM mara_creator_brand_opportunities
+    `SELECT id, score_total AS "scoreTotal", status, lifecycle_stage AS "lifecycleStage", attribution
+     FROM mara_creator_brand_opportunities
      WHERE user_id = ? AND worker_id = ? AND (public_brand_id = ? OR brand_profile_id = ?)`,
     userId,
     workerId,
     publicBrand.id,
     publicBrand.id
   );
-  const status = packageData.decision === "pursue" ? "qualified" : packageData.decision === "deprioritize" ? "candidate" : "candidate";
+
+  const { mergeResearchLifecycle, legacyStatusFromLifecycle } = await import("./maraOpportunityLifecycle.mjs");
+  const { resolveAttribution, ATTRIBUTION_TYPES } = await import("./maraRevenueAttribution.mjs");
+  const hasOutreachContact = contacts.some((contact) => Number(contact.mayUseForOutreach) === 1);
+  const lifecycleStage = mergeResearchLifecycle({
+    existingLifecycle: existing?.lifecycleStage || null,
+    existingStatus: existing?.status || null,
+    decision: packageData.decision,
+    hasOutreachContact
+  });
+  const status = legacyStatusFromLifecycle(lifecycleStage);
+  const attribution = resolveAttribution({
+    existing: existing?.attribution || null,
+    discoveredByMara: true,
+    maraDraftedPitch: false
+  });
+
+  const { buildNextAction } = await import("./maraOpportunityLifecycle.mjs");
+  const nextAction = buildNextAction({ lifecycleStage, hasOutreachContact });
   const id = existing?.id || randomUUID();
   if (existing?.id) {
     await store.execute(
       `UPDATE mara_creator_brand_opportunities
-       SET status = ?, score_total = ?, scores_json = ?, opportunity_package_json = ?, evidence_json = ?,
+       SET status = ?, lifecycle_stage = COALESCE(lifecycle_stage, ?), score_total = ?, scores_json = ?, opportunity_package_json = ?, evidence_json = ?,
            score_version = ?, confidence = ?, public_brand_id = ?, decision = ?, decision_reason = ?,
-           brand_profile_id = ?, updated_at = ?
+           brand_profile_id = ?, next_action_json = ?, blocking_reason = ?, attribution = COALESCE(NULLIF(attribution, ''), ?),
+           updated_at = ?
        WHERE id = ? AND user_id = ?`,
       status,
+      lifecycleStage,
       scoreDetail.total,
       JSON.stringify(scoreDetail.dimensions),
       JSON.stringify(packageData),
@@ -207,10 +228,33 @@ export async function createOrUpdateOpportunityFromResearch(store, {
       packageData.decision,
       packageData.decisionReason,
       publicBrand.id,
+      JSON.stringify(nextAction),
+      nextAction.blockingReason,
+      attribution || ATTRIBUTION_TYPES.SOURCED_BY_MARA,
       now,
       id,
       userId
     );
+    // Only bump lifecycle when research merge advances a non-terminal early stage.
+    if (!existing.lifecycleStage || ["discovered", "researching", "qualified", "contact_needed"].includes(String(existing.lifecycleStage))) {
+      try {
+        const { transitionOpportunityStage, ensureOpportunityLifecycleSchema } = await import("./maraOpportunityStateEngine.mjs");
+        await ensureOpportunityLifecycleSchema(store);
+        await transitionOpportunityStage(store, {
+          userId,
+          workerId,
+          opportunityId: id,
+          toStage: lifecycleStage,
+          confidence: scoreDetail.confidence,
+          evidence: savedEvidence.slice(0, 5).map((item) => ({ id: item.id, claim: item.claim })),
+          source: "research_refresh",
+          reason: `Research decision: ${packageData.decision}`,
+          force: true
+        });
+      } catch {
+        /* schema may not be ready in unit tests without init */
+      }
+    }
     await store.execute(
       `INSERT INTO mara_score_change_log
         (id, user_id, worker_id, opportunity_id, score_version, previous_total, next_total, reason, evidence_json, created_at)
@@ -249,6 +293,21 @@ export async function createOrUpdateOpportunityFromResearch(store, {
       packageData.decision,
       packageData.decisionReason
     );
+    try {
+      await store.execute(
+        `UPDATE mara_creator_brand_opportunities
+         SET lifecycle_stage = ?, stage_changed_at = ?, next_action_json = ?, blocking_reason = ?, attribution = ?
+         WHERE id = ?`,
+        lifecycleStage,
+        now,
+        JSON.stringify(nextAction),
+        nextAction.blockingReason,
+        ATTRIBUTION_TYPES.SOURCED_BY_MARA,
+        id
+      );
+    } catch {
+      /* columns may be absent until migration/init */
+    }
   }
 
   await projectOpportunityToWorkerBrand(store, {

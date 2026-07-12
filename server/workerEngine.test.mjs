@@ -620,6 +620,11 @@ test("task type inference works for onboarding-generated tasks", async () => {
   assert.equal(inferMaraTaskType("Create first pitch template", "onboarding_generated"), "pitch_template");
   assert.equal(inferMaraTaskType("Create first content idea batch", "onboarding_generated"), "content_idea_batch");
   assert.equal(inferMaraTaskType("Prepare weekly growth intelligence brief", "autonomy_maintenance"), "weekly_growth_intelligence_brief");
+  assert.equal(inferMaraTaskType("Build a weekly plan"), "weekly_action_plan");
+  assert.equal(inferMaraTaskType("Create weekly action plan"), "weekly_action_plan");
+  assert.equal(inferMaraTaskType("Plan my week"), "weekly_action_plan");
+  assert.equal(inferMaraTaskType("Build weekly schedule"), "weekly_schedule");
+  assert.equal(inferMaraTaskType("Time block the week"), "weekly_schedule");
 });
 
 test("weekly growth intelligence brief uses qualified opportunities and revenue outcomes", async () => {

@@ -120,17 +120,97 @@ export function createMockMultimodalProvider() {
   };
 }
 
+export function createUnconfiguredTranscriptionProvider(name) {
+  return {
+    name,
+    async transcribe() {
+      throw new Error(
+        `Transcription provider "${name}" is not configured. Set a real MARA_TRANSCRIPTION_PROVIDER (e.g. anthropic) or leave unset/mock only for local demos — mock results are never returned as live analysis.`
+      );
+    }
+  };
+}
+
+export function createUnconfiguredMultimodalProvider(name) {
+  return {
+    name,
+    async analyzeTimeline() {
+      throw new Error(
+        `Multimodal provider "${name}" is not configured. Set a real MARA_MULTIMODAL_PROVIDER or leave mock for demos only — mock results are never returned as live analysis.`
+      );
+    }
+  };
+}
+
+/** Anthropic-backed transcript+timeline analysis when ANTHROPIC_API_KEY is present. */
+export function createAnthropicMultimodalProvider({ fetchImpl = globalThis.fetch } = {}) {
+  return {
+    name: "anthropic",
+    async analyzeTimeline({ transcript = "", durationSeconds = 15 } = {}) {
+      const apiKey = String(process.env.ANTHROPIC_API_KEY || "").trim();
+      if (!apiKey) {
+        throw new Error("ANTHROPIC_API_KEY is required for anthropic multimodal analysis.");
+      }
+      const model = String(process.env.MARA_MULTIMODAL_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514").trim();
+      const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1200,
+          system:
+            "You analyze UGC rough cuts for creator-brand campaigns. Return ONLY JSON with keys: strategic, execution, timestampedFeedback (array of {at, observation, revision}), openingHookPresent (boolean), pacingNotes, missingTalkingPoints (array), complianceFlags (array). Never invent brand claims.",
+          messages: [
+            {
+              role: "user",
+              content: `DurationSeconds: ${durationSeconds}\nTranscript:\n${String(transcript || "").slice(0, 12000)}`
+            }
+          ]
+        })
+      });
+      if (!response.ok) {
+        throw new Error(`Anthropic multimodal failed with status ${response.status}`);
+      }
+      const payload = await response.json();
+      const text = Array.isArray(payload.content)
+        ? payload.content.map((part) => part.text || "").join("\n")
+        : "";
+      let parsed = {};
+      try {
+        const match = text.match(/\{[\s\S]*\}/);
+        parsed = match ? JSON.parse(match[0]) : {};
+      } catch {
+        parsed = {};
+      }
+      return {
+        provider: "anthropic",
+        strategic: parsed.strategic || { summary: "Anthropic analysis returned unstructured text.", raw: text.slice(0, 500) },
+        execution: parsed.execution || { pacingNotes: parsed.pacingNotes || null },
+        timestampedFeedback: Array.isArray(parsed.timestampedFeedback) ? parsed.timestampedFeedback : [],
+        openingHookPresent: Boolean(parsed.openingHookPresent),
+        missingTalkingPoints: parsed.missingTalkingPoints || [],
+        complianceFlags: parsed.complianceFlags || []
+      };
+    }
+  };
+}
+
 export function getTranscriptionProvider() {
   const name = String(process.env.MARA_TRANSCRIPTION_PROVIDER || "mock").toLowerCase();
   if (name === "mock") return createMockTranscriptionProvider();
-  // Future: whisper, deepgram adapters
-  return createMockTranscriptionProvider();
+  // Whisper/Deepgram adapters not shipped yet — fail closed instead of silent mock.
+  return createUnconfiguredTranscriptionProvider(name);
 }
 
 export function getMultimodalProvider() {
   const name = String(process.env.MARA_MULTIMODAL_PROVIDER || "mock").toLowerCase();
   if (name === "mock") return createMockMultimodalProvider();
-  return createMockMultimodalProvider();
+  if (name === "anthropic") return createAnthropicMultimodalProvider();
+  return createUnconfiguredMultimodalProvider(name);
 }
 
 export async function registerMediaAsset(store, {
@@ -261,20 +341,35 @@ export async function processVideoAnalysisJob(store, { analysisId, mediaAssetId,
       throw new Error(`Video duration exceeds limit of ${MAX_DURATION_SECONDS}s.`);
     }
     const transcription = await getTranscriptionProvider().transcribe({ durationSeconds });
-    const multimodal = await getMultimodalProvider().analyzeTimeline({ transcript: transcription.transcript });
+    const multimodal = await getMultimodalProvider().analyzeTimeline({ transcript: transcription.transcript, durationSeconds });
+    const usingMock = transcription.provider === "mock_transcription" || multimodal.provider === "mock_multimodal";
+    if (usingMock && String(process.env.MARA_REQUIRE_REAL_MEDIA || "").trim() === "1") {
+      throw new Error("Real media providers required (MARA_REQUIRE_REAL_MEDIA=1); refusing mock analysis.");
+    }
     const analysis = {
       durationSeconds,
       transcript: transcription.transcript,
+      isMock: usingMock,
+      providerHonesty: usingMock
+        ? "Mock providers only — not real Whisper/CV. Do not treat as production creative QA."
+        : "Real configured providers.",
       technical: {
         contentType: asset.content_type,
         byteSize: asset.byte_size,
-        note: "Frame sampling/OCR not available without media decode provider."
+        note: usingMock
+          ? "Mock analysis path."
+          : "Frame sampling/OCR limited without dedicated media decode provider."
       },
       strategic: multimodal.strategic,
       execution: multimodal.execution,
       timestampedFeedback: multimodal.timestampedFeedback,
-      confidence: Math.round(((transcription.confidence || 0.5) + 0.6) * 50),
-      unknowns: ["frame_ocr", "true_scene_boundaries", "platform_performance_metrics"]
+      openingHookPresent: multimodal.openingHookPresent ?? null,
+      missingTalkingPoints: multimodal.missingTalkingPoints || [],
+      complianceFlags: multimodal.complianceFlags || [],
+      confidence: usingMock ? Math.min(40, Math.round(((transcription.confidence || 0.5) + 0.6) * 50)) : Math.round(((transcription.confidence || 0.5) + 0.6) * 50),
+      unknowns: usingMock
+        ? ["mock_provider", "frame_ocr", "true_scene_boundaries", "platform_performance_metrics"]
+        : ["frame_ocr", "true_scene_boundaries", "platform_performance_metrics"]
     };
     await store.execute(
       `UPDATE mara_video_analyses

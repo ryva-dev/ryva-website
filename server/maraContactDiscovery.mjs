@@ -296,9 +296,55 @@ export async function ingestProgramOrFormPath(store, { userId, workerId, publicB
 }
 
 /**
- * Crawl homepage + up to two contact/creator pages for public emails and program links.
- * Never invents addresses.
+ * Crawl homepage + contact/creator/partnership/press/team pages for public emails.
+ * Never invents addresses. Records why discovery failed and next routes.
  */
+export const CONTACT_ROLE_PATH_HINTS = Object.freeze([
+  /contact/i,
+  /partnership/i,
+  /collaborat/i,
+  /creator/i,
+  /influencer/i,
+  /affiliate/i,
+  /press/i,
+  /media/i,
+  /marketing/i,
+  /about/i,
+  /team/i,
+  /work-with/i,
+  /workwith/i
+]);
+
+export function buildContactDiscoveryFailurePlan({ emails = [], outreachReady = false, pagesFetched = 0, hasForm = false, socialHint = null } = {}) {
+  if (outreachReady) {
+    return {
+      status: "contact_found",
+      failureReason: null,
+      nextRoutes: [],
+      scheduleRecheckHours: null,
+      deprioritize: false
+    };
+  }
+  const nextRoutes = [];
+  if (hasForm) nextRoutes.push({ route: "contact_form", label: "Prepare a contact-form message for manager review" });
+  if (socialHint) nextRoutes.push({ route: "social_dm", label: `Recommend a social DM via ${socialHint}` });
+  nextRoutes.push({ route: "user_provided_contact", label: "Ask the creator if they already have a contact" });
+  nextRoutes.push({ route: "recheck_site", label: "Recheck the brand site later for new partnership pages" });
+
+  return {
+    status: pagesFetched === 0 ? "site_unreachable" : emails.length ? "contacts_not_outreach_ready" : "no_public_email",
+    failureReason:
+      pagesFetched === 0
+        ? "Brand site could not be fetched"
+        : emails.length
+          ? "Public emails found but none are outreach-ready without confirmation"
+          : "No public partnership email found on crawled pages",
+    nextRoutes,
+    scheduleRecheckHours: 72,
+    deprioritize: pagesFetched > 0 && emails.length === 0
+  };
+}
+
 export async function discoverContactsFromBrandSite(store, {
   userId,
   workerId,
@@ -307,17 +353,25 @@ export async function discoverContactsFromBrandSite(store, {
   fetchImpl = globalThis.fetch
 }) {
   if (!website || !publicBrandId) {
-    return { savedIds: [], emails: [], pagesFetched: 0, status: "skipped" };
+    return {
+      savedIds: [],
+      emails: [],
+      pagesFetched: 0,
+      status: "skipped",
+      ...buildContactDiscoveryFailurePlan({ pagesFetched: 0 })
+    };
   }
   const pages = [website];
   const savedIds = [];
   const allEmails = new Set();
   let pagesFetched = 0;
+  let hasForm = false;
 
   try {
     const homeHtml = await fetchText(fetchImpl, website);
     pagesFetched += 1;
     const home = extractContactsFromHtml(homeHtml, website);
+    hasForm = hasForm || home.hasContactForm;
     for (const email of home.emails) allEmails.add(email);
     savedIds.push(
       ...(await ingestObservedEmails(store, {
@@ -370,16 +424,25 @@ export async function discoverContactsFromBrandSite(store, {
       }
       pages.push(home.contactPageUrl);
     }
+
+    // Role-based path discovery from homepage links (press, team, marketing, etc.).
+    const linkMatches = [...String(homeHtml || "").matchAll(/href=["']([^"']+)["']/gi)]
+      .map((m) => resolveAbsoluteUrl(website, m[1]))
+      .filter(Boolean)
+      .filter((href) => CONTACT_ROLE_PATH_HINTS.some((re) => re.test(href)));
+    for (const href of linkMatches.slice(0, 4)) pages.push(href);
   } catch {
-    return { savedIds, emails: [...allEmails], pagesFetched, status: "homepage_unavailable" };
+    const failure = buildContactDiscoveryFailurePlan({ pagesFetched: 0 });
+    return { savedIds, emails: [...allEmails], pagesFetched, ...failure, outreachReady: false, bestContact: null };
   }
 
-  const extra = [...new Set(pages.slice(1))].slice(0, 2);
+  const extra = [...new Set(pages.slice(1))].slice(0, 5);
   for (const pageUrl of extra) {
     try {
       const html = await fetchText(fetchImpl, pageUrl);
       pagesFetched += 1;
       const extracted = extractContactsFromHtml(html, pageUrl);
+      hasForm = hasForm || extracted.hasContactForm;
       for (const email of extracted.emails) allEmails.add(email);
       savedIds.push(
         ...(await ingestObservedEmails(store, {
@@ -427,13 +490,21 @@ export async function discoverContactsFromBrandSite(store, {
     }
   }
 
+  const outreachReady = Boolean(best?.value?.includes("@"));
+  const failure = buildContactDiscoveryFailurePlan({
+    emails: [...allEmails],
+    outreachReady,
+    pagesFetched,
+    hasForm
+  });
+
   return {
     savedIds: [...new Set(savedIds.filter(Boolean))],
     emails: [...allEmails],
     pagesFetched,
-    status: "ok",
-    outreachReady: Boolean(best?.value?.includes("@")),
-    bestContact: best
+    outreachReady,
+    bestContact: best,
+    ...failure
   };
 }
 

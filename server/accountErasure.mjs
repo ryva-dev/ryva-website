@@ -63,7 +63,9 @@ export const USER_SCOPED_TABLES = [
   "mara_media_assets",
   "mara_video_analyses",
   "mara_autonomy_limits",
-  "mara_score_change_log"
+  "mara_score_change_log",
+  "mara_opportunity_stage_events",
+  "mara_creator_learning_state"
 ];
 
 /** Shared / global tables intentionally excluded from per-user wipe. */

@@ -160,6 +160,7 @@ export function planMaraAutonomyActions(context) {
 
   // Always harvest commercial signal from evidence Mara already holds.
   actions.push({ kind: "infer_commercial_outcomes" });
+  actions.push({ kind: "manage_stalled_opportunities" });
 
   // Deep-refresh top candidate brands when research budget remains.
   if (permissions.canRunResearch && brandResearchRemaining > 0 && (context.growthPitchTargets || []).length) {

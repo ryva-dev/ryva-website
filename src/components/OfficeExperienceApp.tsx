@@ -234,6 +234,8 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
       waitingOnUser: [],
       workInMotion: [],
       commercialNorthStar: null,
+      commercialBriefing: null,
+      bookOfBusiness: [],
       outreachReadyQueue: []
     };
   }
@@ -281,6 +283,8 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
     llmConfigured: workspace.llmConfigured !== false,
     approvals,
     commercialNorthStar: workspace.commercialNorthStar || null,
+    commercialBriefing: workspace.commercialBriefing || null,
+    bookOfBusiness: workspace.bookOfBusiness || [],
     outreachReadyQueue: workspace.outreachReadyQueue || [],
     connectedTools: integrations.map((integration) => ({
       provider: integration.provider,
@@ -384,6 +388,33 @@ type MaraWorkspace = {
     contacted: number;
     responded: number;
   };
+  commercialBriefing?: {
+    headline?: string;
+    prioritized?: Array<{
+      kind: string;
+      title: string;
+      whatHappened: string;
+      whyItMatters: string;
+      commercialImpact?: number | null;
+      recommendedAction: string;
+      onApprove?: string | null;
+      urgency?: string;
+      confidence?: number;
+      approvalId?: string | null;
+      opportunityId?: string | null;
+    }>;
+    counts?: { urgent?: number; replies?: number; pipelineValue?: number; stalled?: number };
+  } | null;
+  bookOfBusiness?: Array<{
+    id: string;
+    brandName: string;
+    lifecycleStage: string;
+    scoreTotal: number;
+    estimatedDealValue?: number;
+    blockingReason?: string | null;
+    nextAction?: { label?: string; requiresApproval?: boolean } | null;
+    stall?: { daysStalled?: number; likelyReason?: string } | null;
+  }>;
   outreachReadyQueue?: Array<{
     id: string;
     brandName: string;
@@ -464,6 +495,32 @@ type WorkerDesk = {
     contacted: number;
     responded: number;
   } | null;
+  commercialBriefing?: {
+    headline?: string;
+    prioritized?: Array<{
+      kind: string;
+      title: string;
+      whatHappened: string;
+      whyItMatters: string;
+      commercialImpact?: number | null;
+      recommendedAction: string;
+      urgency?: string;
+      confidence?: number;
+      approvalId?: string | null;
+      opportunityId?: string | null;
+    }>;
+    counts?: { urgent?: number; replies?: number; pipelineValue?: number; stalled?: number };
+  } | null;
+  bookOfBusiness?: Array<{
+    id: string;
+    brandName: string;
+    lifecycleStage: string;
+    scoreTotal: number;
+    estimatedDealValue?: number;
+    blockingReason?: string | null;
+    nextAction?: { label?: string; requiresApproval?: boolean } | null;
+    stall?: { daysStalled?: number; likelyReason?: string } | null;
+  }>;
   outreachReadyQueue?: Array<{
     id: string;
     brandName: string;
@@ -1298,6 +1355,59 @@ function WorkerDeskSections({
             {northStar.deals || 0} deals · avg {money.format(northStar.averageDealValue || 0)} ·{" "}
             {Math.round((northStar.positiveResponseRate || 0) * 100)}% response · {northStar.qualifiedOpportunityCount || 0} qualified
           </p>
+        </section>
+      ) : null}
+      {isMara && desk.commercialBriefing?.prioritized?.length ? (
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>While you were away</strong>
+            <span>{desk.commercialBriefing.headline || "Commercial moves"}</span>
+          </div>
+          <div className="ro-plain-list">
+            {desk.commercialBriefing.prioritized.slice(0, 6).map((entry, index) => (
+              <div className="ro-plain-row" key={`${entry.kind}-${entry.approvalId || entry.opportunityId || index}`}>
+                <div>
+                  <strong>{entry.title}</strong>
+                  <p>
+                    {entry.whatHappened}
+                    {entry.commercialImpact ? ` · ${money.format(Number(entry.commercialImpact))}` : ""}
+                    {entry.recommendedAction ? ` — ${entry.recommendedAction}` : ""}
+                  </p>
+                </div>
+                {entry.approvalId ? (
+                  <div className="ro-inline-actions">
+                    <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(entry.approvalId!)} disabled={busyId === entry.approvalId}>Deny</button>
+                    <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(entry.approvalId!)} disabled={busyId === entry.approvalId}>
+                      {busyId === entry.approvalId ? "Saving..." : "Approve"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {isMara && desk.bookOfBusiness?.length ? (
+        <section className="ro-worker-drawer-section">
+          <div className="ro-worker-drawer-row">
+            <strong>Book of business</strong>
+            <span>{desk.bookOfBusiness.length} active</span>
+          </div>
+          <div className="ro-plain-list">
+            {desk.bookOfBusiness.slice(0, 6).map((opp) => (
+              <div className="ro-plain-row" key={opp.id}>
+                <div>
+                  <strong>
+                    {opp.brandName} · {String(opp.lifecycleStage || "").replace(/_/g, " ")}
+                    {opp.estimatedDealValue ? ` · ${money.format(Number(opp.estimatedDealValue))}` : ""}
+                  </strong>
+                  <p>
+                    {opp.nextAction?.label || opp.blockingReason || opp.stall?.likelyReason || `Score ${opp.scoreTotal || 0}`}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
       ) : null}
       <section className="ro-worker-drawer-section ro-desk-focus">

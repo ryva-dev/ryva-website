@@ -3,6 +3,9 @@
  * This is safe internal work — no external side effects, no manager babysitting.
  */
 import { listTopPitchTargets, recordCommercialOutcome } from "./maraIntelligence.mjs";
+import { classifyBrandReply } from "./maraReplyClassifier.mjs";
+import { extractDealTermsFromText, evaluateDealTerms } from "./maraDealTerms.mjs";
+import { inferStageFromSignals, transitionOpportunityStage } from "./maraOpportunityStateEngine.mjs";
 
 const HIRED_RE = /\b(you're hired|you are hired|we'd like to hire|we would like to hire|moving forward with you|selected you|confirmed for (the )?campaign|contract (is )?attached|please sign|onboarding you|welcome to the (roster|team))\b/i;
 const RESPONDED_RE = /\b(thanks for reaching out|thank you for (your )?pitch|interested in learning more|can you send (rates|your rate|a rate)|what's your rate|what is your rate|share your portfolio|send over (a )?concept|we'd love to chat|let'?s hop on a call)\b/i;
@@ -137,53 +140,113 @@ export async function inferAndRecordCommercialOutcomes(store, userId, workerId, 
   const skipped = [];
 
   for (const thread of threads) {
+    const classification = classifyBrandReply({
+      subject: thread.subject,
+      snippet: thread.snippet,
+      body: thread.bodyText
+    });
     const inference = inferOutcomeFromText({
       subject: thread.subject,
       snippet: thread.snippet,
       body: thread.bodyText
     });
-    if (!inference) continue;
-    if (inference.declined && !inference.hired) {
-      // Declines still count as contacted+responded with no hire; outreach score softens via flywheel.
-      inference.hired = false;
-      inference.conceptAccepted = false;
+    if (!inference && classification.class === "unclear_response") continue;
+
+    const effectiveInference = inference || {
+      contacted: true,
+      responded: !["out_of_office", "unclear_response"].includes(classification.class),
+      conceptAccepted: false,
+      hired: false,
+      revenueAmount: 0,
+      declined: classification.class === "rejection",
+      basis: "observed",
+      claim: classification.summary
+    };
+    if (classification.giftedOnly) {
+      effectiveInference.hired = false;
+      effectiveInference.revenueAmount = 0;
+      effectiveInference.giftedOnly = true;
+    }
+    if (effectiveInference.declined && !effectiveInference.hired) {
+      effectiveInference.hired = false;
+      effectiveInference.conceptAccepted = false;
     }
     const opportunity = await findOpportunityForBrand(store, userId, workerId, thread.brandName);
     if (!opportunity) {
       skipped.push({ brandName: thread.brandName, reason: "no_matching_opportunity", source: "thread", sourceId: thread.id });
       continue;
     }
-    if (await alreadyRecordedSimilar(store, userId, workerId, opportunity.id, inference)) {
+    if (await alreadyRecordedSimilar(store, userId, workerId, opportunity.id, effectiveInference)) {
       skipped.push({ brandName: thread.brandName, reason: "duplicate", source: "thread", sourceId: thread.id });
       continue;
     }
+
+    const dealTerms = extractDealTermsFromText([thread.subject, thread.snippet, thread.bodyText].join("\n"));
+    const dealEval = evaluateDealTerms(dealTerms);
+    const proposed = inferStageFromSignals({
+      currentStage: opportunity.status,
+      replyClass: classification.class,
+      hired: Boolean(effectiveInference.hired),
+      declined: Boolean(effectiveInference.declined),
+      giftedOnly: Boolean(classification.giftedOnly),
+      briefReceived: /brief/i.test(thread.category || "")
+    });
+
     const result = await recordCommercialOutcome(store, {
       userId,
       workerId,
       opportunityId: opportunity.id,
-      contacted: inference.contacted,
-      responded: inference.responded,
-      conceptAccepted: inference.conceptAccepted,
-      hired: inference.hired,
+      contacted: effectiveInference.contacted,
+      responded: effectiveInference.responded,
+      conceptAccepted: effectiveInference.conceptAccepted,
+      hired: effectiveInference.hired,
       rehired: false,
-      revenueAmount: inference.revenueAmount,
+      revenueAmount: effectiveInference.revenueAmount,
       details: {
         inferredBy: "mara_inbox_autonomy",
-        basis: inference.basis,
-        claim: inference.claim,
+        basis: effectiveInference.basis,
+        claim: effectiveInference.claim,
         sourceType: "office_email_thread",
         sourceId: thread.id,
-        declined: Boolean(inference.declined)
-      }
+        declined: Boolean(effectiveInference.declined),
+        giftedOnly: Boolean(classification.giftedOnly),
+        replyClass: classification.class,
+        replyConfidence: classification.confidence,
+        risks: classification.risks,
+        dealFlags: dealEval.flags,
+        proposedStage: proposed.stage
+      },
+      giftedOnly: Boolean(classification.giftedOnly)
     });
+
+    try {
+      await transitionOpportunityStage(store, {
+        userId,
+        workerId,
+        opportunityId: opportunity.id,
+        toStage: proposed.stage,
+        confidence: proposed.confidence,
+        evidence: [{ claim: classification.summary, sourceId: thread.id }],
+        source: "inbox_inference",
+        reason: proposed.reason,
+        force: !proposed.requiresConfirmation,
+        dealTerms: dealEval.terms,
+        lossReason: classification.class === "rejection" ? "Brand rejection language" : null
+      });
+    } catch {
+      /* lifecycle optional */
+    }
+
     recorded.push({
       brandName: thread.brandName,
       opportunityId: opportunity.id,
       outcomeId: result.id,
       ranking: result.ranking,
-      claim: inference.claim
+      claim: effectiveInference.claim,
+      replyClass: classification.class,
+      proposedStage: proposed.stage
     });
-    if (inference.responded || inference.hired || inference.declined) {
+    if (effectiveInference.responded || effectiveInference.hired || effectiveInference.declined) {
       try {
         const { stopOutreachSequence, SEQUENCE_STOP_REASONS } = await import("./maraOutreachSequences.mjs");
         await stopOutreachSequence(store, {

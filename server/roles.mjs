@@ -104,14 +104,14 @@ export const ROLE_CONFIGS = {
       taskType("weekly_action_plan", {
         label: "Weekly plan",
         outputType: "weekly_plan",
-        description: "Concrete weekly action plan built from the creator's open tasks, pipeline, and goals.",
-        schemaHint: '{"focusForTheWeek":"","topPriorities":[],"outreachPlan":[],"contentPlan":[],"adminTasks":[],"whatIWillHandleMyself":[]}'
+        description: "Concrete weekly action plan built from the creator's open tasks, pipeline, and goals. Every day-level action MUST be prefixed with the weekday (e.g. \"Monday: draft three pitches\") so Ryva can place it on the Office calendar automatically.",
+        schemaHint: '{"focusForTheWeek":"","priority":"","dailySuggestedActions":["Monday: ...","Tuesday: ...","Wednesday: ...","Thursday: ...","Friday: ..."],"topPriorities":[],"outreachPlan":[],"contentPlan":[],"adminTasks":[],"whatIWillHandleMyself":[]}'
       }),
       taskType("weekly_schedule", {
         label: "Weekly schedule",
         outputType: "weekly_schedule",
-        description: "A time-blocked working week for the creator: filming blocks, posting slots, TikTok story cadence, outreach and admin windows — realistic for their actual life and goals, and placed directly on their calendar.",
-        schemaHint: '{"weekTheme":"","blocks":[{"day":"Monday","start":"09:00","end":"10:30","activity":"","goal":""}],"postingSlots":[{"day":"","time":"","contentType":""}],"storyCadence":"","notes":[]}'
+        description: "A time-blocked working week for the creator: filming blocks, posting slots, TikTok story cadence, outreach and admin windows — realistic for their actual life and goals, and placed directly on their calendar. blocks[].day must be a weekday name; start/end must be 24h HH:MM.",
+        schemaHint: '{"weekTheme":"","blocks":[{"day":"Monday","start":"09:00","end":"10:30","activity":"Outreach block","goal":"Draft pitches"},{"day":"Tuesday","start":"10:00","end":"12:00","activity":"Filming block","goal":"Capture concepts"}],"postingSlots":[{"day":"Monday","time":"19:00","contentType":"short-form"}],"storyCadence":"","notes":[]}'
       }),
       taskType("update_brand_tracker", {
         label: "Tracker update",

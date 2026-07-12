@@ -2120,10 +2120,11 @@ async function syncInboxThreadsToCampaigns(userId, workerSlug) {
 
 /**
  * Reddit lessons Mara distilled become durable playbook memory, and weekly
- * schedules land on the calendar as real time blocks. Both are idempotent —
- * each output is harvested exactly once.
+ * schedules/plans land on the calendar as real time blocks. Both are idempotent —
+ * each output is harvested exactly once (or retried until events land).
  */
 async function harvestMaraOutputSideEffects(userId, workerSlug) {
+  const { harvestWeeklyOutputToCalendar } = await import("./maraCalendarSync.mjs");
   const recentThreshold = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
   const rows = await authStore.query(
     `SELECT id, output_type AS "outputType", structured_content_json AS "structuredContentJson"
@@ -2152,132 +2153,19 @@ async function harvestMaraOutputSideEffects(userId, workerSlug) {
       changed = true;
     }
 
-    // Schedule blocks → calendar events for the upcoming week.
-    if (row.outputType === "weekly_schedule" && Array.isArray(structured.blocks) && structured.blocks.length > 0 && !structured.calendarSyncedAt) {
-      const dayIndex = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
-      const now = new Date();
-      let created = 0;
-      for (const block of structured.blocks.slice(0, 20)) {
-        const targetDay = dayIndex[String(block?.day ?? "").trim()];
-        const startMatch = String(block?.start ?? "").match(/^(\d{1,2}):(\d{2})$/);
-        const endMatch = String(block?.end ?? "").match(/^(\d{1,2}):(\d{2})$/);
-        const activity = String(block?.activity ?? "").trim();
-        if (targetDay === undefined || !startMatch || !endMatch || !activity) continue;
-
-        const start = new Date(now);
-        let delta = (targetDay - start.getDay() + 7) % 7;
-        if (delta === 0 && (start.getHours() > Number(startMatch[1]) || (start.getHours() === Number(startMatch[1]) && start.getMinutes() > Number(startMatch[2])))) {
-          delta = 7; // today's slot already passed — schedule next week
-        }
-        start.setDate(start.getDate() + delta);
-        start.setHours(Number(startMatch[1]), Number(startMatch[2]), 0, 0);
-        const end = new Date(start);
-        end.setHours(Number(endMatch[1]), Number(endMatch[2]), 0, 0);
-        if (end.getTime() <= start.getTime()) continue;
-
-        await authStore.execute(
-          `INSERT INTO office_calendar_events
-            (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ,
-          randomUUID(),
+    if (row.outputType === "weekly_schedule" || row.outputType === "weekly_plan") {
+      if (!structured.calendarSyncedAt) {
+        const harvested = await harvestWeeklyOutputToCalendar(authStore, {
           userId,
           workerSlug,
-          activity.slice(0, 120),
-          start.toISOString(),
-          end.toISOString(),
-          "Focus",
-          String(block?.goal ?? "").slice(0, 240),
-          nowIso(),
-          nowIso()
-        );
-        created += 1;
-      }
-      if (created > 0) {
-        await createWorkerActivityLog(maraStore, {
-          description: `Placed ${created} time block${created === 1 ? "" : "s"} on your calendar for the week.`,
-          eventType: "task_completed",
-          metadata: { outputId: row.id },
-          title: "Weekly schedule on calendar",
-          userId,
-          workerId: workerSlug
+          outputId: row.id,
+          outputType: row.outputType,
+          structured,
+          createActivityLog: (payload) => createWorkerActivityLog(maraStore, payload)
         });
+        Object.assign(structured, harvested.structured || {});
+        changed = true;
       }
-      structured.calendarSyncedAt = nowIso();
-      changed = true;
-    }
-
-    // Weekly action plan → calendar. The plan lists day-anchored actions
-    // (e.g. "Monday: draft creator content concepts") rather than explicit
-    // time blocks, so each one lands as a default focus block on that day.
-    if (row.outputType === "weekly_plan" && !structured.calendarSyncedAt) {
-      const dayIndex = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
-      const weekdayPattern = /^\s*(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s*[:\-–—]\s*(.+)$/i;
-
-      // Pull day-prefixed action lines from every string array on the plan so
-      // both the deterministic plan and richer LLM plans are covered.
-      const candidateActions = [];
-      for (const value of Object.values(structured)) {
-        if (!Array.isArray(value)) continue;
-        for (const entry of value) {
-          const match = weekdayPattern.exec(String(entry ?? ""));
-          if (!match) continue;
-          const day = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
-          candidateActions.push({ day, activity: match[2].trim() });
-        }
-      }
-
-      const now = new Date();
-      const perDayCount = {};
-      let created = 0;
-      for (const action of candidateActions.slice(0, 20)) {
-        const targetDay = dayIndex[action.day];
-        if (targetDay === undefined || !action.activity) continue;
-
-        const start = new Date(now);
-        let delta = (targetDay - start.getDay() + 7) % 7;
-        // A focus block that already passed today rolls to next week.
-        const usedToday = perDayCount[action.day] ?? 0;
-        const startHour = 9 + usedToday; // stagger multiple same-day blocks
-        if (delta === 0 && start.getHours() >= startHour) {
-          delta = 7;
-        }
-        start.setDate(start.getDate() + delta);
-        start.setHours(startHour, 0, 0, 0);
-        const end = new Date(start);
-        end.setHours(startHour, 45, 0, 0);
-        perDayCount[action.day] = usedToday + 1;
-
-        await authStore.execute(
-          `INSERT INTO office_calendar_events
-            (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ,
-          randomUUID(),
-          userId,
-          workerSlug,
-          action.activity.slice(0, 120),
-          start.toISOString(),
-          end.toISOString(),
-          "Focus",
-          String(structured.priority ?? "").slice(0, 240),
-          nowIso(),
-          nowIso()
-        );
-        created += 1;
-      }
-      if (created > 0) {
-        await createWorkerActivityLog(maraStore, {
-          description: `Placed ${created} focus block${created === 1 ? "" : "s"} from the weekly plan on your calendar.`,
-          eventType: "task_completed",
-          metadata: { outputId: row.id },
-          title: "Weekly plan on calendar",
-          userId,
-          workerId: workerSlug
-        });
-      }
-      structured.calendarSyncedAt = nowIso();
-      changed = true;
     }
 
     if (changed) {
@@ -7065,7 +6953,79 @@ app.get("/api/office/workers/:slug/intelligence", requireAuth, async (req, res) 
     res.status(400).json({ error: "Growth intelligence is currently available for Mara." });
     return;
   }
-  res.json({ intelligence: await getMaraGrowthIntelligenceSnapshot(professionalStore, req.user.id, workerSlug) });
+  const intelligence = await getMaraGrowthIntelligenceSnapshot(professionalStore, req.user.id, workerSlug);
+  let commercialBriefing = null;
+  let bookOfBusiness = [];
+  let funnel = null;
+  try {
+    const { buildCommercialReturnBriefing } = await import("./maraCommercialBriefing.mjs");
+    const { listBookOfBusiness, ensureOpportunityLifecycleSchema } = await import("./maraOpportunityStateEngine.mjs");
+    const { getCommercialFunnelMetrics } = await import("./maraRevenueAttribution.mjs");
+    await ensureOpportunityLifecycleSchema(professionalStore);
+    commercialBriefing = await buildCommercialReturnBriefing(professionalStore, req.user.id, workerSlug, { sinceHours: 72 });
+    bookOfBusiness = await listBookOfBusiness(professionalStore, req.user.id, workerSlug, { limit: 30 });
+    funnel = await getCommercialFunnelMetrics(professionalStore, req.user.id, workerSlug);
+  } catch {
+    /* optional commercial spine */
+  }
+  res.json({ intelligence, commercialBriefing, bookOfBusiness, funnel });
+});
+
+app.post("/api/office/workers/:slug/intelligence/opportunities/:opportunityId/stage", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  const opportunityId = String(req.params.opportunityId || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Growth intelligence is currently available for Mara." });
+    return;
+  }
+  try {
+    const { transitionOpportunityStage, ensureOpportunityLifecycleSchema } = await import("./maraOpportunityStateEngine.mjs");
+    const { applyOutcomeToLearning } = await import("./maraLearningLoop.mjs");
+    await ensureOpportunityLifecycleSchema(professionalStore);
+    const result = await transitionOpportunityStage(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      opportunityId,
+      toStage: req.body?.stage,
+      confidence: 100,
+      evidence: [{ claim: req.body?.reason || "User correction", basis: "user_correction" }],
+      source: "user_correction",
+      reason: req.body?.reason || "Manager corrected opportunity stage",
+      force: true,
+      lossReason: req.body?.lossReason || null
+    });
+    if (req.body?.correctionNote) {
+      await applyOutcomeToLearning(professionalStore, {
+        userId: req.user.id,
+        workerId: workerSlug,
+        userCorrection: req.body.correctionNote
+      });
+    }
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Stage update failed." });
+  }
+});
+
+app.get("/api/office/workers/:slug/commercial-briefing", requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Hired worker not found." });
+    return;
+  }
+  if (!isMaraWorker(workerSlug)) {
+    res.status(400).json({ error: "Commercial briefing is currently available for Mara." });
+    return;
+  }
+  const { buildCommercialReturnBriefing } = await import("./maraCommercialBriefing.mjs");
+  const briefing = await buildCommercialReturnBriefing(professionalStore, req.user.id, workerSlug, {
+    sinceHours: Number(req.query.sinceHours || 72)
+  });
+  res.json({ ok: true, briefing });
 });
 
 app.post("/api/office/workers/:slug/intelligence/outcomes", assertOrigin, requireAuth, async (req, res) => {
