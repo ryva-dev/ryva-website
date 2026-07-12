@@ -19,37 +19,62 @@ function withEnvironment(overrides, callback) {
   }
 }
 
+const prodBase = {
+  NODE_ENV: "production",
+  DATABASE_URL: "postgres://example.invalid/ryva",
+  ANTHROPIC_API_KEY: "test-key",
+  ENCRYPTION_KEY: "00".repeat(32),
+  OBJECT_STORAGE_DRIVER: "s3",
+  S3_BUCKET: "ryva-uploads",
+  APP_URL: "https://app.example.com",
+  STRIPE_SECRET_KEY: undefined,
+  STRIPE_WEBHOOK_SECRET: undefined,
+  METRICS_TOKEN: "metrics-secret",
+  SESSION_SECRET: undefined
+};
+
 test("production refuses plaintext OAuth token storage", () => {
   withEnvironment(
-    { NODE_ENV: "production", DATABASE_URL: undefined, ANTHROPIC_API_KEY: "test-key", ENCRYPTION_KEY: undefined },
+    { ...prodBase, ENCRYPTION_KEY: undefined },
     () => assert.throws(validateConfig, /ENCRYPTION_KEY is required/)
   );
 });
 
-test("production accepts Postgres after Stage B cutover", () => {
+test("production refuses invalid ENCRYPTION_KEY length", () => {
   withEnvironment(
-    {
-      NODE_ENV: "production",
-      DATABASE_URL: "postgres://example.invalid/ryva",
-      ANTHROPIC_API_KEY: "test-key",
-      ENCRYPTION_KEY: "00".repeat(32),
-      OBJECT_STORAGE_DRIVER: "s3",
-      STRIPE_SECRET_KEY: undefined,
-      STRIPE_WEBHOOK_SECRET: undefined
-    },
-    () => assert.doesNotThrow(validateConfig)
+    { ...prodBase, ENCRYPTION_KEY: "tooshort" },
+    () => assert.throws(validateConfig, /32 bytes/)
   );
 });
 
-test("production accepts the honest single-instance configuration", () => {
+test("production requires Postgres + S3 + APP_URL", () => {
+  withEnvironment(
+    { ...prodBase, DATABASE_URL: undefined },
+    () => assert.throws(validateConfig, /DATABASE_URL/)
+  );
+  withEnvironment(
+    { ...prodBase, OBJECT_STORAGE_DRIVER: "local", S3_BUCKET: undefined },
+    () => assert.throws(validateConfig, /OBJECT_STORAGE_DRIVER=s3/)
+  );
+  withEnvironment(
+    { ...prodBase, APP_URL: undefined },
+    () => assert.throws(validateConfig, /APP_URL/)
+  );
+});
+
+test("production accepts complete multi-instance configuration", () => {
+  withEnvironment(prodBase, () => assert.doesNotThrow(validateConfig));
+});
+
+test("development still allows sqlite without S3", () => {
   withEnvironment(
     {
-      NODE_ENV: "production",
+      NODE_ENV: "development",
       DATABASE_URL: undefined,
-      ANTHROPIC_API_KEY: "test-key",
-      ENCRYPTION_KEY: "00".repeat(32),
-      STRIPE_SECRET_KEY: undefined,
-      STRIPE_WEBHOOK_SECRET: undefined
+      OBJECT_STORAGE_DRIVER: "local",
+      ANTHROPIC_API_KEY: undefined,
+      ENCRYPTION_KEY: undefined,
+      APP_URL: undefined
     },
     () => assert.doesNotThrow(validateConfig)
   );

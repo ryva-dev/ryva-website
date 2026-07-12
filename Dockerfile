@@ -44,7 +44,8 @@ COPY data/workers.json ./data/workers.json
 
 # Writable storage for SQLite dev / uploads. In production prefer DATABASE_URL
 # (Postgres) + object storage and mount this only if you need local files.
-RUN mkdir -p /app/data && chown -R node:node /app/data
+RUN mkdir -p /app/data && chown -R node:node /app/data \
+  && chmod +x /app/scripts/docker-entrypoint.sh
 USER node
 
 EXPOSE 8787
@@ -53,4 +54,4 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["dumb-init", "node", "server/index.mjs"]
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]

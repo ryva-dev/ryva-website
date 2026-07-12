@@ -2018,13 +2018,27 @@ type GrowthOpportunity = {
   brandName: string;
   scoreTotal: number;
   status: string;
+  decision?: string;
+  confidence?: number;
+  publicBrandId?: string;
+  outreachReady?: boolean;
+  outreachContact?: { id: string; value: string; contactType: string; source: string } | null;
+  contacts?: Array<{
+    id: string;
+    value: string;
+    contactType: string;
+    mayUseForOutreach: boolean;
+    inferred: boolean;
+    source: string;
+    confidence: number;
+  }>;
   opportunityPackage: {
-    opportunityThesis?: string;
+    opportunityThesis?: string | { underrepresented?: string };
     creativeGap?: string;
     confidence?: number;
     evidence?: Array<{ basis: string; claim: string }>;
   };
-  evidence?: Array<{ basis: string; claim: string }>;
+  evidence?: Array<{ basis?: string; kind?: string; claim: string }>;
 };
 
 type GrowthIntelligence = {
@@ -2036,6 +2050,7 @@ type GrowthIntelligence = {
     conceptsAccepted: number;
     deals: number;
     repeatDeals: number;
+    qualifiedOpportunityCount?: number;
   };
   creativeAnalyses: Array<{
     id: string;
@@ -2051,6 +2066,7 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [contactDrafts, setContactDrafts] = useState<Record<string, string>>({});
   const [outcome, setOutcome] = useState({ opportunityId: "", revenueAmount: "", contacted: true, responded: false, conceptAccepted: false, hired: false, rehired: false });
 
   const load = useCallback(async () => {
@@ -2068,6 +2084,52 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
 
   useEffect(() => { void load(); }, [load]);
 
+  const confirmContact = async (contactId: string) => {
+    setNotice(null);
+    try {
+      await officeJson(`/api/office/workers/${workerSlug}/contacts/${contactId}/confirm`, { method: "POST", body: "{}" });
+      setNotice("Contact confirmed for outreach.");
+      await load();
+    } catch (confirmError) {
+      setNotice(confirmError instanceof Error ? confirmError.message : "Could not confirm contact.");
+    }
+  };
+
+  const saveUserContact = async (publicBrandId: string, opportunityId: string) => {
+    const email = String(contactDrafts[opportunityId] || "").trim();
+    if (!email) return;
+    setNotice(null);
+    try {
+      await officeJson(`/api/office/workers/${workerSlug}/brands/${publicBrandId}/contacts`, {
+        method: "POST",
+        body: JSON.stringify({ email })
+      });
+      setContactDrafts((current) => ({ ...current, [opportunityId]: "" }));
+      setNotice("Contact saved and marked outreach-ready.");
+      await load();
+    } catch (saveError) {
+      setNotice(saveError instanceof Error ? saveError.message : "Could not save contact.");
+    }
+  };
+
+  const discoverContacts = async (publicBrandId: string) => {
+    setNotice(null);
+    try {
+      const result = await officeJson<{ outreachReady?: boolean; bestContact?: { value?: string } }>(
+        `/api/office/workers/${workerSlug}/brands/${publicBrandId}/discover-contacts`,
+        { method: "POST", body: "{}" }
+      );
+      setNotice(
+        result.outreachReady
+          ? `Found outreach-ready contact: ${result.bestContact?.value}`
+          : "Contact hunt finished — no sendable email found yet."
+      );
+      await load();
+    } catch (discoverError) {
+      setNotice(discoverError instanceof Error ? discoverError.message : "Contact discovery failed.");
+    }
+  };
+
   const saveOutcome = async () => {
     if (saving) return;
     setSaving(true);
@@ -2080,8 +2142,8 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
       setOutcome({ opportunityId: "", revenueAmount: "", contacted: true, responded: false, conceptAccepted: false, hired: false, rehired: false });
       setNotice(
         payload.ranking
-          ? `Outcome saved. Rank updated to ${payload.ranking.scoreTotal}/100 (${payload.ranking.status.replace(/_/g, " ")}). Mara will prefer higher-scoring brands in future pitches.`
-          : "Outcome saved. Link it to an opportunity next time so Mara can re-rank targeting."
+          ? `Correction saved. Rank updated to ${payload.ranking.scoreTotal}/100 (${payload.ranking.status.replace(/_/g, " ")}).`
+          : "Correction saved. Link it to an opportunity so Mara can adjust targeting."
       );
       await load();
     } catch (saveError) {
@@ -2100,10 +2162,13 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
       <div>
         <section className="ro-sec ro-sec-lead">
           <div className="ro-sec-head"><h2>Creator revenue influenced</h2><span className="ro-sec-n">North Star</span></div>
+          <p className="ro-blank" style={{ marginBottom: 12 }}>
+            Mara updates this herself from inbox replies, campaign payment signals, and approved sends. You only step in for risky decisions — like sending email or correcting a wrong read.
+          </p>
           <div className="ro-plain-list">
             <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.revenueInfluenced || 0)}</strong><span>Recorded revenue connected to Mara's opportunities</span></div>
             <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.positiveResponseRate || 0) * 100)}% positive-response rate</strong><span>{intelligence.metrics.deals || 0} deals · {intelligence.metrics.repeatDeals || 0} repeat deals</span></div>
-            <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.pitchToDealConversion || 0) * 100)}% pitch-to-deal conversion</strong><span>{intelligence.metrics.conceptsAccepted || 0} concepts accepted</span></div>
+            <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.pitchToDealConversion || 0) * 100)}% pitch-to-deal conversion</strong><span>{intelligence.metrics.conceptsAccepted || 0} concepts accepted · {intelligence.metrics.qualifiedOpportunityCount || 0} qualified opportunities</span></div>
           </div>
         </section>
 
@@ -2113,10 +2178,61 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
             <div className="ro-plain-list">
               {intelligence.opportunities.slice(0, 8).map((item) => (
                 <div className="ro-plain-row" key={item.id}>
-                  <strong>{item.brandName} · {item.scoreTotal}/100 · {sentenceCase(String(item.status || "candidate").replace(/_/g, " "))}</strong>
-                  <p>{item.opportunityPackage.opportunityThesis || "Opportunity thesis still needs evidence."}</p>
-                  <div className="ro-handbook-meta"><span>Gap: {item.opportunityPackage.creativeGap || "Not established"}</span><span>Confidence: {item.opportunityPackage.confidence || 0}%</span></div>
-                  {(item.evidence || []).slice(0, 2).map((evidence, index) => <small key={`${item.id}-${index}`}>{sentenceCase(evidence.basis)}: {evidence.claim}</small>)}
+                  <strong>
+                    {item.brandName} · {item.scoreTotal}/100 · {sentenceCase(String(item.status || "candidate").replace(/_/g, " "))}
+                    {item.decision ? ` · ${sentenceCase(String(item.decision).replace(/_/g, " "))}` : ""}
+                  </strong>
+                  <p>
+                    {typeof item.opportunityPackage?.opportunityThesis === "string"
+                      ? item.opportunityPackage.opportunityThesis
+                      : item.opportunityPackage?.opportunityThesis?.underrepresented ||
+                        item.opportunityPackage?.creativeGap ||
+                        "Opportunity thesis still needs evidence."}
+                  </p>
+                  <div className="ro-handbook-meta">
+                    <span>Gap: {item.opportunityPackage?.creativeGap || item.opportunityPackage?.opportunityThesis?.underrepresented || "Not established"}</span>
+                    <span>Confidence: {item.confidence ?? item.opportunityPackage?.confidence ?? 0}%</span>
+                    <span>
+                      {item.outreachReady
+                        ? `Contact ready: ${item.outreachContact?.value}`
+                        : item.contacts?.length
+                          ? "Contacts found — none sendable yet"
+                          : "No outreach-ready email"}
+                    </span>
+                  </div>
+                  {(item.contacts || []).filter((contact) => contact.inferred).slice(0, 1).map((contact) => (
+                    <div key={contact.id} style={{ marginTop: 8 }}>
+                      <small>Inferred contact needs your confirmation: {contact.value}</small>
+                      <button
+                        className="r-btn r-btn-ghost"
+                        type="button"
+                        style={{ marginLeft: 8 }}
+                        onClick={() => void confirmContact(contact.id)}
+                      >
+                        Confirm for outreach
+                      </button>
+                    </div>
+                  ))}
+                  {item.publicBrandId ? (
+                    <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <input
+                        className="ro-field"
+                        style={{ minWidth: 180 }}
+                        placeholder="Add partnership email"
+                        value={contactDrafts[item.id] || ""}
+                        onChange={(event) => setContactDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                      />
+                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void saveUserContact(item.publicBrandId, item.id)}>
+                        Save contact
+                      </button>
+                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void discoverContacts(item.publicBrandId)}>
+                        Hunt public contacts
+                      </button>
+                    </div>
+                  ) : null}
+                  {(item.evidence || []).slice(0, 2).map((evidence, index) => (
+                    <small key={`${item.id}-${index}`}>{sentenceCase(evidence.basis || evidence.kind)}: {evidence.claim}</small>
+                  ))}
                 </div>
               ))}
             </div>
@@ -2135,11 +2251,14 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
 
       <aside className="ro-review-rail">
         <section className="ro-sec ro-sec-lead">
-          <div className="ro-sec-head"><h2>Record an outcome</h2><span className="ro-sec-n">Teach Mara</span></div>
+          <div className="ro-sec-head"><h2>Correct a read</h2><span className="ro-sec-n">Override</span></div>
+          <p className="ro-blank" style={{ marginBottom: 12 }}>
+            Optional. Use this when Mara misread a reply or payment. Day-to-day pipeline updates should come from her autonomy loop, not from you filling forms.
+          </p>
           <label className="ro-field"><span>Opportunity</span><select value={outcome.opportunityId} onChange={(event) => setOutcome((current) => ({ ...current, opportunityId: event.target.value }))}><option value="">General / not linked</option>{intelligence.opportunities.map((item) => <option key={item.id} value={item.id}>{item.brandName}</option>)}</select></label>
           <label className="ro-field"><span>Revenue influenced (USD)</span><input min="0" step="0.01" type="number" value={outcome.revenueAmount} onChange={(event) => setOutcome((current) => ({ ...current, revenueAmount: event.target.value }))} /></label>
           {(["contacted", "responded", "conceptAccepted", "hired", "rehired"] as const).map((key) => <label className="ro-check" key={key}><input type="checkbox" checked={outcome[key]} onChange={(event) => setOutcome((current) => ({ ...current, [key]: event.target.checked }))} /><span>{sentenceCase(key.replace(/([A-Z])/g, " $1"))}</span></label>)}
-          <button className="r-btn r-btn-accent" type="button" disabled={saving} onClick={() => void saveOutcome()}>{saving ? "Saving…" : "Save outcome"}</button>
+          <button className="r-btn r-btn-accent" type="button" disabled={saving} onClick={() => void saveOutcome()}>{saving ? "Saving…" : "Save correction"}</button>
           {notice ? <p className="ro-review-notice">{notice}</p> : null}
         </section>
       </aside>
@@ -3303,14 +3422,32 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
 
   const deleteAccount = async () => {
     setPrivacyNotice(null);
-    const password = window.prompt(
-      "This permanently deletes your account and all your data, and cancels any active subscriptions. This cannot be undone.\n\nEnter your password to confirm:"
-    );
-    if (!password) return;
     setDeleteBusy(true);
     try {
-      await officeJson("/api/account/delete", { method: "POST", body: JSON.stringify({ password }) });
-      window.location.href = "/";
+      const security = await officeJson<{ passwordIsSet: boolean; googleEnabled: boolean }>("/api/account/security");
+      if (security.passwordIsSet) {
+        const password = window.prompt(
+          "This permanently deletes your account and all your data, and cancels any active subscriptions. This cannot be undone.\n\nEnter your password to confirm (leave blank to cancel, or type GOOGLE to confirm with Google instead):"
+        );
+        if (password === null) return;
+        if (String(password).trim().toUpperCase() === "GOOGLE" && security.googleEnabled) {
+          window.location.href = "/api/account/delete/google";
+          return;
+        }
+        if (!password) return;
+        await officeJson("/api/account/delete", { method: "POST", body: JSON.stringify({ password }) });
+        window.location.href = "/";
+        return;
+      }
+      if (security.googleEnabled) {
+        const confirmed = window.confirm(
+          "This permanently deletes your account and all your data, and cancels any active subscriptions. This cannot be undone.\n\nContinue to Google to confirm deletion?"
+        );
+        if (!confirmed) return;
+        window.location.href = "/api/account/delete/google";
+        return;
+      }
+      setPrivacyNotice("This account has no password and Google sign-in is not configured. Contact support to delete it.");
     } catch (error) {
       setPrivacyNotice(error instanceof Error ? error.message : "Couldn't delete the account. Try again.");
     } finally {

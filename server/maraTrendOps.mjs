@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,7 @@ import {
 const DEFAULT_MAX_AGE_HOURS = Number.parseInt(process.env.MARA_TREND_SNAPSHOT_MAX_AGE_HOURS ?? String(24 * 7), 10);
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(moduleDir, "..");
+const GLOBAL_PLATFORM = "tiktok";
 
 export function resolveGlobalTrendInsightsPath() {
   const configured = String(process.env.MARA_PRIVATE_INSIGHTS_PATH ?? "").trim();
@@ -33,6 +34,10 @@ export function resolveStorageRoot() {
   );
 }
 
+function usesSharedObjectStorage() {
+  return String(process.env.OBJECT_STORAGE_DRIVER ?? "").trim().toLowerCase() === "s3";
+}
+
 function safeJsonParse(value, fallback) {
   try {
     return JSON.parse(value);
@@ -45,13 +50,73 @@ export function getUserTrendInsightsFilePath(storageRoot, userId) {
   return path.join(storageRoot, "private", "users", userId, "mara-tiktok-trend-insights.json");
 }
 
-export function readGlobalTikTokInsights(globalPath) {
+export function getUserTrendObjectStoredName() {
+  return `trends/mara-tiktok-trend-insights.json`;
+}
+
+/** Local-file fallback for ops import only — not the multi-instance SoT. */
+export function readGlobalTikTokInsightsFromFile(globalPath) {
   try {
     const raw = readFileSync(globalPath, "utf8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
+}
+
+/** @deprecated Prefer readGlobalTrendInsights(store). Kept for scripts/tests. */
+export function readGlobalTikTokInsights(globalPath) {
+  return readGlobalTikTokInsightsFromFile(globalPath);
+}
+
+export async function ensureGlobalTrendTable(store) {
+  await store.execute(`CREATE TABLE IF NOT EXISTS mara_global_trend_insights (
+    platform TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    source TEXT,
+    updated_at TEXT NOT NULL
+  )`);
+}
+
+export async function saveGlobalTrendInsights(store, payload, { platform = GLOBAL_PLATFORM, source = null } = {}) {
+  await ensureGlobalTrendTable(store);
+  const now = new Date().toISOString();
+  const normalized = typeof payload === "string" ? payload : JSON.stringify(payload);
+  await store.execute(
+    `INSERT INTO mara_global_trend_insights (platform, payload_json, source, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(platform) DO UPDATE SET
+       payload_json = excluded.payload_json,
+       source = excluded.source,
+       updated_at = excluded.updated_at`,
+    platform,
+    normalized,
+    source,
+    now
+  );
+  return { platform, updatedAt: now };
+}
+
+export async function readGlobalTrendInsights(store, { platform = GLOBAL_PLATFORM, fileFallbackPath = null } = {}) {
+  await ensureGlobalTrendTable(store);
+  const row = await store.queryOne(
+    `SELECT payload_json AS "payloadJson", source, updated_at AS "updatedAt"
+     FROM mara_global_trend_insights WHERE platform = ?`,
+    platform
+  );
+  if (row?.payloadJson) {
+    const parsed = typeof row.payloadJson === "string" ? safeJsonParse(row.payloadJson, null) : row.payloadJson;
+    if (parsed) return parsed;
+  }
+  // Bootstrap from local ops file into DB once so replicas share SoT afterwards.
+  if (fileFallbackPath) {
+    const fromFile = readGlobalTikTokInsightsFromFile(fileFallbackPath);
+    if (fromFile) {
+      await saveGlobalTrendInsights(store, fromFile, { platform, source: "file_bootstrap" });
+      return fromFile;
+    }
+  }
+  return null;
 }
 
 export async function getLatestTrendSnapshot(store, userId, workerId, platform = "tiktok") {
@@ -149,11 +214,37 @@ export async function saveUserTrendSnapshot(store, { insights, userId, workerId,
   return id;
 }
 
-export async function writeUserTrendInsightsFile(storageRoot, userId, insights) {
+/**
+ * Optional cache/export of trend insights. Source of truth is worker_trend_snapshots.
+ * In multi-instance deploys, prefer S3; local files are best-effort only.
+ */
+export async function writeUserTrendInsightsFile(storageRoot, userId, insights, objectStorage = null) {
+  const body = `${JSON.stringify(insights, null, 2)}\n`;
+  if (objectStorage && usesSharedObjectStorage()) {
+    await objectStorage.put({
+      userId,
+      storedName: getUserTrendObjectStoredName(),
+      body,
+      contentType: "application/json"
+    });
+    return `s3://${userId}/${getUserTrendObjectStoredName()}`;
+  }
+  if (process.env.NODE_ENV === "production" && usesSharedObjectStorage()) {
+    return null;
+  }
   const filePath = getUserTrendInsightsFilePath(storageRoot, userId);
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(insights, null, 2)}\n`, "utf8");
+  await writeFile(filePath, body, "utf8");
   return filePath;
+}
+
+export async function deleteUserTrendArtifacts(storageRoot, userId, objectStorage = null) {
+  const resolvedRoot = storageRoot || resolveStorageRoot();
+  const dir = path.join(resolvedRoot, "private", "users", String(userId));
+  await rm(dir, { recursive: true, force: true }).catch(() => {});
+  if (objectStorage) {
+    await objectStorage.delete({ userId, storedName: getUserTrendObjectStoredName() }).catch(() => {});
+  }
 }
 
 export async function syncUserTrendInsightsFromGlobal({
@@ -164,11 +255,12 @@ export async function syncUserTrendInsightsFromGlobal({
   readWorkerKnowledge,
   storageRoot,
   userId,
-  workerId
+  workerId,
+  objectStorage = null
 }) {
-  const globalPayload = readGlobalTikTokInsights(globalPath);
+  const globalPayload = await readGlobalTrendInsights(store, { fileFallbackPath: globalPath });
   if (!globalPayload) {
-    return { note: "Global TikTok trend file is not available yet.", synced: false };
+    return { note: "Global TikTok trend insights are not available in shared storage yet.", synced: false };
   }
 
   const accountContext = typeof readAccountContext === "function" ? await readAccountContext(userId) : null;
@@ -183,8 +275,8 @@ export async function syncUserTrendInsightsFromGlobal({
   await saveUserTrendSnapshot(store, { insights, userId, workerId });
 
   const resolvedStorageRoot = storageRoot || resolveStorageRoot();
-  writeUserTrendInsightsFile(resolvedStorageRoot, userId, insights).catch((error) => {
-    console.error(`Failed to write per-user TikTok insights for ${userId}:`, error);
+  writeUserTrendInsightsFile(resolvedStorageRoot, userId, insights, objectStorage).catch((error) => {
+    console.error(`Failed to write per-user TikTok insights cache for ${userId}:`, error);
   });
 
   return { insights, niche, synced: true };
@@ -199,7 +291,8 @@ export async function loadUserTrendInsights({
   readWorkerKnowledge,
   storageRoot,
   userId,
-  workerId
+  workerId,
+  objectStorage = null
 }) {
   let snapshot = await getLatestTrendSnapshot(store, userId, workerId);
   if (!snapshot || (autoSync && isTrendSnapshotStale(snapshot))) {
@@ -211,7 +304,8 @@ export async function loadUserTrendInsights({
       readWorkerKnowledge,
       storageRoot: storageRoot || resolveStorageRoot(),
       userId,
-      workerId
+      workerId,
+      objectStorage
     });
     if (syncResult.insights) {
       return syncResult.insights;
@@ -223,7 +317,7 @@ export async function loadUserTrendInsights({
     return snapshotToInsights(snapshot);
   }
 
-  const globalPayload = readGlobalTikTokInsights(globalPath);
+  const globalPayload = await readGlobalTrendInsights(store, { fileFallbackPath: globalPath });
   if (!globalPayload) {
     return null;
   }

@@ -33,6 +33,18 @@ test("planner prioritizes maintenance and research when onboarding is complete",
   assert.ok(actions.some((action) => action.kind === "maintain_artifact"));
   assert.ok(actions.some((action) => action.kind === "brand_research"));
   assert.ok(actions.some((action) => action.kind === "brand_content_ideas"));
+  assert.ok(actions.some((action) => action.kind === "infer_commercial_outcomes"));
+});
+
+test("interactive mode still lets Mara harvest commercial outcomes", () => {
+  const filtered = filterPlannedActionsForMode(
+    [{ kind: "infer_commercial_outcomes" }, { kind: "brand_research", limit: 3 }, { kind: "ops_brief" }],
+    "interactive"
+  );
+  assert.deepEqual(
+    filtered.map((action) => action.kind),
+    ["infer_commercial_outcomes", "ops_brief"]
+  );
 });
 
 test("planner switches to reddit pulse when brand research cap is reached", () => {

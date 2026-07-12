@@ -83,24 +83,53 @@ export async function initMaraIntelligence(store) {
     hired INTEGER NOT NULL DEFAULT 0, rehired INTEGER NOT NULL DEFAULT 0, revenue_amount REAL NOT NULL DEFAULT 0,
     currency TEXT NOT NULL DEFAULT 'USD', outcome_json TEXT NOT NULL, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL
   )`);
+  const { initMaraBrandArchitecture } = await import("./maraBrandCanonical.mjs");
+  await initMaraBrandArchitecture(store);
 }
 
 export async function saveBrandProfile(store, profile) {
   const now = new Date().toISOString();
   const id = profile.id || randomUUID();
   const evidence = validateEvidence(profile.evidence);
+  // Deprecated dual-write path: public facts only. Prefer savePublicBrand /
+  // createOrUpdateOpportunityFromResearch for new code. Legacy mara_brand_profiles
+  // receives a public-only stub so older FK references keep resolving.
+  const publicOnlyProfile = {
+    description: profile.profile?.description || null,
+    productCategories: profile.profile?.productCategories || [],
+    namedProducts: profile.profile?.namedProducts || [],
+    creatorProgramUrl: profile.profile?.creatorProgramUrl || null,
+    affiliateProgramUrl: profile.profile?.affiliateProgramUrl || null,
+    contactPageUrl: profile.profile?.contactPageUrl || null,
+    currentResearchScope: profile.profile?.currentResearchScope || null
+  };
   await store.execute(
-    `INSERT INTO mara_brand_profiles
-      (id, brand_key, brand_name, website, profile_json, evidence_json, research_version, last_researched_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-     ON CONFLICT(brand_key) DO UPDATE SET brand_name = excluded.brand_name, website = excluded.website,
-       profile_json = excluded.profile_json, evidence_json = excluded.evidence_json,
-       research_version = mara_brand_profiles.research_version + 1,
+    `INSERT INTO mara_public_brands
+      (id, brand_key, brand_name, website, entity_type, profile_json, research_version, last_researched_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'brand', ?, 1, ?, ?, ?)
+     ON CONFLICT(brand_key) DO UPDATE SET brand_name = excluded.brand_name, website = COALESCE(excluded.website, mara_public_brands.website),
+       profile_json = excluded.profile_json, research_version = mara_public_brands.research_version + 1,
        last_researched_at = excluded.last_researched_at, updated_at = excluded.updated_at`,
     id, String(profile.brandKey), String(profile.brandName), profile.website || null,
-    JSON.stringify(profile.profile || {}), JSON.stringify(evidence), now, now, now
+    JSON.stringify(publicOnlyProfile), now, now, now
   );
-  return store.queryOne(`SELECT * FROM mara_brand_profiles WHERE brand_key = ?`, String(profile.brandKey));
+  try {
+    await store.execute(
+      `INSERT INTO mara_brand_profiles
+        (id, brand_key, brand_name, website, profile_json, evidence_json, research_version, last_researched_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+       ON CONFLICT(brand_key) DO UPDATE SET brand_name = excluded.brand_name, website = excluded.website,
+         profile_json = excluded.profile_json, evidence_json = excluded.evidence_json,
+         research_version = mara_brand_profiles.research_version + 1,
+         last_researched_at = excluded.last_researched_at, updated_at = excluded.updated_at`,
+      id, String(profile.brandKey), String(profile.brandName), profile.website || null,
+      JSON.stringify(publicOnlyProfile), JSON.stringify(evidence), now, now, now
+    );
+  } catch {
+    /* legacy table may be absent mid-migrate */
+  }
+  return store.queryOne(`SELECT * FROM mara_public_brands WHERE brand_key = ?`, String(profile.brandKey))
+    || store.queryOne(`SELECT * FROM mara_brand_profiles WHERE brand_key = ?`, String(profile.brandKey));
 }
 
 export async function saveCreatorPerformanceProfile(store, profile) {
@@ -264,9 +293,12 @@ export async function applyCommercialOutcomeToOpportunity(store, outcome) {
 export async function listTopPitchTargets(store, userId, workerId, limit = 5) {
   const rows = await store.query(
     `SELECT o.id, o.status, o.score_total AS "scoreTotal", o.scores_json AS "scoresJson",
-            b.brand_name AS "brandName", b.website, b.id AS "brandProfileId"
+            COALESCE(pb.brand_name, b.brand_name) AS "brandName",
+            COALESCE(pb.website, b.website) AS website,
+            COALESCE(o.public_brand_id, o.brand_profile_id) AS "brandProfileId"
      FROM mara_creator_brand_opportunities o
-     INNER JOIN mara_brand_profiles b ON b.id = o.brand_profile_id
+     LEFT JOIN mara_public_brands pb ON pb.id = COALESCE(o.public_brand_id, o.brand_profile_id)
+     LEFT JOIN mara_brand_profiles b ON b.id = o.brand_profile_id
      WHERE o.user_id = ? AND o.worker_id = ?
        AND o.status NOT IN ('cold', 'lost', 'won', 'won_repeat')
        AND o.score_total >= 45
@@ -388,9 +420,14 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
   const opportunities = await store.query(
     `SELECT o.id, o.status, o.score_total AS "scoreTotal", o.scores_json AS "scoresJson",
             o.opportunity_package_json AS "opportunityPackageJson", o.evidence_json AS "evidenceJson",
-            b.brand_name AS "brandName", b.website, b.last_researched_at AS "lastResearchedAt"
+            o.decision, o.decision_reason AS "decisionReason", o.confidence,
+            COALESCE(o.public_brand_id, o.brand_profile_id) AS "publicBrandId",
+            COALESCE(pb.brand_name, b.brand_name) AS "brandName",
+            COALESCE(pb.website, b.website) AS website,
+            COALESCE(pb.last_researched_at, b.last_researched_at) AS "lastResearchedAt"
      FROM mara_creator_brand_opportunities o
-     INNER JOIN mara_brand_profiles b ON b.id = o.brand_profile_id
+     LEFT JOIN mara_public_brands pb ON pb.id = COALESCE(o.public_brand_id, o.brand_profile_id)
+     LEFT JOIN mara_brand_profiles b ON b.id = o.brand_profile_id
      WHERE o.user_id = ? AND o.worker_id = ?
      ORDER BY o.score_total DESC, o.updated_at DESC LIMIT 25`,
     userId, workerId
@@ -399,13 +436,46 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
     if (value && typeof value === "object") return value;
     try { return JSON.parse(value); } catch { return fallback; }
   };
-  return {
-    opportunities: opportunities.map((row) => ({
+  const { findBestOutreachContact, listBrandContacts } = await import("./maraContactDiscovery.mjs");
+  const enriched = [];
+  for (const row of opportunities) {
+    let outreachContact = null;
+    let contacts = [];
+    if (row.publicBrandId) {
+      try {
+        contacts = await listBrandContacts(store, userId, workerId, row.publicBrandId);
+        outreachContact = await findBestOutreachContact(store, userId, workerId, row.publicBrandId);
+      } catch {
+        contacts = [];
+      }
+    }
+    enriched.push({
       ...row,
       scores: parse(row.scoresJson, {}),
       opportunityPackage: parse(row.opportunityPackageJson, {}),
-      evidence: parse(row.evidenceJson, [])
-    })),
+      evidence: parse(row.evidenceJson, []),
+      outreachReady: Boolean(outreachContact?.value?.includes("@")),
+      outreachContact: outreachContact
+        ? {
+            id: outreachContact.id,
+            value: outreachContact.value,
+            contactType: outreachContact.contactType,
+            source: outreachContact.source
+          }
+        : null,
+      contacts: contacts.slice(0, 5).map((contact) => ({
+        id: contact.id,
+        value: contact.value,
+        contactType: contact.contactType,
+        mayUseForOutreach: Number(contact.mayUseForOutreach) === 1,
+        inferred: Boolean(Number(contact.inferred)),
+        source: contact.source,
+        confidence: contact.confidence
+      }))
+    });
+  }
+  return {
+    opportunities: enriched,
     metrics: await getRevenueInfluenceMetrics(store, userId, workerId),
     creativeAnalyses: await listCreativeAnalyses(store, userId, workerId, 10)
   };

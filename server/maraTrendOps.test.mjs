@@ -1,79 +1,80 @@
-import test from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import Database from "better-sqlite3";
-import { initWorkerTables, MARA_WORKER_ID } from "./workerEngine.mjs";
-import { getLatestTrendSnapshot, loadUserTrendInsights, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
+import test from "node:test";
 import { wrapSqliteHandle } from "./dataStore.mjs";
+import {
+  loadUserTrendInsights,
+  readGlobalTrendInsights,
+  saveGlobalTrendInsights,
+  saveUserTrendSnapshot
+} from "./maraTrendOps.mjs";
 
-function makeDb() {
+test("global trend insights use shared DB SoT across readers", async () => {
   const db = new Database(":memory:");
-  initWorkerTables(db);
-  return db;
-}
-
-const readers = {
-  readAccountContext: () => ({ brandName: "Glow Forge", whatYouDo: "skincare and wellness UGC" }),
-  readMaraOnboarding: () => ({ answers: {} }),
-  readWorkerKnowledge: () => []
-};
-
-const globalPayload = {
-  hashtags: [
-    { categories: ["Beauty"], hashtag: "#skincareroutine", posts: "120K", views: "40M" },
-    { categories: ["Travel"], hashtag: "#empirestatebuilding", posts: "27.9K", views: "326.1M" }
-  ],
-  periodDays: 7,
-  region: "US",
-  sourceUrl: "https://example.com/trends",
-  updatedAt: new Date().toISOString()
-};
-
-test("syncUserTrendInsightsFromGlobal stores per-user niche-scoped snapshot", async () => {
-  const db = makeDb();
   const store = wrapSqliteHandle(db);
-  const globalPath = path.join(tmpdir(), `mara-trend-global-${Date.now()}.json`);
-  writeFileSync(globalPath, JSON.stringify(globalPayload));
+  await store.execute(`CREATE TABLE worker_trend_snapshots (
+    id TEXT PRIMARY KEY, user_id TEXT, worker_id TEXT, platform TEXT,
+    niche TEXT, region TEXT, period_days INTEGER, source TEXT, source_url TEXT,
+    payload_json TEXT, content_gaps_json TEXT, hashtags_json TEXT, insights_json TEXT,
+    login_wall_encountered INTEGER, created_at TEXT, updated_at TEXT
+  )`);
 
-  const result = await syncUserTrendInsightsFromGlobal({
-    store,
-    globalPath,
-    ...readers,
-    userId: "user-1",
-    workerId: MARA_WORKER_ID
-  });
+  await saveGlobalTrendInsights(store, {
+    hashtags: [{ hashtag: "#shared", views: "1M" }],
+    contentGaps: [],
+    updatedAt: new Date().toISOString()
+  }, { source: "test" });
 
-  const snapshot = await getLatestTrendSnapshot(store, "user-1", MARA_WORKER_ID);
-  assert.equal(result.synced, true);
-  assert.equal(snapshot.niche, "skincare and wellness UGC");
-  assert.ok(result.insights.hashtags.some((item) => /skincare/i.test(item.hashtag)));
-});
-
-test("loadUserTrendInsights returns stored per-user insights", async () => {
-  const db = makeDb();
-  const store = wrapSqliteHandle(db);
-  const globalPath = path.join(tmpdir(), `mara-trend-global-${Date.now()}-2.json`);
-  writeFileSync(globalPath, JSON.stringify(globalPayload));
-
-  await syncUserTrendInsightsFromGlobal({
-    store,
-    globalPath,
-    ...readers,
-    userId: "user-1",
-    workerId: MARA_WORKER_ID
-  });
+  const fromDb = await readGlobalTrendInsights(store, { fileFallbackPath: "/no/such/file.json" });
+  assert.equal(fromDb.hashtags[0].hashtag, "#shared");
 
   const insights = await loadUserTrendInsights({
+    store,
+    globalPath: "/no/such/file.json",
+    userId: "u1",
+    workerId: "mara-vale",
+    readAccountContext: async () => null,
+    readMaraOnboarding: async () => null,
+    readWorkerKnowledge: async () => []
+  });
+  assert.ok(insights);
+  const snapshot = await store.queryOne("SELECT id FROM worker_trend_snapshots WHERE user_id = ?", "u1");
+  assert.ok(snapshot?.id);
+  db.close();
+});
+
+test("saveUserTrendSnapshot is the per-user SoT even without files", async () => {
+  const db = new Database(":memory:");
+  const store = wrapSqliteHandle(db);
+  await store.execute(`CREATE TABLE worker_trend_snapshots (
+    id TEXT PRIMARY KEY, user_id TEXT, worker_id TEXT, platform TEXT,
+    niche TEXT, region TEXT, period_days INTEGER, source TEXT, source_url TEXT,
+    payload_json TEXT, content_gaps_json TEXT, hashtags_json TEXT, insights_json TEXT,
+    login_wall_encountered INTEGER, created_at TEXT, updated_at TEXT
+  )`);
+  await saveUserTrendSnapshot(store, {
+    userId: "u1",
+    workerId: "mara-vale",
+    insights: {
+      niche: "beauty",
+      region: "US",
+      periodDays: 7,
+      source: "test",
+      sourceUrl: "",
+      contentGaps: [],
+      hashtags: [],
+      insights: ["a"],
+      loginWallEncountered: false,
+      updatedAt: new Date().toISOString()
+    }
+  });
+  const loaded = await loadUserTrendInsights({
     autoSync: false,
     store,
-    globalPath,
-    ...readers,
-    userId: "user-1",
-    workerId: MARA_WORKER_ID
+    globalPath: "/missing.json",
+    userId: "u1",
+    workerId: "mara-vale"
   });
-
-  assert.equal(insights.niche, "skincare and wellness UGC");
-  assert.ok(insights.contentGaps.length > 0);
+  assert.equal(loaded.niche, "beauty");
+  db.close();
 });

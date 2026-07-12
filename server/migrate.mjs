@@ -25,8 +25,9 @@ function makePool() {
   });
 }
 
-export async function runMigrations() {
-  const pool = makePool();
+export async function runMigrations({ pool: existingPool = null } = {}) {
+  const pool = existingPool || makePool();
+  const ownsPool = !existingPool;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -59,9 +60,33 @@ export async function runMigrations() {
       }
     }
     console.log(count === 0 ? "No pending migrations." : `Applied ${count} migration(s).`);
+    return { applied: count, files };
   } finally {
-    await pool.end();
+    if (ownsPool) await pool.end();
   }
+}
+
+/** Returns migration filenames on disk that are not yet in schema_migrations. */
+export async function listPendingMigrations(queryFn) {
+  const files = fs.readdirSync(migrationsDir).filter((n) => n.endsWith(".sql")).sort();
+  let applied = new Set();
+  try {
+    const rows = await queryFn("SELECT filename FROM schema_migrations");
+    applied = new Set((rows || []).map((r) => r.filename));
+  } catch {
+    return files;
+  }
+  return files.filter((file) => !applied.has(file));
+}
+
+export async function assertSchemaCurrent(queryFn) {
+  const pending = await listPendingMigrations(queryFn);
+  if (pending.length > 0) {
+    const error = new Error(`Schema lag: pending migrations ${pending.join(", ")}`);
+    error.code = "SCHEMA_LAG";
+    throw error;
+  }
+  return true;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

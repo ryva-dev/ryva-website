@@ -31,7 +31,7 @@ function tagKey(name, tags) {
   return tagPart ? `${name}|${tagPart}` : name;
 }
 
-/** Optional Sentry: set SENTRY_DSN to enable. Uses @sentry/node if installed. */
+/** Optional Sentry: set SENTRY_DSN to enable. `@sentry/node` is a declared dependency. */
 let sentryReady = null;
 export async function captureException(error, context = {}) {
   const dsn = String(process.env.SENTRY_DSN ?? "").trim();
@@ -51,8 +51,8 @@ export async function captureException(error, context = {}) {
     const Sentry = await sentryReady;
     Sentry.captureException(error, { extra: context });
     return true;
-  } catch {
-    // Package not installed or init failed — structured logs remain the source of truth.
+  } catch (err) {
+    // Init failed — structured logs remain the source of truth.
     return false;
   }
 }

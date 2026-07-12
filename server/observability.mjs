@@ -134,6 +134,8 @@ export function installGracefulShutdown({ server, onShutdown, timeoutMs = 15_000
 /**
  * Fail fast at boot if production config is incomplete, rather than failing
  * later per-request. Returns nothing; throws on fatal misconfiguration.
+ *
+ * Note: SESSION_SECRET is unused — sessions are DB-backed cookies.
  */
 export function validateConfig() {
   const isProduction = process.env.NODE_ENV === "production";
@@ -141,25 +143,61 @@ export function validateConfig() {
   const warnings = [];
 
   const usingPostgres = Boolean(String(process.env.DATABASE_URL ?? "").trim());
+  const objectDriver = String(process.env.OBJECT_STORAGE_DRIVER ?? (process.env.S3_BUCKET ? "s3" : "local")).trim().toLowerCase();
+  const encryptionKey = String(process.env.ENCRYPTION_KEY ?? "").trim();
+  const appUrl = String(process.env.APP_URL ?? "").trim();
+
+  function encryptionKeyOk(raw) {
+    if (!raw) return false;
+    try {
+      const key = /^[0-9a-fA-F]{64}$/.test(raw) ? Buffer.from(raw, "hex") : Buffer.from(raw, "base64");
+      return key.length === 32;
+    } catch {
+      return false;
+    }
+  }
 
   if (isProduction) {
-    if (usingPostgres) {
-      // Schema comes from `npm run migrate`. Object storage should be S3 in prod.
-      if (String(process.env.OBJECT_STORAGE_DRIVER ?? "").trim().toLowerCase() !== "s3") {
-        warnings.push("OBJECT_STORAGE_DRIVER is not s3; multi-instance deploys need shared object storage.");
-      }
+    if (!usingPostgres) {
+      problems.push("DATABASE_URL (Postgres) is required in production for multi-tenant SaaS.");
+    }
+    if (objectDriver !== "s3") {
+      problems.push("OBJECT_STORAGE_DRIVER=s3 (with S3_BUCKET) is required in production; local disk is not shared across replicas.");
+    } else if (!String(process.env.S3_BUCKET ?? "").trim()) {
+      problems.push("S3_BUCKET is required when OBJECT_STORAGE_DRIVER=s3.");
+    }
+    if (!appUrl) {
+      problems.push("APP_URL is required in production.");
+    }
+    if (!encryptionKey) {
+      problems.push("ENCRYPTION_KEY is required in production; OAuth tokens must never be stored in plaintext.");
+    } else if (!encryptionKeyOk(encryptionKey)) {
+      problems.push("ENCRYPTION_KEY must decode to exactly 32 bytes (64 hex chars or base64).");
     }
     if (!String(process.env.ANTHROPIC_API_KEY ?? "").trim()) {
       problems.push("ANTHROPIC_API_KEY is required in production; paid workers must not emit placeholder output.");
-    }
-    if (!String(process.env.ENCRYPTION_KEY ?? "").trim()) {
-      problems.push("ENCRYPTION_KEY is required in production; OAuth tokens must never be stored in plaintext.");
     }
     const stripeKey = String(process.env.STRIPE_SECRET_KEY ?? "").trim();
     const stripeHook = String(process.env.STRIPE_WEBHOOK_SECRET ?? "").trim();
     if (Boolean(stripeKey) !== Boolean(stripeHook)) {
       problems.push("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set together.");
     }
+    if (!String(process.env.METRICS_TOKEN ?? "").trim()) {
+      warnings.push("METRICS_TOKEN is unset; /metrics will return 401 in production until configured.");
+    }
+    if (String(process.env.SESSION_SECRET ?? "").trim()) {
+      warnings.push("SESSION_SECRET is unused; sessions are stored in the database. You can remove it.");
+    }
+    const googleId = String(process.env.GOOGLE_CLIENT_ID ?? "").trim();
+    const googleSecret = String(process.env.GOOGLE_CLIENT_SECRET ?? "").trim();
+    if (!googleId || !googleSecret) {
+      warnings.push("GOOGLE_CLIENT_ID/SECRET unset — Google login and Gmail connect will not work for public hire.");
+    }
+    if (!String(process.env.SMTP_HOST ?? "").trim()) {
+      warnings.push("SMTP_HOST unset — transactional email (verification, digests) will not send.");
+    }
+  } else if (encryptionKey && !encryptionKeyOk(encryptionKey)) {
+    problems.push("ENCRYPTION_KEY must decode to exactly 32 bytes when set.");
   }
 
   for (const warning of warnings) emit("warn", "config_warning", { detail: warning });
@@ -169,6 +207,7 @@ export function validateConfig() {
   }
   emit("info", "config_validated", {
     backend: usingPostgres ? "postgres" : "sqlite",
+    objectStorage: objectDriver,
     production: isProduction
   });
 }

@@ -169,6 +169,8 @@ export function ensureOfficeSchema() {
 
   // Self-serve billing portal needs the Stripe customer on the user.
   ensureColumn("users", "stripe_customer_id", "TEXT");
+  // 0 for Google-only accounts that never chose a password (cannot delete via password).
+  ensureColumn("users", "password_is_set", "INTEGER NOT NULL DEFAULT 1");
 
   // Pause switch: a paused worker does no autonomous (token-spending) work.
   ensureColumn("hired_workers", "paused", "INTEGER NOT NULL DEFAULT 0");
@@ -178,7 +180,19 @@ export function ensureOfficeSchema() {
     CREATE TABLE IF NOT EXISTS user_digest_log (
       user_id TEXT PRIMARY KEY,
       last_sent_at TEXT NOT NULL
-    )
+    );
+    CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+      bucket_key TEXT PRIMARY KEY,
+      hits INTEGER NOT NULL DEFAULT 0,
+      reset_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rate_limit_reset ON rate_limit_buckets(reset_at);
+    CREATE TABLE IF NOT EXISTS mara_global_trend_insights (
+      platform TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL,
+      source TEXT,
+      updated_at TEXT NOT NULL
+    );
   `);
 }
 

@@ -344,6 +344,14 @@ export default function App() {
       setIsAuthModalOpen(true);
     }
 
+    if (notice === "account-deleted") {
+      setGlobalNotice("Your account and data were permanently deleted.");
+    }
+
+    if (notice === "account-delete-failed") {
+      setGlobalNotice("Account deletion could not be completed. Billing may still be active — retry or contact support.");
+    }
+
     if (notice === "gmail-connected") {
       setGlobalNotice("Gmail connected. Mara can now sync real inbox work.");
     }

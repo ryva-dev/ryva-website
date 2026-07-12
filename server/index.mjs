@@ -14,7 +14,15 @@ import { sendTransactionalEmail } from "./mailer.mjs";
 import { extractGmailBodyText } from "./maraInboxParser.mjs";
 import { parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { deriveMaraPermissionsFromOnboarding, formatTaskSourceLabel, safeList, sentenceCase } from "./maraOfficeUtils.mjs";
-import { loadUserTrendInsights, resolveGlobalTrendInsightsPath, resolveStorageRoot, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
+import { createDurableRateLimitStore, initRateLimitStore, rateLimitKeyForRequest } from "./rateLimitStore.mjs";
+import {
+  deleteUserTrendArtifacts,
+  loadUserTrendInsights,
+  resolveGlobalTrendInsightsPath,
+  resolveStorageRoot,
+  saveGlobalTrendInsights,
+  syncUserTrendInsightsFromGlobal
+} from "./maraTrendOps.mjs";
 import {
   approveWorkerProposedTask,
   autoExecuteSafeMaraTasks,
@@ -45,7 +53,6 @@ import { handleAgentChatMessage, runAgentAutonomyCycle, runAgentTask } from "./a
 import { isLikelyListicleTitle } from "./workerEngine.mjs";
 import { isAgentLlmConfigured, parseTrendPasteHeuristic, tryParseTrendPaste } from "./agentLlm.mjs";
 import { hasRoleConfig } from "./roles.mjs";
-import { saveUserTrendSnapshot, writeUserTrendInsightsFile } from "./maraTrendOps.mjs";
 import {
   errorHandler,
   installGracefulShutdown,
@@ -60,12 +67,48 @@ import { decryptJson, encryptJson } from "./secretsCrypto.mjs";
 import { canSpend, noteSpend } from "./llmBudget.mjs";
 import { createStore, wrapSqliteHandle } from "./dataStore.mjs";
 import { createObjectStorage } from "./objectStorage.mjs";
-import { claimJobs, completeJob, enqueueJob, failJob, initJobQueue } from "./jobQueue.mjs";
+import {
+  claimJobs,
+  completeJob,
+  enqueueJob,
+  failJob,
+  initJobQueue,
+  mergeOAuthTokenMetadata,
+  startJobLeaseHeartbeat
+} from "./jobQueue.mjs";
 import { initProfessionalIntelligence } from "./professionalIntelligence.mjs";
 import { appendActionAuditEvent, evaluateActionPolicy, initActionAudit } from "./actionPolicy.mjs";
 import { validateTenantUpload } from "./uploadSecurity.mjs";
 import { claimExternalAction, completeExternalAction, initExternalActions, markExternalActionUncertain } from "./externalActions.mjs";
-import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, listTopPitchTargets, recordCommercialOutcome, resolveOpportunityStatusFromEvidence, saveBrandProfile, saveCreatorBrandOpportunity, saveCreativeAnalysis } from "./maraIntelligence.mjs";
+import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, listTopPitchTargets, recordCommercialOutcome, saveCreativeAnalysis } from "./maraIntelligence.mjs";
+import { inferAndRecordCommercialOutcomes } from "./maraOutcomeInference.mjs";
+import {
+  buildGoogleAuthorizationUrl,
+  exchangeGoogleCodeForTokens,
+  getGmailConnectRedirectUri,
+  getGoogleLoginRedirectUri,
+  GMAIL_CONNECT_SCOPES,
+  GOOGLE_LOGIN_SCOPES,
+  refreshGoogleAccessToken as refreshGoogleAccessTokenShared
+} from "./googleOAuth.mjs";
+import { initMaraBrandArchitecture } from "./maraBrandCanonical.mjs";
+import { getCreatorIntelligenceProfile, seedCreatorProfileFromOnboarding, upsertCreatorIntelligenceProfile } from "./maraCreatorProfile.mjs";
+import { deepResearchBrand, listResearchProviders } from "./maraResearchProviders.mjs";
+import { confirmInferredContact, listBrandContacts } from "./maraContactDiscovery.mjs";
+import { createOrUpdateOpportunityFromResearch } from "./maraOpportunityPackages.mjs";
+import { buildConceptFromGap, saveConceptIfNovel } from "./maraConceptEngine.mjs";
+import { getAutonomyLimits, saveAutonomyLimits } from "./maraAutonomyLimits.mjs";
+import {
+  buildTenantMediaKey,
+  enqueueVideoAnalysis,
+  processVideoAnalysisJob,
+  registerMediaAsset,
+  scanMediaForMalware,
+  validateVideoUpload
+} from "./maraMediaPipeline.mjs";
+import { startOutreachSequence, stopOutreachSequence, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
+import { createEvidenceItem, EVIDENCE_KINDS } from "./maraEvidence.mjs";
+import { USER_SCOPED_TABLES, authorizeAccountDeletion } from "./accountErasure.mjs";
 
 function logCaught(message, error, fields = {}) {
   const errMessage = error instanceof Error ? error.message : String(error);
@@ -136,11 +179,24 @@ if (
 
 // Fail fast at boot if production configuration is incomplete.
 validateConfig();
+
+if (usingPostgres) {
+  const { runMigrations } = await import("./migrate.mjs");
+  // Idempotent migrate-on-boot (set MIGRATE_ON_BOOT=0 to rely on an init container only).
+  if (String(process.env.MIGRATE_ON_BOOT ?? "1").trim() !== "0") {
+    log.info("migrate_on_boot_start");
+    await runMigrations();
+    log.info("migrate_on_boot_complete");
+  }
+}
+
 await initJobQueue(jobStore);
+await initRateLimitStore(jobStore);
 await initProfessionalIntelligence(professionalStore);
 await initActionAudit(auditStore);
 await initExternalActions(auditStore);
 await initMaraIntelligence(professionalStore);
+await initMaraBrandArchitecture(professionalStore);
 await authStore.execute(`CREATE TABLE IF NOT EXISTS agent_llm_usage (
   user_id TEXT NOT NULL,
   day TEXT NOT NULL,
@@ -155,11 +211,9 @@ if (isProduction) {
 }
 app.use(
   helmet({
-    // Report-only CSP: browsers report violations but do NOT block, so nothing
-    // breaks today. Watch the reports, tighten as needed, then flip reportOnly
-    // to false to enforce. Inline styles are allowed (common in the SPA build).
+    // Enforce CSP in production once built assets are self-hosted; report-only in dev.
     contentSecurityPolicy: {
-      reportOnly: true,
+      reportOnly: !isProduction,
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
@@ -191,10 +245,40 @@ app.use(requestContext);
 // Liveness/readiness probes for the load balancer — unauthenticated, cheap, and
 // registered before auth/rate-limiting so orchestrators can always reach them.
 registerHealthEndpoints(app, {
-  pingStore: () => authStore.ping()
+  pingStore: async () => {
+    await authStore.ping();
+    if (usingPostgres) {
+      const { assertSchemaCurrent } = await import("./migrate.mjs");
+      await assertSchemaCurrent(async (sql) => authStore.query(sql));
+    }
+  }
 });
 
-app.get("/metrics", async (_req, res) => {
+function requireMetricsAuth(req, res, next) {
+  const expected = String(process.env.METRICS_TOKEN ?? "").trim();
+  if (!expected) {
+    if (isProduction) {
+      res.status(401).json({ error: "Metrics require METRICS_TOKEN." });
+      return;
+    }
+    next();
+    return;
+  }
+  const header = String(req.headers.authorization ?? "");
+  const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
+  const queryToken = String(req.query?.token ?? "").trim();
+  const matches = (value) => {
+    if (!value || value.length !== expected.length) return false;
+    return timingSafeEqual(Buffer.from(value), Buffer.from(expected));
+  };
+  if (matches(bearer) || matches(queryToken)) {
+    next();
+    return;
+  }
+  res.status(401).json({ error: "Unauthorized." });
+}
+
+app.get("/metrics", requireMetricsAuth, async (_req, res) => {
   try {
     const dead = await jobStore.queryOne(
       `SELECT COUNT(*) AS count FROM durable_jobs WHERE status = 'dead'`
@@ -250,7 +334,7 @@ const checkoutLimiter = rateLimit({
 
 const interviewLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
-  limit: 40,
+  limit: isProduction ? 15 : 40,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many interview requests. Please try again shortly." }
@@ -258,10 +342,34 @@ const interviewLimiter = rateLimit({
 
 const onboardingLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
-  limit: 50,
+  limit: isProduction ? 20 : 50,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many onboarding requests. Please try again shortly." }
+});
+
+const durableRateLimitStore = createDurableRateLimitStore(jobStore, { windowMs: 10 * 60 * 1000 });
+
+const expensiveApiLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: durableRateLimitStore,
+  keyGenerator: (req) => rateLimitKeyForRequest(req, "expensive"),
+  validate: { keyGeneratorIpFallback: false },
+  message: { error: "Too many requests for this action. Please try again shortly." }
+});
+
+const llmHeavyLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: durableRateLimitStore,
+  keyGenerator: (req) => rateLimitKeyForRequest(req, "llm"),
+  validate: { keyGeneratorIpFallback: false },
+  message: { error: "LLM budget throttle: slow down and retry shortly." }
 });
 
 function nowIso() {
@@ -1554,7 +1662,7 @@ async function getFreshGoogleAccessToken(userId, workerSlug, provider = "gmail")
     };
   }
 
-  const refreshed = await refreshGoogleAccessToken(refreshToken);
+  const refreshed = await refreshGoogleAccessTokenShared(refreshToken);
   const nextMetadata = {
     ...metadata,
     accessToken: String(refreshed.access_token ?? ""),
@@ -2187,6 +2295,7 @@ async function syncMaraOperationalRecords(userId, workerSlug) {
     readMaraOnboarding: readMaraOnboardingAnswers,
     readWorkerKnowledge: readWorkerKnowledgeSections,
     storageRoot: resolveStorageRoot(),
+    objectStorage,
     userId,
     workerId: workerSlug
   });
@@ -2215,44 +2324,42 @@ async function syncMaraGrowthIntelligenceFromResearch(userId, workerSlug) {
     userId, workerSlug
   );
   let syncedCount = 0;
+  const creatorProfile = await getCreatorIntelligenceProfile(professionalStore, userId, workerSlug);
   for (const brand of brands) {
     const publicEvidence = parseJson(brand.evidenceJson, []);
     const sourceUrl = String(publicEvidence?.[0]?.url || brand.website || "").trim() || null;
+    // Public facts only into mara_public_brands; creator thesis lives on the opportunity package.
     const evidence = [
-      { basis: "observed", claim: String(brand.identitySummary || `${brand.brandName} was found in current public research.`), sourceUrl, observedAt: brand.researchedAt, confidence: sourceUrl ? 82 : 60 },
-      { basis: "inferred", claim: String(brand.vibeNotes || "This brand appears relevant enough to evaluate against the creator's positioning."), confidence: 65 },
-      { basis: "hypothesis", claim: String(brand.suggestedAngle || "A creator-specific creative gap still needs validation against current advertising."), confidence: brand.suggestedAngle ? 58 : 35 }
+      createEvidenceItem({
+        kind: EVIDENCE_KINDS.OBSERVED,
+        claim: String(brand.identitySummary || `${brand.brandName} was found in current public research.`),
+        sourceUrl,
+        observedAt: brand.researchedAt,
+        confidence: sourceUrl ? 82 : 60
+      }),
+      createEvidenceItem({
+        kind: EVIDENCE_KINDS.HYPOTHESIS,
+        claim: String(brand.suggestedAngle || "A creator-specific creative gap still needs validation against current advertising."),
+        confidence: brand.suggestedAngle ? 58 : 35
+      })
     ];
-    const brandKey = String(brand.website || brand.brandName).toLowerCase().replace(/^https?:\/\//, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 160);
-    const profile = await saveBrandProfile(professionalStore, {
-      brandKey,
-      brandName: brand.brandName,
-      website: brand.website || null,
-      profile: { description: brand.identitySummary || "", currentResearchScope: "Public brand identity and creator-fit discovery" },
-      evidence: [evidence[0]]
-    });
-    const status = resolveOpportunityStatusFromEvidence(evidence, {
-      suggestedAngle: brand.suggestedAngle || "",
-      contactEmail: brand.contactEmail || ""
-    });
-    await saveCreatorBrandOpportunity(professionalStore, {
-      userId, workerId: workerSlug, brandProfileId: profile.id, status,
-      scores: {
-        creatorFit: 70 + (brand.vibeNotes ? 10 : 0) + (brand.suggestedAngle ? 5 : 0),
-        commercialPotential: 45,
-        opportunityGap: brand.suggestedAngle ? 70 : 40,
-        outreachLikelihood: brand.contactEmail ? 75 : 35
-      },
-      opportunityThesis: brand.vibeNotes || `${brand.brandName} is a research candidate pending deeper advertising and creator-history evidence.`,
-      creativeGap: brand.suggestedAngle || "Not yet established from current evidence.",
-      brandIntelligence: { brandName: brand.brandName, website: brand.website || null, currentEvidence: brand.identitySummary || "" },
-      creatorPositioning: { fitReason: brand.vibeNotes || "Fit requires validation against creator performance evidence." },
-      pitchStrategy: { contactEmail: brand.contactEmail || null, observation: brand.identitySummary || "", conceptSummary: brand.suggestedAngle || "Research before pitching." },
-      creativeTreatment: { angle: brand.suggestedAngle || null },
-      economics: { recommendation: "Unknown until budget, usage, and creator-program evidence is collected." },
-      evidence
-    });
-    syncedCount += 1;
+    try {
+      await createOrUpdateOpportunityFromResearch(professionalStore, {
+        userId,
+        workerId: workerSlug,
+        brandName: brand.brandName,
+        website: brand.website || null,
+        evidence,
+        creatorProfile,
+        contacts: brand.contactEmail
+          ? [{ contactType: "email", value: brand.contactEmail, mayUseForOutreach: 1 }]
+          : []
+      });
+      syncedCount += 1;
+    } catch (error) {
+      if (error?.code === "BRAND_ENTITY_REJECTED") continue;
+      throw error;
+    }
   }
   return { syncedCount };
 }
@@ -2345,10 +2452,26 @@ async function syncGmailInbox(userId, workerSlug) {
   const campaignSync = await syncInboxThreadsToCampaigns(userId, workerSlug);
   const briefParse = await parseUnparsedInboxThreads(maraStore, userId, workerSlug, { fetchImpl: fetch });
   const operationalSync = await syncMaraOperationalRecords(userId, workerSlug);
+  let outcomeInference = { recorded: [], skipped: [] };
+  try {
+    await initMaraIntelligence(professionalStore);
+    outcomeInference = await inferAndRecordCommercialOutcomes(professionalStore, userId, workerSlug, { limit: 30 });
+    if (outcomeInference.recorded.length) {
+      await insertMaraSyncJob(
+        userId,
+        "growth",
+        "commercial_outcome_inference",
+        `Inferred ${outcomeInference.recorded.length} commercial outcome${outcomeInference.recorded.length === 1 ? "" : "s"} from inbox evidence and re-ranked opportunities.`
+      );
+    }
+  } catch (error) {
+    logCaught("commercial_outcome_inference_failed", error, { userId, workerSlug });
+  }
   return {
     briefParseCount: briefParse.parsedCount,
     campaignSyncCount: campaignSync.syncedCount,
     syncedCount,
+    outcomesInferred: outcomeInference.recorded.length,
     ...operationalSync
   };
 }
@@ -2390,6 +2513,23 @@ function buildGmailRawMessage({ body, subject, to }) {
 async function findBestDraftContact(userId, workerSlug, brandLabel = "") {
   const normalizedBrand = String(brandLabel ?? "").trim().toLowerCase();
   if (normalizedBrand) {
+    try {
+      const { findOutreachContactByBrandName } = await import("./maraContactDiscovery.mjs");
+      const maraContact = await findOutreachContactByBrandName(professionalStore, userId, workerSlug, brandLabel);
+      if (maraContact?.value?.includes("@") && Number(maraContact.mayUseForOutreach) === 1) {
+        return {
+          brandName: maraContact.brandName || brandLabel,
+          contactEmail: maraContact.value,
+          contactName: "",
+          subject: "",
+          contactId: maraContact.id,
+          source: "mara_brand_contacts"
+        };
+      }
+    } catch {
+      /* table may be missing mid-migrate */
+    }
+
     const campaignMatch = await authStore.queryOne(
       `SELECT brand_name AS "brandName", contact_email AS "contactEmail", contact_name AS "contactName", campaign_name AS subject
        FROM office_campaigns
@@ -3137,6 +3277,7 @@ async function readMaraPrivateInsights(userId, workerId) {
     readMaraOnboarding: readMaraOnboardingAnswers,
     readWorkerKnowledge: readWorkerKnowledgeSections,
     storageRoot: resolveStorageRoot(),
+    objectStorage,
     userId,
     workerId
   });
@@ -3163,6 +3304,11 @@ async function runMaraFirstDayAutomation({ userId, workerSlug, answers, generate
   });
   const mergedKnowledge = [...initialPlan.memoryEntries, ...normalizedKnowledge];
   await replaceWorkerKnowledge(userId, workerSlug, mergedKnowledge);
+  try {
+    await seedCreatorProfileFromOnboarding(professionalStore, { userId, workerId: workerSlug, answers });
+  } catch (error) {
+    logCaught("creator_profile_seed_failed", error, { userId, workerSlug });
+  }
   const createdTaskIds = [];
 
   for (const task of initialPlan.tasks) {
@@ -3356,8 +3502,18 @@ async function runScheduledMaraAutonomy() {
 
     await enqueueWeeklyDigests();
 
-    const jobs = await claimJobs(jobStore, { owner: jobLeaseOwner, limit: 20 });
+    const jobs = await claimJobs(jobStore, {
+      owner: jobLeaseOwner,
+      limit: 20,
+      onReclaim: ({ kind }) => incrementMetric("jobs_reclaimed_expired_lease", 1, { kind })
+    });
     for (const job of jobs) {
+      const stopHeartbeat = ["worker_autonomy", "mara_video_analysis"].includes(job.kind)
+        ? startJobLeaseHeartbeat(jobStore, job.id, jobLeaseOwner, {
+            leaseMs: 15 * 60 * 1000,
+            intervalMs: 60_000
+          })
+        : null;
       try {
         if (job.kind === "weekly_digest") {
           const user = {
@@ -3376,6 +3532,18 @@ async function runScheduledMaraAutonomy() {
             user.name = row.name;
           }
           await sendDigestForUser(user, job.payload?.threshold || new Date(Date.now() - DIGEST_INTERVAL_DAYS * 24 * 60 * 60 * 1000).toISOString());
+          await completeJob(jobStore, job.id, jobLeaseOwner);
+          incrementMetric("jobs_completed", 1, { kind: job.kind });
+          continue;
+        }
+
+        if (job.kind === "mara_video_analysis") {
+          await processVideoAnalysisJob(professionalStore, {
+            analysisId: job.payload?.analysisId,
+            mediaAssetId: job.payload?.mediaAssetId,
+            userId: job.user_id,
+            workerId: job.worker_id
+          });
           await completeJob(jobStore, job.id, jobLeaseOwner);
           incrementMetric("jobs_completed", 1, { kind: job.kind });
           continue;
@@ -3421,6 +3589,8 @@ async function runScheduledMaraAutonomy() {
         await failJob(jobStore, job.id, jobLeaseOwner, error instanceof Error ? error.message : String(error));
         incrementMetric("jobs_failed", 1, { kind: job.kind });
         logCaught(`Scheduled job failed (${job.kind} ${job.id})`, error);
+      } finally {
+        if (typeof stopHeartbeat === "function") stopHeartbeat();
       }
     }
   } finally {
@@ -3854,11 +4024,7 @@ function authConfigPayload() {
 }
 
 function getGoogleRedirectUri() {
-  return `${appUrl}/api/auth/google/callback`;
-}
-
-function getGmailConnectRedirectUri() {
-  return `${appUrl}/api/office/workers/${MARA_SLUG}/gmail/callback`;
+  return getGoogleLoginRedirectUri(appUrl);
 }
 
 function encodeGoogleStatePayload(payload) {
@@ -3873,50 +4039,7 @@ function decodeGoogleStatePayload(value) {
   }
 }
 
-function buildGoogleAuthorizationUrl({ accessType = null, prompt = "select_account", redirectUri, scope, state }) {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!isGoogleAuthConfigured() || !clientId) {
-    throw new Error("Google auth is not configured.");
-  }
-  const authorizationUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  authorizationUrl.searchParams.set("client_id", clientId);
-  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
-  authorizationUrl.searchParams.set("response_type", "code");
-  authorizationUrl.searchParams.set("scope", scope);
-  authorizationUrl.searchParams.set("state", state);
-  authorizationUrl.searchParams.set("prompt", prompt);
-  if (accessType) authorizationUrl.searchParams.set("access_type", accessType);
-  return authorizationUrl;
-}
-
-async function exchangeGoogleCodeForTokens(code) {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret) {
-    throw new Error("Google auth is not configured.");
-  }
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      code,
-      grant_type: "authorization_code",
-      redirect_uri: getGoogleRedirectUri()
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Google token exchange failed with status ${response.status}.`);
-  }
-
-  return response.json();
-}
+/* Google OAuth authorize/exchange helpers live in ./googleOAuth.mjs */
 
 async function fetchGoogleProfile(accessToken) {
   const response = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
@@ -3932,33 +4055,7 @@ async function fetchGoogleProfile(accessToken) {
   return response.json();
 }
 
-async function refreshGoogleAccessToken(refreshToken) {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error("Google refresh configuration is incomplete.");
-  }
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Google token refresh failed with status ${response.status}.`);
-  }
-
-  return response.json();
-}
+/* refreshGoogleAccessToken → refreshGoogleAccessTokenShared from ./googleOAuth.mjs */
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -4085,7 +4182,7 @@ app.get("/api/office/workers/:slug/workspace", requireAuth, async (req, res) => 
   });
 });
 
-app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAuth, async (req, res) => {
+app.post("/api/office/workers/:slug/tasks/:taskId/run", assertOrigin, requireAuth, expensiveApiLimiter, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
   const taskId = String(req.params.taskId ?? "").trim();
 
@@ -4462,7 +4559,7 @@ app.post("/api/office/workers/:slug/disconnect-email", assertOrigin, requireAuth
   res.json({ ok: true });
 });
 
-app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, async (req, res) => {
+app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, expensiveApiLimiter, async (req, res) => {
   const workerSlug = String(req.params.slug ?? "").trim();
 
   if (!(await hasHiredWorker(req.user.id, workerSlug))) {
@@ -4619,6 +4716,8 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
       updatedAt: nowIso()
     };
     await fs.writeFile(privateInsightsPath, `${JSON.stringify(globalPayload, null, 2)}\n`, "utf8");
+    // Shared SoT for all replicas — DB, not local disk alone.
+    await saveGlobalTrendInsights(trendStore, globalPayload, { source: "manual_ops_intake" });
 
     // Invalidate every user's scoped snapshot so fresh data flows through
     // on their next cycle — silently, as if Mara found it herself.
@@ -4634,6 +4733,7 @@ app.post("/api/office/workers/:slug/trends/manual", assertOrigin, requireAuth, a
         readMaraOnboarding: readMaraOnboardingAnswers,
         readWorkerKnowledge: readWorkerKnowledgeSections,
         storageRoot: resolveStorageRoot(),
+        objectStorage,
         userId: req.user.id,
         workerId: workerSlug
       });
@@ -4691,6 +4791,7 @@ app.post("/api/office/workers/:slug/sync-trends", assertOrigin, requireAuth, asy
       readMaraOnboarding: readMaraOnboardingAnswers,
       readWorkerKnowledge: readWorkerKnowledgeSections,
       storageRoot: resolveStorageRoot(),
+      objectStorage,
       userId: req.user.id,
       workerId: workerSlug
     });
@@ -5114,11 +5215,39 @@ app.get("/api/auth/google", (_req, res) => {
   setGoogleStateCookie(res, encodeGoogleStatePayload(statePayload));
   const authorizationUrl = buildGoogleAuthorizationUrl({
     redirectUri: getGoogleRedirectUri(),
-    scope: "openid email profile",
+    scope: GOOGLE_LOGIN_SCOPES,
     state: nonce
   });
 
   res.redirect(authorizationUrl.toString());
+});
+
+app.get("/api/account/delete/google", requireAuth, async (req, res) => {
+  if (!isGoogleAuthConfigured()) {
+    res.status(501).json({ error: "Google auth is not configured. Set a password or contact support to delete this account." });
+    return;
+  }
+  const nonce = randomBytes(24).toString("hex");
+  const statePayload = { kind: "account_delete", nonce, userId: req.user.id };
+  setGoogleStateCookie(res, encodeGoogleStatePayload(statePayload));
+  const authorizationUrl = buildGoogleAuthorizationUrl({
+    redirectUri: getGoogleRedirectUri(),
+    scope: GOOGLE_LOGIN_SCOPES,
+    state: nonce,
+    prompt: "consent"
+  });
+  res.redirect(authorizationUrl.toString());
+});
+
+app.get("/api/account/security", requireAuth, async (req, res) => {
+  const row = await authStore.queryOne(
+    `SELECT password_is_set AS "passwordIsSet" FROM users WHERE id = ?`,
+    req.user.id
+  );
+  res.json({
+    passwordIsSet: Number(row?.passwordIsSet ?? 1) === 1,
+    googleEnabled: isGoogleAuthConfigured()
+  });
 });
 
 app.get("/api/auth/google/callback", async (req, res) => {
@@ -5135,12 +5264,32 @@ app.get("/api/auth/google/callback", async (req, res) => {
   }
 
   try {
-    const tokens = await exchangeGoogleCodeForTokens(code);
+    const tokens = await exchangeGoogleCodeForTokens(code, getGoogleRedirectUri());
     const profile = await fetchGoogleProfile(String(tokens.access_token ?? ""));
     const normalizedEmail = normalizeEmail(profile.email);
 
     if (!normalizedEmail || !profile.email_verified) {
       res.redirect(`${appUrl}/?notice=google-email-unverified#home`);
+      return;
+    }
+
+    if (statePayload.kind === "account_delete") {
+      const userId = String(statePayload.userId ?? "").trim();
+      const user = await authStore.queryOne(
+        `SELECT id, email, password_hash AS "passwordHash", password_is_set AS "passwordIsSet" FROM users WHERE id = ?`,
+        userId
+      );
+      if (!user || normalizeEmail(user.email) !== normalizedEmail) {
+        res.redirect(`${appUrl}/?notice=google-auth-failed#app/office`);
+        return;
+      }
+      const erased = await eraseUserAccount(user.id);
+      if (!erased.ok) {
+        res.redirect(`${appUrl}/?notice=account-delete-failed#app/office`);
+        return;
+      }
+      clearSessionCookie(res);
+      res.redirect(`${appUrl}/?notice=account-deleted#home`);
       return;
     }
 
@@ -5153,12 +5302,13 @@ app.get("/api/auth/google/callback", async (req, res) => {
         email_verified_at: createdAt,
         id: randomUUID(),
         name: String(profile.name ?? profile.given_name ?? normalizedEmail.split("@")[0]).trim(),
-        password_hash: hashPassword(randomUUID())
+        password_hash: hashPassword(randomUUID()),
+        password_is_set: 0
       };
 
       await authStore.execute(
-        `INSERT INTO users (id, email, name, password_hash, email_verified_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO users (id, email, name, password_hash, email_verified_at, created_at, password_is_set)
+         VALUES (?, ?, ?, ?, ?, ?, 0)`
       ,
         newUser.id,
         newUser.email,
@@ -5205,14 +5355,8 @@ app.get("/api/office/workers/:slug/connect-email/google", requireAuth, async (re
   const authorizationUrl = buildGoogleAuthorizationUrl({
     accessType: "offline",
     prompt: "consent",
-    redirectUri: getGmailConnectRedirectUri(),
-    scope: [
-      "openid",
-      "email",
-      "profile",
-      "https://www.googleapis.com/auth/gmail.readonly",
-      "https://www.googleapis.com/auth/gmail.compose"
-    ].join(" "),
+    redirectUri: getGmailConnectRedirectUri(appUrl, workerSlug),
+    scope: GMAIL_CONNECT_SCOPES,
     state: nonce
   });
 
@@ -5247,7 +5391,7 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
   }
 
   try {
-    const tokens = await exchangeGoogleCodeForTokens(code);
+    const tokens = await exchangeGoogleCodeForTokens(code, getGmailConnectRedirectUri(appUrl, workerSlug));
     const profile = await fetchGoogleProfile(String(tokens.access_token ?? ""));
     const gmailProfileResponse = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
       headers: {
@@ -5256,12 +5400,13 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
     });
     const gmailProfile = gmailProfileResponse.ok ? await gmailProfileResponse.json() : {};
     const emailAddress = String(gmailProfile.emailAddress ?? profile.email ?? "").trim();
-    const nextMetadata = {
+    const existing = await getWorkerIntegration(statePayload.userId, workerSlug, "gmail");
+    const nextMetadata = mergeOAuthTokenMetadata(existing?.metadata || {}, {
       accessToken: String(tokens.access_token ?? ""),
       emailAddress,
       expiresAt: new Date(Date.now() + Number(tokens.expires_in ?? 3600) * 1000).toISOString(),
       refreshToken: String(tokens.refresh_token ?? "").trim()
-    };
+    });
     await upsertWorkerIntegration(statePayload.userId, workerSlug, "gmail", "connected", "Gmail inbox", nextMetadata);
     await updateWorkerPermissions(maraStore, statePayload.userId, workerSlug, {
       canDraftOutreach: true,
@@ -5325,8 +5470,8 @@ app.post("/api/auth/register", authLimiter, assertOrigin, async (req, res) => {
   };
 
   await authStore.execute(
-    `INSERT INTO users (id, email, name, password_hash, email_verified_at, created_at)
-     VALUES (?, ?, ?, ?, NULL, ?)`
+    `INSERT INTO users (id, email, name, password_hash, email_verified_at, created_at, password_is_set)
+     VALUES (?, ?, ?, ?, NULL, ?, 1)`
   , user.id, user.email, user.name, user.password_hash, user.created_at);
 
   const sessionToken = await createSession(user.id);
@@ -5515,7 +5660,7 @@ app.post("/api/auth/reset-password", authLimiter, assertOrigin, async (req, res)
 
   await authStore.tx(async (transaction) => {
     await transaction.execute("UPDATE password_reset_tokens SET consumed_at = ? WHERE id = ?", nowIso(), record.id);
-    await transaction.execute("UPDATE users SET password_hash = ? WHERE id = ?", hashPassword(String(password)), record.user_id);
+    await transaction.execute("UPDATE users SET password_hash = ?, password_is_set = 1 WHERE id = ?", hashPassword(String(password)), record.user_id);
     await transaction.execute("DELETE FROM sessions WHERE user_id = ?", record.user_id);
   });
   res.json({ ok: true });
@@ -5834,7 +5979,7 @@ function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, trigg
   })();
 }
 
-app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, async (req, res) => {
+app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLimiter, async (req, res) => {
   const workerSlug = req.params.slug;
   const text = String(req.body?.text ?? "").trim();
 
@@ -6902,56 +7047,338 @@ app.post("/api/office/workers/:slug/intelligence/creative-analyses", assertOrigi
   }
 });
 
+app.get("/api/office/workers/:slug/creator-profile", requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  const profile = await getCreatorIntelligenceProfile(professionalStore, req.user.id, workerSlug);
+  res.json({ ok: true, profile });
+});
+
+app.post("/api/office/workers/:slug/creator-profile", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  try {
+    const profile = await upsertCreatorIntelligenceProfile(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      business: req.body?.business,
+      creative: req.body?.creative,
+      commercial: req.body?.commercial,
+      provenance: { basis: EVIDENCE_KINDS.CREATOR_PREFERENCE, source: "user_edit" },
+      confidence: 80
+    });
+    res.json({ ok: true, profile });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not save profile." });
+  }
+});
+
+app.get("/api/office/workers/:slug/research/providers", requireAuth, async (req, res) => {
+  if (!(await hasHiredWorker(req.user.id, String(req.params.slug || "").trim()))) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  res.json({ ok: true, providers: listResearchProviders() });
+});
+
+app.post("/api/office/workers/:slug/research/deep", assertOrigin, requireAuth, llmHeavyLimiter, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  try {
+    const research = await deepResearchBrand(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      brandName: req.body?.brandName,
+      website: req.body?.website,
+      niche: req.body?.niche,
+      fetchImpl: fetch
+    });
+    res.json({ ok: true, research });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Deep research failed." });
+  }
+});
+
+app.get("/api/office/workers/:slug/brands/:brandId/contacts", requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  const contacts = await listBrandContacts(professionalStore, req.user.id, workerSlug, req.params.brandId);
+  res.json({
+    ok: true,
+    contacts: contacts.map((row) => ({
+      ...row,
+      metadata: typeof row.metadataJson === "object" ? row.metadataJson : JSON.parse(row.metadataJson || "{}")
+    }))
+  });
+});
+
+app.post("/api/office/workers/:slug/contacts/:contactId/confirm", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  try {
+    const id = await confirmInferredContact(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      contactId: req.params.contactId
+    });
+    res.json({ ok: true, contactId: id });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not confirm contact." });
+  }
+});
+
+app.post("/api/office/workers/:slug/brands/:brandId/contacts", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  try {
+    const { upsertBrandContact, CONTACT_TYPES } = await import("./maraContactDiscovery.mjs");
+    const email = String(req.body?.email || req.body?.value || "").trim().toLowerCase();
+    if (!email.includes("@")) {
+      res.status(400).json({ error: "Provide a real email address. Mara will not invent one." });
+      return;
+    }
+    const id = await upsertBrandContact(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      publicBrandId: req.params.brandId,
+      contactType: CONTACT_TYPES.USER_PROVIDED,
+      value: email,
+      source: "user",
+      confidence: 95,
+      verificationState: "user_provided",
+      forceAllow: true
+    });
+    res.status(201).json({ ok: true, contactId: id, mayUseForOutreach: true });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not save contact." });
+  }
+});
+
+app.post("/api/office/workers/:slug/brands/:brandId/discover-contacts", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  try {
+    const { discoverAndPersistBrandContacts } = await import("./maraContactDiscovery.mjs");
+    const brand = await professionalStore.queryOne(
+      `SELECT id, brand_name AS "brandName", website FROM mara_public_brands WHERE id = ?`,
+      req.params.brandId
+    );
+    if (!brand) {
+      res.status(404).json({ error: "Brand not found." });
+      return;
+    }
+    const result = await discoverAndPersistBrandContacts(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      publicBrandId: brand.id,
+      brandName: brand.brandName,
+      website: req.body?.website || brand.website,
+      fetchImpl: fetch
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Contact discovery failed." });
+  }
+});
+
+app.get("/api/office/workers/:slug/autonomy/limits", requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  res.json({ ok: true, limits: await getAutonomyLimits(professionalStore, req.user.id, workerSlug) });
+});
+
+app.post("/api/office/workers/:slug/autonomy/limits", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  const limits = await saveAutonomyLimits(professionalStore, req.user.id, workerSlug, req.body?.limits || req.body || {});
+  res.json({ ok: true, limits });
+});
+
+app.post("/api/office/workers/:slug/media/videos", assertOrigin, requireAuth, expensiveApiLimiter, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  try {
+    const encoded = String(req.body?.contentBase64 || "").trim();
+    const body = Buffer.from(encoded, "base64");
+    const validated = validateVideoUpload({ name: req.body?.name, type: req.body?.type, body });
+    const scan = await scanMediaForMalware(body, validated);
+    if (!scan.ok) {
+      res.status(400).json({ error: `Media rejected by scanner: ${scan.reason}` });
+      return;
+    }
+    const storageKey = buildTenantMediaKey(req.user.id, validated.fileName);
+    const storedName = `mara-media/${path.basename(storageKey)}`;
+    await objectStorage.put({
+      userId: req.user.id,
+      storedName,
+      body,
+      contentType: validated.contentType
+    });
+    const mediaAssetId = await registerMediaAsset(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      storageKey: `tenant-uploads/${req.user.id}/${storedName}`,
+      contentType: validated.contentType,
+      byteSize: validated.byteSize,
+      durationSeconds: req.body?.durationSeconds ?? null,
+      metadata: { originalName: validated.fileName, scanner: scan.scanner, storedName }
+    });
+    const analysisId = await enqueueVideoAnalysis(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      mediaAssetId
+    });
+    res.status(201).json({ ok: true, mediaAssetId, analysisId, status: "queued" });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Video upload failed." });
+  }
+});
+
+app.get("/api/office/workers/:slug/media/analyses/:analysisId", requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  const row = await professionalStore.queryOne(
+    `SELECT id, media_asset_id AS "mediaAssetId", status, analysis_json AS "analysisJson",
+            timeline_json AS "timelineJson", created_at AS "createdAt", updated_at AS "updatedAt"
+     FROM mara_video_analyses WHERE id = ? AND user_id = ? AND worker_id = ?`,
+    req.params.analysisId,
+    req.user.id,
+    workerSlug
+  );
+  if (!row) {
+    res.status(404).json({ error: "Analysis not found." });
+    return;
+  }
+  const parse = (value, fallback) => {
+    if (value && typeof value === "object") return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  };
+  res.json({
+    ok: true,
+    analysis: {
+      ...row,
+      analysis: parse(row.analysisJson, {}),
+      timeline: parse(row.timelineJson, [])
+    }
+  });
+});
+
+app.post("/api/office/workers/:slug/outreach/sequences", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  try {
+    const result = await startOutreachSequence(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      opportunityId: req.body?.opportunityId,
+      publicBrandId: req.body?.publicBrandId,
+      contactId: req.body?.contactId,
+      maxAttempts: req.body?.maxAttempts
+    });
+    res.status(201).json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not start sequence." });
+  }
+});
+
+app.post("/api/office/workers/:slug/outreach/sequences/:sequenceId/stop", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug))) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  const result = await stopOutreachSequence(professionalStore, {
+    userId: req.user.id,
+    workerId: workerSlug,
+    sequenceId: req.params.sequenceId,
+    reason: req.body?.reason || SEQUENCE_STOP_REASONS.USER_CANCELLED
+  });
+  res.json({ ok: true, ...result });
+});
+
+app.post("/api/office/workers/:slug/opportunities/packages", assertOrigin, requireAuth, async (req, res) => {
+  const workerSlug = String(req.params.slug || "").trim();
+  if (!(await hasHiredWorker(req.user.id, workerSlug)) || !isMaraWorker(workerSlug)) {
+    res.status(404).json({ error: "Not found." });
+    return;
+  }
+  try {
+    const creatorProfile = await getCreatorIntelligenceProfile(professionalStore, req.user.id, workerSlug);
+    const result = await createOrUpdateOpportunityFromResearch(professionalStore, {
+      userId: req.user.id,
+      workerId: workerSlug,
+      brandName: req.body?.brandName,
+      website: req.body?.website,
+      evidence: req.body?.evidence || [],
+      creatorProfile
+    });
+    if (req.body?.buildConcept) {
+      const concept = buildConceptFromGap({
+        creatorProfile,
+        brandName: req.body.brandName,
+        thesis: req.body?.thesis || null,
+        evidenceIds: result.evidence.map((item) => item.id)
+      });
+      result.concept = await saveConceptIfNovel(professionalStore, {
+        userId: req.user.id,
+        workerId: workerSlug,
+        opportunityId: result.id,
+        publicBrandId: result.publicBrandId,
+        concept
+      });
+    }
+    res.status(201).json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Could not create opportunity package." });
+  }
+});
+
 // Every table that holds user-scoped data (all keyed by user_id). Hardcoded
 // allowlist — safe to interpolate into SQL. worker_knowledge_modules is global
 // seed data and intentionally excluded.
-const USER_SCOPED_TABLES = [
-  "sessions",
-  "email_verification_tokens",
-  "password_reset_tokens",
-  "checkout_sessions",
-  "hired_workers",
-  "office_chat_messages",
-  "office_custom_tasks",
-  "office_activity_logs",
-  "office_worker_settings",
-  "office_worker_knowledge",
-  "office_uploaded_files",
-  "office_custom_briefings",
-  "office_global_settings",
-  "user_onboarding",
-  "office_onboarding_sessions",
-  "office_calendar_events",
-  "office_worker_integrations",
-  "office_email_threads",
-  "office_campaigns",
-  "office_leads",
-  "office_suggested_actions",
-  "office_assignments",
-  "office_deliverables",
-  "office_handbook_entries",
-  "office_brand_opportunities",
-  "office_trend_signals",
-  "office_sync_jobs",
-  "user_digest_log",
-  "worker_permissions",
-  "worker_tasks",
-  "worker_activity_log",
-  "worker_recurring_responsibilities",
-  "worker_research_items",
-  "worker_approval_requests",
-  "worker_outputs",
-  "worker_brands",
-  "worker_trend_snapshots",
-  "agent_llm_usage",
-  "action_audit_events",
-  "durable_jobs",
-  "external_action_executions",
-  "mara_creator_performance_profiles",
-  "mara_creator_brand_opportunities",
-  "mara_creative_analyses",
-  "mara_commercial_outcomes"
-];
+// Every table that holds user-scoped data (all keyed by user_id). Hardcoded
+// allowlist — safe to interpolate into SQL. worker_knowledge_modules and
+// mara_public_brands are global and intentionally excluded (see accountErasure.mjs).
 
 // Data portability (GDPR/CCPA): download everything we hold about the account.
 app.get("/api/account/export", requireAuth, async (req, res) => {
@@ -6982,24 +7409,7 @@ app.get("/api/account/export", requireAuth, async (req, res) => {
   res.send(JSON.stringify(data, null, 2));
 });
 
-// Right to erasure: verify password, stop billing, wipe all user data.
-app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (req, res) => {
-  const userId = req.user.id;
-  const password = String(req.body?.password ?? "");
-  const user = await authStore.queryOne(
-    `SELECT id, password_hash AS "passwordHash" FROM users WHERE id = ?`,
-    userId
-  );
-  if (!user) {
-    res.status(404).json({ error: "Account not found." });
-    return;
-  }
-  if (!password || !verifyPassword(password, user.passwordHash)) {
-    res.status(403).json({ error: "Password is incorrect." });
-    return;
-  }
-
-  // Stop billing first: cancel any active Stripe subscriptions.
+async function eraseUserAccount(userId) {
   if (process.env.STRIPE_SECRET_KEY) {
     const subs = await authStore.query(
       "SELECT stripe_subscription_id AS id FROM hired_workers WHERE user_id = ? AND stripe_subscription_id IS NOT NULL",
@@ -7012,14 +7422,12 @@ app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (r
           await stripe.subscriptions.cancel(sub.id);
         } catch (error) {
           log.error("stripe_cancel_failed_on_delete", { userId, error: error?.message });
-          res.status(502).json({ error: "We couldn't stop billing safely. Your account was not deleted; please retry or contact support." });
-          return;
+          return { ok: false, status: 502, error: "We couldn't stop billing safely. Your account was not deleted; please retry or contact support." };
         }
       }
     }
   }
 
-  // Remove uploaded files from disk.
   const files = await authStore.query(
     `SELECT stored_name AS "storedName" FROM office_uploaded_files WHERE user_id = ?`,
     userId
@@ -7030,7 +7438,10 @@ app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (r
     }
   }
 
-  // Atomically delete every user-scoped row, then the account itself.
+  await deleteUserTrendArtifacts(storageRoot, userId, objectStorage).catch((error) => {
+    log.warn("trend_artifact_delete_failed", { userId, error: error?.message });
+  });
+
   await authStore.tx(async (transaction) => {
     for (const table of USER_SCOPED_TABLES) {
       await transaction.execute(`DELETE FROM ${table} WHERE user_id = ?`, userId);
@@ -7038,9 +7449,49 @@ app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (r
     await transaction.execute("DELETE FROM users WHERE id = ?", userId);
   });
 
-  clearSessionCookie(res);
   log.info("account_deleted", { userId });
-  res.json({ ok: true });
+  return { ok: true };
+}
+
+// Right to erasure: verify password or Google re-auth proof, stop billing, wipe all user data.
+app.post("/api/account/delete", authLimiter, assertOrigin, requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const password = String(req.body?.password ?? "");
+  const googleAccessToken = String(req.body?.googleAccessToken ?? "").trim();
+  const user = await authStore.queryOne(
+    `SELECT id, email, password_hash AS "passwordHash", password_is_set AS "passwordIsSet" FROM users WHERE id = ?`,
+    userId
+  );
+  if (!user) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
+
+  const authz = await authorizeAccountDeletion({
+    user,
+    password,
+    googleAccessToken,
+    verifyPassword,
+    fetchGoogleProfile,
+    normalizeEmail
+  });
+  if (!authz.ok) {
+    const error =
+      authz.reason === "google_reauth_required"
+        ? "This account uses Google sign-in. Confirm deletion by reconnecting Google."
+        : "Confirm deletion with your password, or reconnect Google to authorize account deletion.";
+    res.status(403).json({ error, reason: authz.reason });
+    return;
+  }
+
+  const erased = await eraseUserAccount(userId);
+  if (!erased.ok) {
+    res.status(erased.status || 502).json({ error: erased.error });
+    return;
+  }
+
+  clearSessionCookie(res);
+  res.json({ ok: true, method: authz.method });
 });
 
 app.use(express.static(distDir));

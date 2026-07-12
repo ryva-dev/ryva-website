@@ -91,6 +91,12 @@ average deal value, accepted concepts, repeat-client rate, content renewal,
 and time from opportunity to payment. Task count, ideas generated, and messages
 sent are activity measures only and must never substitute for commercial value.
 
+Mara runs that loop like a junior hire: she researches, drafts, organizes inbox,
+infers commercial outcomes from evidence she already holds, and re-ranks targets
+without being told step-by-step. The manager is interrupted only for risky or
+high-impact decisions (especially external sends) and to correct a wrong read.
+Manual outcome forms are oversight overrides, not the primary teaching path.
+
 Every recommendation distinguishes observed evidence, inference, hypothesis,
 creator preference, and industry benchmark. Mara may recommend a test; she may
 not represent an unverified performance prediction as fact.

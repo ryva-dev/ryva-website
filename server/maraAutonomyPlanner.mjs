@@ -157,6 +157,26 @@ export function planMaraAutonomyActions(context) {
     actions.push({ kind: "brand_research", limit: brandResearchRemaining });
   }
 
+  // Always harvest commercial signal from evidence Mara already holds.
+  actions.push({ kind: "infer_commercial_outcomes" });
+
+  // Deep-refresh top candidate brands when research budget remains.
+  if (permissions.canRunResearch && brandResearchRemaining > 0 && (context.growthPitchTargets || []).length) {
+    actions.push({
+      kind: "deep_brand_research",
+      brandName: context.growthPitchTargets[0].brandName,
+      website: context.growthPitchTargets[0].website || null
+    });
+  }
+
+  // Prepare opportunity packages for qualified targets missing packages.
+  if ((context.growthPitchTargets || []).some((target) => target.status === "candidate" || target.status === "qualified")) {
+    actions.push({ kind: "prepare_opportunity_packages", limit: 2 });
+  }
+
+  // Draft follow-ups that are due (approval still required to send).
+  actions.push({ kind: "prepare_due_followups" });
+
   for (const brand of brandsNeedingPitches.slice(0, 2)) {
     actions.push({
       brandId: brand.id,
@@ -165,6 +185,7 @@ export function planMaraAutonomyActions(context) {
       researchItemId: brand.researchItemId ?? null,
       opportunityId: brand.opportunityId ?? null,
       scoreTotal: brand.scoreTotal ?? null,
+      outreachReady: Boolean(brand.outreachReady),
       source: brand.source || "worker_brands"
     });
   }
@@ -298,7 +319,7 @@ export function buildAutonomyPlannerContext({
 
   // Prefer Mara-ranked opportunities when available; fall back to raw worker_brands.
   const rankedTargets = Array.isArray(growthPitchTargets) ? growthPitchTargets : [];
-  const brandsNeedingPitches = rankedTargets.length
+  const brandsNeedingPitches = (rankedTargets.length
     ? rankedTargets.map((target) => {
         const matched = brands.find(
           (brand) =>
@@ -312,13 +333,26 @@ export function buildAutonomyPlannerContext({
           lastPitchAt: matched?.lastPitchAt ?? null,
           opportunityId: target.id,
           scoreTotal: target.scoreTotal,
+          contactEmail: matched?.contactEmail || target.contactEmail || null,
+          outreachReady: Boolean(matched?.contactEmail || target.outreachReady),
           source: "mara_opportunity"
         };
       }).filter((brand) => {
         if (!brand.lastPitchAt) return true;
         return isArtifactStale(brand.lastPitchAt, 24 * 14);
       })
-    : stalePitchBrands;
+    : stalePitchBrands.map((brand) => ({
+        ...brand,
+        outreachReady: Boolean(brand.contactEmail),
+        contactEmail: brand.contactEmail || null
+      }))
+  ).sort((left, right) => Number(Boolean(right.outreachReady)) - Number(Boolean(left.outreachReady)));
+
+  // Prefer pitching brands that already have a sendable contact; still include others for draft-only work.
+  const pitchQueue = [
+    ...brandsNeedingPitches.filter((brand) => brand.outreachReady),
+    ...brandsNeedingPitches.filter((brand) => !brand.outreachReady)
+  ].slice(0, 2);
 
   const runnableApprovedTasks = tasks
     .filter((task) => task.status === "approved")
@@ -333,7 +367,7 @@ export function buildAutonomyPlannerContext({
     brandResearchRemaining,
     brands,
     brandsNeedingContentIdeas,
-    brandsNeedingPitches,
+    brandsNeedingPitches: pitchQueue,
     canRunInbox: Boolean(permissions.canReadInbox && connected),
     dueRecurring,
     hasConnectedEmail: connected,

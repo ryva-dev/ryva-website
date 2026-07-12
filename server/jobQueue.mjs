@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 
+/** Default lease for heavy Mara work (autonomy + media). Callers must heartbeat. */
+export const DEFAULT_HEAVY_JOB_LEASE_MS = 15 * 60 * 1000;
+export const DEFAULT_JOB_LEASE_MS = 5 * 60 * 1000;
+
 export async function initJobQueue(store) {
   await store.execute(`CREATE TABLE IF NOT EXISTS durable_jobs (
       id TEXT PRIMARY KEY,
@@ -36,29 +40,41 @@ export async function enqueueJob(store, { kind, userId = null, workerId = null, 
   return { enqueued: info.changes === 1 };
 }
 
-export async function claimJobs(store, { owner, limit = 10, leaseMs = 5 * 60 * 1000 } = {}) {
+function leaseMsForKind(kind, overrideMs) {
+  if (Number.isFinite(overrideMs) && overrideMs > 0) return overrideMs;
+  if (["worker_autonomy", "mara_video_analysis"].includes(String(kind))) {
+    return DEFAULT_HEAVY_JOB_LEASE_MS;
+  }
+  return DEFAULT_JOB_LEASE_MS;
+}
+
+export async function claimJobs(store, { owner, limit = 10, leaseMs = null, onReclaim = null } = {}) {
   if (!owner) throw new Error("A lease owner is required.");
   const now = new Date().toISOString();
-  const leaseExpiresAt = new Date(Date.now() + leaseMs).toISOString();
   const driver = typeof store.activeDriver === "function" ? store.activeDriver() : store.kind;
   return store.tx(async (transaction) => {
     // Postgres: SKIP LOCKED lets multiple app replicas claim disjoint batches.
     // SQLite: optimistic UPDATE ... WHERE status='queued' still serializes winners.
     const lockClause = driver === "postgres" ? " FOR UPDATE SKIP LOCKED" : "";
     const candidates = await transaction.query(
-      `SELECT id FROM durable_jobs
+      `SELECT id, kind, status, lease_expires_at AS "leaseExpiresAt" FROM durable_jobs
        WHERE attempts < max_attempts AND available_at <= ?
          AND (status = 'queued' OR (status = 'running' AND lease_expires_at < ?))
        ORDER BY available_at, created_at LIMIT ?${lockClause}`,
       now, now, limit);
     const claimed = [];
     for (const candidate of candidates) {
+      const leaseExpiresAt = new Date(Date.now() + leaseMsForKind(candidate.kind, leaseMs)).toISOString();
+      const wasExpiredRunning = candidate.status === "running";
       const info = await transaction.execute(
         `UPDATE durable_jobs SET status = 'running', attempts = attempts + 1,
           lease_owner = ?, lease_expires_at = ?, updated_at = ?
          WHERE id = ? AND (status = 'queued' OR lease_expires_at < ?)`,
         owner, leaseExpiresAt, now, candidate.id, now);
       if (info.changes === 1) {
+        if (wasExpiredRunning && typeof onReclaim === "function") {
+          onReclaim({ jobId: candidate.id, kind: candidate.kind });
+        }
         const row = await transaction.queryOne("SELECT * FROM durable_jobs WHERE id = ?", candidate.id);
         const payload = typeof row.payload_json === "string" ? JSON.parse(row.payload_json || "{}") : (row.payload_json || {});
         claimed.push({ ...row, payload });
@@ -66,6 +82,47 @@ export async function claimJobs(store, { owner, limit = 10, leaseMs = 5 * 60 * 1
     }
     return claimed;
   });
+}
+
+/**
+ * Extend a running job's lease so long autonomy/media work is not double-claimed.
+ * Returns false if the caller no longer owns the lease.
+ */
+export async function extendJobLease(store, jobId, owner, leaseMs = DEFAULT_HEAVY_JOB_LEASE_MS) {
+  if (!jobId || !owner) return false;
+  const now = new Date().toISOString();
+  const leaseExpiresAt = new Date(Date.now() + Math.max(60_000, Number(leaseMs) || DEFAULT_HEAVY_JOB_LEASE_MS)).toISOString();
+  const info = await store.execute(
+    `UPDATE durable_jobs SET lease_expires_at = ?, updated_at = ?
+     WHERE id = ? AND status = 'running' AND lease_owner = ?`,
+    leaseExpiresAt, now, jobId, owner
+  );
+  return info.changes === 1;
+}
+
+/** Start a heartbeat that extends the lease every intervalMs until stopped. */
+export function startJobLeaseHeartbeat(store, jobId, owner, {
+  leaseMs = DEFAULT_HEAVY_JOB_LEASE_MS,
+  intervalMs = 60_000,
+  onMissed = null
+} = {}) {
+  let stopped = false;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const ok = await extendJobLease(store, jobId, owner, leaseMs);
+      if (!ok && typeof onMissed === "function") onMissed();
+    } catch {
+      if (typeof onMissed === "function") onMissed();
+    }
+  };
+  const timer = setInterval(() => void tick(), Math.max(5_000, intervalMs));
+  if (typeof timer.unref === "function") timer.unref();
+  void tick();
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
 }
 
 export async function completeJob(store, jobId, owner) {
@@ -88,4 +145,18 @@ export async function failJob(store, jobId, owner, error, { retryDelayMs = 60_00
        lease_owner = NULL, lease_expires_at = NULL
      WHERE id = ? AND lease_owner = ?`
     , exhausted ? "dead" : "queued", availableAt, String(error ?? "Job failed").slice(0, 2000), now, jobId, owner)).changes === 1;
+}
+
+/** Merge OAuth token payloads so reconnects never wipe an existing refresh token. */
+export function mergeOAuthTokenMetadata(existing = {}, incoming = {}) {
+  const nextRefresh = String(incoming.refreshToken ?? "").trim();
+  const prevRefresh = String(existing.refreshToken ?? "").trim();
+  return {
+    ...existing,
+    ...incoming,
+    accessToken: String(incoming.accessToken ?? existing.accessToken ?? "").trim(),
+    emailAddress: String(incoming.emailAddress ?? existing.emailAddress ?? "").trim(),
+    expiresAt: incoming.expiresAt || existing.expiresAt || null,
+    refreshToken: nextRefresh || prevRefresh
+  };
 }

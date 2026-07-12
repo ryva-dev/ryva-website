@@ -18,6 +18,15 @@ import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
 import { initMaraIntelligence, listTopPitchTargets } from "./maraIntelligence.mjs";
+import { inferAndRecordCommercialOutcomes } from "./maraOutcomeInference.mjs";
+import { deepResearchBrand } from "./maraResearchProviders.mjs";
+import { createOrUpdateOpportunityFromResearch } from "./maraOpportunityPackages.mjs";
+import { getCreatorIntelligenceProfile } from "./maraCreatorProfile.mjs";
+import { findBestOutreachContact, discoverAndPersistBrandContacts } from "./maraContactDiscovery.mjs";
+import { buildConceptFromGap, saveConceptIfNovel, markHypothesisClearly } from "./maraConceptEngine.mjs";
+import { listDueOutreachSequences, advanceOutreachSequenceAfterDraft, startOutreachSequence } from "./maraOutreachSequences.mjs";
+import { EVIDENCE_KINDS, createEvidenceItem } from "./maraEvidence.mjs";
+import { assertWithinBrandResearchLimit } from "./maraAutonomyLimits.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -44,7 +53,7 @@ export const DEFAULT_MARA_PERMISSIONS = {
 };
 
 export const MARA_ROLE_DEFINITION =
-  "Mara is an autonomous UGC operations hire for a specific creator and brand. She maintains positioning and brand-fit criteria, researches aligned brands, drafts personalized outreach, organizes Gmail into a living tracker, generates brand-specific content ideas, surfaces blockers and approval needs, and keeps working within daily limits until she hits a real stop condition.";
+  "Mara is an autonomous UGC operations hire for a specific creator and brand. She maintains positioning and brand-fit criteria, researches aligned brands, drafts personalized outreach, organizes Gmail into a living tracker, generates brand-specific content ideas, infers commercial outcomes from inbox and campaign evidence, re-ranks targeting, surfaces blockers and approval needs for risky external actions, and keeps working within daily limits until she hits a real stop condition.";
 
 const TASK_STATUS_MAP = {
   approved: "To Do",
@@ -3238,10 +3247,19 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
       return;
     }
     case "personalized_pitch": {
+      let outreachContact = null;
+      try {
+        const { findOutreachContactByBrandName } = await import("./maraContactDiscovery.mjs");
+        outreachContact = await findOutreachContactByBrandName(store, userId, workerId, action.brandName);
+      } catch {
+        outreachContact = null;
+      }
       const taskId = await createAndRunAutonomyTask(
         store,
         {
-          description: `Draft a personalized pitch for ${action.brandName} using stored brand identity and research.`,
+          description: outreachContact?.value?.includes("@")
+            ? `Draft a personalized pitch for ${action.brandName} to ${outreachContact.value} using stored brand identity and research.`
+            : `Draft a personalized pitch for ${action.brandName}. No outreach-ready email yet — draft only; do not treat as sendable until a contact is confirmed.`,
           evidenceUsed: action.researchItemId ? [`research:${action.researchItemId}`] : [],
           priority: "high",
           requiredPermissions: [],
@@ -3259,7 +3277,27 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
       if (!taskId) return;
       const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
       if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
-      if (result?.output) summary.outputs.push(result.output);
+      if (result?.output) {
+        summary.outputs.push(result.output);
+        if (outreachContact?.value?.includes("@") && action.opportunityId) {
+          try {
+            await startOutreachSequence(store, {
+              userId,
+              workerId,
+              opportunityId: action.opportunityId,
+              publicBrandId: outreachContact.publicBrandId || null,
+              contactId: outreachContact.id
+            });
+            summary.notes.push(`Started follow-up sequence for ${action.brandName} (sends still require approval).`);
+          } catch {
+            /* sequence start is best-effort */
+          }
+        } else if (!outreachContact?.value?.includes("@")) {
+          summary.notes.push(
+            `Pitch drafted for ${action.brandName} without a sendable contact. Mara will keep hunting public emails / Gmail matches before requesting send approval.`
+          );
+        }
+      }
       return;
     }
     case "brand_content_ideas":
@@ -3301,6 +3339,139 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
       const inboxResult = await runMaraInboxOrganizationCycle({ store, fetchImpl, userId, workerId });
       if (inboxResult.output) summary.outputs.push(inboxResult.output);
       if (inboxResult.note) summary.notes.push(inboxResult.note);
+      return;
+    }
+    case "infer_commercial_outcomes": {
+      const outcomeSummary = await inferAndRecordCommercialOutcomes(store, userId, workerId, { limit: 30 });
+      if (outcomeSummary.recorded.length) {
+        summary.notes.push(
+          `Inferred ${outcomeSummary.recorded.length} commercial outcome${outcomeSummary.recorded.length === 1 ? "" : "s"} from inbox/campaign evidence and re-ranked opportunities.`
+        );
+        await createWorkerActivityLog(store, {
+          userId,
+          workerId,
+          eventType: "commercial_outcomes_inferred",
+          title: "Updated commercial pipeline from evidence",
+          description: outcomeSummary.recorded
+            .slice(0, 5)
+            .map((entry) => `${entry.brandName}: ${entry.claim}`)
+            .join(" · ")
+        });
+      } else {
+        summary.notes.push("Checked inbox and campaigns for commercial outcomes; nothing new to record.");
+      }
+      return;
+    }
+    case "deep_brand_research": {
+      try {
+        await assertWithinBrandResearchLimit(store, userId, workerId);
+      } catch (error) {
+        summary.notes.push(error.message);
+        return;
+      }
+      const research = await deepResearchBrand(store, {
+        userId,
+        workerId,
+        brandName: action.brandName,
+        website: action.website,
+        niche: action.brandName,
+        fetchImpl
+      });
+      const primary = research.runs.flatMap((run) => run.observations || [])[0] || {};
+      const evidence = (primary.evidence || []).map((item) => createEvidenceItem(item));
+      if (action.brandName && !evidence.some((item) => item.kind === EVIDENCE_KINDS.HYPOTHESIS)) {
+        evidence.push(
+          createEvidenceItem({
+            kind: EVIDENCE_KINDS.HYPOTHESIS,
+            claim: markHypothesisClearly(`Creator-specific creative gap for ${action.brandName} still needs advertising-landscape validation.`),
+            confidence: 40
+          })
+        );
+      }
+      const creatorProfile = await getCreatorIntelligenceProfile(store, userId, workerId);
+      try {
+        const opportunity = await createOrUpdateOpportunityFromResearch(store, {
+          userId,
+          workerId,
+          brandName: research.brandName || action.brandName,
+          website: research.website || action.website,
+          evidence,
+          creatorProfile
+        });
+        const contactDiscovery = await discoverAndPersistBrandContacts(store, {
+          userId,
+          workerId,
+          publicBrandId: opportunity.publicBrandId,
+          brandName: research.brandName || action.brandName,
+          website: research.website || action.website,
+          seedEmails: primary.mailtoEmails || [],
+          partnershipEmails: primary.partnershipEmails || [],
+          fetchImpl
+        });
+        const contacts = contactDiscovery.bestContact || (await findBestOutreachContact(store, userId, workerId, opportunity.publicBrandId));
+        const concept = buildConceptFromGap({
+          creatorProfile,
+          brandName: research.brandName || action.brandName,
+          thesis: markHypothesisClearly(evidence.find((item) => item.kind === EVIDENCE_KINDS.HYPOTHESIS)?.claim),
+          evidenceIds: evidence.map((item) => item.id).filter(Boolean)
+        });
+        await saveConceptIfNovel(store, {
+          userId,
+          workerId,
+          opportunityId: opportunity.id,
+          publicBrandId: opportunity.publicBrandId,
+          concept
+        });
+        summary.notes.push(
+          `Deep-researched ${research.brandName || action.brandName} via ${research.runs.length} providers (${research.unavailable.length} unavailable). Decision: ${opportunity.package.decision}.`
+        );
+        if (contacts?.value?.includes("@")) {
+          summary.notes.push(`Outreach-ready contact: ${contacts.value}`);
+        } else if (contactDiscovery.site?.status === "ok") {
+          summary.notes.push("Contact pages checked; no outreach-ready email found yet (form/program links may exist).");
+        } else {
+          summary.notes.push("No outreach-ready email yet — pitch can be drafted but not sent until a contact is found or confirmed.");
+        }
+      } catch (error) {
+        summary.notes.push(`Deep research skipped: ${error.message}`);
+      }
+      return;
+    }
+    case "prepare_opportunity_packages": {
+      const targets = await listTopPitchTargets(store, userId, workerId, action.limit || 2);
+      summary.notes.push(`Reviewed ${targets.length} pitch target${targets.length === 1 ? "" : "s"} for opportunity packages.`);
+      return;
+    }
+    case "prepare_due_followups": {
+      const due = await listDueOutreachSequences(store, userId, workerId);
+      for (const sequence of due) {
+        const advanced = await advanceOutreachSequenceAfterDraft(store, { userId, workerId, sequenceId: sequence.id });
+        if (advanced?.proposedFollowUp) {
+          const taskId = await createAndRunAutonomyTask(
+            store,
+            {
+              userId,
+              workerId,
+              title: `Follow-up draft for opportunity`,
+              description: `Prepare follow-up step ${advanced.attemptCount} for approval. Do not send without approval. Sequence ${sequence.id}.`,
+              taskType: "follow_up_sequence",
+              source: "autonomy_followup",
+              status: "approved",
+              priority: "medium",
+              requiredPermissions: []
+            },
+            readers,
+            summary
+          );
+          if (taskId) {
+            const result = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
+            if (result?.task?.id) summary.executedTaskIds.push(result.task.id);
+            if (result?.output) summary.outputs.push(result.output);
+          }
+          summary.notes.push(`Prepared follow-up draft for sequence ${sequence.id} (approval still required to send).`);
+        }
+      }
+      if (!due.length) summary.notes.push("No follow-up sequences due.");
       return;
     }
     case "update_tracker": {
