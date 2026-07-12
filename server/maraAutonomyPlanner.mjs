@@ -3,6 +3,7 @@ const MAINTAIN_ARTIFACT_MAX_AGE_HOURS = {
   creator_positioning: 24 * 14,
   ops_brief: 24,
   tiktok_trends: 24 * 7,
+  ugc_strategy: 24 * 3,
   tracker_structure: 24 * 7,
   growth_intelligence_brief: 24 * 7,
   weekly_plan: 24 * 7,
@@ -249,6 +250,16 @@ export function planMaraAutonomyActions(context) {
   }
 
   if (
+    permissions.canRunResearch &&
+    isArtifactStale(recentOutputTypes.strategy ?? null, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.ugc_strategy)
+  ) {
+    actions.push({
+      kind: "ugc_strategy_research",
+      reason: "Refresh cross-platform UGC strategy: what works, what to avoid, and which channels still need API keys."
+    });
+  }
+
+  if (
     trendSnapshotUpdatedAt &&
     !marketPulseFresh &&
     isArtifactStale(recentOutputTypes.market_pulse ?? null, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.tiktok_trends)
@@ -265,7 +276,7 @@ export function planMaraAutonomyActions(context) {
   return actions;
 }
 
-const HEAVY_AUTONOMY_ACTION_KINDS = new Set(["brand_research", "inbox_organization", "reddit_pulse"]);
+const HEAVY_AUTONOMY_ACTION_KINDS = new Set(["brand_research", "inbox_organization", "reddit_pulse", "ugc_strategy_research", "deep_brand_research"]);
 
 export function filterPlannedActionsForMode(plannedActions, mode = "full") {
   if (mode !== "interactive") {

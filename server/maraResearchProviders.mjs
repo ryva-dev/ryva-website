@@ -334,7 +334,7 @@ export async function redditBrandMentionProvider({ brandName, communities = ["ug
   });
 }
 
-/** Stub providers for platforms not yet integrated — explicit unavailable. */
+/** Stub kept for callers — prefer metaAdLibraryProvider from maraSocialResearch. */
 export function metaAdLibraryProviderUnavailable({ brandName }) {
   return createProviderResult({
     providerName: "meta_ad_library",
@@ -347,6 +347,7 @@ export function metaAdLibraryProviderUnavailable({ brandName }) {
   });
 }
 
+/** Stub kept for callers — prefer tiktokLiveProvider / tiktokOfflineInsightsProvider. */
 export function tiktokCreativeCenterLiveProviderUnavailable({ brandName }) {
   return createProviderResult({
     providerName: "tiktok_creative_center_live",
@@ -363,16 +364,42 @@ const PROVIDERS = {
   duckduckgo_html: duckDuckGoBrandSearchProvider,
   official_site_html: officialSiteResearchProvider,
   reddit_public_json: redditBrandMentionProvider,
-  meta_ad_library: async (args) => metaAdLibraryProviderUnavailable(args),
-  tiktok_creative_center_live: async (args) => tiktokCreativeCenterLiveProviderUnavailable(args)
+  meta_ad_library: async (args) => {
+    const { metaAdLibraryProvider } = await import("./maraSocialResearch.mjs");
+    return metaAdLibraryProvider(args);
+  },
+  tiktok_creative_center_live: async (args) => {
+    const { tiktokLiveProvider } = await import("./maraSocialResearch.mjs");
+    return tiktokLiveProvider(args);
+  },
+  reddit_ugc_strategy: async (args) => {
+    const { redditUgcStrategyProvider } = await import("./maraSocialResearch.mjs");
+    return redditUgcStrategyProvider(args);
+  },
+  x_recent_search: async (args) => {
+    const { xBrandSearchProvider } = await import("./maraSocialResearch.mjs");
+    return xBrandSearchProvider(args);
+  },
+  instagram_graph: async (args) => {
+    const { instagramGraphProvider } = await import("./maraSocialResearch.mjs");
+    return instagramGraphProvider(args);
+  },
+  tiktok_offline_insights: async (args) => {
+    const { tiktokOfflineInsightsProvider } = await import("./maraSocialResearch.mjs");
+    return tiktokOfflineInsightsProvider(args);
+  }
 };
 
-export function listResearchProviders() {
-  return Object.keys(PROVIDERS).map((name) => ({
-    name,
-    configured: !["meta_ad_library", "tiktok_creative_center_live"].includes(name),
-    status: ["meta_ad_library", "tiktok_creative_center_live"].includes(name) ? "interface_only" : "implemented"
-  }));
+export async function listResearchProviders() {
+  const { listSocialResearchProviders } = await import("./maraSocialResearch.mjs");
+  const social = listSocialResearchProviders();
+  const core = [
+    { name: "duckduckgo_html", configured: true, status: "implemented" },
+    { name: "official_site_html", configured: true, status: "implemented" },
+    { name: "reddit_public_json", configured: true, status: "implemented" }
+  ];
+  const byName = new Map([...core, ...social].map((item) => [item.name, item]));
+  return [...byName.values()];
 }
 
 export async function runResearchProvider(name, args) {
@@ -390,7 +417,15 @@ export async function runResearchProvider(name, args) {
   return fn(args);
 }
 
-export async function deepResearchBrand(store, { userId, workerId, brandName, website, niche, fetchImpl = globalThis.fetch }) {
+export async function deepResearchBrand(store, {
+  userId,
+  workerId,
+  brandName,
+  website,
+  niche,
+  insights = null,
+  fetchImpl = globalThis.fetch
+}) {
   const runs = [];
   const discovery = website
     ? await officialSiteResearchProvider({ url: website, fetchImpl })
@@ -399,14 +434,29 @@ export async function deepResearchBrand(store, { userId, workerId, brandName, we
   const primary = discovery.observations?.[0];
   const resolvedWebsite = website || primary?.website;
   let official = discovery;
+  let siteHtml = null;
   if (resolvedWebsite && discovery.providerName !== "official_site_html") {
     official = await officialSiteResearchProvider({ url: resolvedWebsite, fetchImpl });
     runs.push(official);
   }
-  const reddit = await redditBrandMentionProvider({ brandName: brandName || primary?.brandName || niche, fetchImpl });
-  runs.push(reddit);
-  runs.push(metaAdLibraryProviderUnavailable({ brandName: brandName || primary?.brandName }));
-  runs.push(tiktokCreativeCenterLiveProviderUnavailable({ brandName: brandName || primary?.brandName }));
+  // Re-fetch homepage HTML once for social-link extraction (best-effort).
+  if (resolvedWebsite) {
+    try {
+      siteHtml = await fetchText(fetchImpl, resolvedWebsite);
+    } catch {
+      siteHtml = null;
+    }
+  }
+
+  const { researchBrandAcrossSocialPlatforms } = await import("./maraSocialResearch.mjs");
+  const social = await researchBrandAcrossSocialPlatforms({
+    brandName: brandName || primary?.brandName || niche,
+    website: resolvedWebsite,
+    siteHtml,
+    insights,
+    fetchImpl
+  });
+  runs.push(...social.runs);
 
   for (const run of runs) {
     await recordResearchProviderRun(store, {
@@ -429,6 +479,7 @@ export async function deepResearchBrand(store, { userId, workerId, brandName, we
     id: randomUUID(),
     brandName: brandName || primary?.brandName || null,
     website: resolvedWebsite || null,
+    socialProfiles: social.socialProfiles || {},
     runs,
     unavailable: runs.filter((run) => run.status !== "ok" && run.status !== "empty").map((run) => ({
       provider: run.providerName,

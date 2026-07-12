@@ -160,6 +160,7 @@ const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "pitch_template",
   "reddit_market_pulse",
   "tiktok_trend_pulse",
+  "ugc_strategy_brief",
   "update_brand_tracker",
   "weekly_schedule",
   "weekly_growth_intelligence_brief"
@@ -489,6 +490,7 @@ const TASK_TYPE_KNOWLEDGE_CATEGORIES = {
   weekly_schedule: ["tiktok_growth", "beginner_roadmap", "campaign_workflow"],
   brand_content_ideas: ["content_strategy", "content_formats", "tiktok_growth"],
   tiktok_trend_pulse: ["tiktok_growth", "content_strategy"],
+  ugc_strategy_brief: ["tiktok_growth", "content_strategy", "brand_research", "deal_closing"],
   reddit_market_pulse: ["tiktok_growth", "brand_research", "deal_closing"]
 };
 
@@ -2495,6 +2497,43 @@ function executeWeeklyGrowthIntelligenceBriefTask(context) {
   };
 }
 
+async function executeUgcStrategyBriefTask(context) {
+  const profile = buildContextProfile(context);
+  const { researchUgcStrategyAcrossPlatforms, listSocialResearchProviders } = await import("./maraSocialResearch.mjs");
+  const research = await researchUgcStrategyAcrossPlatforms({
+    niche: profile.niche || "UGC",
+    insights: context.privateInsights,
+    fetchImpl: context.fetchImpl || globalThis.fetch
+  });
+  const providers = listSocialResearchProviders();
+  const structuredContent = {
+    niche: profile.niche,
+    platformsCovered: research.platformsCovered,
+    whatWorks: research.whatWorks.map((item) => item.claim).slice(0, 12),
+    antiPatterns: research.antiPatterns.map((item) => item.claim).slice(0, 12),
+    unknowns: research.unknowns,
+    providerStatus: providers.map((item) => `${item.name}: ${item.status}${item.configured ? "" : " (needs key)"}`),
+    evidence: [...research.whatWorks, ...research.antiPatterns].slice(0, 24)
+  };
+  return {
+    content: buildRichContent([
+      { title: "What appears to work", value: structuredContent.whatWorks.length ? structuredContent.whatWorks : ["No live strategy signals this cycle."] },
+      { title: "What to avoid / verify", value: structuredContent.antiPatterns.length ? structuredContent.antiPatterns : ["No anti-pattern signals this cycle."] },
+      { title: "Platforms covered", value: structuredContent.platformsCovered.length ? structuredContent.platformsCovered : ["None returned live observations."] },
+      { title: "Provider status", value: structuredContent.providerStatus },
+      {
+        title: "Still unknown without keys",
+        value: structuredContent.unknowns.length
+          ? structuredContent.unknowns
+          : ["Keyed platforms either ran or were skipped cleanly."]
+      }
+    ]),
+    outputType: "strategy",
+    structuredContent,
+    title: `UGC strategy brief — ${profile.niche}`
+  };
+}
+
 async function executeTaskByType(context) {
   switch (context.currentTask.taskType) {
     case "creator_positioning":
@@ -2526,6 +2565,8 @@ async function executeTaskByType(context) {
       return executeRedditMarketPulseTask(context);
     case "tiktok_trend_pulse":
       return executeTikTokTrendPulseTask(context);
+    case "ugc_strategy_brief":
+      return executeUgcStrategyBriefTask(context);
     case "pasted_message_analysis":
       return executePastedMessageAnalysisTask(context);
     case "draft_brand_reply":
@@ -3682,6 +3723,7 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
         brandName: action.brandName,
         website: action.website,
         niche: action.brandName,
+        insights: privateInsights,
         fetchImpl
       });
       const liveObservations = research.runs
@@ -4045,6 +4087,31 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
         const recurring = (await listRecurringResponsibilities(store, userId, workerId)).find((entry) => entry.id === action.recurringId);
         if (recurring) await markRecurringResponsibilityRun(store, recurring);
       }
+      return;
+    }
+    case "ugc_strategy_research": {
+      const taskId = await createAndRunAutonomyTask(
+        store,
+        {
+          description:
+            action.reason ||
+            "Research what UGC tactics appear to work or fail across Reddit, TikTok trends, and keyed social platforms.",
+          priority: "high",
+          requiredPermissions: permissions.canRunResearch ? [] : ["canRunResearch"],
+          source: "autonomy_ugc_strategy",
+          status: "approved",
+          taskType: "ugc_strategy_brief",
+          title: "UGC strategy brief across platforms",
+          userId,
+          workerId
+        },
+        readers,
+        summary
+      );
+      if (!taskId) return;
+      const strategyResult = await runMaraTask({ store, fetchImpl, taskId, userId, workerId, ...readers });
+      if (strategyResult?.task?.id) summary.executedTaskIds.push(strategyResult.task.id);
+      if (strategyResult?.output) summary.outputs.push(strategyResult.output);
       return;
     }
     case "drain_approved_queue": {
