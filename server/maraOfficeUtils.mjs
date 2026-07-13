@@ -96,9 +96,13 @@ export function deriveMaraPermissionsFromOnboarding(answers = {}, { inboxConnect
     permissions.approvalRequiredForExternalActions = true;
   }
 
+  // Public launch stays approval-gated even if free-form onboarding asks Mara
+  // to send independently. Graduated authority must be granted through a
+  // dedicated, inspectable policy flow rather than inferred from prose.
   if (/send on your own|you can send|approve yourself|without asking/i.test(combined)) {
+    permissions.canSendEmailsWithoutApproval = false;
     permissions.canSendEmailsWithApproval = true;
-    permissions.approvalRequiredForExternalActions = false;
+    permissions.approvalRequiredForExternalActions = true;
   }
 
   const integrationInterest = String(answers.integration_interest ?? "").toLowerCase();

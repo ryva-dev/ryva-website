@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { AboutPage } from "./components/AboutPage";
 import { LegalPage } from "./components/LegalPages";
 import { AuthModal } from "./components/AuthModal";
@@ -7,11 +7,14 @@ import { HireWorkerPage } from "./components/HireWorkerPage";
 import { HomePage } from "./components/HomePage";
 import { InterviewPage } from "./components/InterviewPage";
 import { Navbar } from "./components/Navbar";
-import { OfficeExperienceApp } from "./components/OfficeExperienceApp";
 import { UserOnboardingPage } from "./components/UserOnboardingPage";
 import { WorkerCard } from "./components/WorkerCard";
 import { WorkerProfilePage } from "./components/WorkerProfilePage";
 import type { Worker } from "./types";
+
+const OfficeExperienceApp = lazy(() =>
+  import("./components/OfficeExperienceApp").then((module) => ({ default: module.OfficeExperienceApp }))
+);
 
 type AuthUser = {
   createdAt: string;
@@ -766,6 +769,7 @@ export default function App() {
                 : undefined
             }
             workers={workers}
+            supportEmail={authConfig.supportEmail}
           />
         )}
 
@@ -815,18 +819,20 @@ export default function App() {
           <HireWorkerPage onBack={() => { window.location.hash = `worker-${hireWorker.slug}`; }} onConfirmHire={handleCheckout} worker={hireWorker} />
         )}
         {!isWorkersLoading && isOfficeRoute && user && (
-          <OfficeExperienceApp
-            allWorkers={workers}
-            hiredWorkers={hiredWorkers}
-            onCheckoutWorker={handleCheckout}
-            onNavigate={(hash) => {
-              window.location.hash = hash.replace(/^#/, "");
-            }}
-            onNotice={setGlobalNotice}
-            onRefreshWorkers={refreshOfficeWorkers}
-            userName={user.name}
-            isAdmin={user.isAdmin}
-          />
+          <Suspense fallback={<div className="empty-state"><h2>Opening your office…</h2><p>Loading your team and their latest work.</p></div>}>
+            <OfficeExperienceApp
+              allWorkers={workers}
+              hiredWorkers={hiredWorkers}
+              onCheckoutWorker={handleCheckout}
+              onNavigate={(hash) => {
+                window.location.hash = hash.replace(/^#/, "");
+              }}
+              onNotice={setGlobalNotice}
+              onRefreshWorkers={refreshOfficeWorkers}
+              userName={user.name}
+              isAdmin={user.isAdmin}
+            />
+          </Suspense>
         )}
       </div>
 

@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -47,6 +46,11 @@ jobs:
       - name: Type check and build
         run: npm run build
 
+      - name: Browser journey tests
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
       - name: Docker build
         run: docker build -t ryva:ci .
 
@@ -61,6 +65,11 @@ jobs:
           S3_BUCKET: ryva-ci-smoke
           AWS_REGION: us-east-1
           METRICS_TOKEN: ci-metrics-token
+          STRIPE_SECRET_KEY: sk_test_ci_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+          SMTP_HOST: smtp.invalid
+          SUPPORT_EMAIL: support@example.com
+          MARA_DISABLE_VIDEO_QA: "1"
           MIGRATE_ON_BOOT: "1"
           # LocalStack-free smoke: object puts are not exercised; boot + probes only.
           # S3 client is constructed lazily on first put/get.
@@ -76,8 +85,14 @@ jobs:
             -e S3_BUCKET="$S3_BUCKET" \
             -e AWS_REGION="$AWS_REGION" \
             -e METRICS_TOKEN="$METRICS_TOKEN" \
+            -e STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" \
+            -e STRIPE_WEBHOOK_SECRET="$STRIPE_WEBHOOK_SECRET" \
+            -e SMTP_HOST="$SMTP_HOST" \
+            -e SUPPORT_EMAIL="$SUPPORT_EMAIL" \
+            -e MARA_DISABLE_VIDEO_QA="$MARA_DISABLE_VIDEO_QA" \
             -e MIGRATE_ON_BOOT=1 \
             -e MARA_AUTONOMY_INTERVAL_MINUTES=0 \
+            -e AUTONOMY_SCHEDULER_ENABLED=0 \
             ryva:ci
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8787/healthz >/dev/null; then break; fi

@@ -183,7 +183,7 @@ export function validateConfig() {
       problems.push("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are required in production for paying strangers.");
     }
     if (!String(process.env.METRICS_TOKEN ?? "").trim()) {
-      warnings.push("METRICS_TOKEN is unset; /metrics will return 401 in production until configured.");
+      problems.push("METRICS_TOKEN is required in production so queue and reliability monitoring is available securely.");
     }
     if (String(process.env.SESSION_SECRET ?? "").trim()) {
       warnings.push("SESSION_SECRET is unused; sessions are stored in the database. You can remove it.");
@@ -192,17 +192,11 @@ export function validateConfig() {
     const googleSecret = String(process.env.GOOGLE_CLIENT_SECRET ?? "").trim();
     const googleOk = Boolean(googleId && googleSecret);
     const smtpOk = Boolean(String(process.env.SMTP_HOST ?? "").trim());
-    if (!googleOk && !smtpOk) {
-      problems.push(
-        "Production requires Google OAuth (GOOGLE_CLIENT_ID/SECRET) and/or SMTP_HOST so strangers can sign up and verify."
-      );
-    } else {
-      if (!googleOk) {
-        warnings.push("GOOGLE_CLIENT_ID/SECRET unset — Google login and Gmail connect will not work.");
-      }
-      if (!smtpOk) {
-        warnings.push("SMTP_HOST unset — email/password signup verification and digests will not send.");
-      }
+    if (!googleOk) {
+      problems.push("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required in production for advertised Google login and Gmail connect.");
+    }
+    if (!smtpOk) {
+      problems.push("SMTP_HOST is required in production because email/password signup, verification, and digests are customer-visible paths.");
     }
     const videoQaDisabled = String(process.env.MARA_DISABLE_VIDEO_QA ?? "").trim() === "1";
     const transcription = String(process.env.MARA_TRANSCRIPTION_PROVIDER || "mock").toLowerCase();
@@ -222,7 +216,10 @@ export function validateConfig() {
       }
     }
     if (!String(process.env.SUPPORT_EMAIL ?? "").trim()) {
-      warnings.push("SUPPORT_EMAIL unset — legal/support pages will use a placeholder contact.");
+      problems.push("SUPPORT_EMAIL is required in production so paying users can reach a monitored human.");
+    }
+    if (!["0", "1"].includes(String(process.env.AUTONOMY_SCHEDULER_ENABLED ?? "").trim())) {
+      problems.push("AUTONOMY_SCHEDULER_ENABLED must be explicitly set to 0 or 1 in production so scheduler ownership is intentional.");
     }
   } else if (encryptionKey && !encryptionKeyOk(encryptionKey)) {
     problems.push("ENCRYPTION_KEY must decode to exactly 32 bytes when set.");

@@ -4,7 +4,7 @@ Do **not** claim Mara is polished for paying strangers until this passes on a re
 
 ## Preflight (ops)
 
-- [ ] Production boot succeeds with Stripe + webhook secret, Google OAuth **or** SMTP, Postgres, S3, Anthropic
+- [ ] Production boot succeeds with Stripe + webhook secret, Google OAuth, SMTP, Postgres, S3, Anthropic
 - [ ] Video QA: either `MARA_DISABLE_VIDEO_QA=1` **or** OpenAI Whisper + Anthropic multimodal + `MARA_REQUIRE_REAL_MEDIA=1`
 - [ ] `SUPPORT_EMAIL` reaches a human
 - [ ] Homepage/legal claims match Gmail + approval-gated sends (no fake Slack/Notion/IG connect)

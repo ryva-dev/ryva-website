@@ -220,7 +220,7 @@ const schemas: Record<string, OnboardingSchema> = {
   },
   "mara-vale": {
     id: "mara-vale",
-    role: "UGC Production Coordinator",
+    role: "Creator Growth and Creative Intelligence Manager",
     sections: [
       {
         id: "brand",

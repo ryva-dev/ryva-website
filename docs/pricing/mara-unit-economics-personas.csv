@@ -1,0 +1,16 @@
+scenario,scenario_label,persona,persona_label,llm,whisper,multimodal,hunter,apollo,storage,variable,support,cts_low,cts_exp,cts_high
+current,Current Mara (mocks off cost path),dormant,Dormant,6.05,0,0,0,0,0,6.05,0.5,6.08,9.55,15.77
+current,Current Mara (mocks off cost path),light,Light,13.04,0,0,0,0,0,13.04,1.5,11.68,17.54,27.66
+current,Current Mara (mocks off cost path),typical,Typical active,26.34,0,0,0,0,0.03,26.37,3,22.06,32.37,49.76
+current,Current Mara (mocks off cost path),heavy,Heavy,57.33,0,0,0,0,0.18,57.52,8,47.36,68.52,103.48
+current,Current Mara (mocks off cost path),abuse,Abuse / worst-reasonable,106.35,0,0,0,0,0.92,107.27,20,90.59,130.27,194.9
+production,"Production-ready (real video+enrichment, all Sonnet)",dormant,Dormant,6.05,0,0,0,0,0,6.05,0.5,6.08,9.55,15.77
+production,"Production-ready (real video+enrichment, all Sonnet)",light,Light,13.04,0.02,0.04,1,0.6,0,14.7,1.5,12.84,19.2,30.15
+production,"Production-ready (real video+enrichment, all Sonnet)",typical,Typical active,26.34,0.12,0.21,4,3,0.03,33.7,3,27.19,39.7,60.75
+production,"Production-ready (real video+enrichment, all Sonnet)",heavy,Heavy,57.33,0.54,0.84,10,9.6,0.18,78.5,8,62.05,89.5,134.95
+production,"Production-ready (real video+enrichment, all Sonnet)",abuse,Abuse / worst-reasonable,106.35,1.08,2.52,30,30,0.92,170.87,20,135.11,193.87,290.3
+production_optimized,Production + Haiku routing for cheap workflows,dormant,Dormant,4.29,0,0,0,0,0,4.29,0.5,4.86,7.79,13.14
+production_optimized,Production + Haiku routing for cheap workflows,light,Light,8.81,0.02,0.04,1,0.6,0,10.47,1.5,9.88,14.97,23.81
+production_optimized,Production + Haiku routing for cheap workflows,typical,Typical active,18.61,0.12,0.21,4,3,0.03,25.97,3,21.78,31.97,49.16
+production_optimized,Production + Haiku routing for cheap workflows,heavy,Heavy,42.52,0.54,0.84,10,9.6,0.18,63.69,8,51.68,74.69,112.73
+production_optimized,Production + Haiku routing for cheap workflows,abuse,Abuse / worst-reasonable,82.1,1.08,2.52,30,30,0.92,146.62,20,118.13,169.62,253.93

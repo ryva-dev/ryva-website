@@ -1,0 +1,15 @@
+workflow,in_tokens_assumed,out_tokens_assumed,unit_cost_sonnet46_usd,unit_cost_haiku45_usd,notes
+pitch_generation,9000,2200,0.06,0.02,personalized_pitch / pitch_template
+content_ideas,8000,2500,0.0615,0.0205,brand_content_ideas
+deep_research_synth,28000,4500,0.1515,0.0505,deep_brand_research LLM pass after scrape
+brand_research_light,6000,1500,0.0405,0.0135,scoring/packaging light
+opportunity_package,10000,2800,0.072,0.024,prepare_opportunity_packages
+inbox_parse,7000,1600,0.045,0.015,maraInboxParser per thread; cap 5/sync
+reply_classify,5000,800,0.027,0.009,infer_commercial_outcomes / reply classifier
+ops_brief,9000,2200,0.06,0.02,daily/weekly ops brief
+weekly_plan,11000,3000,0.078,0.026,weekly_plan / schedule
+positioning,10000,2800,0.072,0.024,creator positioning maintain
+ugc_strategy,12000,3000,0.081,0.027,multi-platform strategy brief
+chat_turn,14000,1800,0.069,0.023,office chat
+followup_draft,7000,1400,0.042,0.014,prepare_due_followups
+video_multimodal,8000,1200,0.042,0.014,max_tokens 1200 multimodal path

@@ -282,6 +282,7 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
     workerSlug: worker.slug,
     llmConfigured: workspace.llmConfigured !== false,
     approvals,
+    activationJourney: workspace.activationJourney || null,
     commercialNorthStar: workspace.commercialNorthStar || null,
     commercialBriefing: workspace.commercialBriefing || null,
     bookOfBusiness: workspace.bookOfBusiness || [],
@@ -334,7 +335,17 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
   };
 }
 
+type MaraActivationJourney = {
+  completedCount: number;
+  totalCount: number;
+  progress: number;
+  stage: string;
+  nextMilestone: { id: string; label: string; nextAction: string; complete: boolean } | null;
+  milestones: Array<{ id: string; label: string; nextAction: string; complete: boolean }>;
+};
+
 type MaraWorkspace = {
+  activationJourney?: MaraActivationJourney | null;
   blockedTasks: MaraWorkspaceTask[];
   currentFocus: string;
   llmConfigured?: boolean;
@@ -413,7 +424,7 @@ type MaraWorkspace = {
     estimatedDealValue?: number;
     blockingReason?: string | null;
     nextAction?: { label?: string; requiresApproval?: boolean } | null;
-    stall?: { daysStalled?: number; likelyReason?: string } | null;
+    stall?: { daysStalled?: number; likelyReason?: string; valueAtRisk?: number } | null;
   }>;
   outreachReadyQueue?: Array<{
     id: string;
@@ -471,6 +482,7 @@ type WorkerDeskActivity = {
 
 type WorkerDesk = {
   workerSlug: string;
+  activationJourney?: MaraActivationJourney | null;
   llmConfigured?: boolean;
   currentFocus: string;
   currentFocusReason: string;
@@ -519,7 +531,7 @@ type WorkerDesk = {
     estimatedDealValue?: number;
     blockingReason?: string | null;
     nextAction?: { label?: string; requiresApproval?: boolean } | null;
-    stall?: { daysStalled?: number; likelyReason?: string } | null;
+    stall?: { daysStalled?: number; likelyReason?: string; valueAtRisk?: number } | null;
   }>;
   outreachReadyQueue?: Array<{
     id: string;
@@ -1028,7 +1040,7 @@ function TodayView({
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
   const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
   const maraDesks = desks.filter((desk) => isMaraWorker(desk.workerSlug));
-  const commercialMoves = maraDesks.flatMap((desk) =>
+  const allCommercialMoves = maraDesks.flatMap((desk) =>
     (desk.commercialBriefing?.prioritized || []).slice(0, 4).map((entry, index) => ({
       ...entry,
       workerSlug: desk.workerSlug,
@@ -1038,7 +1050,17 @@ function TodayView({
   const maraApprovals = maraDesks.flatMap((desk) =>
     desk.approvals.map((item) => ({ ...item, workerSlug: desk.workerSlug }))
   );
+  const approvalIds = new Set(maraApprovals.map((item) => item.id));
+  const commercialMoves = allCommercialMoves.filter((entry) => !entry.approvalId || !approvalIds.has(entry.approvalId));
   const revenue = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialNorthStar?.revenueInfluenced || 0), 0);
+  const pipelineValue = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialBriefing?.counts?.pipelineValue || 0), 0);
+  const valueAtRisk = maraDesks.reduce(
+    (sum, desk) => sum + (desk.bookOfBusiness || []).reduce((bookSum, opp) => bookSum + Number(opp.stall?.valueAtRisk || 0), 0),
+    0
+  );
+  const contacted = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialNorthStar?.contacted || 0), 0);
+  const responded = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialNorthStar?.responded || 0), 0);
+  const replyRate = contacted > 0 ? responded / contacted : 0;
   const stalled = maraDesks.flatMap((desk) =>
     (desk.bookOfBusiness || []).filter((opp) => opp.stall?.daysStalled || opp.blockingReason).slice(0, 3)
       .map((opp) => ({ ...opp, workerSlug: desk.workerSlug }))
@@ -1098,7 +1120,11 @@ function TodayView({
   const secondaryAttention = attentionItems.slice(1, 4);
   const nextEvent = todaysEvents[0] ?? null;
   const dateLine = today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
-  const needsYouCount = attentionItems.length + maraApprovals.length;
+  const needsYouIds = new Set([
+    ...attentionItems.map((item) => `${item.workerSlug}:${item.id}`),
+    ...maraApprovals.map((item) => `${item.workerSlug}:${item.id}`)
+  ]);
+  const needsYouCount = needsYouIds.size;
 
   return (
     <div className="ro-main-scroll">
@@ -1113,6 +1139,13 @@ function TodayView({
       <div className="ro-today-layout">
         <div className="ro-today-main">
           {maraDesks.length > 0 ? (
+            <>
+            <section className="ro-commercial-scorecard" aria-label="Mara commercial scoreboard">
+              <div><span>Revenue influenced</span><strong>{money.format(revenue)}</strong><small>Won or paid work with recorded attribution</small></div>
+              <div><span>Active pipeline</span><strong>{money.format(pipelineValue)}</strong><small>Estimated value, not earned revenue</small></div>
+              <div><span>Value at risk</span><strong>{money.format(valueAtRisk)}</strong><small>Stalled work that needs recovery</small></div>
+              <div><span>Reply rate</span><strong>{Math.round(replyRate * 100)}%</strong><small>{responded} replies from {contacted} tracked sends</small></div>
+            </section>
             <section className="ro-sec ro-sec-lead">
               <div className="ro-sec-head">
                 <h2>Money moves</h2>
@@ -1171,6 +1204,7 @@ function TodayView({
                 </div>
               )}
             </section>
+            </>
           ) : null}
 
           <section className="ro-sec ro-sec-lead">
@@ -1390,6 +1424,70 @@ function TodayView({
 
 /* ---------- Chat ---------- */
 
+type MaraAutonomyLimits = {
+  maxBrandsResearchedPerDay: number;
+  maxDeepResearchJobsPerWeek: number;
+  maxOutreachDraftsPerWeek: number;
+  maxFollowUpAttempts: number;
+  maxConcurrentTasks: number;
+  approvalRequiredForSend: boolean;
+};
+
+function MaraAutonomyControls({ workerSlug }: { workerSlug: string }) {
+  const [limits, setLimits] = useState<MaraAutonomyLimits | null>(null);
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    officeJson<{ limits: MaraAutonomyLimits }>(`/api/office/workers/${workerSlug}/autonomy/limits`)
+      .then((payload) => { if (!cancelled) setLimits(payload.limits); })
+      .catch((error) => { if (!cancelled) setNotice(error instanceof Error ? error.message : "Could not load autonomy limits."); });
+    return () => { cancelled = true; };
+  }, [workerSlug]);
+
+  const setNumber = (key: keyof MaraAutonomyLimits, value: string, min: number, max: number) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!limits || !Number.isFinite(parsed)) return;
+    setLimits({ ...limits, [key]: Math.min(max, Math.max(min, parsed)) });
+  };
+
+  const save = async () => {
+    if (!limits) return;
+    setSaving(true);
+    setNotice("");
+    try {
+      const payload = await officeJson<{ limits: MaraAutonomyLimits }>(`/api/office/workers/${workerSlug}/autonomy/limits`, {
+        method: "POST",
+        body: JSON.stringify({ limits })
+      });
+      setLimits(payload.limits);
+      setNotice("Boundaries saved. Mara will use them on her next work pass.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not save autonomy limits.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!limits) return notice ? <p className="ro-worker-note" role="alert">{notice}</p> : <p className="ro-worker-note">Loading boundaries…</p>;
+
+  return (
+    <details className="ro-autonomy-controls">
+      <summary>Review work limits</summary>
+      <div className="ro-autonomy-grid">
+        <label className="ro-field"><span>Brands researched per day</span><input min="1" max="25" type="number" value={limits.maxBrandsResearchedPerDay} onChange={(event) => setNumber("maxBrandsResearchedPerDay", event.target.value, 1, 25)} /></label>
+        <label className="ro-field"><span>Deep research jobs per week</span><input min="1" max="100" type="number" value={limits.maxDeepResearchJobsPerWeek} onChange={(event) => setNumber("maxDeepResearchJobsPerWeek", event.target.value, 1, 100)} /></label>
+        <label className="ro-field"><span>Outreach drafts per week</span><input min="1" max="100" type="number" value={limits.maxOutreachDraftsPerWeek} onChange={(event) => setNumber("maxOutreachDraftsPerWeek", event.target.value, 1, 100)} /></label>
+        <label className="ro-field"><span>Maximum follow-ups</span><input min="0" max="5" type="number" value={limits.maxFollowUpAttempts} onChange={(event) => setNumber("maxFollowUpAttempts", event.target.value, 0, 5)} /></label>
+      </div>
+      <p className="ro-worker-note"><strong>Sends require approval.</strong> These limits control preparation and research; they never authorize Mara to send email by herself.</p>
+      <div className="ro-inline-actions"><button className="r-btn r-btn-ghost" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save boundaries"}</button></div>
+      {notice ? <p className="ro-worker-note" role="status">{notice}</p> : null}
+    </details>
+  );
+}
+
 function WorkerDeskSections({
   activeWorker,
   busyId,
@@ -1486,6 +1584,27 @@ function WorkerDeskSections({
           </div>
         </section>
       ) : null}
+      {isMara && desk.activationJourney ? (
+        <section className="ro-worker-drawer-section ro-commercial-journey">
+          <div className="ro-worker-drawer-row">
+            <strong>Revenue journey</strong>
+            <span>{desk.activationJourney.completedCount} of {desk.activationJourney.totalCount} proven</span>
+          </div>
+          <div className="ro-journey-track" role="list" aria-label="Mara commercial milestones">
+            {desk.activationJourney.milestones.map((milestone) => (
+              <div className={milestone.complete ? "complete" : ""} key={milestone.id} role="listitem" title={milestone.nextAction}>
+                <i aria-hidden="true" />
+                <span>{milestone.label}</span>
+              </div>
+            ))}
+          </div>
+          {desk.activationJourney.nextMilestone ? (
+            <p className="ro-worker-note"><strong>Next proof:</strong> {desk.activationJourney.nextMilestone.nextAction}.</p>
+          ) : (
+            <p className="ro-worker-note"><strong>Commercial loop proven.</strong> Mara is now compounding from tracked outcomes and repeat work.</p>
+          )}
+        </section>
+      ) : null}
       {isMara ? (
         <section className="ro-worker-drawer-section">
           <div className="ro-worker-drawer-row">
@@ -1500,6 +1619,7 @@ function WorkerDeskSections({
               {busyId === "mara-autonomy" ? "Working…" : "Run a work pass now"}
             </button>
           ) : null}
+          <MaraAutonomyControls workerSlug={activeWorker.slug} />
         </section>
       ) : null}
       {isMara && northStar ? (
@@ -2457,6 +2577,11 @@ type GrowthIntelligence = {
   }>;
 };
 
+function opportunityThesisText(opportunityPackage: GrowthOpportunity["opportunityPackage"] | null | undefined) {
+  const thesis = opportunityPackage?.opportunityThesis;
+  return typeof thesis === "string" ? thesis : thesis?.underrepresented || "";
+}
+
 const DEAL_STAGE_ORDER = ["candidate", "qualified", "active", "responded", "concept_accepted", "won", "won_repeat"] as const;
 
 function opportunityStageStrip(status: string) {
@@ -2596,17 +2721,15 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
                   </strong>
                   <p className="ro-handbook-meta" style={{ marginTop: 4 }}>{opportunityStageStrip(item.status)}</p>
                   <p>
-                    {typeof item.opportunityPackage?.opportunityThesis === "string"
-                      ? item.opportunityPackage.opportunityThesis
-                      : item.opportunityPackage?.opportunityThesis?.underrepresented ||
-                        item.opportunityPackage?.creativeGap ||
-                        "Opportunity thesis still needs evidence."}
+                    {opportunityThesisText(item.opportunityPackage) ||
+                      item.opportunityPackage?.creativeGap ||
+                      "Opportunity thesis still needs evidence."}
                   </p>
                   {item.opportunityPackage?.recommendedConceptTerritory?.messagingAngle ? (
                     <p>Concept: {item.opportunityPackage.recommendedConceptTerritory.messagingAngle}</p>
                   ) : null}
                   <div className="ro-handbook-meta">
-                    <span>Gap: {item.opportunityPackage?.creativeGap || item.opportunityPackage?.opportunityThesis?.underrepresented || "Not established"}</span>
+                    <span>Gap: {item.opportunityPackage?.creativeGap || opportunityThesisText(item.opportunityPackage) || "Not established"}</span>
                     <span>Confidence: {item.confidence ?? item.opportunityPackage?.confidence ?? 0}%</span>
                     <span>
                       {item.outreachReady
@@ -2630,25 +2753,30 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
                       </button>
                     </div>
                   ))}
-                  {item.publicBrandId ? (
-                    <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                      <input
-                        className="ro-field"
-                        style={{ minWidth: 180 }}
-                        placeholder="Add partnership email"
-                        value={contactDrafts[item.id] || ""}
-                        onChange={(event) => setContactDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
-                      />
-                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void saveUserContact(item.publicBrandId, item.id)}>
-                        Save contact
-                      </button>
-                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void discoverContacts(item.publicBrandId)}>
-                        Find public contacts
-                      </button>
-                    </div>
-                  ) : null}
+                  {item.publicBrandId ? (() => {
+                    const publicBrandId = item.publicBrandId;
+                    return (
+                      <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <label className="ro-field" style={{ minWidth: 180 }}>
+                          <span>Partnership email</span>
+                          <input
+                            type="email"
+                            placeholder="partnerships@brand.com"
+                            value={contactDrafts[item.id] || ""}
+                            onChange={(event) => setContactDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                          />
+                        </label>
+                        <button className="r-btn r-btn-ghost" type="button" onClick={() => void saveUserContact(publicBrandId, item.id)}>
+                          Save contact
+                        </button>
+                        <button className="r-btn r-btn-ghost" type="button" onClick={() => void discoverContacts(publicBrandId)}>
+                          Find public contacts
+                        </button>
+                      </div>
+                    );
+                  })() : null}
                   {(item.evidence || []).slice(0, 2).map((evidence, index) => (
-                    <small key={`${item.id}-${index}`}>{sentenceCase(evidence.basis || evidence.kind)}: {evidence.claim}</small>
+                    <small key={`${item.id}-${index}`}>{sentenceCase(evidence.basis || evidence.kind || "evidence")}: {evidence.claim}</small>
                   ))}
                 </div>
               ))}

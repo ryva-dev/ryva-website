@@ -18,3 +18,13 @@ test("deriveMaraPermissionsFromOnboarding respects approval boundaries", () => {
   assert.equal(restrictive.canReadInbox, false);
   assert.equal(restrictive.canRunResearch, true);
 });
+
+test("free-form onboarding cannot grant unreviewed send authority", () => {
+  const permissions = deriveMaraPermissionsFromOnboarding(
+    { approval_rules: "You can send on your own without asking." },
+    { inboxConnected: true }
+  );
+  assert.equal(permissions.canSendEmailsWithoutApproval, false);
+  assert.equal(permissions.canSendEmailsWithApproval, true);
+  assert.equal(permissions.approvalRequiredForExternalActions, true);
+});

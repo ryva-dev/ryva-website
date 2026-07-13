@@ -36,15 +36,18 @@ const prodBase = {
   STRIPE_WEBHOOK_SECRET: "whsec_test",
   GOOGLE_CLIENT_ID: "id",
   GOOGLE_CLIENT_SECRET: "secret",
+  SMTP_HOST: "smtp.example.com",
   MARA_DISABLE_VIDEO_QA: "1",
-  METRICS_TOKEN: "metrics"
+  METRICS_TOKEN: "metrics",
+  SUPPORT_EMAIL: "support@example.com",
+  AUTONOMY_SCHEDULER_ENABLED: "0"
 };
 
-test("paid production config accepts Google-only signup path", () => {
+test("paid production config accepts complete Google and SMTP customer paths", () => {
   withEnvironment(prodBase, () => assert.doesNotThrow(validateConfig));
 });
 
-test("paid production config accepts SMTP-only signup path", () => {
+test("paid production config rejects SMTP-only because Gmail is advertised", () => {
   withEnvironment(
     {
       ...prodBase,
@@ -52,7 +55,7 @@ test("paid production config accepts SMTP-only signup path", () => {
       GOOGLE_CLIENT_SECRET: undefined,
       SMTP_HOST: "smtp.example.com"
     },
-    () => assert.doesNotThrow(validateConfig)
+    () => assert.throws(validateConfig, /GOOGLE_CLIENT_ID/)
   );
 });
 

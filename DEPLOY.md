@@ -25,9 +25,9 @@ The image builds the frontend (`npm run build`), runs idempotent migrations when
 | `APP_URL` | Public base URL (OAuth redirects and links). |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | **Required in production** for paid hires. |
 | `STRIPE_PRICE_ID_MARA_VALE` or `STRIPE_PRICE_ID` | Optional Stripe Price ID (preferred for receipts); else inline `price_data`. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google login + Gmail OAuth. |
-| `SMTP_*` | Email verification + digests. Production requires **Google and/or SMTP**. |
-| `SUPPORT_EMAIL` | Shown on Privacy/Terms/Security pages. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **Required in production** for advertised Google login + Gmail OAuth. |
+| `SMTP_*` | **Required in production** for email verification + digests. |
+| `SUPPORT_EMAIL` | **Required in production.** Monitored human support shown on Privacy/Terms/Security pages. |
 | `MARA_DISABLE_VIDEO_QA` | Set `1` to hide video QA, **or** configure real Whisper + Anthropic multimodal. |
 | `MARA_TRANSCRIPTION_PROVIDER` / `OPENAI_API_KEY` | Real video transcription when QA enabled. |
 | `MARA_MULTIMODAL_PROVIDER=anthropic` | Real creative review path when QA enabled. |
@@ -36,17 +36,28 @@ The image builds the frontend (`npm run build`), runs idempotent migrations when
 | `PORT` / `HOST` | Default `8787` / `0.0.0.0`. |
 | `OBJECT_STORAGE_DRIVER` | Must be `s3` in production. |
 | `S3_BUCKET` / `AWS_REGION` | Tenant upload bucket and region. |
+| `S3_ENDPOINT` / `S3_FORCE_PATH_STYLE` | Set for S3-compatible providers such as Railway Buckets; use the URL style shown by the provider. |
 | `METRICS_TOKEN` | Bearer token required for `GET /metrics` in production. |
 | `MIGRATE_ON_BOOT` | Default `1`. Set `0` only if an init container runs `npm run migrate`. |
+| `AUTONOMY_SCHEDULER_ENABLED` | **Required explicitly in production.** `1` only on designated scheduler/worker replicas; `0` on web-only replicas. |
 | `SENTRY_DSN` | Optional; enables `@sentry/node` error reporting when set. |
 
 `SESSION_SECRET` is **unused** (sessions are DB cookies). You can omit it.
 
-The app calls `validateConfig()` at boot and refuses to start in production if Postgres, S3, `APP_URL`, Stripe, Google-or-SMTP, a valid `ENCRYPTION_KEY`, AI configuration, or video QA policy are incomplete.
+The app calls `validateConfig()` at boot and refuses to start in production if Postgres, S3, `APP_URL`, Stripe, Google OAuth, SMTP, a valid `ENCRYPTION_KEY`, authenticated metrics, AI configuration, or video QA policy are incomplete.
 
 ### Launch soak (paying strangers)
 
 Before marketing Mara as ready for strangers, run the checklist in `docs/MARA_PAID_SOAK.md` on a Postgres+S3 deploy (fresh signup → pay → hire → Gmail → 48h return → money moves).
+Operational ownership, backup/restore drills, incident response, and rollback requirements are in `docs/PRODUCTION_OPERATIONS.md`.
+
+Run the read-only release preflight against the deployed app before starting that soak:
+
+```bash
+npm run release:preflight -- --remote https://your-app.example --live-providers
+```
+
+This fails unless production configuration is complete, the public URL uses HTTPS, support contact syntax is valid, health/readiness/authorized metrics respond, Stripe is live with an active $79 USD monthly price, and the configured S3 bucket is reachable. It does not create a charge, send email, or mutate provider data.
 
 ### Gmail connect smoke checklist
 
@@ -85,7 +96,7 @@ OBJECT_STORAGE_DRIVER=s3 S3_BUCKET=… AWS_REGION=… npm run sync:uploads-to-s3
 
 - `GET /healthz` — liveness (process is up).
 - `GET /readyz` — readiness (database reachable + schema current); returns 503 when not.
-- `GET /metrics` — JSON counters + durable job queue depths. Requires `Authorization: Bearer $METRICS_TOKEN` (or `?token=`) in production.
+- `GET /metrics` — JSON counters + durable job queue depths. Requires `Authorization: Bearer $METRICS_TOKEN`; query-string secrets are not accepted.
 
 ## Scaling notes (accurate)
 
@@ -94,7 +105,7 @@ OBJECT_STORAGE_DRIVER=s3 S3_BUCKET=… AWS_REGION=… npm run sync:uploads-to-s3
   - Every replica uses the same Postgres and S3 bucket.
   - Job leases are heartbeated for long autonomy/video work (built-in).
   - Trend SoT is `worker_trend_snapshots` in Postgres (local trend files are cache-only).
-- Each process may run the scheduler tick (`MARA_AUTONOMY_INTERVAL_MINUTES`); work is enqueued into `durable_jobs` and claimed with a lease so jobs are not double-executed. Set `MARA_AUTONOMY_INTERVAL_MINUTES=0` on replicas that should not tick if you want a single scheduler process.
+- Set `AUTONOMY_SCHEDULER_ENABLED=1` on at least one designated scheduler/worker replica and `0` on ordinary web replicas. `MARA_AUTONOMY_INTERVAL_MINUTES` controls its cadence. Durable jobs and leases still prevent duplicate execution across multiple designated consumers.
 
 ## Alerts (wire these in CloudWatch / Datadog / etc.)
 

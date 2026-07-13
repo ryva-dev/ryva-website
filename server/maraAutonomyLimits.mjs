@@ -15,6 +15,28 @@ export const DEFAULT_AUTONOMY_LIMITS = Object.freeze({
   approvalRequiredForSend: true
 });
 
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+}
+
+export function normalizeAutonomyLimits(input = {}) {
+  const limits = input && typeof input === "object" ? input : {};
+  return {
+    maxBrandsResearchedPerDay: boundedInteger(limits.maxBrandsResearchedPerDay, DEFAULT_AUTONOMY_LIMITS.maxBrandsResearchedPerDay, 1, 25),
+    maxDeepResearchJobsPerWeek: boundedInteger(limits.maxDeepResearchJobsPerWeek, DEFAULT_AUTONOMY_LIMITS.maxDeepResearchJobsPerWeek, 1, 100),
+    maxOutreachDraftsPerWeek: boundedInteger(limits.maxOutreachDraftsPerWeek, DEFAULT_AUTONOMY_LIMITS.maxOutreachDraftsPerWeek, 1, 100),
+    maxFollowUpAttempts: boundedInteger(limits.maxFollowUpAttempts, DEFAULT_AUTONOMY_LIMITS.maxFollowUpAttempts, 0, 5),
+    maxConcurrentTasks: boundedInteger(limits.maxConcurrentTasks, DEFAULT_AUTONOMY_LIMITS.maxConcurrentTasks, 1, 20),
+    allowedBusinessCategories: Array.isArray(limits.allowedBusinessCategories) ? limits.allowedBusinessCategories.map(String).filter(Boolean).slice(0, 50) : [],
+    excludedBrands: Array.isArray(limits.excludedBrands) ? limits.excludedBrands.map(String).filter(Boolean).slice(0, 100) : [],
+    quietHours: limits.quietHours && typeof limits.quietHours === "object" ? limits.quietHours : null,
+    // Public launch remains approval-gated. Graduated send authority needs its
+    // own verified-recipient and daily-send policy, not a writable boolean.
+    approvalRequiredForSend: true
+  };
+}
+
 export async function getAutonomyLimits(store, userId, workerId) {
   try {
     const row = await store.queryOne(
@@ -24,7 +46,7 @@ export async function getAutonomyLimits(store, userId, workerId) {
     );
     if (!row) return { ...DEFAULT_AUTONOMY_LIMITS };
     const parsed = typeof row.limitsJson === "object" ? row.limitsJson : JSON.parse(row.limitsJson || "{}");
-    return { ...DEFAULT_AUTONOMY_LIMITS, ...parsed };
+    return normalizeAutonomyLimits(parsed);
   } catch {
     return { ...DEFAULT_AUTONOMY_LIMITS };
   }
@@ -32,7 +54,7 @@ export async function getAutonomyLimits(store, userId, workerId) {
 
 export async function saveAutonomyLimits(store, userId, workerId, limits) {
   const now = new Date().toISOString();
-  const next = { ...DEFAULT_AUTONOMY_LIMITS, ...limits };
+  const next = normalizeAutonomyLimits(limits);
   const existing = await store.queryOne(
     `SELECT id FROM mara_autonomy_limits WHERE user_id = ? AND worker_id = ?`,
     userId,
@@ -103,4 +125,24 @@ export async function assertWithinOutreachDraftLimit(store, userId, workerId) {
     throw error;
   }
   return { remaining: limits.maxOutreachDraftsPerWeek - count, limits };
+}
+
+/** One marker row is written per deep-research request, independent of provider fan-out. */
+export async function assertWithinDeepResearchLimit(store, userId, workerId) {
+  const limits = await getAutonomyLimits(store, userId, workerId);
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const row = await store.queryOne(
+    `SELECT COUNT(*) AS count FROM mara_research_provider_runs
+     WHERE user_id = ? AND worker_id = ? AND provider_name = 'ryva_deep_research_request' AND created_at >= ?`,
+    userId,
+    workerId,
+    since
+  );
+  const count = Number(row?.count || 0);
+  if (count >= limits.maxDeepResearchJobsPerWeek) {
+    const error = new Error(`Weekly deep research limit reached (${limits.maxDeepResearchJobsPerWeek}).`);
+    error.code = "MARA_DEEP_RESEARCH_LIMIT";
+    throw error;
+  }
+  return { remaining: limits.maxDeepResearchJobsPerWeek - count, limits };
 }

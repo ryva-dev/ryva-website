@@ -426,6 +426,16 @@ export async function deepResearchBrand(store, {
   insights = null,
   fetchImpl = globalThis.fetch
 }) {
+  await recordResearchProviderRun(store, {
+    userId,
+    workerId,
+    providerName: "ryva_deep_research_request",
+    researchType: "deep_brand_research",
+    query: brandName || niche || website || "unspecified brand",
+    status: "started",
+    reliability: 1,
+    observations: []
+  });
   const runs = [];
   const discovery = website
     ? await officialSiteResearchProvider({ url: website, fetchImpl })

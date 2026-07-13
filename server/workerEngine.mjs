@@ -31,7 +31,8 @@ import { findBestOutreachContact, discoverAndPersistBrandContacts, findOutreachC
 import { buildConceptFromGap, saveConceptIfNovel, markHypothesisClearly, listCreativeConcepts } from "./maraConceptEngine.mjs";
 import { listDueOutreachSequences, prepareDueFollowUpDraft, startOutreachSequence, stopOutreachSequence, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
 import { EVIDENCE_KINDS, createEvidenceItem } from "./maraEvidence.mjs";
-import { assertWithinBrandResearchLimit, assertWithinOutreachDraftLimit } from "./maraAutonomyLimits.mjs";
+import { assertWithinBrandResearchLimit, assertWithinDeepResearchLimit, assertWithinOutreachDraftLimit, getAutonomyLimits } from "./maraAutonomyLimits.mjs";
+import { getMaraActivationJourney } from "./maraActivationJourney.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -2285,6 +2286,7 @@ async function executeOpsStatusBriefTask(context) {
   const brands = await listWorkerBrands(context.store, context.userId, context.workerId);
   const inboxSnapshot = await buildInboxLeadSnapshot(context.store, context.userId, context.workerId);
   const researchToday = await countBrandResearchItemsToday(context.store, context.userId, context.workerId);
+  const autonomyLimits = await getAutonomyLimits(context.store, context.userId, context.workerId);
 
   const structuredContent = {
     approvalQueue: approvals.map((entry) => entry.title),
@@ -2293,7 +2295,7 @@ async function executeOpsStatusBriefTask(context) {
     inboxSummary: inboxSnapshot.items?.slice(0, 4).map((item) => `${item.brandName}: ${item.status}`) ?? [],
     nextRunnableTasks: runnableTasks.slice(0, 4).map((entry) => entry.title),
     researchUsedToday: researchToday,
-    researchRemainingToday: Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - researchToday),
+    researchRemainingToday: Math.max(0, autonomyLimits.maxBrandsResearchedPerDay - researchToday),
     risks: [
       approvals.length > 0 ? `${approvals.length} approval(s) are blocking external or sensitive work.` : null,
       blockedTasks.length > 0 ? `${blockedTasks.length} task(s) are blocked on permissions or missing input.` : null,
@@ -3205,7 +3207,7 @@ async function safeSelectAll(store, query, params = []) {
   }
 }
 
-function buildResearchSnapshot(db, userId, workerId, researchItems) {
+function buildResearchSnapshot(db, userId, workerId, researchItems, dailyCap = MARA_DAILY_BRAND_RESEARCH_LIMIT) {
   const todayThreshold = startOfUtcDayIso();
   const todaysResearch = researchItems
     .filter((item) => String(item.createdAt || "") >= todayThreshold)
@@ -3219,7 +3221,7 @@ function buildResearchSnapshot(db, userId, workerId, researchItems) {
       summary: String(item.summary || "").trim(),
       title: item.topic
     })).slice(0, 5),
-    dailyCap: MARA_DAILY_BRAND_RESEARCH_LIMIT,
+    dailyCap,
     redditSignalsToday: redditSignals.map((item) => ({
       id: item.id,
       summary: String(item.summary || "").trim(),
@@ -3361,7 +3363,8 @@ async function runMaraBrandResearchCycle({
   workerKnowledge
 }) {
   const todayCount = await countBrandResearchItemsToday(store, userId, workerId);
-  const remaining = Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - todayCount);
+  const autonomyLimits = await getAutonomyLimits(store, userId, workerId);
+  const remaining = Math.max(0, autonomyLimits.maxBrandsResearchedPerDay - todayCount);
   if (remaining === 0) {
     return { note: "Daily brand research cap reached." };
   }
@@ -3939,6 +3942,7 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
     case "deep_brand_research": {
       try {
         await assertWithinBrandResearchLimit(store, userId, workerId);
+        await assertWithinDeepResearchLimit(store, userId, workerId);
       } catch (error) {
         summary.notes.push(error.message);
         return;
@@ -5340,7 +5344,8 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   const approvals = (await listApprovalRequests(store, userId, workerId)).filter((request) => request.status === "pending");
   const recurringResponsibilities = await listRecurringResponsibilities(store, userId, workerId);
   const researchItems = await listResearchItems(store, userId, workerId);
-  const researchSnapshot = buildResearchSnapshot(store, userId, workerId, researchItems);
+  const autonomyLimits = await getAutonomyLimits(store, userId, workerId);
+  const researchSnapshot = buildResearchSnapshot(store, userId, workerId, researchItems, autonomyLimits.maxBrandsResearchedPerDay);
   const inboxLeadSnapshot = await buildInboxLeadSnapshot(store, userId, workerId);
   const permissions = await getWorkerPermissions(store, userId, workerId);
   const whatMaraKnows = typeof readKnowledgeSections === "function" ? await readKnowledgeSections(userId, workerId) : [];
@@ -5585,6 +5590,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   let outreachReadyQueue = [];
   let commercialBriefing = null;
   let bookOfBusiness = [];
+  let activationJourney = null;
   try {
     await initMaraIntelligence(store);
     commercialNorthStar = await getRevenueInfluenceMetrics(store, userId, workerId);
@@ -5604,12 +5610,14 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     const { listBookOfBusiness } = await import("./maraOpportunityStateEngine.mjs");
     commercialBriefing = await buildCommercialReturnBriefing(store, userId, workerId, { sinceHours: 72 });
     bookOfBusiness = await listBookOfBusiness(store, userId, workerId, { limit: 20 });
+    activationJourney = await getMaraActivationJourney(store, userId, workerId);
   } catch {
     /* growth intel tables may be unavailable in light stores */
   }
 
   return {
     blockedTasks: blockedTaskDetails,
+    activationJourney,
     completedTasks,
     completedWork: workerOutputs,
     commercialNorthStar,

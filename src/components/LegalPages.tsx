@@ -57,6 +57,15 @@ function Privacy({ supportEmail }: { supportEmail?: string | null }) {
         token at the provider.
       </p>
 
+      <h2>Retention and deletion</h2>
+      <p>
+        We retain account and worker data while your account is active so your workers can maintain
+        context and work history. Account deletion removes active records and stored tenant files.
+        Encrypted disaster-recovery backups may retain deleted records for up to 28 days before aging
+        out; they are not used for ordinary product access and would only be restored for disaster recovery.
+        Legal, fraud-prevention, or billing records may be retained longer when required by law.
+      </p>
+
       <h2>Contact</h2>
       <p>
         Privacy questions: <a href={`mailto:${contact}`}>{contact}</a> ({COMPANY}).
@@ -90,7 +99,9 @@ function Terms({ supportEmail }: { supportEmail?: string | null }) {
       <p>
         Paid workers are billed as recurring subscriptions through Stripe at the salary shown at
         hire. You can manage or cancel billing from Settings. If a subscription lapses, that worker&apos;s
-        background work pauses until billing is restored.
+        background work pauses until billing is restored. Cancellation stops future renewals but does
+        not automatically refund the current billing period. Contact {contact} promptly for duplicate
+        charges, billing errors, or refund requests; applicable consumer-law rights still apply.
       </p>
 
       <h2>Acceptable use</h2>

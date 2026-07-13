@@ -10,7 +10,7 @@ import { createAnthropicMessage, isMaraLlmConfigured, parseJsonFromLlmText } fro
 import { SHARED_AGENT_OUTPUT_RULES, getRoleTaskType } from "./roles.mjs";
 // Budget accounting now lives in the shared llmBudget module (single source of
 // truth across every Anthropic path). Re-exported for existing importers.
-import { canSpend, llmBudgetRemaining, noteSpend, recordLlmCall } from "./llmBudget.mjs";
+import { canSpend, llmBudgetRemaining, recordLlmCall } from "./llmBudget.mjs";
 
 export { llmBudgetRemaining, recordLlmCall };
 
@@ -37,7 +37,6 @@ async function budgetedMessage(db, userId, params) {
     return null;
   }
   const text = await createAnthropicMessage({ model: AGENT_MODEL, ...params });
-  await noteSpend(userId);
   return text;
 }
 

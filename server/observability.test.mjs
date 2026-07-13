@@ -31,8 +31,11 @@ const prodBase = {
   STRIPE_WEBHOOK_SECRET: "whsec_example",
   GOOGLE_CLIENT_ID: "google-client",
   GOOGLE_CLIENT_SECRET: "google-secret",
+  SMTP_HOST: "smtp.example.com",
   MARA_DISABLE_VIDEO_QA: "1",
   METRICS_TOKEN: "metrics-secret",
+  SUPPORT_EMAIL: "support@example.com",
+  AUTONOMY_SCHEDULER_ENABLED: "0",
   SESSION_SECRET: undefined
 };
 
@@ -76,15 +79,18 @@ test("production requires Stripe for paying strangers", () => {
   );
 });
 
-test("production requires Google OAuth or SMTP for signup", () => {
+test("production requires both Google OAuth and SMTP for advertised customer paths", () => {
   withEnvironment(
     {
       ...prodBase,
       GOOGLE_CLIENT_ID: undefined,
-      GOOGLE_CLIENT_SECRET: undefined,
-      SMTP_HOST: undefined
+      GOOGLE_CLIENT_SECRET: undefined
     },
-    () => assert.throws(validateConfig, /Google OAuth|SMTP_HOST/)
+    () => assert.throws(validateConfig, /GOOGLE_CLIENT_ID/)
+  );
+  withEnvironment(
+    { ...prodBase, SMTP_HOST: undefined },
+    () => assert.throws(validateConfig, /SMTP_HOST/)
   );
 });
 
@@ -97,6 +103,27 @@ test("production refuses mock video QA unless disabled", () => {
       MARA_MULTIMODAL_PROVIDER: "mock"
     },
     () => assert.throws(validateConfig, /video QA|MARA_DISABLE_VIDEO_QA/)
+  );
+});
+
+test("production requires a monitored support contact", () => {
+  withEnvironment(
+    { ...prodBase, SUPPORT_EMAIL: undefined },
+    () => assert.throws(validateConfig, /SUPPORT_EMAIL/)
+  );
+});
+
+test("production requires explicit autonomy scheduler ownership", () => {
+  withEnvironment(
+    { ...prodBase, AUTONOMY_SCHEDULER_ENABLED: undefined },
+    () => assert.throws(validateConfig, /AUTONOMY_SCHEDULER_ENABLED/)
+  );
+});
+
+test("production requires authenticated metrics for launch monitoring", () => {
+  withEnvironment(
+    { ...prodBase, METRICS_TOKEN: undefined },
+    () => assert.throws(validateConfig, /METRICS_TOKEN/)
   );
 });
 

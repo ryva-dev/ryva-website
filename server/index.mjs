@@ -8,6 +8,7 @@ import { promises as fs } from "node:fs";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Stripe from "stripe";
+import { validateConfiguredPrice } from "./billingPricePolicy.mjs";
 import { fileURLToPath } from "node:url";
 import { db, ensureOfficeSchema } from "./db.mjs";
 import { sendTransactionalEmail } from "./mailer.mjs";
@@ -159,6 +160,7 @@ const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const host = process.env.HOST ?? "0.0.0.0";
 const MARA_SLUG = "mara-vale";
 const maraAutonomyIntervalMinutes = Number.parseInt(process.env.MARA_AUTONOMY_INTERVAL_MINUTES ?? "15", 10);
+const autonomySchedulerEnabled = String(process.env.AUTONOMY_SCHEDULER_ENABLED ?? (isProduction ? "0" : "1")).trim() === "1";
 let maraAutonomyTimer = null;
 let maraAutonomyRunning = false;
 const jobLeaseOwner = `${host}:${port}:${process.pid}:${randomUUID()}`;
@@ -217,7 +219,7 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: ["'self'"],
         fontSrc: ["'self'", "data:", "https:"],
@@ -266,12 +268,11 @@ function requireMetricsAuth(req, res, next) {
   }
   const header = String(req.headers.authorization ?? "");
   const bearer = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : "";
-  const queryToken = String(req.query?.token ?? "").trim();
   const matches = (value) => {
     if (!value || value.length !== expected.length) return false;
     return timingSafeEqual(Buffer.from(value), Buffer.from(expected));
   };
-  if (matches(bearer) || matches(queryToken)) {
+  if (matches(bearer)) {
     next();
     return;
   }
@@ -348,14 +349,12 @@ const onboardingLimiter = rateLimit({
   message: { error: "Too many onboarding requests. Please try again shortly." }
 });
 
-const durableRateLimitStore = createDurableRateLimitStore(jobStore, { windowMs: 10 * 60 * 1000 });
-
 const expensiveApiLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  store: durableRateLimitStore,
+  store: createDurableRateLimitStore(jobStore, { windowMs: 10 * 60 * 1000 }),
   keyGenerator: (req) => rateLimitKeyForRequest(req, "expensive"),
   validate: { keyGeneratorIpFallback: false },
   message: { error: "Too many requests for this action. Please try again shortly." }
@@ -366,7 +365,7 @@ const llmHeavyLimiter = rateLimit({
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  store: durableRateLimitStore,
+  store: createDurableRateLimitStore(jobStore, { windowMs: 10 * 60 * 1000 }),
   keyGenerator: (req) => rateLimitKeyForRequest(req, "llm"),
   validate: { keyGeneratorIpFallback: false },
   message: { error: "LLM budget throttle: slow down and retry shortly." }
@@ -3776,11 +3775,24 @@ async function generateOfficeWorkerReply(userId, worker, text) {
   });
 }
 
-async function cleanupExpiredRecords() {
+let expiredRecordCleanupAt = 0;
+let expiredRecordCleanupPromise = null;
+async function cleanupExpiredRecords({ force = false } = {}) {
+  const nowMs = Date.now();
+  if (!force && nowMs - expiredRecordCleanupAt < 15 * 60 * 1000) return;
+  if (expiredRecordCleanupPromise) return expiredRecordCleanupPromise;
+  expiredRecordCleanupPromise = (async () => {
   const now = nowIso();
   await authStore.execute("DELETE FROM sessions WHERE expires_at < ?", now);
   await authStore.execute("DELETE FROM email_verification_tokens WHERE expires_at < ? OR consumed_at IS NOT NULL", now);
   await authStore.execute("DELETE FROM password_reset_tokens WHERE expires_at < ? OR consumed_at IS NOT NULL", now);
+    expiredRecordCleanupAt = Date.now();
+  })();
+  try {
+    await expiredRecordCleanupPromise;
+  } finally {
+    expiredRecordCleanupPromise = null;
+  }
 }
 
 function safeEqualStrings(left, right) {
@@ -3844,6 +3856,11 @@ function assertOrigin(req, res, next) {
     } catch {
       requestOrigin = null;
     }
+  }
+
+  if (!requestOrigin && isProduction) {
+    res.status(403).json({ error: "Missing request origin." });
+    return;
   }
 
   if (requestOrigin && requestOrigin !== allowedOrigin) {
@@ -4378,15 +4395,18 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
                   : null;
                 if (opp?.id) {
                   const { findBestOutreachContact } = await import("./maraContactDiscovery.mjs");
+                  const { getAutonomyLimits } = await import("./maraAutonomyLimits.mjs");
                   const contact = opp.publicBrandId
                     ? await findBestOutreachContact(professionalStore, req.user.id, workerSlug, opp.publicBrandId)
                     : null;
+                  const autonomyLimits = await getAutonomyLimits(professionalStore, req.user.id, workerSlug);
                   await startOutreachSequence(professionalStore, {
                     userId: req.user.id,
                     workerId: workerSlug,
                     opportunityId: opp.id,
                     publicBrandId: opp.publicBrandId || null,
-                    contactId: contact?.id || null
+                    contactId: contact?.id || null,
+                    maxAttempts: autonomyLimits.maxFollowUpAttempts
                   });
                 }
               }
@@ -4538,8 +4558,8 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, ex
   try {
     let summary;
     if (isMaraWorker(workerSlug)) {
-      // Fast interactive pass now; heavy work (research, inbox) continues in
-      // the background so the request stays responsive.
+      // Fast interactive pass now. Heavy work is queued durably so a deploy or
+      // process restart cannot silently discard the manager's requested run.
       summary = await runMaraAutonomyCycle({
         store: maraStore,
         mode: "interactive",
@@ -4548,23 +4568,22 @@ app.post("/api/office/workers/:slug/autonomy/run", assertOrigin, requireAuth, ex
         ...buildMaraExecutionReaders()
       });
       await syncMaraOperationalRecords(req.user.id, workerSlug);
-      void runMaraAutonomyCycle({
-        store: maraStore,
-        mode: "full",
+      const queuedFullRun = await enqueueJob(jobStore, {
+        kind: "worker_autonomy",
         userId: req.user.id,
         workerId: workerSlug,
-        ...buildMaraExecutionReaders()
-      })
-        .then(async (fullSummary) => {
-          await syncMaraOperationalRecords(req.user.id, workerSlug);
-          const fullOutputIds = Array.isArray(fullSummary?.outputs)
-            ? fullSummary.outputs.map((output) => output?.id).filter(Boolean)
-            : [];
-          if (fullOutputIds.length > 0) {
-            await syncMaraGmailDraftsForOutputs(req.user.id, workerSlug, fullOutputIds);
-          }
-        })
-        .catch((error) => logCaught("Background full autonomy run failed:", error));
+        payload: { requestedBy: "manager", requestedAt: nowIso() },
+        idempotencyKey: `manager_autonomy:${req.user.id}:${workerSlug}:${randomUUID()}`
+      });
+      summary.notes = [
+        ...(Array.isArray(summary.notes) ? summary.notes : []),
+        `Full research run queued as ${queuedFullRun.id}.`
+      ];
+      // Wake the consumer now for responsiveness. The queued record remains
+      // recoverable by the next scheduler tick if this process exits.
+      if (autonomySchedulerEnabled) {
+        void runScheduledMaraAutonomy().catch((error) => logCaught("Queued autonomy wake failed:", error));
+      }
     } else {
       summary = await runAgentAutonomyCycle({
         store: agentStore,
@@ -5709,6 +5728,21 @@ app.post("/api/payments/checkout", checkoutLimiter, assertOrigin, requireAuth, a
 
   const priceEnvKey = `STRIPE_PRICE_ID_${String(worker.slug).toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
   const configuredPriceId = String(process.env[priceEnvKey] || process.env.STRIPE_PRICE_ID || "").trim();
+  if (configuredPriceId) {
+    try {
+      const configuredPrice = await stripe.prices.retrieve(configuredPriceId);
+      const validation = validateConfiguredPrice(configuredPrice, { expectedAmountCents: unitAmount });
+      if (!validation.valid) {
+        res.status(503).json({ error: "Checkout is temporarily unavailable because billing configuration does not match the displayed price. Support has been notified." });
+        log.error("stripe_price_mismatch", { workerSlug: worker.slug, configuredPriceId, reasons: validation.reasons });
+        return;
+      }
+    } catch (error) {
+      log.error("stripe_price_lookup_failed", { workerSlug: worker.slug, configuredPriceId, error: error?.message });
+      res.status(503).json({ error: "Checkout is temporarily unavailable while billing configuration is verified." });
+      return;
+    }
+  }
   const lineItems = configuredPriceId
     ? [{ price: configuredPriceId, quantity: 1 }]
     : [
@@ -7197,6 +7231,8 @@ app.post("/api/office/workers/:slug/research/deep", assertOrigin, requireAuth, l
     return;
   }
   try {
+    const { assertWithinDeepResearchLimit } = await import("./maraAutonomyLimits.mjs");
+    await assertWithinDeepResearchLimit(professionalStore, req.user.id, workerSlug);
     const research = await deepResearchBrand(professionalStore, {
       userId: req.user.id,
       workerId: workerSlug,
@@ -7456,13 +7492,19 @@ app.post("/api/office/workers/:slug/outreach/sequences", assertOrigin, requireAu
     return;
   }
   try {
+    const { getAutonomyLimits } = await import("./maraAutonomyLimits.mjs");
+    const autonomyLimits = await getAutonomyLimits(professionalStore, req.user.id, workerSlug);
+    const requestedAttempts = Number.parseInt(req.body?.maxAttempts, 10);
+    const maxAttempts = Number.isFinite(requestedAttempts)
+      ? Math.min(autonomyLimits.maxFollowUpAttempts, Math.max(0, requestedAttempts))
+      : autonomyLimits.maxFollowUpAttempts;
     const result = await startOutreachSequence(professionalStore, {
       userId: req.user.id,
       workerId: workerSlug,
       opportunityId: req.body?.opportunityId,
       publicBrandId: req.body?.publicBrandId,
       contactId: req.body?.contactId,
-      maxAttempts: req.body?.maxAttempts
+      maxAttempts
     });
     res.status(201).json({ ok: true, ...result });
   } catch (error) {
@@ -7665,13 +7707,15 @@ app.use(errorHandler(isProduction));
 
 const server = app.listen(port, host, () => {
   log.info("server_listening", { url: `http://${host}:${port}` });
-  if (maraAutonomyIntervalMinutes > 0) {
+  if (autonomySchedulerEnabled && maraAutonomyIntervalMinutes > 0) {
     const intervalMs = maraAutonomyIntervalMinutes * 60 * 1000;
     maraAutonomyTimer = setInterval(() => {
       void runScheduledMaraAutonomy();
     }, intervalMs);
     void runScheduledMaraAutonomy();
     log.info("autonomy_scheduler_enabled", { minutes: maraAutonomyIntervalMinutes });
+  } else {
+    log.info("autonomy_scheduler_disabled", { configured: autonomySchedulerEnabled, minutes: maraAutonomyIntervalMinutes });
   }
 });
 

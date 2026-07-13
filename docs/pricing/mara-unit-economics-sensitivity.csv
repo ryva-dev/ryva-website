@@ -1,0 +1,15 @@
+factor,value,typical_cts
+llm_price_multiplier,0.75,33.12
+llm_price_multiplier,1,39.7
+llm_price_multiplier,1.25,46.29
+brands_per_weekday,5,39.7
+brands_per_weekday,10,44.16
+brands_per_weekday,30,61.98
+video_minutes,0,39.42
+video_minutes,5,39.49
+video_minutes,20,39.7
+video_minutes,60,40.36
+hunter_cost_per_search,0.02,36.5
+hunter_cost_per_search,0.1,39.7
+hunter_cost_per_search,0.25,45.7
+hunter_cost_per_search,0.5,55.7

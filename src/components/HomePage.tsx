@@ -7,6 +7,7 @@ type HomePageProps = {
   onOpenAuth: () => void;
   onOpenGoogleAuth?: () => void;
   workers: Worker[];
+  supportEmail?: string | null;
 };
 
 const prefersReducedMotion = () =>
@@ -46,16 +47,16 @@ type DemoItem = { id: number; title: string; body: string; who: string; entering
 
 const DEMO_INITIAL: DemoItem[] = [
   {
-    body: "Closed 90-day usage at $850 against an $1,100 ask. Ready to send.",
+    body: "Prepared a 90-day usage counter at $850 against an $1,100 ask. Ready for review.",
     id: 1,
     title: "Contract — Delaney Cruz, $850/post",
-    who: "Mara Vale"
+    who: "Sloane Pierce"
   },
   {
     body: "6 verified from 41 applicants. Two removed for purchased followers.",
     id: 2,
     title: "Creator shortlist — Velo Apparel",
-    who: "Mara Vale"
+    who: "Etta Marsh"
   },
   {
     body: "License lapses in 9 days; they're still running two assets as paid ads.",
@@ -178,7 +179,7 @@ function OfficeDemo() {
   );
 }
 
-export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps) {
+export function HomePage({ onBrowseWorkers, onOpenAuth, workers, supportEmail }: HomePageProps) {
   useReveal();
 
   const roster = workers.slice(0, 4);
@@ -276,8 +277,8 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
           </button>
         </div>
         <p className="mk-sec-line r-reveal">
-          Every worker on Ryva holds a real role, with a track record, a salary, and a defined seniority. Some are
-          open to hire. Some aren&apos;t — good talent books up.
+          Every worker on Ryva has a defined role, salary, seniority, work products, and operating boundaries. Some
+          are open to hire. Some aren&apos;t.
         </p>
         <div className="r-roster mk-roster">
           {roster.map((worker, index) => {
@@ -333,17 +334,17 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
         <MockWindow url="ryva.com/interview/mara-vale" className="r-reveal">
           <div className="mk-thread">
             <div className="mk-msg you">
-              A creator ghosts mid-campaign with deliverables due Friday. Walk me through your first hour.
+              A skincare brand asks for perpetual paid usage but gives no budget. Walk me through your first hour.
             </div>
             <div className="mk-msg">
               <WorkerMark seed="mara-vale" size={24} active />
               <span>
-                First, confirm the gap is real — silence isn&apos;t always a ghost. Then activate the backup roster I
-                keep warm for exactly this, and draft the client note you&apos;d want sent before they ask.
+                I&apos;d flag perpetual usage as the commercial risk, separate creation from licensing, check your stored
+                rate floor, and prepare a time-bounded counter with the missing budget question for your approval.
               </span>
             </div>
             <div className="mk-chips">
-              <span>How do you handle lowball offers?</span>
+              <span>How do you qualify brands?</span>
               <span>What do you escalate to me?</span>
             </div>
           </div>
@@ -541,7 +542,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
         >
           Meet Mara
         </button>
-        <p className="mk-fine r-reveal">No card required to interview. Mara is $40/mo after hire.</p>
+        <p className="mk-fine r-reveal">No card required to interview. Mara is $79/mo after hire.</p>
         <button className="mk-link r-reveal" type="button" onClick={onOpenAuth} style={{ marginTop: 8 }}>
           or sign in to your office →
         </button>
@@ -565,8 +566,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
           <div>
             <b>Company</b>
             <a href="#about">About</a>
-            <a href="#about">Careers</a>
-            <a href="#privacy">Contact</a>
+            <a href={supportEmail ? `mailto:${supportEmail}` : "#privacy"}>Contact</a>
           </div>
           <div>
             <b>Legal</b>
@@ -577,10 +577,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers }: HomePageProps
         </div>
         <div className="mk-footer-base">
           <span>© {new Date().getFullYear()} Ryva Forge, LLC</span>
-          <span className="status">
-            <i />
-            All systems normal
-          </span>
+          <span>Approval-controlled AI work</span>
         </div>
       </footer>
     </div>
