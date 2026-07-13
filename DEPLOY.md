@@ -19,7 +19,7 @@ The image builds the frontend (`npm run build`), runs idempotent migrations when
 | Variable | Purpose |
 |----------|---------|
 | `DATABASE_URL` | Postgres connection string (required in production). |
-| `PGSSL` | Set `disable` for local Postgres without TLS. Managed hosts keep certificate verification. |
+| `PGSSL` | Default `verify-full`. Use `require` for Railway/self-signed managed certificates (TLS stays encrypted); use `disable` only for local Postgres without TLS. |
 | `ENCRYPTION_KEY` | 32-byte key (64 hex chars) encrypting OAuth tokens at rest. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `ANTHROPIC_API_KEY` | AI provider key; without it workers emit honest placeholders. |
 | `APP_URL` | Public base URL (OAuth redirects and links). |

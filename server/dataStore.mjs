@@ -22,6 +22,8 @@
 //     during the cutover: `INSERT OR REPLACE/IGNORE` (-> ON CONFLICT),
 //     `lower(hex(randomblob(16)))` (-> gen_random_uuid()), `strftime`/`datetime`.
 
+import { resolvePostgresSsl } from "./postgresSsl.mjs";
+
 /** Translate better-sqlite3 style `?` placeholders into Postgres `$1, $2, …`. */
 export function toPgPlaceholders(sql) {
   const source = String(sql);
@@ -103,12 +105,9 @@ async function createPostgresDriver(options) {
   const { Pool } = pg;
 
   const connectionString = String(options.databaseUrl ?? process.env.DATABASE_URL ?? "").trim();
-  const sslMode = String(process.env.PGSSL ?? "verify-full").trim().toLowerCase();
   const pool = new Pool({
     connectionString,
-    // Production defaults to certificate verification. Local development may
-    // explicitly opt out with PGSSL=disable.
-    ssl: sslMode === "disable" ? false : { rejectUnauthorized: true },
+    ssl: resolvePostgresSsl(),
     max: Number.parseInt(process.env.PG_POOL_MAX ?? "10", 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000

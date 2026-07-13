@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { resolvePostgresSsl } from "./postgresSsl.mjs";
 
 const { Pool } = pg;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,10 +19,9 @@ function makePool() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set — nothing to migrate. (SQLite dev needs no migrations.)");
   }
-  const sslDisabled = String(process.env.PGSSL ?? "").trim().toLowerCase() === "disable";
   return new Pool({
     connectionString,
-    ssl: sslDisabled ? false : { rejectUnauthorized: false }
+    ssl: resolvePostgresSsl()
   });
 }
 
