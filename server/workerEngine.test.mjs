@@ -744,6 +744,20 @@ test("worker output query preserves camel-case aliases on PostgreSQL", async () 
   assert.match(sql, /AS "createdAt"/);
 });
 
+test("worker task query preserves evidence and permission aliases on PostgreSQL", async () => {
+  let sql = "";
+  const store = {
+    async query(statement) {
+      sql = statement;
+      return [];
+    }
+  };
+  await listWorkerTasksForUserWorker(store, "user-1", MARA_WORKER_ID);
+  assert.match(sql, /AS "evidenceUsedJson"/);
+  assert.match(sql, /AS "requiredPermissionsJson"/);
+  assert.match(sql, /AS "taskType"/);
+});
+
 test("worker brand queries preserve camel-case aliases on PostgreSQL", async () => {
   let sql = "";
   const store = { query: async (query) => { sql = query; return []; } };

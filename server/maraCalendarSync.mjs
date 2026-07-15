@@ -449,21 +449,24 @@ export async function persistCalendarEvents(store, {
   randomId = () => randomUUID()
 }) {
   let created = 0;
+  const taggedSources = new Set(
+    events
+      .filter((event) => event.sourceOutputId)
+      .map((event) => `[mara:${event.sourceKind}:${event.sourceOutputId}]%`)
+  );
+  for (const prefix of taggedSources) {
+    await store.execute(
+      `DELETE FROM office_calendar_events
+       WHERE user_id = ? AND worker_slug = ? AND notes LIKE ?`,
+      userId,
+      workerSlug,
+      prefix
+    );
+  }
   for (const event of events) {
     const notes = event.sourceOutputId
       ? `[mara:${event.sourceKind}:${event.sourceOutputId}] ${event.notes || ""}`.trim()
       : event.notes || "";
-    // Drop prior copies for this output+title+start so re-harvest is safe.
-    if (event.sourceOutputId) {
-      await store.execute(
-        `DELETE FROM office_calendar_events
-         WHERE user_id = ? AND worker_slug = ? AND starts_at = ? AND notes LIKE ?`,
-        userId,
-        workerSlug,
-        event.startsAt,
-        `[mara:${event.sourceKind}:${event.sourceOutputId}]%`
-      );
-    }
     await store.execute(
       `INSERT INTO office_calendar_events
         (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)

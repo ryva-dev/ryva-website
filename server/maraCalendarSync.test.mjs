@@ -11,6 +11,7 @@ import {
   extractDayAnchoredActions,
   harvestWeeklyOutputToCalendar,
   inferWeeklyPlanRange,
+  persistCalendarEvents,
   stampCalendarHarvest
 } from "./maraCalendarSync.mjs";
 
@@ -218,6 +219,28 @@ test("harvestWeeklyOutputToCalendar persists plan events idempotently", async ()
   assert.equal(second.created, 0);
   const after = await store.query(`SELECT title FROM office_calendar_events WHERE user_id = ?`, "u1");
   assert.equal(after.length, rows.length);
+});
+
+test("re-persisting one output replaces all stale events from that output", async () => {
+  const store = makeStore();
+  const common = { sourceOutputId: "repair-1", sourceKind: "weekly_plan", eventType: "Focus", notes: "" };
+  await persistCalendarEvents(store, {
+    userId: "u1",
+    workerSlug: "mara-vale",
+    events: [
+      { ...common, title: "old Tuesday", startsAt: "2026-07-21T13:00:00.000Z", endsAt: "2026-07-21T13:45:00.000Z" },
+      { ...common, title: "old Wednesday", startsAt: "2026-07-22T13:00:00.000Z", endsAt: "2026-07-22T13:45:00.000Z" }
+    ]
+  });
+  await persistCalendarEvents(store, {
+    userId: "u1",
+    workerSlug: "mara-vale",
+    events: [
+      { ...common, title: "current Wednesday", startsAt: "2026-07-15T20:30:00.000Z", endsAt: "2026-07-15T21:15:00.000Z" }
+    ]
+  });
+  const rows = await store.query(`SELECT title FROM office_calendar_events WHERE user_id = ?`, "u1");
+  assert.deepEqual(rows.map((row) => row.title), ["current Wednesday"]);
 });
 
 test("a new weekly plan replaces only Mara's older future plan blocks", async () => {

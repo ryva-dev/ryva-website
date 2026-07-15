@@ -1067,9 +1067,9 @@ function pickHighestPriorityTask(tasks) {
 
 export async function listWorkerTasksForUserWorker(store, userId, workerId) {
   const rows = await store.query(
-    `SELECT id, user_id AS userId, worker_id AS workerId, title, description, source, status, priority,
-            due_at AS dueAt, required_permissions_json AS requiredPermissionsJson, evidence_used_json AS evidenceUsedJson,
-            output, task_type AS taskType, target_brand_id AS targetBrandId, created_at AS createdAt, updated_at AS updatedAt
+    `SELECT id, user_id AS "userId", worker_id AS "workerId", title, description, source, status, priority,
+            due_at AS "dueAt", required_permissions_json AS "requiredPermissionsJson", evidence_used_json AS "evidenceUsedJson",
+            output, task_type AS "taskType", target_brand_id AS "targetBrandId", created_at AS "createdAt", updated_at AS "updatedAt"
      FROM worker_tasks
      WHERE user_id = ? AND worker_id = ?
      ORDER BY created_at DESC`,

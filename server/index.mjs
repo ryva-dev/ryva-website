@@ -2222,10 +2222,10 @@ async function syncInboxThreadsToCampaigns(userId, workerSlug) {
  * each output is harvested exactly once (or retried until events land).
  */
 async function harvestMaraOutputSideEffects(userId, workerSlug) {
-  const { harvestWeeklyOutputToCalendar } = await import("./maraCalendarSync.mjs");
+  const { harvestWeeklyOutputToCalendar, inferWeeklyPlanRange } = await import("./maraCalendarSync.mjs");
   const recentThreshold = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
   const rows = await authStore.query(
-    `SELECT id, output_type AS "outputType", structured_content_json AS "structuredContentJson"
+    `SELECT id, task_id AS "taskId", output_type AS "outputType", structured_content_json AS "structuredContentJson"
      FROM worker_outputs
      WHERE user_id = ? AND worker_id = ? AND created_at >= ? AND output_type IN ('market_pulse', 'weekly_schedule', 'weekly_plan')`,
     userId, workerSlug, recentThreshold);
@@ -2252,6 +2252,27 @@ async function harvestMaraOutputSideEffects(userId, workerSlug) {
     }
 
     if (row.outputType === "weekly_schedule" || row.outputType === "weekly_plan") {
+      let timeZone = String(process.env.APP_TIME_ZONE || "America/New_York");
+      try {
+        const settingsRow = await authStore.queryOne(`SELECT settings_json AS "settingsJson" FROM office_global_settings WHERE user_id = ?`, userId);
+        const settings = parseJson(settingsRow?.settingsJson, {});
+        timeZone = String(settings.timezone || timeZone);
+      } catch {
+        /* default timezone remains available */
+      }
+      if (row.outputType === "weekly_plan" && (!structured.planStartDate || !structured.planEndDate) && row.taskId) {
+        const taskRow = await authStore.queryOne(
+          `SELECT evidence_used_json AS "evidenceUsedJson" FROM worker_tasks WHERE id = ? AND user_id = ? AND worker_id = ?`,
+          row.taskId, userId, workerSlug
+        );
+        const range = inferWeeklyPlanRange(parseJson(taskRow?.evidenceUsedJson, []).join("\n"), { timeZone });
+        if (range) {
+          Object.assign(structured, range);
+          delete structured.calendarSyncedAt;
+          delete structured.calendarEventsCreated;
+          changed = true;
+        }
+      }
       // A sync stamp without any persisted event is not success. This can
       // happen after an interrupted deploy or an earlier calendar bug. Clear
       // the stale stamp so the idempotent harvester repairs the calendar.
@@ -2274,7 +2295,8 @@ async function harvestMaraOutputSideEffects(userId, workerSlug) {
           outputId: row.id,
           outputType: row.outputType,
           structured,
-          createActivityLog: (payload) => createWorkerActivityLog(maraStore, payload)
+          createActivityLog: (payload) => createWorkerActivityLog(maraStore, payload),
+          timeZone
         });
         Object.assign(structured, harvested.structured || {});
         changed = true;
