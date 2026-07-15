@@ -9,8 +9,22 @@ import {
   ensureWeeklyScheduleCalendarReady,
   extractDayAnchoredActions,
   harvestWeeklyOutputToCalendar,
+  inferWeeklyPlanRange,
   stampCalendarHarvest
 } from "./maraCalendarSync.mjs";
+
+function localClock(date, timeZone) {
+  return Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date).map((part) => [part.type, part.value]));
+}
 
 function makeStore() {
   const db = new Database(":memory:");
@@ -61,6 +75,32 @@ test("buildEventsFromWeeklyPlan creates focus blocks for day-anchored lines", ()
   assert.equal(events[0].eventType, "Focus");
 });
 
+test("a midweek through-Sunday request stays in the current week and uses the creator timezone", () => {
+  const now = new Date("2026-07-15T18:50:00.000Z"); // Wednesday 2:50 PM in New York
+  const range = inferWeeklyPlanRange("Create a weekly plan for this week up until Sunday", {
+    now,
+    timeZone: "America/New_York"
+  });
+  assert.deepEqual(range, {
+    planStartDate: "2026-07-15",
+    planEndDate: "2026-07-19",
+    timeZone: "America/New_York"
+  });
+  const { events } = buildEventsFromWeeklyPlan({
+    ...range,
+    dailySuggestedActions: [
+      "Wednesday: choose this week's revenue priority",
+      "Thursday: prepare two reachable-brand pitches",
+      "Friday: film one portfolio proof piece",
+      "Saturday: edit and review the proof piece",
+      "Sunday: review outcomes and set next steps"
+    ]
+  }, { now, outputId: "range-1", timeZone: range.timeZone });
+  assert.equal(events.length, 5);
+  assert.deepEqual(events.map((event) => localClock(new Date(event.startsAt), range.timeZone).day), ["15", "16", "17", "18", "19"]);
+  assert.equal(localClock(new Date(events[1].startsAt), range.timeZone).hour, "09");
+});
+
 test("LLM weekly_plan without day prefixes still yields calendar events", () => {
   const { events, structured } = buildEventsFromWeeklyPlan(
     {
@@ -93,6 +133,17 @@ test("buildEventsFromWeeklySchedule places timed blocks on calendar", () => {
   assert.equal(events[0].title, "Filming");
   assert.equal(new Date(events[0].startsAt).getDay(), 2);
   assert.equal(new Date(events[0].startsAt).getHours(), 10);
+});
+
+test("weekly schedule times are interpreted in the creator timezone", () => {
+  const { events } = buildEventsFromWeeklySchedule({
+    blocks: [{ day: "Thursday", start: "10:00", end: "12:00", activity: "Film" }]
+  }, {
+    now: new Date("2026-07-15T18:50:00.000Z"),
+    outputId: "tz-1",
+    timeZone: "America/New_York"
+  });
+  assert.equal(localClock(new Date(events[0].startsAt), "America/New_York").hour, "10");
 });
 
 test("stampCalendarHarvest only marks synced when events were created or content was empty", () => {
@@ -139,4 +190,56 @@ test("harvestWeeklyOutputToCalendar persists plan events idempotently", async ()
   assert.equal(second.created, 0);
   const after = await store.query(`SELECT title FROM office_calendar_events WHERE user_id = ?`, "u1");
   assert.equal(after.length, rows.length);
+});
+
+test("a new weekly plan replaces only Mara's older future plan blocks", async () => {
+  const store = makeStore();
+  const now = new Date("2026-07-15T18:50:00.000Z");
+  const oldEvents = buildEventsFromWeeklyPlan({
+    planStartDate: "2026-07-15",
+    planEndDate: "2026-07-19",
+    timeZone: "America/New_York",
+    dailySuggestedActions: ["Thursday: old pitch block", "Friday: old filming block"]
+  }, { now, outputId: "old-plan", timeZone: "America/New_York" }).events;
+  await harvestWeeklyOutputToCalendar(store, {
+    userId: "u1",
+    workerSlug: "mara-vale",
+    outputId: "old-plan",
+    outputType: "weekly_plan",
+    structured: {
+      planStartDate: "2026-07-15",
+      planEndDate: "2026-07-19",
+      timeZone: "America/New_York",
+      dailySuggestedActions: ["Thursday: old pitch block", "Friday: old filming block"]
+    },
+    now,
+    timeZone: "America/New_York"
+  });
+  await store.execute(
+    `INSERT INTO office_calendar_events
+      (id, user_id, worker_slug, title, starts_at, ends_at, event_type, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    "manual-1", "u1", "mara-vale", "Creator meeting", oldEvents[0].startsAt,
+    oldEvents[0].endsAt, "Meeting", "Added by creator", now.toISOString(), now.toISOString()
+  );
+
+  await harvestWeeklyOutputToCalendar(store, {
+    userId: "u1",
+    workerSlug: "mara-vale",
+    outputId: "new-plan",
+    outputType: "weekly_plan",
+    structured: {
+      planStartDate: "2026-07-15",
+      planEndDate: "2026-07-19",
+      timeZone: "America/New_York",
+      dailySuggestedActions: ["Thursday: new revenue block", "Sunday: review outcomes"]
+    },
+    now,
+    timeZone: "America/New_York"
+  });
+
+  const rows = await store.query(`SELECT title, notes FROM office_calendar_events WHERE user_id = ? ORDER BY title`, "u1");
+  assert.deepEqual(rows.map((row) => row.title), ["Creator meeting", "new revenue block", "review outcomes"]);
+  assert.ok(rows.some((row) => row.notes === "Added by creator"));
+  assert.ok(rows.every((row) => !String(row.notes).includes("old-plan")));
 });

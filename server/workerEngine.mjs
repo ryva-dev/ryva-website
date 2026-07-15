@@ -10,7 +10,8 @@ import { isMaraLlmConfigured, tryGenerateMaraBrandContentIdeas, tryGenerateMaraP
 import {
   ensureWeeklyPlanCalendarReady,
   ensureWeeklyScheduleCalendarReady,
-  harvestWeeklyOutputToCalendar
+  harvestWeeklyOutputToCalendar,
+  inferWeeklyPlanRange
 } from "./maraCalendarSync.mjs";
 import {
   buildBrandContext,
@@ -132,6 +133,15 @@ async function tryExecuteLlmFirstMaraTask(context) {
   }
   for (const research of (context.relatedResearch || []).slice(0, 3)) {
     extraContextLines.push(`Research note — ${research.topic}: ${research.summary}`);
+  }
+  const directInstructions = (context.currentTask.evidenceUsed || [])
+    .map((entry) => String(entry || "").trim())
+    .filter((entry) => entry && !entry.startsWith("research:"));
+  if (directInstructions.length > 0) {
+    extraContextLines.push(
+      `Manager's exact request: ${directInstructions.join(" | ")}`,
+      `Current date and time: ${new Date().toISOString()}`
+    );
   }
   const task = {
     ...context.currentTask,
@@ -2851,7 +2861,17 @@ export async function runMaraTask({
     const outputType = result.outputType || TASK_TYPE_OUTPUT_TYPE_MAP[task.taskType] || "summary";
     if (outputType === "weekly_plan" || task.taskType === "weekly_action_plan") {
       result.outputType = "weekly_plan";
-      result.structuredContent = ensureWeeklyPlanCalendarReady(result.structuredContent);
+      let timeZone = String(process.env.APP_TIME_ZONE || "America/New_York");
+      try {
+        const settingsRow = await store.queryOne(`SELECT settings_json AS "settingsJson" FROM office_global_settings WHERE user_id = ?`, userId);
+        const settings = safeJsonParse(settingsRow?.settingsJson, {});
+        timeZone = String(settings.timezone || timeZone);
+      } catch {
+        /* lightweight test stores may not include office settings */
+      }
+      const requestText = (task.evidenceUsed || []).join("\n");
+      const range = inferWeeklyPlanRange(requestText, { now: new Date(), timeZone });
+      result.structuredContent = ensureWeeklyPlanCalendarReady({ ...result.structuredContent, ...(range || {}), timeZone });
     }
     if (outputType === "weekly_schedule" || task.taskType === "weekly_schedule") {
       const niche =
@@ -2880,6 +2900,14 @@ export async function runMaraTask({
     savedOutput.outputType === "weekly_schedule"
   ) {
     try {
+      let timeZone = String(savedOutput.structuredContent?.timeZone || process.env.APP_TIME_ZONE || "America/New_York");
+      try {
+        const settingsRow = await store.queryOne(`SELECT settings_json AS "settingsJson" FROM office_global_settings WHERE user_id = ?`, userId);
+        const settings = safeJsonParse(settingsRow?.settingsJson, {});
+        timeZone = String(settings.timezone || timeZone);
+      } catch {
+        /* lightweight test stores may not include office settings */
+      }
       const niche =
         context.accountContext?.niche ||
         context.workerOnboarding?.answers?.niche ||
@@ -2891,7 +2919,8 @@ export async function runMaraTask({
         outputType: savedOutput.outputType,
         structured: savedOutput.structuredContent || {},
         niche,
-        createActivityLog: (payload) => createWorkerActivityLog(store, payload)
+        createActivityLog: (payload) => createWorkerActivityLog(store, payload),
+        timeZone
       });
       if (harvested?.structured && harvested.structured !== savedOutput.structuredContent) {
         savedOutput.structuredContent = harvested.structured;

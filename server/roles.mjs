@@ -106,7 +106,7 @@ export const ROLE_CONFIGS = {
         label: "Weekly plan",
         outputType: "weekly_plan",
         description: "Concrete weekly action plan built from the creator's open tasks, pipeline, and goals. Every day-level action MUST be prefixed with the weekday (e.g. \"Monday: draft three pitches\") so Ryva can place it on the Office calendar automatically.",
-        schemaHint: '{"focusForTheWeek":"","priority":"","dailySuggestedActions":["Monday: ...","Tuesday: ...","Wednesday: ...","Thursday: ...","Friday: ..."],"topPriorities":[],"outreachPlan":[],"contentPlan":[],"adminTasks":[],"whatIWillHandleMyself":[]}'
+        schemaHint: '{"focusForTheWeek":"","priority":"","dailySuggestedActions":["Monday: ...","Tuesday: ...","Wednesday: ...","Thursday: ...","Friday: ...","Saturday: ...","Sunday: ..."],"topPriorities":[],"outreachPlan":[],"contentPlan":[],"adminTasks":[],"whatIWillHandleMyself":[]}'
       }),
       taskType("weekly_schedule", {
         label: "Weekly schedule",

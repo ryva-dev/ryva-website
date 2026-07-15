@@ -31,6 +31,65 @@ function asStringList(value) {
   return value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
 }
 
+function safeTimeZone(value) {
+  const candidate = String(value || "").trim();
+  if (!candidate) return null;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+function timezoneOffsetMinutes(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const asUtc = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day), Number(values.hour), Number(values.minute), Number(values.second));
+  return Math.round((asUtc - date.getTime()) / 60_000);
+}
+
+function localParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone, weekday: "long", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+function zonedDate(year, month, day, hour, minute, timeZone) {
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  return new Date(guess.getTime() - timezoneOffsetMinutes(guess, timeZone) * 60_000);
+}
+
+function dateKeyFromParts(parts) {
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function parseDateKey(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  return match ? { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) } : null;
+}
+
+export function inferWeeklyPlanRange(requestText, { now = new Date(), timeZone = "UTC" } = {}) {
+  const text = String(requestText || "").toLowerCase();
+  if (!/this week|weekly plan|until sunday|through sunday|up to sunday/.test(text)) return null;
+  const zone = safeTimeZone(timeZone) || "UTC";
+  const local = localParts(now, zone);
+  const weekday = DAY_INDEX[local.weekday];
+  const startToken = new Date(Date.UTC(Number(local.year), Number(local.month) - 1, Number(local.day)));
+  const endToken = new Date(startToken);
+  endToken.setUTCDate(endToken.getUTCDate() + ((7 - weekday) % 7));
+  return {
+    planStartDate: dateKeyFromParts(local),
+    planEndDate: endToken.toISOString().slice(0, 10),
+    timeZone: zone
+  };
+}
+
 /**
  * Pull "Monday: do X" lines from every string array on the structured payload.
  */
@@ -161,7 +220,21 @@ export function ensureWeeklyScheduleCalendarReady(structured = {}, { niche = "UG
   return next;
 }
 
-function nextOccurrenceForDay(now, targetDay, startHour, startMinute) {
+function nextOccurrenceForDay(now, targetDay, startHour, startMinute, timeZone = null) {
+  const zone = safeTimeZone(timeZone);
+  if (zone) {
+    const local = localParts(now, zone);
+    const currentDay = DAY_INDEX[local.weekday];
+    let delta = (targetDay - currentDay + 7) % 7;
+    let candidateToken = new Date(Date.UTC(Number(local.year), Number(local.month) - 1, Number(local.day)));
+    candidateToken.setUTCDate(candidateToken.getUTCDate() + delta);
+    let candidate = zonedDate(candidateToken.getUTCFullYear(), candidateToken.getUTCMonth() + 1, candidateToken.getUTCDate(), startHour, startMinute, zone);
+    if (candidate <= now) {
+      candidateToken.setUTCDate(candidateToken.getUTCDate() + 7);
+      candidate = zonedDate(candidateToken.getUTCFullYear(), candidateToken.getUTCMonth() + 1, candidateToken.getUTCDate(), startHour, startMinute, zone);
+    }
+    return candidate;
+  }
   const start = new Date(now);
   let delta = (targetDay - start.getDay() + 7) % 7;
   if (
@@ -176,21 +249,40 @@ function nextOccurrenceForDay(now, targetDay, startHour, startMinute) {
   return start;
 }
 
-export function buildEventsFromWeeklyPlan(structured = {}, { now = new Date(), outputId = null } = {}) {
+export function buildEventsFromWeeklyPlan(structured = {}, { now = new Date(), outputId = null, timeZone = null } = {}) {
   const ready = ensureWeeklyPlanCalendarReady(structured);
   const actions = extractDayAnchoredActions(ready);
   const perDayCount = {};
   const events = [];
+  const zone = safeTimeZone(timeZone || ready.timeZone);
+  const rangeStart = parseDateKey(ready.planStartDate);
+  const rangeEnd = parseDateKey(ready.planEndDate);
+  const rangeStartToken = rangeStart ? new Date(Date.UTC(rangeStart.year, rangeStart.month - 1, rangeStart.day)) : null;
+  const rangeEndToken = rangeEnd ? new Date(Date.UTC(rangeEnd.year, rangeEnd.month - 1, rangeEnd.day)) : null;
 
   for (const action of actions.slice(0, 20)) {
     const targetDay = DAY_INDEX[action.day];
     if (targetDay === undefined || !action.activity) continue;
     const usedToday = perDayCount[action.day] ?? 0;
     const startHour = 9 + usedToday;
-    const start = nextOccurrenceForDay(now, targetDay, startHour, 0);
-    // If today rolled because the slot passed, nextOccurrence already +7.
+    let start;
+    if (zone && rangeStartToken && rangeEndToken) {
+      let dayToken = new Date(rangeStartToken);
+      while (dayToken <= rangeEndToken && dayToken.getUTCDay() !== targetDay) {
+        dayToken.setUTCDate(dayToken.getUTCDate() + 1);
+      }
+      if (dayToken > rangeEndToken) continue;
+      start = zonedDate(dayToken.getUTCFullYear(), dayToken.getUTCMonth() + 1, dayToken.getUTCDate(), startHour, 0, zone);
+      if (start <= now) {
+        const nextSlot = new Date(now.getTime() + (45 + usedToday * 60) * 60_000);
+        nextSlot.setMinutes(Math.ceil(nextSlot.getMinutes() / 15) * 15, 0, 0);
+        start = nextSlot;
+      }
+    } else {
+      start = nextOccurrenceForDay(now, targetDay, startHour, 0, zone);
+    }
     const end = new Date(start);
-    end.setHours(startHour, 45, 0, 0);
+    end.setTime(start.getTime() + 45 * 60_000);
     perDayCount[action.day] = usedToday + 1;
     events.push({
       title: action.activity.slice(0, 120),
@@ -206,7 +298,7 @@ export function buildEventsFromWeeklyPlan(structured = {}, { now = new Date(), o
   return { events, structured: ready };
 }
 
-export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(), outputId = null, niche = "UGC" } = {}) {
+export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(), outputId = null, niche = "UGC", timeZone = null } = {}) {
   const ready = ensureWeeklyScheduleCalendarReady(structured, { niche });
   const events = [];
 
@@ -216,9 +308,10 @@ export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(
     const endMatch = TIME_RE.exec(block.end);
     if (targetDay === undefined || !startMatch || !endMatch) continue;
 
-    const start = nextOccurrenceForDay(now, targetDay, Number(startMatch[1]), Number(startMatch[2]));
-    const end = new Date(start);
-    end.setHours(Number(endMatch[1]), Number(endMatch[2]), 0, 0);
+    const zone = safeTimeZone(timeZone || ready.timeZone);
+    const start = nextOccurrenceForDay(now, targetDay, Number(startMatch[1]), Number(startMatch[2]), zone);
+    const durationMinutes = (Number(endMatch[1]) * 60 + Number(endMatch[2])) - (Number(startMatch[1]) * 60 + Number(startMatch[2]));
+    const end = new Date(start.getTime() + durationMinutes * 60_000);
     if (end.getTime() <= start.getTime()) continue;
 
     events.push({
@@ -316,6 +409,41 @@ export async function persistCalendarEvents(store, {
 }
 
 /**
+ * A newly completed weekly plan/schedule supersedes Mara's older future blocks
+ * in the same window. Only tagged Mara events are removed; creator-created
+ * calendar events and past history are never touched.
+ */
+export async function clearSupersededWeeklyEvents(store, {
+  userId,
+  workerSlug,
+  outputId,
+  outputType,
+  events,
+  now = new Date()
+}) {
+  if (!Array.isArray(events) || events.length === 0) return 0;
+  const latestEnd = events.reduce(
+    (latest, event) => event.endsAt > latest ? event.endsAt : latest,
+    events[0].endsAt
+  );
+  const sourceKind = outputType === "weekly_schedule" ? "weekly_schedule" : "weekly_plan";
+  const currentPrefix = `[mara:${sourceKind}:${outputId}]%`;
+  const result = await store.execute(
+    `DELETE FROM office_calendar_events
+     WHERE user_id = ? AND worker_slug = ?
+       AND starts_at >= ? AND starts_at <= ?
+       AND notes LIKE ? AND notes NOT LIKE ?`,
+    userId,
+    workerSlug,
+    now.toISOString(),
+    latestEnd,
+    `[mara:${sourceKind}:%`,
+    currentPrefix
+  );
+  return Number(result?.changes ?? result?.rowCount ?? 0);
+}
+
+/**
  * Harvest one weekly output into the calendar. Returns updated structured JSON.
  */
 export async function harvestWeeklyOutputToCalendar(store, {
@@ -326,7 +454,8 @@ export async function harvestWeeklyOutputToCalendar(store, {
   structured,
   niche = "UGC",
   now = new Date(),
-  createActivityLog = null
+  createActivityLog = null,
+  timeZone = null
 }) {
   if (isCalendarAlreadySynced(structured)) {
     return { structured, created: 0, skipped: true };
@@ -334,9 +463,9 @@ export async function harvestWeeklyOutputToCalendar(store, {
 
   let planned;
   if (outputType === "weekly_schedule") {
-    planned = buildEventsFromWeeklySchedule(structured, { now, outputId, niche });
+    planned = buildEventsFromWeeklySchedule(structured, { now, outputId, niche, timeZone });
   } else if (outputType === "weekly_plan") {
-    planned = buildEventsFromWeeklyPlan(structured, { now, outputId });
+    planned = buildEventsFromWeeklyPlan(structured, { now, outputId, timeZone });
   } else {
     return { structured, created: 0, skipped: true };
   }
@@ -346,6 +475,15 @@ export async function harvestWeeklyOutputToCalendar(store, {
       ? normalizeScheduleBlocks(planned.structured).length > 0 ||
         (Array.isArray(planned.structured.blocks) && planned.structured.blocks.length > 0)
       : extractDayAnchoredActions(planned.structured).length > 0;
+
+  await clearSupersededWeeklyEvents(store, {
+    userId,
+    workerSlug,
+    outputId,
+    outputType,
+    events: planned.events,
+    now
+  });
 
   const created = await persistCalendarEvents(store, {
     userId,

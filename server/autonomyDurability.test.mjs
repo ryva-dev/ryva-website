@@ -20,3 +20,7 @@ test("production autonomy is enabled by default and can only be paused explicitl
   assert.match(serverSource, /AUTONOMY_SCHEDULER_ENABLED \?\? "1"/);
   assert.doesNotMatch(serverSource, /isProduction \? "0" : "1"/);
 });
+
+test("Mara chat assignments stay on Mara's specialized task runtime", () => {
+  assert.match(serverSource, /workerSlug !== MARA_SLUG && hasRoleConfig\(workerSlug\)/);
+});

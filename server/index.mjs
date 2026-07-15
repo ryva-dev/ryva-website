@@ -6346,7 +6346,10 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
 
   // LLM-first path for every role-config worker: interpret the message,
   // reply in the worker's voice, queue typed tasks, execute in background.
-  if (worker && hasRoleConfig(workerSlug) && isAgentLlmConfigured()) {
+  // Mara has a specialized task/runtime repository. Sending her through the
+  // generic agent repository creates orphan task ids that her executor cannot
+  // find, so her direct assignments must use the Mara path below.
+  if (worker && workerSlug !== MARA_SLUG && hasRoleConfig(workerSlug) && isAgentLlmConfigured()) {
     try {
       const agentResult = await handleAgentChatMessage({
         store: agentStore,
