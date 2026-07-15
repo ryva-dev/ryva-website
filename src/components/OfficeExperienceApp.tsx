@@ -347,7 +347,7 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
 }
 
 function blockerNeedsCreatorInput(value: string | null | undefined) {
-  return !/^no additional information is needed/i.test(String(value || "").trim());
+  return !/^(?:no additional information is needed|nothing new if your availability is already saved)/i.test(String(value || "").trim());
 }
 
 type MaraActivationJourney = {
