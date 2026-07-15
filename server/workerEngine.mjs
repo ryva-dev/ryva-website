@@ -3841,10 +3841,16 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
     case "brand_content_ideas":
     case "brand_content_ideas_batch": {
       const brands = await listWorkerBrands(store, userId, workerId);
-      const brand = action.brandId ? await getWorkerBrand(store, userId, workerId, action.brandId) : brands[0];
-      const brandName = String(brand?.brandName ?? "").trim();
-      if (!brand || !brandName || /^(?:undefined|null|unknown)$/i.test(brandName) || isLikelyListicleTitle(brandName)) {
-        summary.notes.push("Brand content ideas were skipped because no usable researched brand is on file yet.");
+      const requestedBrand = action.brandId ? await getWorkerBrand(store, userId, workerId, action.brandId) : null;
+      const growthSnapshot = await getMaraGrowthIntelligenceSnapshot(store, userId, workerId);
+      const eligibleOpportunities = growthSnapshot.opportunities.filter((opportunity) => opportunity.readiness === "now");
+      const requestedName = String(requestedBrand?.brandName ?? "").toLowerCase();
+      const opportunity = eligibleOpportunities.find((item) => requestedName.includes(String(item.brandName || "").toLowerCase()))
+        || (!action.brandId ? eligibleOpportunities[0] : null);
+      const brandName = String(opportunity?.brandName ?? "").trim();
+      const brand = brands.find((item) => String(item.brandName || "").toLowerCase().includes(brandName.toLowerCase())) || null;
+      if (!opportunity || !brand || !brandName || /^(?:undefined|null|unknown)$/i.test(brandName)) {
+        summary.notes.push("Brand content ideas were skipped because no current revenue-ready brand needs them. Build-toward brands stay out of the active work queue.");
         return;
       }
       const taskId = await createAndRunAutonomyTask(
