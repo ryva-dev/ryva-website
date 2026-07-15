@@ -13,6 +13,7 @@
 
 const SHARED_OUTPUT_RULES = [
   "Every deliverable must be specific to this manager's actual brand, niche, goals, and stored context. Never produce generic filler.",
+  "Address the manager directly as you/your. Do not call them 'the creator' or describe them as they/them in user-facing copy.",
   "Never invent metrics, past collaborations, client names, or live research you did not actually receive in context.",
   "If context is too thin to do the work well, say exactly what is missing instead of faking it.",
   "Return only valid JSON matching the requested schema. No markdown fences, no commentary."
@@ -45,7 +46,7 @@ export const ROLE_CONFIGS = {
         label: "Creator positioning",
         outputType: "creator_positioning",
         description: "Define or refresh the creator's positioning statement, angles, and proof points, grounded in their actual niche and goals.",
-        schemaHint: '{"creatorPositioningStatement":"","nicheDefinition":"","whatMakesThemDifferent":[],"contentAngles":[],"proofPoints":[],"positioningRisks":[]}'
+        schemaHint: '{"creatorPositioningStatement":"","nicheDefinition":"","whatMakesYouDifferent":[],"contentAngles":[{"angle":"","format":"","hook":"","whyNow":""}],"proofPoints":[],"positioningRisks":[]}'
       }),
       taskType("brand_fit_criteria", {
         label: "Brand fit criteria",
@@ -62,14 +63,14 @@ export const ROLE_CONFIGS = {
       taskType("personalized_pitch", {
         label: "Personalized pitch",
         outputType: "pitch_draft",
-        description: "Outreach package written for one specific target brand using stored research.",
-        schemaHint: '{"emailPitch":"","warmDmPitch":"","professionalVersion":"","casualVersion":"","subjectLineOptions":[],"fitReason":"","usageNotes":[]}'
+        description: "Sales-oriented outreach package for one specific target brand, grounded in verified research about its identity, values, campaigns, audience, and creative opportunity.",
+        schemaHint: '{"brandName":"","verifiedBrandSignals":[],"creativeOpportunity":"","creatorValueAdd":"","emailPitch":"","warmDmPitch":"","subjectLineOptions":[],"fitReason":"","watermarkedSampleRecommendation":"","usageNotes":[]}'
       }),
       taskType("follow_up_sequence", {
         label: "Follow-up sequence",
         outputType: "follow_up_sequence",
         description: "Follow-up cadence and copy tuned to this creator's outreach style and pipeline.",
-        schemaHint: '{"followUp1":"","followUp2":"","finalCloseLoop":"","timingRecommendations":[],"whenNotToFollowUp":[]}'
+        schemaHint: '{"brandName":"","originalPitchContext":"","followUp1":"","followUp2":"","finalCloseLoop":"","newValueAddedAtEachStep":[],"timingRecommendations":[],"whenNotToFollowUp":[]}'
       }),
       taskType("brand_content_ideas", {
         label: "Brand content ideas",
@@ -99,7 +100,7 @@ export const ROLE_CONFIGS = {
         label: "Content idea batch",
         outputType: "content_ideas",
         description: "A batch of content ideas grounded in the creator's niche, positioning, and any stored trend or gap data.",
-        schemaHint: '{"ideas":[{"idea":"","hook":"","format":"","whyItWorks":"","difficultyLevel":"Low|Medium|High"}],"angleNotes":[]}'
+        schemaHint: '{"trendEvidence":[],"ideas":[{"idea":"","hook":"","format":"talking head|slideshow|photo|demo|other","bRollShots":[],"shotSequence":[],"whyItWorks":"","whyNow":"","difficultyLevel":"Low|Medium|High"}],"angleNotes":[],"unknowns":[]}'
       }),
       taskType("weekly_action_plan", {
         label: "Weekly plan",
@@ -145,7 +146,7 @@ export const ROLE_CONFIGS = {
       "Draft personalized pitches for researched brands that lack one.",
       "Generate brand-specific content ideas for brands without fresh ideas.",
       "Organize the connected inbox into campaigns and a living tracker when inbox permission is granted.",
-      "Produce a weekly plan and regular ops briefs so the manager always knows the state of play.",
+      "Produce a weekly plan and concise evidence-based briefings at the manager's chosen cadence so they know what finished and what is next.",
       "Produce a weekly growth intelligence brief tied to qualified opportunities, creative gaps, and revenue outcomes.",
       "Track outreach, responses, accepted concepts, deal value, repeat work, and creator revenue influenced by Mara."
     ],

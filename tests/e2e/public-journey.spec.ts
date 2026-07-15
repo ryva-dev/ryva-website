@@ -95,6 +95,15 @@ test("a fresh customer can onboard, hire Mara, and reach the office", async ({ p
   });
   expect(workerOnboarding.ok(), await workerOnboarding.text()).toBeTruthy();
 
+  // Completed onboarding must remain operable on short/mobile viewports: the
+  // launch action lives inside the scrollable summary instead of being clipped.
+  await page.goto("/#app/office/workers/mara-vale/onboarding");
+  const startFirstDay = page.getByRole("button", { name: "Start first day" });
+  await startFirstDay.scrollIntoViewIfNeeded();
+  await expect(startFirstDay).toBeVisible();
+  const startBox = await startFirstDay.boundingBox();
+  expect(startBox && startBox.y + startBox.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+
   await page.goto("/#app/office");
   await expect(page.getByText("Mara Vale", { exact: true }).first()).toBeVisible();
   await page.goto("/#app/office/workers/mara-vale/desk");

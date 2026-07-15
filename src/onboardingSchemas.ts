@@ -356,7 +356,8 @@ export function buildOnboardingCompletionPayload(worker: Worker, answers: Record
       firstDayNotice: "I'm Mara. I captured how you run campaigns, what should stay manual, and what I can own — I'm already setting up my desk around your brand.",
       knowledge: [
         { title: "Preferences", items: normalizeSummaryItems(answer(answers, "niche_focus", "")) },
-        { title: "Goals", items: [...normalizeSummaryItems(answer(answers, "dream_brands", "")), ...normalizeSummaryItems(answer(answers, "current_stage", ""))] },
+        { title: "Goals", items: normalizeSummaryItems(answer(answers, "current_stage", "")) },
+        { title: "Preferred Brands", items: normalizeSummaryItems(answer(answers, "dream_brands", "")) },
         { title: "Creator Profiles", items: normalizeSummaryItems(answer(answers, "creator_profiles", "")) },
         { title: "Current Workflow", items: normalizeSummaryItems(answer(answers, "current_workflow")) },
         { title: "Pain points", items: [...normalizeSummaryItems(answer(answers, "workflow_breakdowns")), ...normalizeSummaryItems(answer(answers, "biggest_admin_drag"))] },

@@ -1,7 +1,6 @@
 const MAINTAIN_ARTIFACT_MAX_AGE_HOURS = {
   brand_criteria: 24 * 14,
   creator_positioning: 24 * 14,
-  ops_brief: 24,
   tiktok_trends: 24 * 7,
   ugc_strategy: 24 * 3,
   tracker_structure: 24 * 7,
@@ -87,7 +86,10 @@ export function mapRecurringToAutonomyAction(recurring) {
     return { kind: "tiktok_trends", recurringId: recurring.id };
   }
 
-  return { kind: "ops_brief", recurringId: recurring.id };
+  // Unknown recurring responsibilities are acknowledged without spending a
+  // model call on a generic status artifact. User-facing briefings are built
+  // from completed work at the cadence the creator selected.
+  return { kind: "record_recurring_check", recurringId: recurring.id };
 }
 
 /**
@@ -236,10 +238,6 @@ export function planMaraAutonomyActions(context) {
       taskType: "weekly_schedule",
       title: "Plan this week's schedule"
     });
-  }
-
-  if (isArtifactStale(recentOutputTypes.ops_brief, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.ops_brief)) {
-    actions.push({ kind: "ops_brief" });
   }
 
   // Market-pulse work must not spam the library: only one fresh pulse doc at

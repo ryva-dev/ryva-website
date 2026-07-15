@@ -170,7 +170,12 @@ export function buildMaraLlmBrief(context) {
   const onboarding = context.accountContext ?? {};
   const maraAnswers = context.workerOnboarding?.answers ?? {};
   const preferences = getMemoryItems(context.workerKnowledge, "Preferences");
-  const goals = getMemoryItems(context.workerKnowledge, "Goals");
+  const dreamBrandValues = String(maraAnswers.dream_brands || "")
+    .split(/,|\n/)
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const goals = getMemoryItems(context.workerKnowledge, "Goals")
+    .filter((goal) => !dreamBrandValues.includes(String(goal).trim().toLowerCase()));
   const approvalRules = getMemoryItems(context.workerKnowledge, "Approval rules");
   const painPoints = getMemoryItems(context.workerKnowledge, "Pain points").concat(
     getMemoryItems(context.workerKnowledge, "Pain point map")
@@ -253,11 +258,13 @@ function buildPitchSystemPrompt() {
   return [
     "You are Mara, an autonomous UGC operations hire drafting internal outreach assets for a specific creator.",
     MARA_ROLE_DEFINITION,
-    "Write for one real brand and one real creator. Use their names, niche, positioning, and stored brand research.",
+    "Write for one real brand and one real creator. Use their names, niche, positioning, and verified brand research.",
+    "This is consultative selling. Show that the creator understands what the brand stands for, identify a credible creative opportunity, and sell the creator's specific new value without sounding pushy or inflated.",
     "Do not invent fake metrics, past collaborations, or live trend claims.",
     "Write like a person emailing another person — warm, specific, confident. Never mail-merge phrasing, never a sentence a human wouldn't say out loud.",
     "If the creator is early-stage or has no portfolio yet, never state that negatively; lead with fit and offer tailored sample concepts instead.",
     "The pitch must pass this test: a busy brand manager reads it and thinks 'this person actually looked at us.' Reference something concrete about the brand from the provided context.",
+    "When strategically useful, recommend that the creator make a short brand-specific sample concept or video with a visible watermark before sending. Never imply that sample already exists.",
     "Keep pitches short, specific, and easy to send after human approval.",
     "Return only valid JSON matching the requested schema. No markdown fences or commentary."
   ].join("\n");
@@ -268,6 +275,8 @@ function buildContentIdeasSystemPrompt() {
     "You are Mara, an autonomous UGC operations hire generating brand-specific content ideas for one creator.",
     MARA_ROLE_DEFINITION,
     "Each idea must combine the creator's positioning with the target brand's identity — not generic UGC prompts.",
+    "Every idea needs a killer first-line hook, a clear current format, and a concrete B-roll or shot sequence the creator can film.",
+    "Use provided current niche/trend evidence when available. If it is absent, label the trend basis as a hypothesis rather than pretending an idea is currently trending.",
     "Do not invent fake metrics or claim live trend research unless provided in context.",
     "Return only valid JSON matching the requested schema. No markdown fences or commentary."
   ].join("\n");
@@ -282,7 +291,10 @@ function normalizePitchStructuredContent(payload, brandLabel) {
     : [];
 
   return {
+    brandName: brandLabel,
     casualVersion: String(payload.casualVersion || "").trim(),
+    creativeOpportunity: String(payload.creativeOpportunity || "").trim(),
+    creatorValueAdd: String(payload.creatorValueAdd || "").trim(),
     emailPitch: String(payload.emailPitch || "").trim(),
     fitReason: String(payload.fitReason || "").trim(),
     generatedBy: "llm",
@@ -290,6 +302,10 @@ function normalizePitchStructuredContent(payload, brandLabel) {
     professionalVersion: String(payload.professionalVersion || "").trim(),
     subjectLineOptions,
     usageNotes,
+    verifiedBrandSignals: Array.isArray(payload.verifiedBrandSignals)
+      ? payload.verifiedBrandSignals.map((item) => String(item).trim()).filter(Boolean)
+      : [],
+    watermarkedSampleRecommendation: String(payload.watermarkedSampleRecommendation || "").trim(),
     warmDmPitch: String(payload.warmDmPitch || payload.warmDmPitch || "").trim()
   };
 }
@@ -303,8 +319,11 @@ function normalizeContentIdeasStructuredContent(payload, brand) {
           format: String(idea.format || "Demo").trim(),
           hook: String(idea.hook || "").trim(),
           idea: String(idea.idea || "").trim(),
+          bRollShots: Array.isArray(idea.bRollShots) ? idea.bRollShots.map((item) => String(item).trim()).filter(Boolean) : [],
+          shotSequence: Array.isArray(idea.shotSequence) ? idea.shotSequence.map((item) => String(item).trim()).filter(Boolean) : [],
           productFit: String(idea.productFit || brand.suggestedAngle || "").trim(),
-          whyItWorks: String(idea.whyItWorks || "").trim()
+          whyItWorks: String(idea.whyItWorks || "").trim(),
+          whyNow: String(idea.whyNow || "").trim()
         }))
         .filter((idea) => idea.idea && idea.hook)
     : [];
@@ -319,7 +338,10 @@ function normalizeContentIdeasStructuredContent(payload, brand) {
     brandName: brand.brandName,
     creatorAngleUsed: String(payload.creatorAngleUsed || "").trim(),
     generatedBy: "llm",
-    ideas: ideas.slice(0, 10)
+    ideas: ideas.slice(0, 10),
+    trendEvidence: Array.isArray(payload.trendEvidence)
+      ? payload.trendEvidence.map((item) => String(item).trim()).filter(Boolean)
+      : []
   };
 }
 
@@ -348,7 +370,7 @@ function buildPitchUserPrompt(brief) {
       : "",
     brief.approvalRules.length > 0 ? `Approval rules: ${brief.approvalRules.join(" | ")}` : "",
     brief.knowledgeSummaries.length > 0 ? `UGC operating knowledge:\n${brief.knowledgeSummaries.join("\n")}` : "",
-    'Return JSON: {"emailPitch":"","warmDmPitch":"","professionalVersion":"","casualVersion":"","subjectLineOptions":[],"fitReason":"","usageNotes":[]}'
+    'Return JSON: {"verifiedBrandSignals":[],"creativeOpportunity":"","creatorValueAdd":"","emailPitch":"","warmDmPitch":"","professionalVersion":"","casualVersion":"","subjectLineOptions":[],"fitReason":"","watermarkedSampleRecommendation":"","usageNotes":[]}'
   ]
     .filter(Boolean)
     .join("\n");
@@ -367,9 +389,11 @@ function buildContentIdeasUserPrompt(brief, brand) {
     brand.identitySummary ? `Brand identity: ${brand.identitySummary}` : "",
     brand.suggestedAngle ? `Suggested angle: ${brand.suggestedAngle}` : "",
     brand.vibeNotes ? `Brand vibe: ${brand.vibeNotes}` : "",
-    brief.privateContentGaps.length > 0 ? `Content gaps to consider: ${brief.privateContentGaps.join(" | ")}` : "",
+    brief.privateContentGaps.length > 0
+      ? `Current niche/trend evidence to use: ${brief.privateContentGaps.join(" | ")}`
+      : "No current niche trend evidence is available. Do not call an idea trending; label why-now statements as hypotheses.",
     brief.knowledgeSummaries.length > 0 ? `UGC operating knowledge:\n${brief.knowledgeSummaries.join("\n")}` : "",
-    'Return JSON: {"brandAngleUsed":"","creatorAngleUsed":"","ideas":[{"idea":"","hook":"","format":"","whyItWorks":"","difficultyLevel":"Low|Medium|High","productFit":""}]}'
+    'Return JSON: {"brandAngleUsed":"","creatorAngleUsed":"","trendEvidence":[],"ideas":[{"idea":"","hook":"","format":"talking head|slideshow|photo|demo|other","bRollShots":[],"shotSequence":[],"whyItWorks":"","whyNow":"","difficultyLevel":"Low|Medium|High","productFit":""}]}'
   ]
     .filter(Boolean)
     .join("\n");
@@ -385,6 +409,13 @@ export async function tryGenerateMaraPersonalizedPitch(context, { fetchImpl } = 
   if (!brandLabel || brandLabel === "[Brand]") {
     return null;
   }
+  const hasBrandEvidence = Boolean(
+    brief.brandTarget.identitySummary ||
+    brief.brandTarget.suggestedAngle ||
+    brief.brandTarget.vibeNotes ||
+    brief.relatedResearch.some((item) => item.summary || (Array.isArray(item.insights) && item.insights.length > 0))
+  );
+  if (!hasBrandEvidence) return null;
 
   try {
     const text = await createAnthropicMessage({
@@ -408,6 +439,10 @@ export async function tryGenerateMaraPersonalizedPitch(context, { fetchImpl } = 
         { title: "Professional version", value: structuredContent.professionalVersion },
         { title: "Casual version", value: structuredContent.casualVersion },
         { title: "Why this brand fits", value: structuredContent.fitReason },
+        { title: "Verified brand signals", value: structuredContent.verifiedBrandSignals },
+        { title: "Creative opportunity", value: structuredContent.creativeOpportunity },
+        { title: "Your value add", value: structuredContent.creatorValueAdd },
+        { title: "Watermarked sample recommendation", value: structuredContent.watermarkedSampleRecommendation },
         { title: "Subject line options", value: structuredContent.subjectLineOptions },
         { title: "Usage notes", value: structuredContent.usageNotes }
       ]),
@@ -448,8 +483,9 @@ export async function tryGenerateMaraBrandContentIdeas(context, { fetchImpl } = 
       content: buildRichContent([
         {
           title: `Content ideas for ${brand.brandName}`,
-          value: structuredContent.ideas.map((idea) => `${idea.idea} | ${idea.hook} | ${idea.format}`)
+          value: structuredContent.ideas.map((idea) => `${idea.idea} | Hook: ${idea.hook} | Format: ${idea.format} | Shots: ${idea.shotSequence.join(" → ") || idea.bRollShots.join(", ")}`)
         },
+        { title: "Current trend evidence", value: structuredContent.trendEvidence.length ? structuredContent.trendEvidence : ["No current trend evidence was available; why-now notes are hypotheses."] },
         { title: "Brand angle Mara used", value: [structuredContent.brandAngleUsed || brand.suggestedAngle || ""] },
         { title: "Creator angle Mara used", value: [structuredContent.creatorAngleUsed || brief.niche] }
       ]),

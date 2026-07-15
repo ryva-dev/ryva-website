@@ -300,7 +300,7 @@ export function WorkerOnboardingPage({
 
       <div className="onboarding-conversation-layout">
         <section className="onboarding-thread-shell">
-          <div className="onboarding-chat-shell">
+          <div className={`onboarding-chat-shell${isSummary ? " is-summary" : ""}`}>
             <div className="onboarding-thread-head">
               <div>
                 <strong>{worker.name}</strong>

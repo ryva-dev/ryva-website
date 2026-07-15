@@ -999,7 +999,31 @@ async function syncWorkerAssignments(userId, workerSlug) {
  * artifacts stay off it: plain summaries, status notes, and weekly
  * schedules (those live on the calendar, where they belong).
  */
-const HIDDEN_DELIVERABLE_OUTPUT_TYPES = new Set(["summary", "status_note", "weekly_schedule"]);
+const HIDDEN_DELIVERABLE_OUTPUT_TYPES = new Set([
+  "summary",
+  "status_note",
+  "ops_brief",
+  "tracker_structure",
+  "weekly_plan",
+  "weekly_schedule"
+]);
+
+function personalizeCreatorPositioningText(value) {
+  return String(value ?? "")
+    .replace(/\b(?:this|the) creator's\b/gi, "your")
+    .replace(/\b(?:this|the) creator\b/gi, "you")
+    .replace(/\btheir\b/gi, "your")
+    .replace(/\bthem\b/gi, "you")
+    .replace(/\bthey\b/gi, "you");
+}
+
+function personalizeCreatorPositioningStructured(value) {
+  if (Array.isArray(value)) return value.map(personalizeCreatorPositioningStructured);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, personalizeCreatorPositioningStructured(entry)]));
+  }
+  return typeof value === "string" ? personalizeCreatorPositioningText(value) : value;
+}
 
 async function syncWorkerDeliverables(userId, workerSlug) {
   const outputs = (await authStore.query(
@@ -1033,14 +1057,17 @@ async function syncWorkerDeliverables(userId, workerSlug) {
       );
       continue;
     }
+    const displayContent = output.outputType === "creator_positioning"
+      ? personalizeCreatorPositioningText(output.content)
+      : output.content;
     await upsertOfficeDeliverable({
       contentRefId: output.id,
       createdAt: output.createdAt,
       deliverableType: output.outputType,
-      previewText: truncatePreview(output.content || output.structuredContent?.preview || "", 260),
+      previewText: truncatePreview(displayContent || output.structuredContent?.preview || "", 260),
       sourceId: output.id,
       sourceType: "worker_output",
-      summary: truncatePreview(output.content || output.title, 160),
+      summary: truncatePreview(displayContent || output.title, 160),
       title: output.title,
       updatedAt: output.updatedAt,
       userId,
@@ -2173,6 +2200,21 @@ async function harvestMaraOutputSideEffects(userId, workerSlug) {
     }
 
     if (row.outputType === "weekly_schedule" || row.outputType === "weekly_plan") {
+      // A sync stamp without any persisted event is not success. This can
+      // happen after an interrupted deploy or an earlier calendar bug. Clear
+      // the stale stamp so the idempotent harvester repairs the calendar.
+      if (structured.calendarSyncedAt) {
+        const event = await authStore.queryOne(
+          `SELECT id FROM office_calendar_events
+           WHERE user_id = ? AND worker_slug = ? AND notes LIKE ? LIMIT 1`,
+          userId, workerSlug, `%:${row.id}]%`
+        );
+        if (!event) {
+          delete structured.calendarSyncedAt;
+          delete structured.calendarEventsCreated;
+          changed = true;
+        }
+      }
       if (!structured.calendarSyncedAt) {
         const harvested = await harvestWeeklyOutputToCalendar(authStore, {
           userId,
@@ -2194,6 +2236,15 @@ async function harvestMaraOutputSideEffects(userId, workerSlug) {
 }
 
 async function syncMaraOperationalRecords(userId, workerSlug) {
+  // Retire legacy auto-generated status tasks. They are internal telemetry,
+  // not creator work, and otherwise linger in Assignments after the product
+  // has stopped generating the artifact.
+  await authStore.execute(
+    `UPDATE worker_tasks SET status = 'dismissed', updated_at = ?
+     WHERE user_id = ? AND worker_id = ? AND task_type = 'ops_brief'
+       AND source = 'autonomy_ops_brief' AND status NOT IN ('completed', 'dismissed')`,
+    nowIso(), userId, workerSlug
+  );
   await harvestMaraOutputSideEffects(userId, workerSlug);
   const privateInsights = await loadUserTrendInsights({
     store: trendStore,
@@ -3358,8 +3409,11 @@ async function enqueueWeeklyDigests() {
      FROM users u
      INNER JOIN hired_workers hw ON hw.user_id = u.id AND hw.status = 'active'
      LEFT JOIN user_digest_log dl ON dl.user_id = u.id
-     WHERE u.email_verified_at IS NOT NULL AND (dl.last_sent_at IS NULL OR dl.last_sent_at <= ?)`,
-    threshold
+     WHERE u.email_verified_at IS NOT NULL
+       AND u.created_at <= ?
+       AND hw.hired_at <= ?
+       AND (dl.last_sent_at IS NULL OR dl.last_sent_at <= ?)`,
+    threshold, threshold, threshold
   );
 
   for (const user of users) {
@@ -5140,9 +5194,13 @@ app.get("/api/office/deliverables/:deliverableId", requireAuth, async (req, res)
       const directWorker = workers.find((entry) => entry.slug === directOutput.workerSlug);
       res.json({
         deliverable: {
-          content: String(directOutput.content ?? ""),
+          content: directOutput.outputType === "creator_positioning"
+            ? personalizeCreatorPositioningText(directOutput.content)
+            : String(directOutput.content ?? ""),
           previewText: "",
-          structuredContent: parseJson(directOutput.structuredContentJson, null),
+          structuredContent: directOutput.outputType === "creator_positioning"
+            ? personalizeCreatorPositioningStructured(parseJson(directOutput.structuredContentJson, null))
+            : parseJson(directOutput.structuredContentJson, null),
           summary: "",
           title: directOutput.title,
           type: sentenceCase(String(directOutput.outputType || "deliverable").replace(/_/g, " ")),
@@ -5182,9 +5240,13 @@ app.get("/api/office/deliverables/:deliverableId", requireAuth, async (req, res)
     if (output) {
       res.json({
         deliverable: {
-          content: String(output.content ?? ""),
+          content: output.outputType === "creator_positioning"
+            ? personalizeCreatorPositioningText(output.content)
+            : String(output.content ?? ""),
           previewText: deliverable.previewText,
-          structuredContent: parseJson(output.structuredContentJson, null),
+          structuredContent: output.outputType === "creator_positioning"
+            ? personalizeCreatorPositioningStructured(parseJson(output.structuredContentJson, null))
+            : parseJson(output.structuredContentJson, null),
           summary: deliverable.summary,
           title: output.title || deliverable.title,
           type: sentenceCase(String(output.outputType ?? deliverable.deliverableType).replace(/_/g, " ")),

@@ -1040,18 +1040,9 @@ function TodayView({
   const nameFor = (slug: string) => workers.find((w) => w.slug === slug)?.name ?? "Worker";
   const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
   const maraDesks = desks.filter((desk) => isMaraWorker(desk.workerSlug));
-  const allCommercialMoves = maraDesks.flatMap((desk) =>
-    (desk.commercialBriefing?.prioritized || []).slice(0, 4).map((entry, index) => ({
-      ...entry,
-      workerSlug: desk.workerSlug,
-      key: `${desk.workerSlug}-${entry.approvalId || entry.opportunityId || index}`
-    }))
-  );
   const maraApprovals = maraDesks.flatMap((desk) =>
     desk.approvals.map((item) => ({ ...item, workerSlug: desk.workerSlug }))
   );
-  const approvalIds = new Set(maraApprovals.map((item) => item.id));
-  const commercialMoves = allCommercialMoves.filter((entry) => !entry.approvalId || !approvalIds.has(entry.approvalId));
   const revenue = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialNorthStar?.revenueInfluenced || 0), 0);
   const pipelineValue = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialBriefing?.counts?.pipelineValue || 0), 0);
   const valueAtRisk = maraDesks.reduce(
@@ -1061,10 +1052,6 @@ function TodayView({
   const contacted = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialNorthStar?.contacted || 0), 0);
   const responded = maraDesks.reduce((sum, desk) => sum + Number(desk.commercialNorthStar?.responded || 0), 0);
   const replyRate = contacted > 0 ? responded / contacted : 0;
-  const stalled = maraDesks.flatMap((desk) =>
-    (desk.bookOfBusiness || []).filter((opp) => opp.stall?.daysStalled || opp.blockingReason).slice(0, 3)
-      .map((opp) => ({ ...opp, workerSlug: desk.workerSlug }))
-  );
   const todayStart = new Date(today);
   todayStart.setHours(0, 0, 0, 0);
   const todaysEvents = overlays.calendarEvents
@@ -1145,64 +1132,6 @@ function TodayView({
               <div><span>Active pipeline</span><strong>{money.format(pipelineValue)}</strong><small>Estimated value, not earned revenue</small></div>
               <div><span>Value at risk</span><strong>{money.format(valueAtRisk)}</strong><small>Stalled work that needs recovery</small></div>
               <div><span>Reply rate</span><strong>{Math.round(replyRate * 100)}%</strong><small>{responded} replies from {contacted} tracked sends</small></div>
-            </section>
-            <section className="ro-sec ro-sec-lead">
-              <div className="ro-sec-head">
-                <h2>Money moves</h2>
-                <span className="ro-sec-n">{commercialMoves.length + maraApprovals.length === 0 ? "Quiet" : commercialMoves.length + maraApprovals.length}</span>
-              </div>
-              {maraApprovals.length === 0 && commercialMoves.length === 0 && stalled.length === 0 ? (
-                <p className="ro-blank">
-                  {revenue === 0
-                    ? "No attributed revenue yet. When Mara has drafts or replies waiting, they show up here."
-                    : "Nothing commercial is waiting on you right now."}
-                </p>
-              ) : (
-                <div className="ro-plain-list">
-                  {maraApprovals.slice(0, 4).map((item) => (
-                    <div className="ro-plain-row" key={`today-appr-${item.id}`}>
-                      <div>
-                        <strong>Approve: {item.title}</strong>
-                        <p>{item.summary}</p>
-                      </div>
-                      <div className="ro-inline-actions">
-                        <button className="r-btn r-btn-ghost" type="button" disabled={busyId === item.id} onClick={() => void onReject?.(item.workerSlug, item.id)}>Deny</button>
-                        <button className="r-btn r-btn-accent" type="button" disabled={busyId === item.id} onClick={() => void onApprove?.(item.workerSlug, item.id)}>
-                          {busyId === item.id ? "Saving…" : "Approve"}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {commercialMoves.slice(0, 4).map((entry) => (
-                    <div className="ro-plain-row" key={entry.key}>
-                      <div>
-                        <strong>{entry.title}</strong>
-                        <p>
-                          {entry.whatHappened}
-                          {entry.recommendedAction ? ` — ${entry.recommendedAction}` : ""}
-                        </p>
-                      </div>
-                      {entry.approvalId ? (
-                        <div className="ro-inline-actions">
-                          <button className="r-btn r-btn-ghost" type="button" disabled={busyId === entry.approvalId} onClick={() => void onReject?.(entry.workerSlug, entry.approvalId!)}>Deny</button>
-                          <button className="r-btn r-btn-accent" type="button" disabled={busyId === entry.approvalId} onClick={() => void onApprove?.(entry.workerSlug, entry.approvalId!)}>Approve</button>
-                        </div>
-                      ) : (
-                        <button className="r-btn r-btn-ghost" type="button" onClick={() => onOpenWorkerDetails(entry.workerSlug)}>Open desk</button>
-                      )}
-                    </div>
-                  ))}
-                  {stalled.slice(0, 3).map((opp) => (
-                    <div className="ro-plain-row" key={`stall-${opp.id}`}>
-                      <div>
-                        <strong>Stalled: {opp.brandName}</strong>
-                        <p>{opp.blockingReason || opp.stall?.likelyReason || opp.nextAction?.label || "Needs a next move"}</p>
-                      </div>
-                      <button className="r-btn r-btn-ghost" type="button" onClick={() => onNavigate(`#app/office/workers/${opp.workerSlug}/intelligence`)}>Unstick</button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </section>
             </>
           ) : null}
@@ -3224,10 +3153,9 @@ function AssignmentsView({
 }) {
   const [openAssignment, setOpenAssignment] = useState<OverlayAssignment | null>(null);
   const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
-  const tasks = overlays.assignments;
+  const tasks = overlays.assignments.filter((task) => task.status !== "done");
   const needsYou = tasks.filter((task) => task.status === "in_review" || task.status === "blocked");
   const inMotion = tasks.filter((task) => task.status === "queued" || task.status === "in_progress");
-  const doneThisWeek = tasks.filter((task) => task.status === "done").slice(0, 10);
   const groups = [
     {
       items: needsYou,
@@ -3236,10 +3164,6 @@ function AssignmentsView({
     {
       items: inMotion,
       label: "In motion"
-    },
-    {
-      items: doneThisWeek,
-      label: "Done this week"
     }
   ].filter((group) => group.items.length > 0);
 
@@ -3247,10 +3171,10 @@ function AssignmentsView({
     <div className="ro-main-scroll">
       <header className="ro-page-head">
         <h1>Assignments</h1>
-        <p className="ro-page-meta">{tasks.length === 0 ? "No assignments yet" : `${tasks.length} assignment${tasks.length === 1 ? "" : "s"} across your office`}</p>
+        <p className="ro-page-meta">{tasks.length === 0 ? "Nothing queued right now" : `${tasks.length} active assignment${tasks.length === 1 ? "" : "s"} across your office`}</p>
       </header>
       {tasks.length === 0 ? (
-        <p className="ro-blank">No assignments yet. Delegate your first piece of work from a worker conversation.</p>
+        <p className="ro-blank">Nothing is queued or waiting right now. Finished work appears in Deliverables.</p>
       ) : (
         <div className="ro-review-layout is-single">
           <div>
@@ -3764,6 +3688,29 @@ function TeamView({
 
 /* ---------- Deliverables ---------- */
 
+function deliverableFolder(type: string) {
+  const folders: Record<string, [string, string]> = {
+    pitch_draft: ["Outreach", "Personalized pitches"],
+    personalized_pitch: ["Outreach", "Personalized pitches"],
+    pitch_template: ["Outreach", "Pitch frameworks"],
+    follow_up_sequence: ["Outreach", "Follow-up sequences"],
+    reply_draft: ["Outreach", "Replies"],
+    content_ideas: ["Content", "Content ideas"],
+    brand_content_ideas: ["Content", "Brand concepts"],
+    creative_treatment: ["Content", "Creative treatments"],
+    creative_performance_review: ["Content", "Performance reviews"],
+    creator_positioning: ["Strategy", "Your positioning"],
+    brand_criteria: ["Strategy", "Brand fit"],
+    opportunity_package: ["Strategy", "Opportunities"],
+    brand_research: ["Strategy", "Brand research"],
+    growth_intelligence_brief: ["Intelligence", "Growth intelligence"],
+    market_pulse: ["Intelligence", "Market signals"],
+    tiktok_trend_pulse: ["Intelligence", "Social trends"],
+    recommendation: ["Strategy", "Recommendations"]
+  };
+  return folders[type] ?? ["Other", sentenceCase(type.replace(/_/g, " "))];
+}
+
 function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void }) {
   const [selectedDeliverable, setSelectedDeliverable] = useState<WorkerDeskDeliverable | null>(null);
   const [workerFilter, setWorkerFilter] = useState<string | null>(null);
@@ -3787,10 +3734,12 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
     });
   }, [overlays.deliverables, workerFilter]);
   const groupedItems = useMemo(() => {
-    const groups = new Map<string, typeof items>();
+    const groups = new Map<string, Map<string, typeof items>>();
     for (const deliverable of items) {
-      const label = sentenceCase(deliverable.deliverableType.replace(/_/g, " "));
-      groups.set(label, [...(groups.get(label) || []), deliverable]);
+      const [folder, subfolder] = deliverableFolder(deliverable.deliverableType);
+      const children = groups.get(folder) ?? new Map<string, typeof items>();
+      children.set(subfolder, [...(children.get(subfolder) || []), deliverable]);
+      groups.set(folder, children);
     }
     return Array.from(groups.entries());
   }, [items]);
@@ -3834,11 +3783,16 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
               ))}
             </div>
           ) : null}
-          {groupedItems.map(([group, deliverables]) => (
-            <section className="ro-library-group" key={group}>
-              <div className="ro-sec-head"><h2>{group}</h2><span className="ro-sec-n">{deliverables.length}</span></div>
-              <div className="ro-library-list">
-                {deliverables.map((deliverable) => (
+          {groupedItems.map(([folder, subfolders]) => {
+            const folderCount = Array.from(subfolders.values()).reduce((sum, entries) => sum + entries.length, 0);
+            return (
+            <details className="ro-library-folder" key={folder} open>
+              <summary><span className="ro-library-folder-name">{folder}</span><span className="ro-sec-n">{folderCount}</span></summary>
+              {Array.from(subfolders.entries()).map(([subfolder, deliverables]) => (
+                <details className="ro-library-subfolder" key={subfolder} open>
+                  <summary><span>{subfolder}</span><span className="ro-sec-n">{deliverables.length}</span></summary>
+                  <div className="ro-library-list">
+                    {deliverables.map((deliverable) => (
                   <button
                     className="ro-library-row"
                     key={deliverable.id}
@@ -3861,10 +3815,13 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
                     </span>
                     <span className="ro-library-date">{timeAgo(deliverable.updatedAt)}</span>
                   </button>
-                ))}
-              </div>
-            </section>
-          ))}
+                    ))}
+                  </div>
+                </details>
+              ))}
+            </details>
+            );
+          })}
         </div>
       )}
       {selectedDeliverable ? (

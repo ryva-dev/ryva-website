@@ -200,7 +200,9 @@ test("onboarding completion plan generates Mara work items", () => {
     }
   });
 
-  assert.ok(plan.tasks.length >= 7);
+  assert.equal(plan.tasks.length, 4);
+  assert.equal(plan.tasks.some((task) => /pitch template/i.test(task.title)), false);
+  assert.equal(plan.tasks.some((task) => /target brands|content idea/i.test(task.title)), false);
   assert.ok(plan.tasks.some((task) => inferMaraTaskType(task.title, "onboarding_generated") === "weekly_action_plan"));
   assert.ok(plan.recurringResponsibilities.length >= 4);
   assert.ok(plan.memoryEntries.some((entry) => entry.title === "Pain point map"));

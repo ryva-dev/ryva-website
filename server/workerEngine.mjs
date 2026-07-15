@@ -152,7 +152,6 @@ async function tryExecuteLlmFirstMaraTask(context) {
 const VOICE_POLISH_TASK_TYPES = new Set([
   "tiktok_trend_pulse",
   "reddit_market_pulse",
-  "ops_brief",
   "update_brand_tracker"
 ]);
 
@@ -163,7 +162,6 @@ const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "creator_positioning",
   "draft_brand_reply",
   "follow_up_sequence",
-  "ops_brief",
   "personalized_pitch",
   "pitch_template",
   "reddit_market_pulse",
@@ -1556,14 +1554,14 @@ function executeCreatorPositioningTask(context) {
   const positioningIngredients = getStructuredList(positioningModule, "positioningIngredients", ["Niche", "Proof point", "Brand-facing angle"]);
   const beginnerPositioning = getStructuredList(positioningModule, "beginnerPositioning", ["Lead with niche fit and usable content style"]);
   const structuredContent = {
-    audienceSummary: `Creators and brand teams looking for ${profile.niche} content that feels credible and conversion-aware.`,
-    brandFacingAngle: `Position ${profile.brandName} as a creator who can make ${profile.niche} feel useful, trustworthy, and easy to brief.`,
+    audienceSummary: `Your audience includes people and brand teams looking for ${profile.niche} content that feels credible and conversion-aware.`,
+    brandFacingAngle: `You can make ${profile.niche} feel useful, trustworthy, and easy for a brand team to brief.`,
     contentStrengths: [
       "Clear founder-friendly communication",
       "UGC that feels native instead of over-produced",
       "Practical hooks tied to product outcomes"
     ],
-    creatorPositioningStatement: `${profile.brandName} creates practical, trustworthy ${profile.niche} content that helps brands look credible without losing the native feel that makes UGC perform.`,
+    creatorPositioningStatement: `You create practical, trustworthy ${profile.niche} content that helps brands look credible without losing the native feel that makes UGC perform.`,
     nicheSummary: profile.niche,
     pitchableFactors: [
       "Clear niche alignment",
@@ -1586,7 +1584,7 @@ function executeCreatorPositioningTask(context) {
       { title: "Audience summary", value: structuredContent.audienceSummary },
       { title: "Content strengths", value: structuredContent.contentStrengths },
       { title: "Brand-facing angle", value: structuredContent.brandFacingAngle },
-      { title: "What makes this creator pitchable", value: structuredContent.pitchableFactors },
+      { title: "What makes you pitchable", value: structuredContent.pitchableFactors },
       { title: "Positioning ingredients Mara is using", value: structuredContent.positioningIngredients },
       { title: "Beginner positioning rules", value: structuredContent.beginnerPositioning },
       { title: "Suggested next steps", value: structuredContent.suggestedNextSteps }
@@ -3040,9 +3038,11 @@ function buildBrandResearchQueries({ niche, redditSignals = [], privateInsights 
   const uniqueThemeTerms = [...new Set(themeTerms)].slice(0, 4);
 
   return [
-    `${niche} brand`,
-    `${niche} ecommerce brand`,
+    `independent ${niche} direct to consumer brand`,
+    `emerging ${niche} ecommerce brand`,
+    `small ${niche} brand creator program`,
     `${niche} direct to consumer brand`,
+    `${niche} brand`,
     ...uniqueThemeTerms.map((term) => `${niche} ${term} brand`)
   ];
 }
@@ -5069,34 +5069,30 @@ export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
   const dailyOutput = String(maraAnswers.daily_output || "A clear list of what moved, what is blocked, and what needs approval.").trim();
   const brandName = String(accountContext?.brandName || "Your brand").trim();
 
-  const creatorProfileSummary = `${brandName} is focused on ${String(accountContext?.whatYouDo || niche).trim()}. Mara should operate as a junior UGC operations hire supporting creator workflow, outreach, and momentum.`;
+  const creatorProfileSummary = `You are focused on ${String(accountContext?.whatYouDo || niche).trim()}. Mara supports your research, outreach, content planning, follow-through, and commercial momentum.`;
   const brandFitCriteria = [
     `Brands aligned with ${niche}`,
     "UGC-friendly and open to creator partnerships",
-    "Reasonable fit for the creator's current stage and positioning"
+    "Reasonable fit for your current stage and positioning"
   ];
   const painPointMap = [workflowPain, adminBottleneck, `Inbox priorities: ${inboxPriorities}`];
   const first7DayActionPlan = [
-    "Clarify creator positioning and ideal brand fit",
-    "Set up first outreach assets and brand tracker structure",
+    "Clarify your positioning and ideal brand fit",
+    "Research reachable brands before preparing brand-specific outreach",
     "Generate a first batch of research-backed opportunities",
     "Create a repeatable follow-up rhythm"
   ];
-  const firstOutreachAngle = `Lead with a concise ${niche} creator pitch that removes friction and gives brands a clear reason to reply.`;
+  const firstOutreachAngle = `For each researched brand, lead with a concise ${niche} sales case that shows a fresh creative contribution and gives the campaign team a clear reason to reply.`;
   const firstContentIdeas = [
     `Three ${niche} content concepts tied to brand outcomes`,
     "A low-production authenticity angle",
     "A problem-solution product use case"
   ];
   const tasks = [
-    { title: "Define creator positioning", description: "Turn onboarding context into a clear positioning statement Mara can use across workflow and outreach.", priority: "high" },
+    { title: "Define your creator positioning", description: "Turn your onboarding context into a clear positioning statement Mara can use across future work.", priority: "high" },
     { title: "Build brand fit criteria", description: "Document what kinds of brands Mara should prioritize or avoid.", priority: "high" },
-    { title: "Create first pitch template", description: "Draft a low-friction outreach template grounded in the creator's niche and strengths.", priority: "high" },
-    { title: "Find first 5 target brands", description: "Queue a first research-backed starter list of brand opportunities.", priority: "high" },
-    { title: "Create first content idea batch", description: "Draft initial content ideas Mara can turn into a repeatable workflow.", priority: "medium" },
-    { title: "Build follow-up sequence", description: "Create a simple follow-up structure so outreach does not stall.", priority: "medium" },
     { title: "Set up brand tracker structure", description: "Prepare the tracking structure needed so conversations do not get lost.", priority: "medium" },
-    { title: "Create weekly action plan", description: "Build a realistic, day-anchored weekly plan from the creator's priorities and place the focus blocks on the Office calendar.", priority: "medium" }
+    { title: "Create weekly action plan", description: "Build a realistic, day-anchored weekly plan from your priorities and place the focus blocks on the Office calendar.", priority: "medium" }
   ];
   const recurringResponsibilities = [
     { title: "Weekly brand research", description: "Find fresh aligned brand opportunities each week.", cadence: "weekly", dayOfWeek: "Monday" },
@@ -5452,8 +5448,11 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       nextStep: task.nextStep
     }))
   ].slice(0, 5);
+  const customerHiddenOutputTypes = new Set(["summary", "status_note", "ops_brief", "tracker_structure", "weekly_plan", "weekly_schedule"]);
   const customerReadyOutputs = workerOutputs.filter(
-    (output) => !["placeholder", "template"].includes(String(output.structuredContent?.generatedBy || ""))
+    (output) =>
+      !customerHiddenOutputTypes.has(String(output.outputType || "")) &&
+      !["placeholder", "template"].includes(String(output.structuredContent?.generatedBy || ""))
   );
   const latestOutputs = customerReadyOutputs
     .map((output) => ({
@@ -5507,18 +5506,6 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       title: "Build follow-up sequence"
     });
   }
-  starterTasks.push(
-    {
-      description: "Draft a first reusable outreach template grounded in the creator's niche and tone.",
-      priority: "high",
-      title: "Create first pitch template"
-    },
-    {
-      description: "Generate a first batch of content ideas Mara can build from.",
-      priority: "high",
-      title: "Create first content idea batch"
-    }
-  );
   const inactiveRecurring = recurringResponsibilities.filter((item) => !item.isActive);
   const recommendedNextActions = [];
   let recommendedNext = null;
@@ -5594,7 +5581,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       recommendedNextActions.push(label);
     }
   }
-  if (recommendedNextActions.length === 0) {
+  if (recommendedNextActions.length === 0 && starterTasks.length > 0) {
     recommendedNextActions.push(...starterTasks.map((task) => task.title));
     recommendedNext = {
       actionLabel: "Create next task",
