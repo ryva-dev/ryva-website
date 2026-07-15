@@ -267,10 +267,12 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
       summary: maraDeskCopy(deliverable.summary || deliverable.previewText || "", "Ready for you to review."),
       contentRefId: deliverable.contentRefId,
       sourceType: deliverable.sourceType,
-      sourceLabel: "Deliverable",
+      sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
+      deliverableType: deliverable.deliverableType,
       updatedAt: deliverable.updatedAt,
       workerSlug: worker.slug
     }));
+  const firstPreparedOutreach = outputs.find((item) => /pitch|outreach|follow.?up|reply/i.test(item.deliverableType || item.sourceLabel || item.title)) || null;
   const inMotion = [
     ...workspace.runnableTasks,
     ...(workspace.currentWork && !workspace.runnableTasks.some((task) => task.id === workspace.currentWork?.id) ? [workspace.currentWork] : [])
@@ -325,6 +327,7 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
       createdAt: entry.createdAt
     })).slice(0, 5),
     recentCompleted: outputs.slice(0, 4),
+    firstPreparedOutreach,
     redditSignals: workspace.researchSnapshot?.redditSignalsToday.map((item) => ({
       id: item.id,
       summary: maraDeskCopy(item.summary),
@@ -465,6 +468,7 @@ type WorkerDeskDeliverable = {
   summary: string;
   workerSlug?: string;
   sourceLabel: string;
+  deliverableType?: string;
   updatedAt: string;
 };
 
@@ -495,6 +499,7 @@ type WorkerDesk = {
   workInMotion: Array<{ id: string; title: string; summary: string; status: string }>;
   waitingOnUser: Array<{ id: string; title: string; summary: string; actionLabel?: string; kind?: string }>;
   recentCompleted: WorkerDeskDeliverable[];
+  firstPreparedOutreach?: WorkerDeskDeliverable | null;
   recentActivity: WorkerDeskActivity[];
   researchToday: Array<{ id: string; title: string; summary: string }>;
   redditSignals: Array<{ id: string; title: string; summary: string }>;
@@ -839,6 +844,7 @@ function buildWorkerDesk(
       title: deliverable.title,
       summary: deliverable.summary || deliverable.previewText,
       sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
+      deliverableType: deliverable.deliverableType,
       updatedAt: deliverable.updatedAt,
       workerSlug: worker.slug
     })) ??
@@ -1462,7 +1468,7 @@ function WorkerDeskSections({
           done: canUseEmail,
           label: "Connect Gmail",
           detail: "Let Mara organize brand conversations and prepare reply copy inside Ryva",
-          action: () => onNavigate(`#app/office/workers/${activeWorker.slug}/knowledge`)
+          action: () => window.location.assign(`/api/office/workers/${activeWorker.slug}/connect-email/google`)
         },
         {
           id: "research",
@@ -1476,9 +1482,14 @@ function WorkerDeskSections({
         {
           id: "send",
           done: Boolean(desk.activationJourney?.milestones.some((milestone) => milestone.id === "sent" && milestone.complete)),
-          label: "Send your first prepared outreach",
-          detail: "Mara prepares the work in Ryva; you always send external communication",
-          action: () => onNavigate("#app/office/deliverables")
+          label: "Review your first prepared outreach",
+          detail: "Open the exact pitch Mara prepared, then send it yourself when it is ready",
+          action: () => {
+            const pitch = desk.firstPreparedOutreach;
+            if (pitch) onViewDeliverable(pitch);
+            else if (onRunAutonomy) void onRunAutonomy();
+            else onNavigate(`#app/office/workers/${activeWorker.slug}/conversation`);
+          }
         }
       ]
     : [];

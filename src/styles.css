@@ -4201,6 +4201,10 @@ a:focus-visible {
   text-align: left;
   cursor: pointer;
 }
+.ro-plain-row-button > div { flex: 1 1 auto; min-width: 0; }
+.ro-plain-row-button strong,
+.ro-plain-row-button p { overflow-wrap: anywhere; word-break: normal; }
+.ro-plain-row-button > span { flex: 0 0 auto; }
 .ro-plain-row-button:hover strong,
 .ro-plain-row-button:hover span { color: var(--ink); }
 .ro-artifact { margin: 12px 0 0; border-left: 2px solid var(--line); padding: 4px 0 4px 16px; font-size: 13.5px; line-height: 1.55; }
@@ -4731,7 +4735,7 @@ a:focus-visible {
 }
 .ro-doc-title {
   font-family: var(--display); font-size: 30px; font-weight: 440; line-height: 1.18;
-  letter-spacing: -0.012em; margin: 0 0 16px;
+  letter-spacing: -0.012em; margin: 0 0 16px; overflow-wrap: anywhere;
 }
 .ro-doc-byline { display: flex; gap: 18px; font-size: 12.5px; color: var(--muted); }
 .ro-doc-byline span + span::before { content: "·"; margin-right: 18px; color: var(--faint); }

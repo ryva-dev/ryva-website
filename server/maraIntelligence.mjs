@@ -435,6 +435,88 @@ function brandDomainKey(value) {
   catch { return ""; }
 }
 
+function containsWholeBrandName(value, brandName) {
+  const haystack = ` ${brandNameKey(value)} `;
+  const needle = brandNameKey(brandName);
+  return needle.length >= 3 && haystack.includes(` ${needle} `);
+}
+
+function websiteLooksOwnedByBrand(website, brandName) {
+  const domain = brandDomainKey(website);
+  const compactBrand = brandNameKey(brandName).replace(/\s+/g, "");
+  return Boolean(domain && compactBrand.length >= 3 && domain.replace(/[^a-z0-9]/g, "").includes(compactBrand));
+}
+
+function cleanDesiredBrandName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^i(?:'d| would)?\s+(?:really\s+)?(?:love|like|want)\s+to\s+work\s+with\s+/i, "")
+    .replace(/\s+(?:would be|is)\s+(?:a\s+)?(?:dream|dream brand).*$/i, "")
+    .replace(/\s+is\s+my\s+dream(?:\s+brand)?(?:\s+.*)?$/i, "")
+    .replace(/[.!]+$/, "")
+    .trim();
+}
+
+/**
+ * Resolve headline-shaped research records such as "How Gymshark Built..."
+ * back to a creator-declared brand. Article publishers must never become
+ * separate opportunities or donate their contact details to that brand.
+ */
+export function resolveCanonicalDesiredBrand(row = {}, desiredBrands = []) {
+  const matched = (Array.isArray(desiredBrands) ? desiredBrands : [])
+    .map(cleanDesiredBrandName)
+    .filter(Boolean)
+    .find((desired) => containsWholeBrandName(row.brandName, desired));
+  if (!matched) return { ...row, canonicalDesiredBrand: false };
+  return {
+    ...row,
+    brandName: matched,
+    website: websiteLooksOwnedByBrand(row.website, matched) ? row.website : null,
+    canonicalDesiredBrand: true
+  };
+}
+
+function isCreatorPreferenceEcho(value) {
+  const text = String(value || "").trim();
+  return /\bdream\b.*\bfor me\b|\bwould be (?:a )?dream\b|\bi (?:really )?(?:want|would love) to work with\b/i.test(text);
+}
+
+function removePreferenceEchoes(row) {
+  const opportunityPackage = { ...(row.opportunityPackage || {}) };
+  const thesis = opportunityPackage.opportunityThesis;
+  if (typeof thesis === "string" && isCreatorPreferenceEcho(thesis)) {
+    opportunityPackage.opportunityThesis = "";
+  } else if (thesis && typeof thesis === "object") {
+    const echoesPreference = isCreatorPreferenceEcho(thesis.underrepresented);
+    opportunityPackage.opportunityThesis = {
+      ...thesis,
+      underrepresented: echoesPreference ? null : thesis.underrepresented,
+      whyItCouldMatter: isCreatorPreferenceEcho(thesis.whyItCouldMatter) ? null : thesis.whyItCouldMatter,
+      hypotheses: (Array.isArray(thesis.hypotheses) ? thesis.hypotheses : []).filter((item) => !isCreatorPreferenceEcho(item?.claim))
+    };
+  }
+  if (isCreatorPreferenceEcho(opportunityPackage.creativeGap)) opportunityPackage.creativeGap = null;
+  if (isCreatorPreferenceEcho(opportunityPackage.recommendedConceptTerritory?.messagingAngle)) {
+    opportunityPackage.recommendedConceptTerritory = {
+      ...opportunityPackage.recommendedConceptTerritory,
+      messagingAngle: null
+    };
+  }
+  if (isCreatorPreferenceEcho(opportunityPackage.recommendedPitchStrategy?.pitchFraming)) {
+    opportunityPackage.recommendedPitchStrategy = {
+      ...opportunityPackage.recommendedPitchStrategy,
+      pitchFraming: null
+    };
+  }
+  opportunityPackage.evidence = (Array.isArray(opportunityPackage.evidence) ? opportunityPackage.evidence : [])
+    .filter((item) => !isCreatorPreferenceEcho(item?.claim));
+  return {
+    ...row,
+    opportunityPackage,
+    evidence: (Array.isArray(row.evidence) ? row.evidence : []).filter((item) => !isCreatorPreferenceEcho(item?.claim))
+  };
+}
+
 /** Collapses legacy name-keyed and canonical domain-keyed research into one brand decision. */
 export function dedupeBrandOpportunities(rows = []) {
   const groups = [];
@@ -595,15 +677,18 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
     if (value && typeof value === "object") return value;
     try { return JSON.parse(value); } catch { return fallback; }
   };
-  const parsed = opportunities.map((row) => ({
-    ...row,
-    scores: parse(row.scoresJson, {}),
-    opportunityPackage: parse(row.opportunityPackageJson, {}),
-    evidence: parse(row.evidenceJson, [])
-  }));
   const { findBestOutreachContact, listBrandContacts } = await import("./maraContactDiscovery.mjs");
   const { getCreatorIntelligenceProfile } = await import("./maraCreatorProfile.mjs");
   const creatorProfile = await getCreatorIntelligenceProfile(store, userId, workerId);
+  const parsed = opportunities.map((row) => {
+    const { scoresJson, opportunityPackageJson, evidenceJson, ...publicRow } = row;
+    return removePreferenceEchoes(resolveCanonicalDesiredBrand({
+      ...publicRow,
+      scores: parse(scoresJson, {}),
+      opportunityPackage: parse(opportunityPackageJson, {}),
+      evidence: parse(evidenceJson, [])
+    }, creatorProfile?.business?.desiredBrands));
+  });
   const enriched = [];
   for (const row of dedupeBrandOpportunities(parsed)) {
     let outreachContact = null;
@@ -619,6 +704,14 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
       } catch {
         contacts = [];
       }
+    }
+    if (row.canonicalDesiredBrand) {
+      const brandToken = brandNameKey(row.brandName).replace(/\s+/g, "");
+      contacts = contacts.filter((contact) => {
+        const emailDomain = String(contact?.value || "").split("@")[1]?.toLowerCase().replace(/[^a-z0-9]/g, "") || "";
+        return brandToken.length >= 3 && emailDomain.includes(brandToken);
+      });
+      outreachContact = contacts.find((contact) => Number(contact.mayUseForOutreach) === 1) || null;
     }
     const readiness = applyCreatorStageReadiness({ ...row, creatorProfile });
     enriched.push({

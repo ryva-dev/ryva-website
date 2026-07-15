@@ -24,6 +24,26 @@ export function isAgentLlmConfigured() {
   return isMaraLlmConfigured();
 }
 
+/**
+ * Deliverable titles are navigation labels, not a second summary. Preserve a
+ * genuinely concise model headline, but fall back to the task title when the
+ * model returns prose. This also repairs older outputs at projection time.
+ */
+export function normalizeDeliverableTitle(headline, taskTitle = "Deliverable", maxLength = 96) {
+  const clean = String(headline ?? "").replace(/\s+/g, " ").trim();
+  const fallback = String(taskTitle ?? "Deliverable").replace(/\s+/g, " ").trim() || "Deliverable";
+  const candidate = clean && clean.length <= maxLength && clean.split(/\s+/).length <= 14
+    ? clean
+    : fallback;
+  if (candidate.length <= maxLength) return candidate;
+  const visible = candidate.slice(0, maxLength + 1);
+  const wordBoundary = visible.lastIndexOf(" ");
+  const shortened = (wordBoundary >= Math.floor(maxLength * 0.6)
+    ? visible.slice(0, wordBoundary)
+    : candidate.slice(0, maxLength)).replace(/[\s,;:.-]+$/g, "");
+  return `${shortened}…`;
+}
+
 /* ------------------------------------------------------------------ */
 /* Budget guard (delegates to the shared llmBudget module)             */
 /* ------------------------------------------------------------------ */
@@ -265,7 +285,7 @@ export async function tryExecuteAgentTaskLlm({ db, userId, roleConfig, task, bra
     content,
     outputType: taskTypeConfig?.outputType || task.taskType || "summary",
     structuredContent,
-    title: String(payload.headline || task.title).slice(0, 160)
+    title: normalizeDeliverableTitle(payload.headline, task.title)
   };
 }
 

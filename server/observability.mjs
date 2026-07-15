@@ -218,8 +218,9 @@ export function validateConfig() {
     if (!String(process.env.SUPPORT_EMAIL ?? "").trim()) {
       problems.push("SUPPORT_EMAIL is required in production so paying users can reach a monitored human.");
     }
-    if (!["0", "1"].includes(String(process.env.AUTONOMY_SCHEDULER_ENABLED ?? "").trim())) {
-      problems.push("AUTONOMY_SCHEDULER_ENABLED must be explicitly set to 0 or 1 in production so scheduler ownership is intentional.");
+    const schedulerSetting = String(process.env.AUTONOMY_SCHEDULER_ENABLED ?? "").trim();
+    if (schedulerSetting && !["0", "1"].includes(schedulerSetting)) {
+      problems.push("AUTONOMY_SCHEDULER_ENABLED must be 0 or 1 when set.");
     }
   } else if (encryptionKey && !encryptionKeyOk(encryptionKey)) {
     problems.push("ENCRYPTION_KEY must decode to exactly 32 bytes when set.");

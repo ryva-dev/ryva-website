@@ -52,7 +52,7 @@ import {
 } from "./workerEngine.mjs";
 import { handleAgentChatMessage, runAgentAutonomyCycle, runAgentTask } from "./agentCore.mjs";
 import { isLikelyListicleTitle } from "./workerEngine.mjs";
-import { isAgentLlmConfigured, parseTrendPasteHeuristic, tryParseTrendPaste } from "./agentLlm.mjs";
+import { isAgentLlmConfigured, normalizeDeliverableTitle, parseTrendPasteHeuristic, tryParseTrendPaste } from "./agentLlm.mjs";
 import { hasRoleConfig } from "./roles.mjs";
 import {
   errorHandler,
@@ -81,7 +81,7 @@ import { initProfessionalIntelligence } from "./professionalIntelligence.mjs";
 import { appendActionAuditEvent, evaluateActionPolicy, initActionAudit } from "./actionPolicy.mjs";
 import { validateTenantUpload } from "./uploadSecurity.mjs";
 import { claimExternalAction, completeExternalAction, initExternalActions, markExternalActionUncertain } from "./externalActions.mjs";
-import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, listTopPitchTargets, recordCommercialOutcome, saveCreativeAnalysis } from "./maraIntelligence.mjs";
+import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, listTopPitchTargets, recordCommercialOutcome, resolveCanonicalDesiredBrand, saveCreativeAnalysis } from "./maraIntelligence.mjs";
 import { inferAndRecordCommercialOutcomes } from "./maraOutcomeInference.mjs";
 import {
   buildGoogleAuthorizationUrl,
@@ -162,7 +162,10 @@ const port = Number.parseInt(process.env.PORT ?? "8787", 10);
 const host = process.env.HOST ?? "0.0.0.0";
 const MARA_SLUG = "mara-vale";
 const maraAutonomyIntervalMinutes = Number.parseInt(process.env.MARA_AUTONOMY_INTERVAL_MINUTES ?? "15", 10);
-const autonomySchedulerEnabled = String(process.env.AUTONOMY_SCHEDULER_ENABLED ?? (isProduction ? "0" : "1")).trim() === "1";
+// Autonomy is core product behavior, not an optional production add-on. The
+// durable queue and idempotency keys make this safe across restarts/replicas;
+// operators can still explicitly set AUTONOMY_SCHEDULER_ENABLED=0 to pause it.
+const autonomySchedulerEnabled = String(process.env.AUTONOMY_SCHEDULER_ENABLED ?? "1").trim() === "1";
 let maraAutonomyTimer = null;
 let maraAutonomyRunning = false;
 const jobLeaseOwner = `${host}:${port}:${process.pid}:${randomUUID()}`;
@@ -1027,10 +1030,12 @@ function personalizeCreatorPositioningStructured(value) {
 
 async function syncWorkerDeliverables(userId, workerSlug) {
   const outputs = (await authStore.query(
-    `SELECT id, user_id AS "userId", worker_id AS "workerId", task_id AS "taskId", output_type AS "outputType",
-            title, content, structured_content_json AS "structuredContentJson", source,
-            created_at AS "createdAt", updated_at AS "updatedAt"
-     FROM worker_outputs WHERE user_id = ? AND worker_id = ? ORDER BY created_at DESC`,
+    `SELECT o.id, o.user_id AS "userId", o.worker_id AS "workerId", o.task_id AS "taskId", o.output_type AS "outputType",
+            o.title, o.content, o.structured_content_json AS "structuredContentJson", o.source,
+            o.created_at AS "createdAt", o.updated_at AS "updatedAt", t.title AS "taskTitle"
+     FROM worker_outputs o
+     LEFT JOIN worker_tasks t ON t.id = o.task_id AND t.user_id = o.user_id
+     WHERE o.user_id = ? AND o.worker_id = ? ORDER BY o.created_at DESC`,
     userId, workerSlug
   )).map((row) => ({ ...row, structuredContent: parseJson(row.structuredContentJson, null) }));
 
@@ -1106,6 +1111,7 @@ async function syncWorkerDeliverables(userId, workerSlug) {
     const displayContent = output.outputType === "creator_positioning"
       ? personalizeCreatorPositioningText(output.content)
       : output.content;
+    const displayTitle = normalizeDeliverableTitle(output.title, output.taskTitle || sentenceCase(String(output.outputType || "deliverable").replace(/_/g, " ")));
     await upsertOfficeDeliverable({
       contentRefId: output.id,
       createdAt: output.createdAt,
@@ -1113,8 +1119,8 @@ async function syncWorkerDeliverables(userId, workerSlug) {
       previewText: truncatePreview(displayContent || output.structuredContent?.preview || "", 260),
       sourceId: output.id,
       sourceType: "worker_output",
-      summary: truncatePreview(displayContent || output.title, 160),
-      title: output.title,
+      summary: truncatePreview(displayContent || displayTitle, 160),
+      title: displayTitle,
       updatedAt: output.updatedAt,
       userId,
       workerSlug
@@ -2454,20 +2460,23 @@ async function syncMaraGrowthIntelligenceFromResearch(userId, workerSlug) {
   let syncedCount = 0;
   const creatorProfile = await getCreatorIntelligenceProfile(professionalStore, userId, workerSlug);
   for (const brand of brands) {
+    const canonicalBrand = resolveCanonicalDesiredBrand(brand, creatorProfile?.business?.desiredBrands);
     const publicEvidence = parseJson(brand.evidenceJson, []);
     const sourceUrl = String(publicEvidence?.[0]?.url || brand.website || "").trim() || null;
     // Public facts only into mara_public_brands; creator thesis lives on the opportunity package.
     const evidence = [
       createEvidenceItem({
         kind: EVIDENCE_KINDS.OBSERVED,
-        claim: String(brand.identitySummary || `${brand.brandName} was found in current public research.`),
+        claim: String(brand.identitySummary || `${canonicalBrand.brandName} was found in current public research.`),
         sourceUrl,
         observedAt: brand.researchedAt,
         confidence: sourceUrl ? 82 : 60
       }),
       createEvidenceItem({
         kind: EVIDENCE_KINDS.HYPOTHESIS,
-        claim: String(brand.suggestedAngle || "A creator-specific creative gap still needs validation against current advertising."),
+        claim: /\bdream\b.*\bfor me\b|\bwould be (?:a )?dream\b/i.test(String(brand.suggestedAngle || ""))
+          ? "A creator-specific creative gap still needs validation against current advertising."
+          : String(brand.suggestedAngle || "A creator-specific creative gap still needs validation against current advertising."),
         confidence: brand.suggestedAngle ? 58 : 35
       })
     ];
@@ -2475,11 +2484,11 @@ async function syncMaraGrowthIntelligenceFromResearch(userId, workerSlug) {
       await createOrUpdateOpportunityFromResearch(professionalStore, {
         userId,
         workerId: workerSlug,
-        brandName: brand.brandName,
-        website: brand.website || null,
+        brandName: canonicalBrand.brandName,
+        website: canonicalBrand.website || null,
         evidence,
         creatorProfile,
-        contacts: brand.contactEmail
+        contacts: brand.contactEmail && (!canonicalBrand.canonicalDesiredBrand || String(brand.contactEmail).toLowerCase().includes(String(canonicalBrand.brandName).toLowerCase().replace(/[^a-z0-9]/g, "")))
           ? [{ contactType: "email", value: brand.contactEmail, mayUseForOutreach: 1 }]
           : []
       });

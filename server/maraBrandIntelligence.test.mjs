@@ -2,17 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import Database from "better-sqlite3";
 import { wrapSqliteHandle } from "./dataStore.mjs";
-import { initMaraIntelligence } from "./maraIntelligence.mjs";
+import { dedupeBrandOpportunities, getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, resolveCanonicalDesiredBrand } from "./maraIntelligence.mjs";
 import { initMaraBrandArchitecture, savePublicBrand, saveTenantEvidence, classifyBrandEntity } from "./maraBrandCanonical.mjs";
 import { applyCreatorStageReadiness, decideOpportunityAction, scoreOpportunityDimensions, SCORE_VERSION } from "./maraOpportunityScoring.mjs";
 import { createOrUpdateOpportunityFromResearch } from "./maraOpportunityPackages.mjs";
 import { upsertBrandContact, assessContactUsability, CONTACT_TYPES } from "./maraContactDiscovery.mjs";
 import { buildConceptFromGap, conceptsAreNearDuplicates, saveConceptIfNovel } from "./maraConceptEngine.mjs";
 import { startOutreachSequence, stopOutreachSequence, prepareDueFollowUpDraft, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
-import { dedupeBrandOpportunities } from "./maraIntelligence.mjs";
 import { sanitizeUntrustedText } from "./maraEvidence.mjs";
 import { detectVideoMime, validateVideoUpload, processVideoAnalysisJob, registerMediaAsset, enqueueVideoAnalysis } from "./maraMediaPipeline.mjs";
 import { initJobQueue, claimJobs, completeJob } from "./jobQueue.mjs";
+import { upsertCreatorIntelligenceProfile } from "./maraCreatorProfile.mjs";
 
 function makeStore() {
   const db = new Database(":memory:");
@@ -78,6 +78,55 @@ test("duplicate brand research collapses to one current commercial read", () => 
   assert.equal(rows[0].id, "current-domain");
   assert.equal(rows[0].mergedResearchRecords, 2);
   assert.equal(rows[0].evidence.length, 2);
+});
+
+test("article headlines about a desired brand resolve to one canonical brand without borrowing publisher domains", () => {
+  const desiredBrands = ["Gymshark would be a DREAM for me"];
+  const resolved = [
+    { brandName: "Gymshark Official Store", website: "https://gymshark.com/collections/new" },
+    { brandName: "Gymshark: Growth Tactics and Competitive Advantage", website: "https://growthegy.com/gymshark" },
+    { brandName: "How Gymshark Built a $1.6B Brand with No", website: "https://tacticone.co/gymshark-case-study" }
+  ].map((row) => resolveCanonicalDesiredBrand(row, desiredBrands));
+  assert.deepEqual(resolved.map((row) => row.brandName), ["Gymshark", "Gymshark", "Gymshark"]);
+  assert.equal(resolved[0].website, "https://gymshark.com/collections/new");
+  assert.equal(resolved[1].website, null);
+  assert.equal(resolved[2].website, null);
+  assert.equal(dedupeBrandOpportunities(resolved).length, 1);
+});
+
+test("growth intelligence returns one cautious Gymshark decision and removes raw onboarding preference echoes", async () => {
+  const store = makeStore();
+  await initMaraIntelligence(store);
+  await initMaraBrandArchitecture(store);
+  await upsertCreatorIntelligenceProfile(store, {
+    userId: "creator-dream",
+    workerId: "mara-vale",
+    business: {
+      creatorStage: "Brand new, no paid deals yet",
+      desiredBrands: ["Gymshark would be a DREAM for me"]
+    }
+  });
+  for (const row of [
+    { brandName: "Gymshark Official Store", website: "https://gymshark.com/collections/new" },
+    { brandName: "Gymshark: Growth Tactics and Competitive Advantage", website: "https://growthegy.com/gymshark" },
+    { brandName: "How Gymshark Built a $1.6B Brand with No", website: "https://tacticone.co/gymshark-case-study" }
+  ]) {
+    await createOrUpdateOpportunityFromResearch(store, {
+      userId: "creator-dream",
+      workerId: "mara-vale",
+      ...row,
+      evidence: [
+        { kind: "observed", claim: `Public article mentioning ${row.brandName}`, sourceUrl: row.website, confidence: 70 },
+        { kind: "hypothesis", claim: "Gymshark would be a DREAM for me routine-led content", confidence: 40 }
+      ]
+    });
+  }
+  const snapshot = await getMaraGrowthIntelligenceSnapshot(store, "creator-dream", "mara-vale");
+  assert.equal(snapshot.opportunities.length, 1);
+  assert.equal(snapshot.opportunities[0].brandName, "Gymshark");
+  assert.equal(snapshot.opportunities[0].readiness, "later");
+  assert.equal(snapshot.opportunities[0].decision, "build_toward");
+  assert.doesNotMatch(JSON.stringify(snapshot.opportunities[0]), /DREAM for me/i);
 });
 
 test("a beginner's dream brand is build-toward, not an immediate revenue target", () => {

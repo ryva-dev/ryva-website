@@ -7,6 +7,7 @@ import {
   buildTaskExecutionSystemPrompt,
   buildTaskExecutionUserPrompt,
   formatBrandContextForPrompt,
+  normalizeDeliverableTitle,
   parseAutonomyPlannerResponse,
   parseChatInterpreterResponse,
   renderStructuredContentToText
@@ -110,6 +111,17 @@ test("renderStructuredContentToText produces readable deliverable text", () => {
   assert.match(text, /- Usage window\?/);
   assert.doesNotMatch(text, /hidden/);
   assert.doesNotMatch(text, /generatedBy/);
+});
+
+test("deliverable titles keep concise headlines and reject sentence-length prose", () => {
+  assert.equal(normalizeDeliverableTitle("Gymshark outreach concept", "Prepare outreach"), "Gymshark outreach concept");
+  assert.equal(
+    normalizeDeliverableTitle("Ten UGC content ideas built around a very long explanation that keeps going because the model treated the title like the body of the deliverable and never stopped", "Create first content idea batch"),
+    "Create first content idea batch"
+  );
+  const shortened = normalizeDeliverableTitle("This fallback title is intentionally much longer than the title limit and should be shortened without leaving a visibly broken final word in the interface", "This fallback title is intentionally much longer than the title limit and should be shortened without leaving a visibly broken final word in the interface", 72);
+  assert.match(shortened, /…$/);
+  assert.doesNotMatch(shortened, / short…$/);
 });
 
 test("task execution prompt includes brand context and schema", () => {

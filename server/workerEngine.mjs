@@ -3061,6 +3061,9 @@ function summarizeBrandResearchFit({ brandName, niche, pageTitle, metaDescriptio
   const matchedInsights = privateInsights
     .map((item) => String(item?.label || item || "").trim())
     .filter(Boolean)
+    // Desired-brand answers are preferences, not trend evidence or creative
+    // angles. Echoing them into every research record destroys trust.
+    .filter((label) => !/\bdream\b.*\bfor me\b|\bwould be (?:a )?dream\b|\bi (?:really )?(?:want|would love) to work with\b/i.test(label))
     .filter((label) => lowerSource.includes(label.toLowerCase().split(" ")[0]));
   const matchedSignals = redditSignals
     .map((item) => String(item?.title || "").trim())
@@ -5515,7 +5518,6 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       title: "Build follow-up sequence"
     });
   }
-  const inactiveRecurring = recurringResponsibilities.filter((item) => !item.isActive);
   const recommendedNextActions = [];
   let recommendedNext = null;
 
@@ -5550,16 +5552,6 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       kind: "task",
       label: `Run ${highestPriorityRunnableTask.title}`,
       taskId: highestPriorityRunnableTask.id
-    };
-  } else if (inactiveRecurring[0]) {
-    recommendedNextActions.push(`Activate ${inactiveRecurring[0].title}`);
-    recommendedNext = {
-      actionLabel: "Create in chat",
-      description: inactiveRecurring[0].description,
-      dismissible: true,
-      kind: "recurring",
-      label: `Activate ${inactiveRecurring[0].title}`,
-      prompt: `Set this recurring responsibility up for Mara: ${inactiveRecurring[0].title}. ${inactiveRecurring[0].description}`
     };
   }
 
@@ -5610,7 +5602,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     tasks.length > 0
     || approvals.length > 0
     || researchItems.length > 0
-    || recurringResponsibilities.length > 0;
+    || recurringResponsibilities.some((item) => item.isActive);
   const currentFocus = formatMaraCurrentFocus({
     runningTask,
     inProgressTask,

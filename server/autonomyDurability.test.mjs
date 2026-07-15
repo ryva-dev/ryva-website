@@ -15,3 +15,8 @@ test("Mara first-day work is queued durably instead of blocking onboarding", () 
   assert.match(serverSource, /idempotencyKey: `mara_first_day:/);
   assert.doesNotMatch(serverSource, /maraAutomationResult = await runMaraFirstDayAutomation/);
 });
+
+test("production autonomy is enabled by default and can only be paused explicitly", () => {
+  assert.match(serverSource, /AUTONOMY_SCHEDULER_ENABLED \?\? "1"/);
+  assert.doesNotMatch(serverSource, /isProduction \? "0" : "1"/);
+});

@@ -113,9 +113,13 @@ test("production requires a monitored support contact", () => {
   );
 });
 
-test("production requires explicit autonomy scheduler ownership", () => {
+test("production defaults autonomy on but rejects an invalid scheduler override", () => {
   withEnvironment(
     { ...prodBase, AUTONOMY_SCHEDULER_ENABLED: undefined },
+    () => assert.doesNotThrow(validateConfig)
+  );
+  withEnvironment(
+    { ...prodBase, AUTONOMY_SCHEDULER_ENABLED: "sometimes" },
     () => assert.throws(validateConfig, /AUTONOMY_SCHEDULER_ENABLED/)
   );
 });
