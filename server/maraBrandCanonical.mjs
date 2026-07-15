@@ -16,7 +16,7 @@
 import { randomUUID } from "node:crypto";
 import { createEvidenceItem, validateEvidenceList } from "./maraEvidence.mjs";
 
-const LISTICLE_RE = /\b(best|top)\s+\d+|brands?\s+to\s+know|roundup|listicle/i;
+const LISTICLE_RE = /\b(best|top)\s+\d+|brands?\s+to\s+know|roundup|listicle|case study|growth tactics?|competitive advantage|marketing strateg(?:y|ies)|b2b lessons?|how .{0,40}\bbuilt\b/i;
 const MARKETPLACE_HOSTS = new Set([
   "amazon.com", "etsy.com", "ebay.com", "walmart.com", "target.com", "alibaba.com"
 ]);
@@ -182,12 +182,11 @@ export async function savePublicBrand(store, input) {
   const existingIdentity = await store.queryOne(
     `SELECT id, brand_key AS "brandKey" FROM mara_public_brands
      WHERE brand_key = ?
-        OR (? IS NOT NULL AND canonical_domain = ?)
+        OR canonical_domain = ?
         OR lower(brand_name) = lower(?)
      ORDER BY CASE WHEN brand_key = ? THEN 0 WHEN canonical_domain = ? THEN 1 ELSE 2 END
      LIMIT 1`,
     brandKey,
-    canonicalDomain,
     canonicalDomain,
     String(input.brandName),
     brandKey,

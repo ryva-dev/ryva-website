@@ -4154,6 +4154,9 @@ a:focus-visible {
 .ro-evt.type-review { background: var(--accent-tint); border-left-color: var(--accent); color: var(--accent-deep); }
 .ro-evt.type-focus { background: #fdf1e7; border-left-color: #cf7a2e; color: #8a4d16; }
 .ro-evt.type-deadline { background: #fdecec; border-left-color: #c74a4a; color: #9c3535; }
+.ro-evt.type-mara { background: #eef0ff; border-left-color: #6657d9; color: #3f3597; }
+.ro-cal-key { align-items: center; color: var(--ink-3); display: flex; font-size: 12px; gap: 6px; margin: -4px 0 10px; }
+.ro-cal-key-dot { background: #6657d9; border-radius: 999px; display: inline-block; height: 8px; width: 8px; }
 .ro-nowline { position: absolute; height: 0; border-top: 1.5px solid #d64545; z-index: 5; pointer-events: none; }
 .ro-nowline::before { content: ""; position: absolute; left: -4px; top: -4px; width: 7px; height: 7px; border-radius: 50%; background: #d64545; }
 .ro-nowline::after { content: attr(data-time); position: absolute; left: 4px; top: -17px; font-family: var(--mono); font-size: 9.5px; color: #d64545; }

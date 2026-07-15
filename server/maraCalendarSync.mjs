@@ -414,7 +414,6 @@ export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(
   const events = [];
 
   for (const block of ready.blocks.slice(0, 20)) {
-    if (block.owner === "mara") continue;
     const targetDay = DAY_INDEX[block.day];
     const startMatch = TIME_RE.exec(block.start);
     const endMatch = TIME_RE.exec(block.end);
@@ -430,7 +429,11 @@ export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(
       title: block.activity.slice(0, 120),
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
-      eventType: block.kind === "review" || /review|approve|feedback/i.test(`${block.activity} ${block.goal}`) ? "Review" : "Focus",
+      eventType: block.owner === "mara"
+        ? "Mara"
+        : block.kind === "review" || /review|approve|feedback/i.test(`${block.activity} ${block.goal}`)
+          ? "Review"
+          : "Focus",
       notes: String(block.goal || ready.weekTheme || "").slice(0, 240),
       sourceOutputId: outputId,
       sourceKind: "weekly_schedule"

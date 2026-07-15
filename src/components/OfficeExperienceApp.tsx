@@ -3404,7 +3404,7 @@ function sameDay(left: Date, right: Date) {
   return left.toDateString() === right.toDateString();
 }
 
-const EVENT_TYPES = ["Meeting", "Review", "Focus", "Deadline"];
+const EVENT_TYPES = ["Meeting", "Review", "Focus", "Deadline", "Mara"];
 
 function CalendarView({
   workers, overlays, onReload,
@@ -3467,6 +3467,10 @@ function CalendarView({
           <button type="button" className="r-btn r-btn-accent" onClick={() => { setEditing(null); setShowForm(true); }}>New event</button>
         </div>
       </header>
+
+      <div className="ro-cal-key" aria-label="Calendar ownership key">
+        <span className="ro-cal-key-dot" aria-hidden="true" /> Mara work
+      </div>
 
       <div className="ro-cal" ref={scrollRef}>
         <div className={`ro-cal-days ro-cal-days-${mode}`}>

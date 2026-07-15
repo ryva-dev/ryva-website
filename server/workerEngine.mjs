@@ -37,6 +37,7 @@ import { assertWithinBrandResearchLimit, assertWithinDeepResearchLimit, assertWi
 import { getMaraActivationJourney } from "./maraActivationJourney.mjs";
 import { runMaraPhase3 } from "./maraPhase3Runtime.mjs";
 import { getMaraPhase2Flags } from "./maraFeatureFlags.mjs";
+import { classifyBrandEntity } from "./maraBrandCanonical.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -3090,6 +3091,10 @@ async function fetchText(fetchImpl, url, headers = {}) {
 
 function buildBrandResearchQueries({ niche, redditSignals = [], privateInsights = [] }) {
   const themeTerms = [...privateInsights, ...redditSignals]
+    .filter((item) => {
+      const text = String(item?.label || item?.title || item || "");
+      return !/\bdream\b.*\bfor me\b|\bwould be (?:a )?dream\b|\bi (?:really )?(?:want|would love) to work with\b/i.test(text);
+    })
     .flatMap((item) => String(item?.label || item?.title || item || "").toLowerCase().split(/[^a-z0-9]+/g))
     .map((part) => part.trim())
     .filter((part) => part.length >= 4 && !["with", "that", "this", "from", "your", "about", "would", "could", "creator", "creators", "brand", "brands", "trend", "trends", "hooks"].includes(part));
@@ -3139,7 +3144,7 @@ function summarizeBrandResearchFit({ brandName, niche, pageTitle, metaDescriptio
   };
 }
 
-async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsights = [], redditSignals = [] }) {
+export async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsights = [], redditSignals = [] }) {
   const queries = buildBrandResearchQueries({ niche, privateInsights, redditSignals });
   const candidates = [];
   const seenHosts = new Set();
@@ -3173,9 +3178,21 @@ async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsight
       }
       const pageTitle = pageHtml.match(/<title[^>]*>(.*?)<\/title>/is)?.[1] || title;
       const metaDescription = pageHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] || "";
-      const brandName = stripHtml(pageTitle).split("|")[0].split("—")[0].split("-")[0].trim() || stripHtml(title) || hostname;
+      const siteName = pageHtml.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i)?.[1]
+        || pageHtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:site_name["']/i)?.[1]
+        || "";
+      const brandName = stripHtml(siteName || pageTitle).split("|")[0].split("—")[0].split("-")[0].trim() || stripHtml(title) || hostname;
       // Articles and listicles are not brands — skip them entirely.
       if (isLikelyListicleTitle(brandName) || isLikelyListicleTitle(stripHtml(title))) continue;
+      if (classifyBrandEntity({ brandName, website: url, pageTitle: stripHtml(title), metaDescription }).reject) continue;
+      const hostParts = hostname.split(".").filter(Boolean);
+      const hostStem = (hostParts.length > 1 ? hostParts.at(-2) : hostParts[0] || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+      const nameStem = brandName.replace(/[^a-z0-9]/gi, "").toLowerCase();
+      const siteIdentityMatchesDomain = hostStem.length >= 3 && nameStem.length >= 3 &&
+        (hostStem.includes(nameStem) || nameStem.includes(hostStem));
+      // Search engines often return agencies and articles *about* a brand.
+      // Only the brand's own site is eligible for the opportunity pipeline.
+      if (!siteIdentityMatchesDomain) continue;
       const fit = summarizeBrandResearchFit({
         brandName,
         metaDescription,

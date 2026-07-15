@@ -16,6 +16,7 @@ import {
   createResearchItem,
   createSuggestedTask,
   defaultPermissionsForWorker,
+  discoverBrandCandidates,
   dismissWorkerTask,
   ensureWorkerPermissions,
   getMaraRelevantKnowledge,
@@ -36,6 +37,38 @@ import {
   updateApprovalRequestStatus,
   upsertWorkerBrand
 } from "./workerEngine.mjs";
+
+test("brand discovery ignores dream-brand leakage and rejects third-party articles", async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    requests.push(String(url));
+    if (String(url).includes("duckduckgo.com")) {
+      return {
+        ok: true,
+        text: async () => `
+          <a class="result__a" href="https://marketing.example.com/gymshark-growth">Gymshark Growth Tactics</a>
+          <a class="result__a" href="https://shop.reachablefit.com/">Reachable Fit</a>`
+      };
+    }
+    if (String(url).includes("marketing.example.com")) {
+      return { ok: true, text: async () => '<title>Gymshark Growth Tactics</title><meta property="og:site_name" content="Marketing Example">' };
+    }
+    return {
+      ok: true,
+      text: async () => '<title>Reachable Fit | Everyday training gear</title><meta property="og:site_name" content="Reachable Fit"><meta name="description" content="Independent fitness apparel for everyday training.">'
+    };
+  };
+
+  const result = await discoverBrandCandidates({
+    fetchImpl,
+    limit: 3,
+    niche: "fitness and wellness",
+    privateInsights: ["Gymshark would be a DREAM for me"]
+  });
+
+  assert.deepEqual(result.candidates.map((candidate) => candidate.brandName), ["Reachable Fit"]);
+  assert.equal(requests.filter((url) => url.includes("duckduckgo.com")).some((url) => /gymshark/i.test(url)), false);
+});
 
 function makeDb() {
   const db = new Database(":memory:");

@@ -183,15 +183,17 @@ test("weekly schedules cannot place creator work inside stated 9–5 work hours"
   assert.equal(ready.blocks[0].end, "20:00");
 });
 
-test("Mara-owned schedule blocks stay off the creator calendar and reviews are labeled", () => {
+test("Mara-owned schedule blocks appear as a distinct calendar overlay and reviews are labeled", () => {
   const { events } = buildEventsFromWeeklySchedule({
     blocks: [
       { day: "Monday", start: "18:30", end: "19:00", activity: "Review Mara's pitches", owner: "creator", kind: "review" },
       { day: "Tuesday", start: "10:00", end: "11:00", activity: "Research contacts", owner: "mara", kind: "research" }
     ]
   }, { now: new Date("2026-07-13T08:00:00") });
-  assert.equal(events.length, 1);
+  assert.equal(events.length, 2);
   assert.equal(events[0].eventType, "Review");
+  assert.equal(events[1].eventType, "Mara");
+  assert.equal(events[1].title, "Research contacts");
 });
 
 test("stampCalendarHarvest only marks synced when events were created or content was empty", () => {

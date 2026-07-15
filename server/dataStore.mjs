@@ -114,7 +114,20 @@ async function createPostgresDriver(options) {
   });
   pool.on("error", (error) => console.error("Postgres pool error:", error));
 
-  const run = async (sql, params) => pool.query(toPgPlaceholders(sql), normalizeParams(params));
+  const run = async (sql, params) => {
+    const translated = toPgPlaceholders(sql);
+    try {
+      return await pool.query(translated, normalizeParams(params));
+    } catch (error) {
+      // Keep values and tenant data out of logs, but identify the failed SQL
+      // shape so a background job cannot die as an opaque provider error.
+      const fingerprint = String(sql).replace(/\s+/g, " ").trim().slice(0, 500);
+      if (error instanceof Error && !error.message.includes("[SQL:")) {
+        error.message = `${error.message} [SQL: ${fingerprint}]`;
+      }
+      throw error;
+    }
+  };
 
   return {
     kind: "postgres",
