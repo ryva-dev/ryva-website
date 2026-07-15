@@ -280,11 +280,9 @@ export function defaultWeeklyScheduleBlocks({ niche = "UGC" } = {}) {
   ];
 }
 
-function inferWorkWindow(text) {
+function inferBusyWindows(text) {
   const source = String(text || "");
-  const match = source.match(/(?:work|job|shift)[^\n.]{0,40}?\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i)
-    || source.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?[^\n.]{0,40}?(?:work|job|shift)/i);
-  if (!match) return null;
+  const matches = [...source.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/gi)];
   const toMinutes = (hourRaw, minuteRaw, suffix, isEnd = false) => {
     let hour = Number(hourRaw);
     if (suffix?.toLowerCase() === "pm" && hour < 12) hour += 12;
@@ -292,23 +290,44 @@ function inferWorkWindow(text) {
     if (!suffix && isEnd && hour <= 7) hour += 12;
     return hour * 60 + Number(minuteRaw || 0);
   };
-  const start = toMinutes(match[1], match[2], match[3]);
-  const end = toMinutes(match[4], match[5], match[6], true);
-  return end > start ? { start, end } : null;
+  const windows = [];
+  for (const match of matches) {
+    const nearby = source.slice(Math.max(0, match.index - 55), Math.min(source.length, match.index + match[0].length + 55));
+    if (!/\b(work|job|shift|gym|class|school|commut|appointment|unavailable|busy)\b/i.test(nearby)) continue;
+    const nearbyStart = Math.max(0, match.index - 55);
+    const closestCommitment = [...nearby.matchAll(/\b(work|job|shift|gym|class|school|commut|appointment|unavailable|busy)\b/gi)]
+      .map((entry) => ({ word: entry[1].toLowerCase(), distance: Math.abs((nearbyStart + entry.index) - match.index) }))
+      .sort((left, right) => left.distance - right.distance)[0]?.word;
+    const startSuffix = match[3] || (match[6] && Number(match[1]) <= 7 ? match[6] : null);
+    const start = toMinutes(match[1], match[2], startSuffix);
+    const end = toMinutes(match[4], match[5], match[6], true);
+    if (end > start) windows.push({
+      start,
+      end,
+      buffer: /^(work|job|shift|class|school|commut)$/.test(closestCommitment || "") ? 60 : 30
+    });
+  }
+  return windows.sort((left, right) => left.start - right.start);
 }
 
 function moveBlocksOutsideWorkHours(blocks, availabilityText) {
-  const work = inferWorkWindow(availabilityText);
-  if (!work) return blocks;
+  const busyWindows = inferBusyWindows(availabilityText);
+  if (!busyWindows.length) return blocks;
   return blocks.map((block) => {
     if (block.owner === "mara" || ["Saturday", "Sunday"].includes(block.day)) return block;
     const [startHour, startMinute] = block.start.split(":").map(Number);
     const [endHour, endMinute] = block.end.split(":").map(Number);
     const start = startHour * 60 + startMinute;
     const end = endHour * 60 + endMinute;
-    if (end <= work.start || start >= work.end) return block;
     const duration = Math.max(15, end - start);
-    const shiftedStart = Math.min(work.end + 60, 21 * 60);
+    let shiftedStart = start;
+    for (const busy of busyWindows) {
+      const shiftedEnd = shiftedStart + duration;
+      if (shiftedEnd <= busy.start || shiftedStart >= busy.end) continue;
+      shiftedStart = busy.end + busy.buffer;
+    }
+    if (shiftedStart === start) return block;
+    shiftedStart = Math.min(shiftedStart, 21 * 60);
     const shiftedEnd = Math.min(shiftedStart + duration, 22 * 60 + 30);
     const clock = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
     return { ...block, start: clock(shiftedStart), end: clock(shiftedEnd) };

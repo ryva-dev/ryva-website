@@ -322,11 +322,11 @@ test("Mara creates a personalized weekly schedule after the creator answers cons
     openTasks: [],
     permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
     recentMessages: [
-      { author: "You", text: "I work 9–5, I am free after 6:30, I can film Saturday morning, and I can review your work at 7 PM." },
+      { author: "You", text: "I work 9–5, I am free after 6:30, I have six hours this week, I can film Saturday morning, and I can review your work at 7 PM." },
       { author: "Mara", text: "Before I put this on your calendar, I need your real availability so I don't schedule over your life." },
       { author: "You", text: "Create a weekly plan for me through Sunday." }
     ],
-    triggerText: "I work 9–5, I am free after 6:30, I can film Saturday morning, and I can review your work at 7 PM.",
+    triggerText: "I work 9–5, I am free after 6:30, I have six hours this week, I can film Saturday morning, and I can review your work at 7 PM.",
     triggerType: "chat_message",
     userId: "user-1",
     workerId: MARA_WORKER_ID
@@ -354,6 +354,44 @@ test("a creator answer resumes the matching blocked assignment instead of anothe
 
   assert.equal(findBlockedMaraTaskToResume([otherBlockedTask, blockedTask], answer)?.id, "schedule-1");
   assert.equal(findBlockedMaraTaskToResume([otherBlockedTask], answer), null);
+});
+
+test("a partial blocker answer is captured without restarting or repeating the same question", () => {
+  const blockedTask = {
+    id: "schedule-1",
+    status: "blocked",
+    taskType: "weekly_schedule",
+    title: "Plan this week's schedule",
+    evidenceUsed: ["Create my schedule through Sunday"]
+  };
+  const firstAnswer = `I'm answering what you need for "Plan this week's schedule". Tell Mara your fixed commitments or confirmation that there are none, realistic creator-work windows and weekly capacity, filming days, plans, and location constraints, preferred review and approval windows. My answer: I work a 9 am - 5 pm job and go to the gym from 5-7 pm.`;
+  const partial = runMaraActionDetector({
+    openTasks: [blockedTask],
+    permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
+    recentMessages: [],
+    triggerText: firstAnswer,
+    triggerType: "chat_message",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  assert.equal(partial.requiresUserInput, true);
+  assert.equal(partial.tasksToCreate.length, 0);
+  assert.doesNotMatch(partial.userFacingSummary, /windows you can realistically use/i);
+  assert.match(partial.userFacingSummary, /how many hours/i);
+  assert.match(partial.userFacingSummary, /filming/i);
+  assert.match(partial.userFacingSummary, /review/i);
+
+  const complete = runMaraActionDetector({
+    openTasks: [{ ...blockedTask, evidenceUsed: [...blockedTask.evidenceUsed, firstAnswer] }],
+    permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
+    recentMessages: [],
+    triggerText: "I can give this five hours, film at home Saturday morning, and review your work after 7:30 pm on weekdays.",
+    triggerType: "chat_message",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  assert.equal(complete.requiresUserInput, false);
+  assert.equal(complete.tasksToCreate.length, 0);
 });
 
 test("saved shift-worker availability satisfies consultation without assuming a 9–5", () => {
@@ -392,7 +430,7 @@ test("weekly schedule readiness accepts nontraditional hours and rejects missing
 
   const missing = assessWeeklyScheduleReadiness({ currentTask: { evidenceUsed: ["Make my week"] } });
   assert.equal(missing.ready, false);
-  assert.equal(missing.missing.length, 4);
+  assert.equal(missing.missing.length, 5);
 });
 
 test("Mara creates approval requests for external actions", async () => {

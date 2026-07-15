@@ -183,6 +183,14 @@ test("weekly schedules cannot place creator work inside stated 9–5 work hours"
   assert.equal(ready.blocks[0].end, "20:00");
 });
 
+test("weekly schedules keep creator work outside job and gym commitments", () => {
+  const result = ensureWeeklyScheduleCalendarReady({
+    blocks: [{ day: "Tuesday", start: "17:30", end: "18:15", activity: "Creator work", owner: "creator", kind: "focus" }]
+  }, { availabilityText: "I work a 9 am - 5 pm job and go to the gym from 5-7 pm." });
+  assert.equal(result.blocks[0].start, "19:30");
+  assert.equal(result.blocks[0].end, "20:15");
+});
+
 test("Mara-owned schedule blocks appear as a distinct calendar overlay and reviews are labeled", () => {
   const { events } = buildEventsFromWeeklySchedule({
     blocks: [

@@ -37,6 +37,7 @@ import {
   createSuggestedTask,
   dismissWorkerTask,
   ensureWorkerPermissions,
+  extractBlockerAnswer,
   findBlockedMaraTaskToResume,
   getMaraRelevantKnowledge,
   getWorkerPermissions,
@@ -6429,6 +6430,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
     const createdChatTaskIds = [];
     const maraOnboarding = await readMaraOnboardingAnswers(req.user.id, workerSlug);
     const openMaraTasks = await listWorkerTasksForUserWorker(maraStore, req.user.id, workerSlug);
+    const blockedTaskToResume = findBlockedMaraTaskToResume(openMaraTasks, text);
     const detectorResult = runMaraActionDetector({
       knownScheduleContext: {
         fixedCommitments: maraOnboarding?.answers?.fixed_commitments,
@@ -6519,14 +6521,17 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
       });
     }
 
-    const blockedTaskToResume = findBlockedMaraTaskToResume(openMaraTasks, text);
-    if (blockedTaskToResume && !detectorResult.requiresUserInput) {
-      const evidence = [...new Set([...(blockedTaskToResume.evidenceUsed || []), text].map((item) => String(item).trim()).filter(Boolean))];
+    // Preserve every partial answer on the assignment. Otherwise Mara can ask
+    // for multiple details, lose the first response, and repeat herself.
+    if (blockedTaskToResume) {
+      const evidence = [...new Set([...(blockedTaskToResume.evidenceUsed || []), extractBlockerAnswer(text)].map((item) => String(item).trim()).filter(Boolean))];
       await maraStore.execute(
         `UPDATE worker_tasks SET evidence_used_json = ?, output = NULL, updated_at = ?
          WHERE id = ? AND user_id = ? AND worker_id = ?`,
         JSON.stringify(evidence), nowIso(), blockedTaskToResume.id, req.user.id, workerSlug
       );
+    }
+    if (blockedTaskToResume && !detectorResult.requiresUserInput) {
       await updateWorkerTaskStatus(maraStore, req.user.id, workerSlug, blockedTaskToResume.id, "approved");
       createdChatTaskIds.push(blockedTaskToResume.id);
     }

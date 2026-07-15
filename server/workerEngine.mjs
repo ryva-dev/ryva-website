@@ -520,6 +520,19 @@ export function normalizeForComparison(value) {
     .trim();
 }
 
+export function extractBlockerAnswer(value) {
+  const text = String(value || "").trim();
+  const marker = /\bmy answer:\s*/gi;
+  let match = null;
+  let current;
+  while ((current = marker.exec(text))) match = current;
+  return match ? text.slice(match.index + match[0].length).trim() : text;
+}
+
+function hasWeeklyCapacitySignal(value) {
+  return /\b(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|twelve|fifteen|twenty)\s*(?:hours?|hrs?)\b|\b(?:light|limited|packed|flexible)\s+(?:week|schedule|capacity)\b/i.test(String(value || ""));
+}
+
 export function findBlockedMaraTaskToResume(openTasks = [], triggerText = "") {
   const text = String(triggerText || "").trim();
   const blockerAnswerMatch = text.match(/^I'm answering what you need for "([^"]+)"/i);
@@ -1558,15 +1571,18 @@ export function assessWeeklyScheduleReadiness(context = {}) {
     ...getMemoryItem(knowledge, "Availability"),
     ...getMemoryItem(knowledge, "Filming Logistics"),
     ...getMemoryItem(knowledge, "Review Rhythm"),
-    ...evidence
+    ...evidence.map(extractBlockerAnswer)
   ].filter(Boolean).join("\n");
   const hasFixedCommitments = Boolean(fixedCommitments) || /\b(work|job|shift|class|school|commut|caregiv|appointment|unavailable|no fixed commitments?)\b/i.test(contextText);
-  const hasAvailability = Boolean(creatorAvailability) || /\b(free|available|availability|weeknights?|weekends?|before work|after work|morning|afternoon|evening|night)\b/i.test(contextText);
+  const hasTimedCommitments = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i.test(contextText);
+  const hasAvailability = Boolean(creatorAvailability) || hasTimedCommitments || /\b(free|available|availability|weeknights?|weekends?|before work|after work|morning|afternoon|evening|night)\b/i.test(contextText);
+  const hasCapacity = hasWeeklyCapacitySignal(contextText);
   const hasFilming = Boolean(filmingPreferences) || /\b(film|filming|shoot|record|content day|location|going out)\b/i.test(contextText);
   const hasReview = Boolean(reviewPreferences) || /\b(review|approve|approval|check (?:your|mara)|feedback)\b/i.test(contextText);
   const missing = [
     !hasFixedCommitments ? "fixed commitments or confirmation that there are none" : null,
-    !hasAvailability ? "realistic creator-work windows and weekly capacity" : null,
+    !hasAvailability ? "realistic creator-work windows" : null,
+    !hasCapacity ? "realistic weekly capacity in hours" : null,
     !hasFilming ? "filming days, plans, and location constraints" : null,
     !hasReview ? "preferred review and approval windows" : null
   ].filter(Boolean);
@@ -5263,6 +5279,7 @@ export function runMaraActionDetector({
   workerId
 }) {
   const normalizedText = String(triggerText ?? "").trim();
+  const userDirectionText = extractBlockerAnswer(normalizedText) || normalizedText;
   const lower = normalizedText.toLowerCase();
   const tasksToCreate = [];
   const recurringResponsibilitiesToSuggest = [];
@@ -5278,6 +5295,7 @@ export function runMaraActionDetector({
     .map((message) => ({ author: String(message?.author || ""), text: String(message?.text || "").trim() }))
     .filter((message) => message.text);
   const latestMaraMessage = recentConversation.find((message) => !/^(you|user)$/i.test(message.author));
+  const blockedTaskBeingAnswered = findBlockedMaraTaskToResume(openTasks, normalizedText);
   const scheduleConsultationActive = /before i put this on your calendar, i need your real availability/i.test(
     latestMaraMessage?.text || ""
   );
@@ -5294,14 +5312,14 @@ export function runMaraActionDetector({
     };
   }
 
-  memoriesToSave.push({ title: "Recent direction", items: [normalizedText] });
+  memoriesToSave.push({ title: "Recent direction", items: [userDirectionText] });
 
   if (/(prefer|like|hate|don'?t want|want)/.test(lower)) {
-    memoriesToSave.push({ title: "Preferences", items: [normalizedText] });
+    memoriesToSave.push({ title: "Preferences", items: [userDirectionText] });
   }
 
   if (/(always|never|approval|ask before|don'?t send|do not send)/.test(lower)) {
-    memoriesToSave.push({ title: "Approval rules", items: [normalizedText] });
+    memoriesToSave.push({ title: "Approval rules", items: [userDirectionText] });
   }
 
   if (/brand/.test(lower) && /reach out|outreach|pitch/.test(lower)) {
@@ -5395,26 +5413,32 @@ export function runMaraActionDetector({
     }
   }
 
-  const explicitScheduleRequest = /weekly schedule|weekly (?:action )?plan|plan (?:my|the) week|build (?:a |my )?week|time[- ]?block|put (it |them )?on (the |my )?calendar|calendar for (the |my )?week/.test(lower);
+  const explicitScheduleRequest = /weekly schedule|weekly (?:action )?plan|plan (?:my|the|this) week(?:'s)?(?: schedule)?|build (?:a |my )?week|time[- ]?block|put (it |them )?on (the |my )?calendar|calendar for (the |my )?week/.test(lower);
   const scheduleConversationText = [
     ...Object.values(knownScheduleContext || {}).map((value) => String(value || "").trim()).filter(Boolean),
+    ...((blockedTaskBeingAnswered?.taskType === "weekly_schedule" ? blockedTaskBeingAnswered.evidenceUsed : []) || [])
+      .map(extractBlockerAnswer),
     ...recentConversation
       .filter((message) => /^(you|user)$/i.test(message.author))
-      .map((message) => message.text)
+      .map((message) => extractBlockerAnswer(message.text))
       .reverse(),
-    normalizedText
+    extractBlockerAnswer(normalizedText)
   ].join("\n");
   const hasFixedCommitments = Boolean(String(knownScheduleContext?.fixedCommitments || "").trim()) || /\b(work|job|shift|class|school|commut|caregiv|appointment|unavailable|busy|no fixed commitments?)\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i.test(scheduleConversationText);
-  const hasAvailableWindows = Boolean(String(knownScheduleContext?.creatorAvailability || "").trim()) || /\b(free|available|availability|weeknights?|weekends?|before work|after work|morning|afternoon|evening|night)\b/i.test(scheduleConversationText);
+  const hasTimedCommitments = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i.test(scheduleConversationText);
+  const hasAvailableWindows = Boolean(String(knownScheduleContext?.creatorAvailability || "").trim()) || hasTimedCommitments || /\b(free|available|availability|weeknights?|weekends?|before work|after work|morning|afternoon|evening|night)\b/i.test(scheduleConversationText);
+  const hasWeeklyCapacity = hasWeeklyCapacitySignal(scheduleConversationText);
   const hasFilmingContext = Boolean(String(knownScheduleContext?.filmingPreferences || "").trim()) || /\b(film|filming|shoot|record|content day|location|going out)\b/i.test(scheduleConversationText);
   const hasReviewContext = Boolean(String(knownScheduleContext?.reviewPreferences || "").trim()) || /\b(review|approve|approval|check (?:your|mara)|feedback)\b/i.test(scheduleConversationText);
   const missingScheduleContext = [
     !hasFixedCommitments ? "your fixed commitments (work, school, commute, appointments)" : null,
     !hasAvailableWindows ? "the windows you can realistically use" : null,
+    !hasWeeklyCapacity ? "roughly how many hours you can give creator work this week" : null,
     !hasFilmingContext ? "whether you have filming plans, preferred filming days, or locations this week" : null,
     !hasReviewContext ? "when you want short windows to review and approve my work" : null
   ].filter(Boolean);
-  const scheduleFollowUp = scheduleConsultationActive && /^(you|user)$/i.test(recentConversation[0]?.author || "");
+  const scheduleFollowUp = blockedTaskBeingAnswered?.taskType === "weekly_schedule" ||
+    (scheduleConsultationActive && /^(you|user)$/i.test(recentConversation[0]?.author || ""));
 
   if ((explicitScheduleRequest || scheduleFollowUp) && missingScheduleContext.length > 0) {
     const questionList = missingScheduleContext.map((item, index) => `${index + 1}. ${item}`).join("\n");
@@ -5425,13 +5449,13 @@ export function runMaraActionDetector({
       researchItemsToCreate,
       tasksToCreate,
       requiresUserInput: true,
-      userFacingSummary: `Before I put this on your calendar, I need your real availability so I don't schedule over your life. Please tell me:\n${questionList}\n\nPlain language is perfect — for example: “I work 9–5, I’m free after 6:30, I can film Saturday morning, and I can review your work at 7 PM.”`
+      userFacingSummary: `I saved what you just told me. I still need only these details before I can finish the calendar without guessing:\n${questionList}\n\nReply in plain language and I'll use everything you've already given me.`
     };
   }
 
   if (explicitScheduleRequest || scheduleFollowUp) {
     const scheduleTitle = "Build weekly schedule";
-    if (!existingTaskTitles.has(normalizeForComparison(scheduleTitle))) {
+    if (!blockedTaskBeingAnswered && !existingTaskTitles.has(normalizeForComparison(scheduleTitle))) {
       tasksToCreate.push({
         description:
           "Build a time-blocked working week around the manager's fixed commitments, filming logistics, realistic capacity, and review windows; distinguish Mara-owned work from creator-owned work and place only human-required blocks on the manager's Office calendar.",
