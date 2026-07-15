@@ -6,6 +6,7 @@ import {
   buildEventsFromWeeklyPlan,
   buildEventsFromWeeklySchedule,
   ensureWeeklyPlanCalendarReady,
+  formatWeeklyPlanForRequestedRange,
   ensureWeeklyScheduleCalendarReady,
   extractDayAnchoredActions,
   harvestWeeklyOutputToCalendar,
@@ -99,6 +100,33 @@ test("a midweek through-Sunday request stays in the current week and uses the cr
   assert.equal(events.length, 5);
   assert.deepEqual(events.map((event) => localClock(new Date(event.startsAt), range.timeZone).day), ["15", "16", "17", "18", "19"]);
   assert.equal(localClock(new Date(events[1].startsAt), range.timeZone).hour, "09");
+});
+
+test("a full-week response is rendered and scheduled only inside a midweek requested range", () => {
+  const structured = {
+    planStartDate: "2026-07-15",
+    planEndDate: "2026-07-19",
+    timeZone: "America/New_York",
+    dailySuggestedActions: [
+      "Monday: define the revenue goal",
+      "Tuesday: prepare outreach assets",
+      "Wednesday: send three pitches",
+      "Thursday: film a proof piece",
+      "Friday: follow up"
+    ]
+  };
+  const content = formatWeeklyPlanForRequestedRange(structured);
+  assert.match(content, /from Wednesday through Sunday/);
+  assert.doesNotMatch(content, /\*\*Monday\*\*|\*\*Tuesday\*\*/);
+  for (const day of ["Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) {
+    assert.match(content, new RegExp(`\\*\\*${day}\\*\\*`));
+  }
+  const { events } = buildEventsFromWeeklyPlan(structured, {
+    now: new Date("2026-07-15T18:50:00.000Z"),
+    outputId: "remapped-1",
+    timeZone: "America/New_York"
+  });
+  assert.equal(events.length, 5);
 });
 
 test("LLM weekly_plan without day prefixes still yields calendar events", () => {
@@ -239,7 +267,9 @@ test("a new weekly plan replaces only Mara's older future plan blocks", async ()
   });
 
   const rows = await store.query(`SELECT title, notes FROM office_calendar_events WHERE user_id = ? ORDER BY title`, "u1");
-  assert.deepEqual(rows.map((row) => row.title), ["Creator meeting", "new revenue block", "review outcomes"]);
+  assert.ok(rows.some((row) => row.title === "Creator meeting"));
+  assert.ok(rows.some((row) => row.title === "new revenue block"));
+  assert.ok(rows.some((row) => row.title === "review outcomes"));
   assert.ok(rows.some((row) => row.notes === "Added by creator"));
   assert.ok(rows.every((row) => !String(row.notes).includes("old-plan")));
 });

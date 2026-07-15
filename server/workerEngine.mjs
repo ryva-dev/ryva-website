@@ -9,6 +9,7 @@ import {
 import { isMaraLlmConfigured, tryGenerateMaraBrandContentIdeas, tryGenerateMaraPersonalizedPitch } from "./maraLlm.mjs";
 import {
   ensureWeeklyPlanCalendarReady,
+  formatWeeklyPlanForRequestedRange,
   ensureWeeklyScheduleCalendarReady,
   harvestWeeklyOutputToCalendar,
   inferWeeklyPlanRange
@@ -2872,6 +2873,8 @@ export async function runMaraTask({
       const requestText = (task.evidenceUsed || []).join("\n");
       const range = inferWeeklyPlanRange(requestText, { now: new Date(), timeZone });
       result.structuredContent = ensureWeeklyPlanCalendarReady({ ...result.structuredContent, ...(range || {}), timeZone });
+      const requestedRangeContent = formatWeeklyPlanForRequestedRange(result.structuredContent);
+      if (requestedRangeContent) result.content = requestedRangeContent;
     }
     if (outputType === "weekly_schedule" || task.taskType === "weekly_schedule") {
       const niche =
@@ -5188,7 +5191,11 @@ export function runMaraActionDetector({
   const researchItemsToCreate = [];
   const approvalRequests = [];
   const memoriesToSave = [];
-  const existingTaskTitles = new Set(openTasks.map((task) => normalizeForComparison(task.title)));
+  const existingTaskTitles = new Set(
+    openTasks
+      .filter((task) => !["completed", "dismissed"].includes(String(task?.status || "").toLowerCase()))
+      .map((task) => normalizeForComparison(task.title))
+  );
 
   if (!normalizedText) {
     return {

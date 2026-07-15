@@ -261,6 +261,20 @@ test("Mara does not duplicate tasks", async () => {
   assert.equal((await listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID)).length, 1);
 });
 
+test("completed work does not block a repeated direct chat assignment", () => {
+  const detector = runMaraActionDetector({
+    openTasks: [{ title: "Create weekly action plan", status: "completed" }],
+    permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
+    recentMessages: [],
+    triggerText: "Create a weekly plan for me for this week up until Sunday.",
+    triggerType: "chat_message",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  assert.equal(detector.tasksToCreate.length, 1);
+  assert.equal(detector.tasksToCreate[0].taskType, "weekly_action_plan");
+});
+
 test("Mara creates approval requests for external actions", async () => {
   const db = makeDb();
   const result = await createApprovalRequest(db, {

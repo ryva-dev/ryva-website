@@ -167,6 +167,78 @@ export function ensureWeeklyPlanCalendarReady(structured = {}) {
   return next;
 }
 
+function requestedRangeDays(structured = {}) {
+  const start = parseDateKey(structured.planStartDate);
+  const end = parseDateKey(structured.planEndDate);
+  if (!start || !end) return [];
+  const cursor = new Date(Date.UTC(start.year, start.month - 1, start.day));
+  const last = new Date(Date.UTC(end.year, end.month - 1, end.day));
+  const days = [];
+  while (cursor <= last && days.length < 14) {
+    days.push(Object.keys(DAY_INDEX).find((day) => DAY_INDEX[day] === cursor.getUTCDay()));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days.filter(Boolean);
+}
+
+/**
+ * Models sometimes return a sensible full-week plan for a midweek request.
+ * Preserve the chosen work, but remap past-day actions into uncovered days so
+ * the plan follows the manager's explicit date range.
+ */
+export function ensureWeeklyPlanRequestedRangeCoverage(structured = {}) {
+  const ready = ensureWeeklyPlanCalendarReady(structured);
+  const requestedDays = requestedRangeDays(ready);
+  if (requestedDays.length === 0) return ready;
+
+  const requestedSet = new Set(requestedDays);
+  const actions = extractDayAnchoredActions(ready);
+  const inRange = actions.filter((action) => requestedSet.has(action.day));
+  const coveredDays = new Set(inRange.map((action) => action.day));
+  const candidates = actions
+    .filter((action) => !requestedSet.has(action.day))
+    .map((action) => action.activity);
+  for (const { activity } of fallbackDayActionsFromPlan(ready)) {
+    if (!candidates.includes(activity) && !inRange.some((action) => action.activity === activity)) {
+      candidates.push(activity);
+    }
+  }
+
+  const fallbacks = [
+    "Complete the highest-value unfinished action from this plan",
+    "Review progress, clear blockers, and choose the next revenue move"
+  ];
+  for (const day of requestedDays) {
+    if (coveredDays.has(day)) continue;
+    const activity = candidates.shift() || fallbacks[coveredDays.size % fallbacks.length];
+    inRange.push({ day, activity });
+    coveredDays.add(day);
+  }
+
+  ready.dailySuggestedActions = inRange.map((action) => `${action.day}: ${action.activity}`);
+  return ready;
+}
+
+export function formatWeeklyPlanForRequestedRange(structured = {}) {
+  const ready = ensureWeeklyPlanRequestedRangeCoverage(structured);
+  const requestedDays = requestedRangeDays(ready);
+  if (requestedDays.length === 0) return "";
+  const requestedSet = new Set(requestedDays);
+  const seen = new Set();
+  const actions = extractDayAnchoredActions(ready).filter((action) => {
+    const key = `${action.day}:${action.activity}`;
+    if (!requestedSet.has(action.day) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (actions.length === 0) return "";
+  return [
+    `Your plan from ${requestedDays[0]} through ${requestedDays.at(-1)}:`,
+    "",
+    ...actions.flatMap((action) => [`**${action.day}**`, `- ${action.activity}`, ""])
+  ].join("\n").trim();
+}
+
 export function normalizeScheduleBlocks(structured = {}) {
   const raw = Array.isArray(structured?.blocks) ? structured.blocks : [];
   const blocks = [];
@@ -250,10 +322,11 @@ function nextOccurrenceForDay(now, targetDay, startHour, startMinute, timeZone =
 }
 
 export function buildEventsFromWeeklyPlan(structured = {}, { now = new Date(), outputId = null, timeZone = null } = {}) {
-  const ready = ensureWeeklyPlanCalendarReady(structured);
+  const ready = ensureWeeklyPlanRequestedRangeCoverage(structured);
   const actions = extractDayAnchoredActions(ready);
   const perDayCount = {};
   const events = [];
+  const seenActions = new Set();
   const zone = safeTimeZone(timeZone || ready.timeZone);
   const rangeStart = parseDateKey(ready.planStartDate);
   const rangeEnd = parseDateKey(ready.planEndDate);
@@ -263,6 +336,9 @@ export function buildEventsFromWeeklyPlan(structured = {}, { now = new Date(), o
   for (const action of actions.slice(0, 20)) {
     const targetDay = DAY_INDEX[action.day];
     if (targetDay === undefined || !action.activity) continue;
+    const actionKey = `${action.day}:${action.activity}`;
+    if (seenActions.has(actionKey)) continue;
+    seenActions.add(actionKey);
     const usedToday = perDayCount[action.day] ?? 0;
     const startHour = 9 + usedToday;
     let start;
