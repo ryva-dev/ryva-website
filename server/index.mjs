@@ -14,7 +14,7 @@ import { db, ensureOfficeSchema } from "./db.mjs";
 import { sendTransactionalEmail } from "./mailer.mjs";
 import { extractGmailBodyText } from "./maraInboxParser.mjs";
 import { parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
-import { deriveMaraPermissionsFromOnboarding, formatTaskSourceLabel, safeList, sentenceCase } from "./maraOfficeUtils.mjs";
+import { deriveMaraPermissionsFromOnboarding, firstPersonMaraSpeech, formatTaskSourceLabel, safeList, sentenceCase } from "./maraOfficeUtils.mjs";
 import { createDurableRateLimitStore, initRateLimitStore, rateLimitKeyForRequest } from "./rateLimitStore.mjs";
 import {
   deleteUserTrendArtifacts,
@@ -724,7 +724,9 @@ async function readOfficeOverlaysForUser(userId) {
   return {
     assignments,
     briefings,
-    chats,
+    chats: chats.map((chat) => chat.workerSlug === MARA_SLUG && chat.author !== "You"
+      ? { ...chat, text: firstPersonMaraSpeech(chat.text) }
+      : chat),
     tasks,
     suggestedActions,
     worklog,
@@ -3423,7 +3425,9 @@ async function readWorkerRecentMessages(userId, workerSlug) {
        ORDER BY created_at DESC
        LIMIT 10`,
     userId, workerSlug);
-  return rows.reverse();
+  return rows.reverse().map((message) => workerSlug === MARA_SLUG && message.author !== "You"
+    ? { ...message, text: firstPersonMaraSpeech(message.text) }
+    : message);
 }
 
 async function readMaraPrivateInsights(userId, workerId) {

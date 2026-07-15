@@ -2831,8 +2831,8 @@ export async function runMaraTask({
   if (scheduleReadiness && !scheduleReadiness.ready) {
     return markTaskBlocked(store, userId, workerId, taskId, {
       blockerReason: "A timed calendar would require Mara to guess when you are available.",
-      neededFromUser: `Tell Mara your ${scheduleReadiness.missing.join(", ")}.`,
-      suggestedNextStep: "Reply in Mara's chat in plain language; she will build the schedule only after learning your real week."
+      neededFromUser: `Tell me your ${scheduleReadiness.missing.join(", ")}.`,
+      suggestedNextStep: "Reply here in plain language; I will build the schedule only after learning your real week."
     });
   }
 

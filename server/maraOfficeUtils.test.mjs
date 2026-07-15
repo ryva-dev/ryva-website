@@ -1,11 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveMaraPermissionsFromOnboarding, formatTaskSourceLabel } from "./maraOfficeUtils.mjs";
+import { deriveMaraPermissionsFromOnboarding, firstPersonMaraSpeech, formatTaskSourceLabel } from "./maraOfficeUtils.mjs";
 
 test("formatTaskSourceLabel hides internal source keys", () => {
   assert.equal(formatTaskSourceLabel("onboarding_generated"), "From your onboarding");
   assert.equal(formatTaskSourceLabel("autonomy_starter"), "Getting started");
   assert.equal(formatTaskSourceLabel("worker_task"), "");
+});
+
+test("Mara-authored speech is always first person", () => {
+  assert.equal(
+    firstPersonMaraSpeech("Tell Mara your realistic work windows. Mara will continue in Mara's conversation."),
+    "Tell me your realistic work windows. I will continue in this conversation."
+  );
+  assert.equal(
+    firstPersonMaraSpeech("Mara needs your approval, but Mara won't send anything. Share the answer with Mara."),
+    "I need your approval, but I won't send anything. Share the answer with me."
+  );
+  assert.doesNotMatch(firstPersonMaraSpeech("Mara prepared this so you can ask Mara for changes."), /\bMara\b/i);
 });
 
 test("deriveMaraPermissionsFromOnboarding respects approval boundaries", () => {

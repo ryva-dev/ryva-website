@@ -27,6 +27,41 @@ export function safeList(json) {
   }
 }
 
+export function firstPersonMaraSpeech(value) {
+  let text = String(value ?? "");
+  if (!/\bMara(?:'s)?\b/i.test(text)) return text;
+
+  text = text
+    .replace(/\bMara's (?:chat|conversation)\b/gi, "this conversation")
+    .replace(/\bMara's\b/gi, "my")
+    .replace(/\b(tell|ask|answer|message|notify|email|contact) Mara\b/gi, (_, verb) => `${verb} me`)
+    .replace(/\breply to Mara\b/gi, "reply to me")
+    .replace(/\b(check with|send to|give to|share with|bring to) Mara\b/gi, (_, phrase) => `${phrase} me`)
+    .replace(/\bMara isn't\b/gi, "I'm not")
+    .replace(/\bMara wasn't\b/gi, "I wasn't")
+    .replace(/\bMara hasn't\b/gi, "I haven't")
+    .replace(/\bMara doesn't\b/gi, "I don't")
+    .replace(/\bMara won't\b/gi, "I won't")
+    .replace(/\bMara is\b/gi, "I am")
+    .replace(/\bMara was\b/gi, "I was")
+    .replace(/\bMara has\b/gi, "I have")
+    .replace(/\bMara does\b/gi, "I do")
+    .replace(/\bMara (will|would|can|cannot|could|should|must|may|might)\b/gi, "I $1")
+    .replace(/\bMara (needs|wants|works|knows|saves|saved|prepares|prepared|finds|found|pauses|paused|finishes|finished|starts|started|uses|keeps|supports|retries|tracks|drafts|builds|researches)\b/gi, (_, verb) => {
+      const baseForms = {
+        needs: "need", wants: "want", works: "work", knows: "know", saves: "save", saved: "saved",
+        prepares: "prepare", prepared: "prepared", finds: "find", found: "found", pauses: "pause", paused: "paused",
+        finishes: "finish", finished: "finished", starts: "start", started: "started", uses: "use", keeps: "keep",
+        supports: "support", retries: "retry", tracks: "track", drafts: "draft", builds: "build", researches: "research"
+      };
+      return `I ${baseForms[String(verb).toLowerCase()] || verb}`;
+    })
+    .replace(/\b(for|to|from|with|about) Mara\b/gi, (_, preposition) => `${preposition} me`)
+    .replace(/\bMara\b/gi, "I");
+
+  return text;
+}
+
 const TASK_SOURCE_LABELS = {
   autonomy_brand_content: "Brand content planning",
   autonomy_brand_pitch: "Outreach",
