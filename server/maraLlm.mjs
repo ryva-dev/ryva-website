@@ -1,4 +1,6 @@
 import { canSpend, noteSpend } from "./llmBudget.mjs";
+import * as defaultStore from "./dataStore.mjs";
+import { normalizeAnthropicUsage, recordModelUsage } from "./modelUsageAccounting.mjs";
 
 const MARA_ROLE_DEFINITION =
   "Mara is an autonomous UGC operations hire for a specific creator and brand. She maintains positioning and brand-fit criteria, researches aligned brands, drafts personalized outreach, organizes Gmail into a living tracker, generates brand-specific content ideas, surfaces blockers and approval needs, and keeps working within daily limits until she hits a real stop condition.";
@@ -55,7 +57,7 @@ function extractAnthropicText(payload) {
   return "";
 }
 
-export async function createAnthropicMessage({ fetchImpl = globalThis.fetch, maxTokens, messages, model, system, userId }) {
+export async function createAnthropicMessage({ fetchImpl = globalThis.fetch, maxTokens, messages, model, system, userId, usageContext = {}, usageStore = defaultStore }) {
   const config = getAnthropicConfig();
   if (!config) {
     throw new Error("Anthropic is not configured.");
@@ -67,34 +69,28 @@ export async function createAnthropicMessage({ fetchImpl = globalThis.fetch, max
     throw new Error("Daily LLM budget reached for this account.");
   }
 
-  const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.apiKey,
-      "anthropic-version": config.version
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages
-    })
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Anthropic request failed: ${response.status} ${body}`);
+  const started = Date.now();
+  try {
+    const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": config.apiKey, "anthropic-version": config.version },
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages })
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Anthropic request failed: ${response.status} ${body}`);
+    }
+    const payload = await response.json();
+    const text = extractAnthropicText(payload);
+    if (!text) throw new Error("Anthropic request returned no text.");
+    const usage = normalizeAnthropicUsage(payload);
+    await noteSpend(userId);
+    await recordModelUsage(usageStore, { ...usageContext, ...usage, userId, provider: "anthropic", model, requestStatus: "success", latencyMs: Date.now() - started, requestId: payload.id });
+    return text;
+  } catch (error) {
+    await recordModelUsage(usageStore, { ...usageContext, userId, provider: "anthropic", model, requestStatus: "failure", latencyMs: Date.now() - started });
+    throw error;
   }
-
-  const payload = await response.json();
-  const text = extractAnthropicText(payload);
-  if (!text) {
-    throw new Error("Anthropic request returned no text.");
-  }
-
-  await noteSpend(userId);
-  return text;
 }
 
 export function parseJsonFromLlmText(text) {

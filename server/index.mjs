@@ -110,6 +110,8 @@ import {
 import { startOutreachSequence, stopOutreachSequence, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
 import { createEvidenceItem, EVIDENCE_KINDS } from "./maraEvidence.mjs";
 import { USER_SCOPED_TABLES, authorizeAccountDeletion } from "./accountErasure.mjs";
+import { ensureMaraRuntimeTables } from "./maraRuntimeStorage.mjs";
+import { normalizeAnthropicUsage, recordModelUsage } from "./modelUsageAccounting.mjs";
 
 function logCaught(message, error, fields = {}) {
   const errMessage = error instanceof Error ? error.message : String(error);
@@ -199,6 +201,7 @@ await initActionAudit(auditStore);
 await initExternalActions(auditStore);
 await initMaraIntelligence(professionalStore);
 await initMaraBrandArchitecture(professionalStore);
+await ensureMaraRuntimeTables(appStore);
 await authStore.execute(`CREATE TABLE IF NOT EXISTS agent_llm_usage (
   user_id TEXT NOT NULL,
   day TEXT NOT NULL,
@@ -1335,7 +1338,7 @@ function extractAnthropicText(payload) {
   return "";
 }
 
-async function createAnthropicMessage({ maxTokens, messages, model, system, userId }) {
+async function createAnthropicMessage({ maxTokens, messages, model, system, userId, usageContext = {} }) {
   const config = getAnthropicConfig();
   if (!config) {
     throw new Error("Anthropic is not configured.");
@@ -1348,34 +1351,27 @@ async function createAnthropicMessage({ maxTokens, messages, model, system, user
     throw new Error("Daily LLM budget reached for this account.");
   }
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": config.apiKey,
-      "anthropic-version": config.version
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages
-    })
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Anthropic request failed: ${response.status} ${body}`);
+  const started = Date.now();
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": config.apiKey, "anthropic-version": config.version },
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, messages })
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Anthropic request failed: ${response.status} ${body}`);
+    }
+    const payload = await response.json();
+    const text = extractAnthropicText(payload);
+    if (!text) throw new Error("Anthropic request returned no text.");
+    await noteSpend(userId);
+    await recordModelUsage(appStore, { ...usageContext, ...normalizeAnthropicUsage(payload), userId, provider: "anthropic", model, taskType: usageContext.taskType || "office_runtime", requestStatus: "success", latencyMs: Date.now() - started, requestId: payload.id });
+    return text;
+  } catch (error) {
+    await recordModelUsage(appStore, { ...usageContext, userId, provider: "anthropic", model, taskType: usageContext.taskType || "office_runtime", requestStatus: "failure", latencyMs: Date.now() - started });
+    throw error;
   }
-
-  const payload = await response.json();
-  const text = extractAnthropicText(payload);
-  if (!text) {
-    throw new Error("Anthropic request returned no text.");
-  }
-
-  await noteSpend(userId);
-  return text;
 }
 
 async function generateInterviewReply(worker, messages) {

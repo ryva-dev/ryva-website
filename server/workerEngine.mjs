@@ -33,6 +33,8 @@ import { listDueOutreachSequences, prepareDueFollowUpDraft, startOutreachSequenc
 import { EVIDENCE_KINDS, createEvidenceItem } from "./maraEvidence.mjs";
 import { assertWithinBrandResearchLimit, assertWithinDeepResearchLimit, assertWithinOutreachDraftLimit, getAutonomyLimits } from "./maraAutonomyLimits.mjs";
 import { getMaraActivationJourney } from "./maraActivationJourney.mjs";
+import { runMaraShadowPlanning } from "./maraShadowRuntime.mjs";
+import { getMaraPhase2Flags } from "./maraFeatureFlags.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -4454,6 +4456,41 @@ export async function runMaraAutonomyCycle({
       summary,
       userId,
       workerId
+    });
+  }
+
+  // Phase 2 runs beside the legacy planner and persists diagnostics only. Its
+  // output is intentionally not executed, copied into tasks, or exposed in the
+  // user-facing cycle summary.
+  const phase2Flags = getMaraPhase2Flags();
+  if (phase2Flags.shadowPlanner) {
+    await runMaraShadowPlanning({
+      store,
+      userId,
+      workerId,
+      flags: phase2Flags,
+      legacyPlan: summary.plannedActions,
+      permissions,
+      availableTools: ["internal_read", "internal_task_create", ...(permissions.canRunResearch ? ["research"] : [])],
+      budget: { maximumPlanningCostUsd: Number(process.env.MARA_SHADOW_MAX_PLAN_COST_USD || .15) },
+      existingScheduledWork: plannerContext.runnableApprovedTasks || [],
+      seedState: {
+        commercialObjective: "make meaningful progress toward legitimate creator income",
+        bottleneck: plannerContext.blockers?.[0] || "requires premium diagnosis",
+        activeOpportunities: (plannerContext.growthPitchTargets || []).filter((item) => !["candidate", "cold", "lost"].includes(item.status)),
+        unsentOutreachBacklog: plannerContext.brandsNeedingPitches || [],
+        repliesAndFollowUps: Array.from({ length: Number(plannerContext.dueFollowUpCount || 0) }, (_, index) => ({ id: `due-${index}`, due: true })),
+        upcomingDeadlines: [],
+        portfolio: { condition: plannerContext.recentOutputTypes?.creator_positioning ? "unknown" : "missing", evidence: [] },
+        readiness: { level: plannerContext.onboardingComplete ? "onboarded" : "blocked", blockers: plannerContext.onboardingComplete ? [] : ["onboarding_incomplete"], confidence: 1 },
+        performance: { pitchesSent: 0, replies: 0, bounceRate: null, responseRate: null, contentSignals: [] },
+        workload: { maraOpen: plannerContext.runnableApprovedTasks?.length || 0, creatorOpen: 0, ignoredCount: 0, blockedCount: plannerContext.blockers?.length || 0 },
+        capacity: { weekdayMinutes: null, weekendMinutes: null, availableWindows: [] },
+        ignoredOrBlockedWork: plannerContext.blockedTasks || [],
+        revenue: { expected: 0, confirmed: 0, paid: 0, invoicesDue: [], invoicesOverdue: [] },
+        risks: [], emergingNeeds: [], strategy: "under premium diagnosis", strategyReason: "Shadow mode is comparing state-specific judgment with the legacy planner.",
+        lastMeaningfulStateChange: null, evidence: []
+      }
     });
   }
 

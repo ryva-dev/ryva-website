@@ -4,6 +4,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { enqueueJob } from "./jobQueue.mjs";
+import * as defaultStore from "./dataStore.mjs";
+import { canSpend, noteSpend } from "./llmBudget.mjs";
+import { normalizeAnthropicUsage, recordModelUsage } from "./modelUsageAccounting.mjs";
 
 export const VIDEO_CONTENT_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 
@@ -143,15 +146,17 @@ export function createUnconfiguredMultimodalProvider(name) {
 }
 
 /** Anthropic-backed transcript+timeline analysis when ANTHROPIC_API_KEY is present. */
-export function createAnthropicMultimodalProvider({ fetchImpl = globalThis.fetch } = {}) {
+export function createAnthropicMultimodalProvider({ fetchImpl = globalThis.fetch, usageStore = defaultStore } = {}) {
   return {
     name: "anthropic",
-    async analyzeTimeline({ transcript = "", durationSeconds = 15 } = {}) {
+    async analyzeTimeline({ transcript = "", durationSeconds = 15, userId, workerId } = {}) {
       const apiKey = String(process.env.ANTHROPIC_API_KEY || "").trim();
       if (!apiKey) {
         throw new Error("ANTHROPIC_API_KEY is required for anthropic multimodal analysis.");
       }
       const model = String(process.env.MARA_MULTIMODAL_MODEL || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514").trim();
+      if (!(await canSpend(userId))) throw new Error("Daily LLM budget reached for this account.");
+      const started = Date.now();
       const response = await fetchImpl("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -173,9 +178,12 @@ export function createAnthropicMultimodalProvider({ fetchImpl = globalThis.fetch
         })
       });
       if (!response.ok) {
+        await recordModelUsage(usageStore, { userId, workerId, provider: "anthropic", model, taskType: "video_timeline_analysis", requestStatus: "failure", latencyMs: Date.now() - started });
         throw new Error(`Anthropic multimodal failed with status ${response.status}`);
       }
       const payload = await response.json();
+      await noteSpend(userId);
+      await recordModelUsage(usageStore, { ...normalizeAnthropicUsage(payload), userId, workerId, provider: "anthropic", model, taskType: "video_timeline_analysis", requestStatus: "success", latencyMs: Date.now() - started, requestId: payload.id });
       const text = Array.isArray(payload.content)
         ? payload.content.map((part) => part.text || "").join("\n")
         : "";
@@ -200,10 +208,10 @@ export function createAnthropicMultimodalProvider({ fetchImpl = globalThis.fetch
 }
 
 /** OpenAI Whisper transcription — accepts mp4/webm/audio when OPENAI_API_KEY is set. */
-export function createOpenAiWhisperProvider({ fetchImpl = globalThis.fetch } = {}) {
+export function createOpenAiWhisperProvider({ fetchImpl = globalThis.fetch, usageStore = defaultStore } = {}) {
   return {
     name: "openai_whisper",
-    async transcribe({ durationSeconds = 15, mediaBuffer = null, fileName = "rough-cut.mp4", contentType = "video/mp4" } = {}) {
+    async transcribe({ durationSeconds = 15, mediaBuffer = null, fileName = "rough-cut.mp4", contentType = "video/mp4", userId, workerId } = {}) {
       const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
       if (!apiKey) {
         throw new Error("OPENAI_API_KEY is required for openai Whisper transcription.");
@@ -214,8 +222,11 @@ export function createOpenAiWhisperProvider({ fetchImpl = globalThis.fetch } = {
       const form = new FormData();
       const blob = new Blob([mediaBuffer], { type: contentType || "video/mp4" });
       form.append("file", blob, fileName || "rough-cut.mp4");
-      form.append("model", String(process.env.OPENAI_WHISPER_MODEL || "whisper-1"));
+      const model = String(process.env.OPENAI_WHISPER_MODEL || "whisper-1");
+      form.append("model", model);
       form.append("response_format", "verbose_json");
+      if (!(await canSpend(userId))) throw new Error("Daily LLM budget reached for this account.");
+      const started = Date.now();
       const response = await fetchImpl("https://api.openai.com/v1/audio/transcriptions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}` },
@@ -223,9 +234,17 @@ export function createOpenAiWhisperProvider({ fetchImpl = globalThis.fetch } = {
       });
       if (!response.ok) {
         const errText = await response.text();
+        await recordModelUsage(usageStore, { userId, workerId, provider: "openai", model, taskType: "video_transcription", requestStatus: "failure", latencyMs: Date.now() - started });
         throw new Error(`OpenAI Whisper failed (${response.status}): ${errText.slice(0, 200)}`);
       }
       const payload = await response.json();
+      await noteSpend(userId);
+      const billedDuration = Number(payload.duration || durationSeconds) || durationSeconds;
+      await recordModelUsage(usageStore, {
+        userId, workerId, provider: "openai", model, taskType: "video_transcription", requestStatus: "success",
+        latencyMs: Date.now() - started,
+        estimatedCostUsd: Number(((billedDuration / 60) * Number(process.env.OPENAI_WHISPER_USD_PER_MINUTE || .006)).toFixed(8))
+      });
       const segments = Array.isArray(payload.segments) ? payload.segments : [];
       return {
         provider: "openai_whisper",
@@ -404,11 +423,15 @@ export async function processVideoAnalysisJob(store, { analysisId, mediaAssetId,
       durationSeconds,
       mediaBuffer,
       fileName: path.basename(String(asset.storage_key || "rough-cut.mp4")),
-      contentType: asset.content_type || "video/mp4"
+      contentType: asset.content_type || "video/mp4",
+      userId,
+      workerId
     });
     const multimodal = await getMultimodalProvider().analyzeTimeline({
       transcript: transcription.transcript,
-      durationSeconds: transcription.durationSeconds || durationSeconds
+      durationSeconds: transcription.durationSeconds || durationSeconds,
+      userId,
+      workerId
     });
     const usingMock = transcription.provider === "mock_transcription" || multimodal.provider === "mock_multimodal";
     if (usingMock && String(process.env.MARA_REQUIRE_REAL_MEDIA || "").trim() === "1") {
