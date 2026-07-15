@@ -203,17 +203,17 @@ export function buildNextAction({
     },
     qualified: {
       action: hasOutreachContact ? "prepare_pitch" : "discover_contact",
-      label: hasOutreachContact ? "Prepare a commercial pitch" : "Find an outreach-ready contact",
+      label: hasOutreachContact ? "Prepare a commercial pitch" : "Keep researching for an outreach-ready contact",
       autonomous: true,
       requiresApproval: false,
-      blockingReason: hasOutreachContact ? null : "No verified outreach contact"
+      blockingReason: hasOutreachContact ? null : "I'm continuing contact research; this opportunity is parked for now."
     },
     contact_needed: {
       action: "discover_contact",
-      label: "Discover and validate a partnership contact",
+      label: "Keep discovering and validating a partnership contact",
       autonomous: true,
       requiresApproval: false,
-      blockingReason: "Contact discovery incomplete"
+      blockingReason: "I'm continuing contact research; this opportunity is parked for now."
     },
     contact_found: {
       action: "prepare_pitch",
@@ -466,7 +466,10 @@ export function detectStall({
     nextAction: next,
     valueAtRisk: Number(estimatedValue) || 0,
     canActAutomatically: Boolean(next.autonomous) && !next.requiresApproval,
-    requiresUserInput: Boolean(next.requiresApproval) || Boolean(next.blockingReason)
+    // A blocking reason can describe work Mara still owns (for example contact
+    // discovery). Only work that is non-autonomous or approval-gated belongs
+    // in the creator's queue.
+    requiresUserInput: Boolean(next.requiresApproval) || (!next.autonomous && Boolean(next.blockingReason))
   };
 }
 

@@ -60,6 +60,7 @@ External communication, commercial commitment, publishing, spending, signing, an
 | Research a brand | Yes | Yes, internally | None unless restricted source or cost threshold |
 | Save or rank an opportunity | Yes | Yes, reversibly | Surface material deprioritization |
 | Validate a contact | Yes | Yes, internally | Warn on uncertainty |
+| Retry a missing contact and park the opportunity | Yes | Yes, internally | Never assign contact research to the creator |
 | Analyze business email | Yes | Yes, if authorized | Inbox permission required |
 | Prepare an email or DM in Ryva | Yes | Yes | Creator reviews and sends |
 | Create a Gmail draft | No | No | Creator creates/sends externally |

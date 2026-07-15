@@ -168,6 +168,18 @@ test("stalled approval_needed opportunities are detected", async () => {
   assert.equal(stalled[0].stall.requiresUserInput, true);
 });
 
+test("missing contacts remain Mara-owned and never become creator blockers", () => {
+  const stalled = detectStall({
+    lifecycleStage: "contact_needed",
+    stageChangedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    hasOutreachContact: false
+  });
+  assert.equal(stalled.nextAction.action, "discover_contact");
+  assert.equal(stalled.canActAutomatically, true);
+  assert.equal(stalled.requiresUserInput, false);
+  assert.match(stalled.nextAction.blockingReason, /I'm continuing contact research/i);
+});
+
 test("reply classifier separates gifted, rates, perpetual rights, and scam", () => {
   assert.equal(classifyBrandReply({ body: "We can only do a gifted collaboration" }).giftedOnly, true);
   assert.equal(classifyBrandReply({ body: "What's your rate for 3 videos?" }).class, "request_for_rates");
@@ -245,6 +257,8 @@ test("contact discovery failure plan recommends routes instead of inventing emai
   const plan = buildContactDiscoveryFailurePlan({ emails: [], outreachReady: false, pagesFetched: 2, hasForm: true });
   assert.equal(plan.status, "no_public_email");
   assert.ok(plan.nextRoutes.some((route) => route.route === "contact_form"));
+  assert.ok(plan.nextRoutes.some((route) => route.route === "research_alternatives"));
+  assert.equal(plan.nextRoutes.some((route) => route.route === "user_provided_contact"), false);
   assert.equal(plan.deprioritize, true);
 });
 

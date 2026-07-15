@@ -292,6 +292,10 @@ At the pause threshold Mara redirects effort toward:
 
 The planner may pause earlier when creator capacity or engagement indicates overwhelm.
 
+### Contactless-opportunity back burner
+
+Contact discovery is always Mara-owned. A failed discovery attempt moves the opportunity to `contact_needed`, records a future retry time, and removes it from pitch and creator-action queues. The planner uses available discovery capacity for alternative revenue-ready opportunities instead of repeatedly drafting for or deep-refreshing the parked brand. A due retry may restore the opportunity to `contact_found`; another failure reschedules it idempotently. Missing contact data alone MUST NOT create a creator-owned task, approval, or blocker.
+
 ## Inactivity throttling
 
 When the creator repeatedly ignores or does not complete work:

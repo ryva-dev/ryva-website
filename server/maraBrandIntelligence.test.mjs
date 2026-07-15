@@ -179,6 +179,14 @@ test("opportunity package creation is tenant scoped and decisioned", async () =>
   assert.ok(result.id);
   assert.ok(result.package.decision);
   assert.equal(result.package.scoreVersion || result.score.scoreVersion, SCORE_VERSION);
+  const refreshed = await createOrUpdateOpportunityFromResearch(store, {
+    userId: "creator-1",
+    workerId: "mara-vale",
+    brandName: "Serum Co",
+    website: "https://serumco.example",
+    evidence: [{ kind: "observed", claim: "Official site refreshed", sourceUrl: "https://serumco.example", confidence: 85 }]
+  });
+  assert.equal(refreshed.id, result.id);
   const other = await store.query(
     `SELECT id FROM mara_creator_brand_opportunities WHERE user_id = ?`,
     "creator-2"

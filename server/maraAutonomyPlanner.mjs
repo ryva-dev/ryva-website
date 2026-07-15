@@ -151,17 +151,25 @@ export function planMaraAutonomyActions(context) {
   actions.push({ kind: "manage_stalled_opportunities" });
   actions.push({ kind: "advance_won_opportunities" });
 
-  // Deep-refresh top candidate brands when research budget remains.
-  if (permissions.canRunResearch && brandResearchRemaining > 0 && (context.growthPitchTargets || []).length) {
+  // Deep-refresh only an opportunity that can advance. Contactless brands are
+  // handled by the retry queue while broad research finds alternatives.
+  const deepRefreshTarget = (context.growthPitchTargets || []).find(
+    (target) => Boolean(target.outreachReady || target.contactEmail || target.outreachContact?.value)
+  );
+  if (permissions.canRunResearch && brandResearchRemaining > 0 && deepRefreshTarget) {
     actions.push({
       kind: "deep_brand_research",
-      brandName: context.growthPitchTargets[0].brandName,
-      website: context.growthPitchTargets[0].website || null
+      brandName: deepRefreshTarget.brandName,
+      website: deepRefreshTarget.website || null
     });
   }
 
   // Prepare opportunity packages for qualified targets missing packages.
-  if ((context.growthPitchTargets || []).some((target) => target.status === "candidate" || target.status === "qualified")) {
+  if ((context.growthPitchTargets || []).some(
+    (target) =>
+      (target.status === "candidate" || target.status === "qualified") &&
+      Boolean(target.outreachReady || target.contactEmail || target.outreachContact?.value)
+  )) {
     actions.push({ kind: "prepare_opportunity_packages", limit: 2 });
   }
 
@@ -360,11 +368,10 @@ export function buildAutonomyPlannerContext({
       }))
   ).sort((left, right) => Number(Boolean(right.outreachReady)) - Number(Boolean(left.outreachReady)));
 
-  // Prefer pitching brands that already have a sendable contact; still include others for draft-only work.
-  const pitchQueue = [
-    ...brandsNeedingPitches.filter((brand) => brand.outreachReady),
-    ...brandsNeedingPitches.filter((brand) => !brand.outreachReady)
-  ].slice(0, 2);
+  // Contactless opportunities stay in Mara's autonomous discovery backlog.
+  // Do not spend creator attention or pitch-generation cost on work that cannot
+  // progress; use available research capacity to source alternatives instead.
+  const pitchQueue = brandsNeedingPitches.filter((brand) => brand.outreachReady).slice(0, 2);
 
   const runnableApprovedTasks = tasks
     .filter((task) => task.status === "approved")

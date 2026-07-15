@@ -455,7 +455,9 @@ export async function listBookOfBusiness(store, userId, workerId, { limit = 40 }
             o.stage_changed_at AS "stageChangedAt", o.score_total AS "scoreTotal", o.confidence,
             o.estimated_deal_value AS "estimatedDealValue", o.confirmed_deal_value AS "confirmedDealValue",
             o.actual_revenue AS "actualRevenue", o.next_action_json AS "nextActionJson",
-            o.blocking_reason AS "blockingReason", o.attribution, o.decision, o.updated_at AS "updatedAt",
+            o.next_action_due_at AS "nextActionDueAt", o.blocking_reason AS "blockingReason",
+            o.public_brand_id AS "publicBrandId", o.brand_profile_id AS "brandProfileId",
+            o.attribution, o.decision, o.updated_at AS "updatedAt",
             o.created_at AS "createdAt",
             COALESCE(pb.brand_name, bp.brand_name, 'Unknown brand') AS "brandName",
             COALESCE(pb.website, bp.website) AS website

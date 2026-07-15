@@ -3997,6 +3997,8 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
         await ensureOpportunityLifecycleSchema(store);
         const stalled = await listStalledOpportunities(store, userId, workerId);
         let acted = 0;
+        let contactsFound = 0;
+        let parkedForRetry = 0;
         for (const item of stalled.slice(0, 5)) {
           await syncOpportunityCommercialFields(store, {
             userId,
@@ -4006,7 +4008,29 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
             estimatedDealValue: item.estimatedDealValue
           });
           if (item.stall?.canActAutomatically && item.stall?.nextAction?.action === "discover_contact") {
-            // Contact rediscovery is handled by pitch/research paths; mark blocking reason clearly.
+            const retryDue = !item.nextActionDueAt || new Date(item.nextActionDueAt).getTime() <= Date.now();
+            if (!retryDue || !item.publicBrandId) continue;
+            const discovery = await discoverAndPersistBrandContacts(store, {
+              userId,
+              workerId,
+              publicBrandId: item.publicBrandId,
+              brandName: item.brandName,
+              website: item.website,
+              fetchImpl,
+              forceRefresh: true
+            });
+            if (discovery.outreachReady) {
+              contactsFound += 1;
+              await syncOpportunityCommercialFields(store, {
+                userId,
+                workerId,
+                opportunityId: item.id,
+                hasOutreachContact: true,
+                estimatedDealValue: item.estimatedDealValue
+              });
+            } else {
+              parkedForRetry += 1;
+            }
             acted += 1;
           } else if (item.stall?.canActAutomatically && item.stall?.nextAction?.action === "prepare_follow_up") {
             acted += 1;
@@ -4016,8 +4040,10 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
         }
         if (stalled.length) {
           summary.notes.push(
-            `Reviewed ${stalled.length} stalled opportunit${stalled.length === 1 ? "y" : "ies"}; ${acted} need attention or autonomous follow-through.`
+            `Reviewed ${stalled.length} stalled opportunit${stalled.length === 1 ? "y" : "ies"}; handled ${acted} autonomous or approval-gated next step${acted === 1 ? "" : "s"}.`
           );
+          if (contactsFound) summary.notes.push(`Found outreach-ready contacts for ${contactsFound} parked opportunit${contactsFound === 1 ? "y" : "ies"}.`);
+          if (parkedForRetry) summary.notes.push(`Kept ${parkedForRetry} contactless opportunit${parkedForRetry === 1 ? "y" : "ies"} on the research back burner while sourcing alternatives.`);
         } else {
           summary.notes.push("No stalled opportunities above threshold.");
         }

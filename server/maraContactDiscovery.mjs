@@ -331,8 +331,8 @@ export function buildContactDiscoveryFailurePlan({ emails = [], outreachReady = 
   const nextRoutes = [];
   if (hasForm) nextRoutes.push({ route: "contact_form", label: "Prepare a contact-form message for manager review" });
   if (socialHint) nextRoutes.push({ route: "social_dm", label: `Recommend a social DM via ${socialHint}` });
-  nextRoutes.push({ route: "user_provided_contact", label: "Ask the creator if they already have a contact" });
   nextRoutes.push({ route: "recheck_site", label: "Recheck the brand site later for new partnership pages" });
+  nextRoutes.push({ route: "research_alternatives", label: "Keep sourcing other outreach-ready opportunities meanwhile" });
 
   return {
     status: pagesFetched === 0 ? "site_unreachable" : emails.length ? "contacts_not_outreach_ready" : "no_public_email",
@@ -634,16 +634,39 @@ export async function discoverAndPersistBrandContacts(store, {
       })
     : { status: "contact_found", failureReason: null, nextRoutes: [], scheduleRecheckHours: null, deprioritize: false };
 
-  // Schedule contact recheck metadata on the opportunity when still stuck.
+  // Missing public contact information is Mara-owned work. Park the opportunity
+  // for a scheduled retry; never turn it into a creator task.
   if (!best?.value?.includes("@") && failurePlan.scheduleRecheckHours) {
     try {
       await store.execute(
         `UPDATE mara_creator_brand_opportunities
-         SET next_action_due_at = ?, blocking_reason = COALESCE(blocking_reason, ?), updated_at = ?
+         SET lifecycle_stage = 'contact_needed', status = 'qualified',
+             next_action_due_at = ?, blocking_reason = ?, updated_at = ?
          WHERE user_id = ? AND worker_id = ? AND (public_brand_id = ? OR brand_profile_id = ?)
            AND COALESCE(lifecycle_stage, status) IN ('qualified', 'contact_needed', 'candidate', 'discovered', 'researching')`,
         new Date(Date.now() + failurePlan.scheduleRecheckHours * 3600_000).toISOString(),
         failurePlan.failureReason || "No outreach-ready contact",
+        new Date().toISOString(),
+        userId,
+        workerId,
+        publicBrandId,
+        publicBrandId
+      );
+    } catch {
+      /* optional columns */
+    }
+  }
+
+  // A successful retry immediately returns parked opportunities to Mara's
+  // actionable pipeline without waiting for a separate lifecycle pass.
+  if (best?.value?.includes("@")) {
+    try {
+      await store.execute(
+        `UPDATE mara_creator_brand_opportunities
+         SET lifecycle_stage = 'contact_found', status = 'qualified',
+             next_action_due_at = NULL, blocking_reason = NULL, updated_at = ?
+         WHERE user_id = ? AND worker_id = ? AND (public_brand_id = ? OR brand_profile_id = ?)
+           AND COALESCE(lifecycle_stage, status) IN ('qualified', 'contact_needed', 'candidate', 'discovered', 'researching')`,
         new Date().toISOString(),
         userId,
         workerId,

@@ -209,13 +209,18 @@ export async function createOrUpdateOpportunityFromResearch(store, {
 
   const { buildNextAction } = await import("./maraOpportunityLifecycle.mjs");
   const nextAction = buildNextAction({ lifecycleStage, hasOutreachContact });
+  const contactRetryDueAt = lifecycleStage === "contact_needed"
+    ? new Date(Date.now() + 72 * 3600_000).toISOString()
+    : null;
   const id = existing?.id || randomUUID();
   if (existing?.id) {
     await store.execute(
       `UPDATE mara_creator_brand_opportunities
        SET status = ?, lifecycle_stage = COALESCE(lifecycle_stage, ?), score_total = ?, scores_json = ?, opportunity_package_json = ?, evidence_json = ?,
            score_version = ?, confidence = ?, public_brand_id = ?, decision = ?, decision_reason = ?,
-           brand_profile_id = ?, next_action_json = ?, blocking_reason = ?, attribution = COALESCE(NULLIF(attribution, ''), ?),
+           brand_profile_id = ?, next_action_json = ?, blocking_reason = ?,
+           next_action_due_at = CASE WHEN ? IS NOT NULL THEN COALESCE(next_action_due_at, ?) ELSE NULL END,
+           attribution = COALESCE(NULLIF(attribution, ''), ?),
            updated_at = ?
        WHERE id = ? AND user_id = ?`,
       status,
@@ -232,6 +237,8 @@ export async function createOrUpdateOpportunityFromResearch(store, {
       publicBrand.id,
       JSON.stringify(nextAction),
       nextAction.blockingReason,
+      contactRetryDueAt,
+      contactRetryDueAt,
       attribution || ATTRIBUTION_TYPES.SOURCED_BY_MARA,
       now,
       id,
@@ -298,12 +305,14 @@ export async function createOrUpdateOpportunityFromResearch(store, {
     try {
       await store.execute(
         `UPDATE mara_creator_brand_opportunities
-         SET lifecycle_stage = ?, stage_changed_at = ?, next_action_json = ?, blocking_reason = ?, attribution = ?
+         SET lifecycle_stage = ?, stage_changed_at = ?, next_action_json = ?, blocking_reason = ?,
+             next_action_due_at = ?, attribution = ?
          WHERE id = ?`,
         lifecycleStage,
         now,
         JSON.stringify(nextAction),
         nextAction.blockingReason,
+        contactRetryDueAt,
         ATTRIBUTION_TYPES.SOURCED_BY_MARA,
         id
       );

@@ -98,6 +98,49 @@ test("discoverAndPersistBrandContacts crawls contact page via mock fetch", async
   assert.ok(best?.value.includes("@"));
 });
 
+test("failed contact discovery parks the opportunity for Mara to retry", async () => {
+  const store = makeStore();
+  await initMaraIntelligence(store);
+  const brand = await savePublicBrand(store, {
+    brandName: "Quiet Brand",
+    website: "https://quiet.example",
+    brandKey: "quiet-brand"
+  });
+  const now = new Date().toISOString();
+  await store.execute(
+    `INSERT INTO mara_creator_brand_opportunities
+      (id, user_id, worker_id, brand_profile_id, public_brand_id, status, score_total,
+       scores_json, opportunity_package_json, evidence_json, lifecycle_stage, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'qualified', 75, '{}', '{}', '[]', 'qualified', ?, ?)`,
+    "opp-quiet",
+    "u1",
+    "mara-vale",
+    brand.id,
+    brand.id,
+    now,
+    now
+  );
+
+  const result = await discoverAndPersistBrandContacts(store, {
+    userId: "u1",
+    workerId: "mara-vale",
+    publicBrandId: brand.id,
+    brandName: "Quiet Brand",
+    website: "https://quiet.example",
+    fetchImpl: async () => ({ ok: true, async text() { return "<html><body>About us</body></html>"; } })
+  });
+
+  assert.equal(result.outreachReady, false);
+  const row = await store.queryOne(
+    `SELECT lifecycle_stage AS "lifecycleStage", next_action_due_at AS "nextActionDueAt", blocking_reason AS "blockingReason"
+     FROM mara_creator_brand_opportunities WHERE id = ?`,
+    "opp-quiet"
+  );
+  assert.equal(row.lifecycleStage, "contact_needed");
+  assert.ok(new Date(row.nextActionDueAt).getTime() > Date.now());
+  assert.match(row.blockingReason, /No public partnership email/i);
+});
+
 test("inferred emails stay blocked until confirmed", () => {
   assert.equal(
     assessContactUsability({
@@ -134,6 +177,33 @@ test("planner prefers outreach-ready brands for pitches", () => {
   const pitches = actions.filter((action) => action.kind === "personalized_pitch");
   assert.equal(pitches[0].brandName, "Ready Co");
   assert.equal(pitches[0].outreachReady, true);
+});
+
+test("planner parks contactless opportunities and sources alternatives", () => {
+  const context = buildAutonomyPlannerContext({
+    onboarding: { status: "completed" },
+    permissions: { canRunResearch: true },
+    brandResearchRemaining: 3,
+    brands: [{ id: "b1", brandName: "Contactless Co", lastPitchAt: null, contactEmail: "" }],
+    growthPitchTargets: [
+      { id: "o1", publicBrandId: "pb1", brandName: "Contactless Co", scoreTotal: 88, status: "contact_needed" }
+    ],
+    outputs: [
+      { outputType: "creator_positioning", createdAt: new Date().toISOString() },
+      { outputType: "brand_criteria", createdAt: new Date().toISOString() }
+    ],
+    tasks: [],
+    integrations: [],
+    approvals: [],
+    blockedTasks: [],
+    dueRecurring: []
+  });
+  const actions = planMaraAutonomyActions(context);
+  assert.equal(actions.some((action) => action.kind === "personalized_pitch"), false);
+  assert.equal(actions.some((action) => action.kind === "deep_brand_research"), false);
+  assert.equal(actions.some((action) => action.kind === "prepare_opportunity_packages"), false);
+  assert.equal(actions.some((action) => action.kind === "manage_stalled_opportunities"), true);
+  assert.equal(actions.some((action) => action.kind === "brand_research"), true);
 });
 
 test("user-provided contact is immediately outreach-ready", async () => {
