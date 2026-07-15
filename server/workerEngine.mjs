@@ -2053,7 +2053,7 @@ function executeWeeklyScheduleTask(context) {
   return {
     blocked: true,
     blockerReason: "Mara could not safely create a personalized timed schedule without the planning model.",
-    neededFromUser: "Nothing new if your availability is already saved.",
+    neededFromUser: "No additional information is needed from you.",
     suggestedNextStep: "Retry when the planning model is available; Ryva will not substitute a generic evening or weekend schedule."
   };
 }

@@ -6318,8 +6318,11 @@ function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, trigg
         }
       }
       for (const blockedResult of blocked.slice(0, 1)) {
-        replyParts.push(
-          `I need one thing from you before I can finish this: ${blockedResult.neededFromUser || blockedResult.blockerReason}\n\nReply here in plain language and I'll continue from where I stopped.`
+        const needed = String(blockedResult.neededFromUser || "").trim();
+        const needsCreatorInput = needed && !/^no additional information is needed/i.test(needed);
+        replyParts.push(needsCreatorInput
+          ? `I need one thing from you before I can finish this: ${needed}\n\nReply here in plain language and I'll continue from where I stopped.`
+          : `I have the information I need, but I paused safely because ${String(blockedResult.blockerReason || "the planning service is temporarily unavailable").replace(/^Mara /, "I ")} ${blockedResult.suggestedNextStep || "Retry this assignment later from my desk."}`
         );
       }
       if (completed.length > 2) {
@@ -6547,7 +6550,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
       await authStore.execute(
         `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        randomUUID(), req.user.id, workerSlug, "Mara", acknowledgement, new Date(Date.now() + 1000).toISOString()
+        randomUUID(), req.user.id, workerSlug, "Mara", acknowledgement, nowIso()
       );
       res.status(201).json({ ok: true, executing: true });
       executeChatTasksInBackground(req.user.id, workerSlug, worker, createdChatTaskIds, text);
@@ -6593,7 +6596,12 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
       }
 
       for (const blocked of blockedOutputs.slice(0, 1)) {
-        replyParts.push(`I need one thing from you before I can finish this: ${blocked.neededFromUser || blocked.blockerReason}\n\nReply here in plain language and I'll continue from where I stopped.`);
+        const needed = String(blocked.neededFromUser || "").trim();
+        const needsCreatorInput = needed && !/^no additional information is needed/i.test(needed);
+        replyParts.push(needsCreatorInput
+          ? `I need one thing from you before I can finish this: ${needed}\n\nReply here in plain language and I'll continue from where I stopped.`
+          : `I have the information I need, but I paused safely because ${String(blocked.blockerReason || "the planning service is temporarily unavailable").replace(/^Mara /, "I ")} ${blocked.suggestedNextStep || "Retry this assignment later from my desk."}`
+        );
       }
 
       if (replyParts.length > 0) {

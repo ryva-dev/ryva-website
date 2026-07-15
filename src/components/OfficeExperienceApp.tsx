@@ -346,6 +346,10 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
   };
 }
 
+function blockerNeedsCreatorInput(value: string | null | undefined) {
+  return !/^no additional information is needed/i.test(String(value || "").trim());
+}
+
 type MaraActivationJourney = {
   completedCount: number;
   totalCount: number;
@@ -1667,10 +1671,13 @@ function WorkerDeskSections({
                         className="r-btn r-btn-accent"
                         type="button"
                         onClick={() => {
-                          onSeedCorrection(`I'm answering what you need for "${item.title}". ${item.summary}\n\nMy answer: `);
+                          onSeedCorrection(blockerNeedsCreatorInput(item.summary)
+                            ? `I'm answering what you need for "${item.title}". ${item.summary}\n\nMy answer: `
+                            : `I'm answering what you need for "${item.title}". No additional answer is needed. Please retry this assignment.`
+                          );
                         }}
                       >
-                        Answer Mara
+                        {blockerNeedsCreatorInput(item.summary) ? "Answer Mara" : "Retry with Mara"}
                       </button>
                     ) : null}
                   </div>
@@ -3167,6 +3174,7 @@ function AssignmentDetailModal({
       preview = "";
     }
   }
+  const needsCreatorInput = blockerNeedsCreatorInput(neededFromUser);
 
   return (
     <div className="ro-doc-scrim" onClick={onClose}>
@@ -3207,9 +3215,12 @@ function AssignmentDetailModal({
             <button
               className="r-btn r-btn-accent"
               type="button"
-              onClick={() => onResolveBlocked(`I'm answering what you need for "${assignment.title}". ${neededFromUser}\n\nMy answer: `)}
+              onClick={() => onResolveBlocked(needsCreatorInput
+                ? `I'm answering what you need for "${assignment.title}". ${neededFromUser}\n\nMy answer: `
+                : `I'm answering what you need for "${assignment.title}". No additional answer is needed. Please retry this assignment.`
+              )}
             >
-              Answer {workerName.split(" ")[0]}
+              {needsCreatorInput ? `Answer ${workerName.split(" ")[0]}` : `Retry with ${workerName.split(" ")[0]}`}
             </button>
           ) : null}
           <button className="r-btn r-btn-ghost" type="button" onClick={onOpenWorker}>Open {workerName.split(" ")[0]}'s desk</button>
