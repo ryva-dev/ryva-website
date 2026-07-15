@@ -2235,6 +2235,108 @@ async function harvestMaraOutputSideEffects(userId, workerSlug) {
   }
 }
 
+function localRundownClock(timezone) {
+  const safeTimezone = String(timezone || "UTC").trim() || "UTC";
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: safeTimezone,
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        hourCycle: "h23"
+      }).formatToParts(new Date()).map((part) => [part.type, part.value])
+    );
+    return {
+      dateLabel: `${parts.weekday}, ${parts.month} ${parts.day}, ${parts.year}`,
+      hour: Number(parts.hour || 0),
+      timezone: safeTimezone
+    };
+  } catch {
+    return localRundownClock("UTC");
+  }
+}
+
+async function syncMaraDailyRundown(userId, workerSlug) {
+  const context = await authStore.queryOne(
+    `SELECT os.answers_json AS "answersJson", ogs.settings_json AS "settingsJson"
+     FROM office_onboarding_sessions os
+     LEFT JOIN office_global_settings ogs ON ogs.user_id = os.user_id
+     WHERE os.user_id = ? AND os.worker_slug = ? AND os.status = 'completed'`,
+    userId, workerSlug
+  );
+  if (!context) return;
+
+  const answers = parseJson(context.answersJson, {});
+  const settings = parseJson(context.settingsJson, {});
+  const requestedOutput = String(answers.daily_output || "").trim();
+  const reviewCadence = String(settings.reviewCadence || "").trim().toLowerCase();
+  const wantsDailyRundown =
+    reviewCadence === "daily" ||
+    /end of (?:my )?day|end-of-day|daily (?:brief|rundown|check)|what (?:was|got) done|tomorrow/i.test(requestedOutput);
+  if (!wantsDailyRundown) return;
+
+  const clock = localRundownClock(settings.timezone);
+  if (clock.hour < 17) return;
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const outputs = await authStore.query(
+    `SELECT title, output_type AS "outputType" FROM worker_outputs
+     WHERE user_id = ? AND worker_id = ? AND created_at >= ?
+     ORDER BY created_at DESC LIMIT 20`,
+    userId, workerSlug, since
+  );
+  const finished = outputs
+    .filter((output) => !HIDDEN_DELIVERABLE_OUTPUT_TYPES.has(String(output.outputType || "")))
+    .map((output) => String(output.title || "").trim())
+    .filter(Boolean)
+    .filter((title, index, list) => list.indexOf(title) === index)
+    .slice(0, 8);
+  if (finished.length === 0) return;
+
+  const openTasks = await authStore.query(
+    `SELECT title, status FROM worker_tasks
+     WHERE user_id = ? AND worker_id = ? AND status IN ('approved', 'in_progress', 'proposed', 'blocked')
+     ORDER BY CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, created_at ASC
+     LIMIT 8`,
+    userId, workerSlug
+  );
+  const tomorrow = openTasks
+    .filter((task) => ["approved", "in_progress"].includes(String(task.status)))
+    .map((task) => String(task.title || "").trim())
+    .filter(Boolean)
+    .slice(0, 5);
+  const needsYou = openTasks
+    .filter((task) => ["proposed", "blocked"].includes(String(task.status)))
+    .map((task) => String(task.title || "").trim())
+    .filter(Boolean)
+    .slice(0, 5);
+  const title = "Your end-of-day rundown";
+  const summary = `Mara finished ${finished.length} meaningful item${finished.length === 1 ? "" : "s"}. Tomorrow's list reflects work that is actually queued now.`;
+  const existing = await authStore.queryOne(
+    `SELECT id FROM office_custom_briefings
+     WHERE user_id = ? AND worker_slug = ? AND title = ? AND date_label = ?`,
+    userId, workerSlug, title, clock.dateLabel
+  );
+  if (existing) {
+    await authStore.execute(
+      `UPDATE office_custom_briefings
+       SET summary = ?, agenda_json = ?, decisions_json = ?, actions_json = ? WHERE id = ?`,
+      summary, JSON.stringify(finished), JSON.stringify(needsYou), JSON.stringify(tomorrow), existing.id
+    );
+    return;
+  }
+  await authStore.execute(
+    `INSERT INTO office_custom_briefings
+     (id, user_id, worker_slug, title, date_label, summary, agenda_json, decisions_json, actions_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    randomUUID(), userId, workerSlug, title, clock.dateLabel, summary,
+    JSON.stringify(finished), JSON.stringify(needsYou), JSON.stringify(tomorrow), nowIso()
+  );
+}
+
 async function syncMaraOperationalRecords(userId, workerSlug) {
   // Retire legacy auto-generated status tasks. They are internal telemetry,
   // not creator work, and otherwise linger in Assignments after the product
@@ -2246,6 +2348,7 @@ async function syncMaraOperationalRecords(userId, workerSlug) {
     nowIso(), userId, workerSlug
   );
   await harvestMaraOutputSideEffects(userId, workerSlug);
+  await syncMaraDailyRundown(userId, workerSlug);
   const privateInsights = await loadUserTrendInsights({
     store: trendStore,
     globalPath: privateInsightsPath,
