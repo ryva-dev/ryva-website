@@ -5,6 +5,7 @@ import {
   computeNextRunAt,
   filterPlannedActionsForMode,
   isRecurringDue,
+  mapRecurringToAutonomyAction,
   planMaraAutonomyActions
 } from "./maraAutonomyPlanner.mjs";
 
@@ -65,6 +66,23 @@ test("planner switches to reddit pulse when brand research cap is reached", () =
 
   const actions = planMaraAutonomyActions(context);
   assert.ok(actions.some((action) => action.kind === "reddit_pulse"));
+});
+
+test("positioning and brand fit do not refresh because a clock elapsed", () => {
+  const old = "2025-01-01T00:00:00.000Z";
+  const context = buildAutonomyPlannerContext({
+    onboarding: { status: "completed" },
+    outputs: [{ outputType: "creator_positioning", createdAt: old }, { outputType: "brand_criteria", createdAt: old }],
+    permissions: {},
+    tasks: []
+  });
+  const maintenance = planMaraAutonomyActions(context).filter((action) => action.kind === "maintain_artifact");
+  assert.equal(maintenance.some((action) => ["creator_positioning", "brand_fit_criteria"].includes(action.taskType)), false);
+});
+
+test("legacy profile refresh recurrences do not regenerate strategy documents", () => {
+  const action = mapRecurringToAutonomyAction({ id: "r1", title: "Monthly creator profile refresh", description: "Refresh positioning and brand fit" });
+  assert.deepEqual(action, { kind: "record_recurring_check", recurringId: "r1" });
 });
 
 test("isRecurringDue respects next_run_at", () => {

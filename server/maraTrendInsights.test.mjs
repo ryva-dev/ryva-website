@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildScopedTrendInsights, extractNicheKeywords, scoreHashtagForNiche } from "./maraTrendInsights.mjs";
+import { buildScopedTrendInsights, extractNicheKeywords, inferTrendNiche, scoreHashtagForNiche } from "./maraTrendInsights.mjs";
 
 const globalPayload = {
   hashtags: [
@@ -33,4 +33,11 @@ test("buildScopedTrendInsights returns niche-matched hashtags first", () => {
   assert.ok(scoped.matchedToNiche);
   assert.ok(scoped.hashtags.some((item) => /skincare|wellness/i.test(item.hashtag)));
   assert.ok(scoped.contentGaps.length > 0);
+});
+
+test("trend niche comes from creator niche, never workflow boilerplate", () => {
+  assert.equal(
+    inferTrendNiche({ accountContext: {}, maraAnswers: { niche_focus: "strength training for beginners", current_workflow: "I use email and spreadsheets" } }),
+    "strength training for beginners"
+  );
 });

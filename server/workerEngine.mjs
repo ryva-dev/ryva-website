@@ -1253,8 +1253,8 @@ export async function completeWorkerTask(store, userId, workerId, taskId, output
 
 export async function listWorkerOutputs(store, userId, workerId) {
   const rows = await store.query(
-    `SELECT id, user_id AS userId, worker_id AS workerId, task_id AS taskId, output_type AS outputType,
-            title, content, structured_content_json AS structuredContentJson, source, created_at AS createdAt, updated_at AS updatedAt
+    `SELECT id, user_id AS "userId", worker_id AS "workerId", task_id AS "taskId", output_type AS "outputType",
+            title, content, structured_content_json AS "structuredContentJson", source, created_at AS "createdAt", updated_at AS "updatedAt"
      FROM worker_outputs
      WHERE user_id = ? AND worker_id = ?
      ORDER BY created_at DESC`,
@@ -1598,11 +1598,12 @@ function executeCreatorPositioningTask(context) {
 function executeBrandFitCriteriaTask(context) {
   const profile = buildContextProfile(context);
   const brandResearchModule = getKnowledgeModule(context, "brand_research");
+  const specificNiche = profile.niche === "your creator niche" ? null : profile.niche;
   const structuredContent = {
-    alignmentCriteria: [`Clear fit with ${profile.niche}`, ...getStructuredList(brandResearchModule, "beginnerFriendlySignals", []).slice(0, 2)],
-    bestFitIndustries: ["Skincare", "Wellness", "Beauty-adjacent lifestyle"],
+    alignmentCriteria: [specificNiche ? `Clear fit with ${specificNiche}` : "Clear fit with your demonstrated content and audience", ...getStructuredList(brandResearchModule, "beginnerFriendlySignals", []).slice(0, 2)],
+    bestFitIndustries: [specificNiche ? `Brands directly aligned with ${specificNiche}` : "Categories supported by your portfolio or lived product credibility"],
     brandSizeType: ["Indie brands", "Growth-stage DTC brands", "Small teams that value flexible creators"],
-    productCategories: ["Serums", "Routine-based products", "Supplements", "Daily-use wellness products"],
+    productCategories: [specificNiche ? `Products you can credibly demonstrate within ${specificNiche}` : "Products you can demonstrate credibly without inventing expertise"],
     redFlags: getStructuredList(brandResearchModule, "badFitSignals", ["Unclear deliverables", "Spec work requests"]),
     outreachPriorityRules: getStructuredList(brandResearchModule, "priorityScoring", ["Prioritize brands with visible UGC usage already"])
   };
@@ -1979,7 +1980,7 @@ function executeWeeklyActionPlanTask(context) {
       { title: "Content tasks", value: structuredContent.contentTasks },
       { title: "Admin tasks", value: structuredContent.adminTasks },
       { title: "Follow-up tasks", value: structuredContent.followUpTasks },
-      { title: "Trend and content-gap notes", value: structuredContent.trendSignals.length > 0 ? structuredContent.trendSignals : ["No private creator-search insight file is loaded yet."] },
+      { title: "Trend and content-gap notes", value: structuredContent.trendSignals.length > 0 ? structuredContent.trendSignals : ["I did not find enough verified trend evidence to use this cycle, so these ideas rely on your niche and current brand evidence instead."] },
       { title: "What Mara can do next", value: structuredContent.whatMaraCanDoNext },
       { title: "Beginner roadmap this plan is following", value: structuredContent.roadmapReference },
       { title: "What the user needs to approve or provide", value: structuredContent.userNeeds }
@@ -2187,14 +2188,14 @@ async function executeTikTokTrendPulseTask(context) {
       },
       {
         title: "Content-gap angles to explore",
-        value: contentGaps.length > 0 ? contentGaps : ["Paste this week's TikTok trend notes on my desk and I'll map the gaps."]
+        value: contentGaps.length > 0 ? contentGaps : ["I could not verify current TikTok trend evidence this cycle, so I left it out instead of guessing. Nothing is needed from you."]
       },
       {
         title: "Hashtag plan — what to tag each video",
         value:
           hashtagPlan.length > 0
             ? hashtagPlan.map((plan) => `${plan.gap}: ${plan.hashtags.join(" ")} — ${plan.why}`)
-            : ["Once trend data is loaded I'll pair every content gap with a ready-to-paste hashtag stack."]
+            : ["No verified hashtag stack yet. I will retry from Ryva's backend sources automatically."]
       },
       {
         title: "What Mara is taking away",
@@ -2211,6 +2212,12 @@ async function executeRedditMarketPulseTask(context) {
   const profile = buildContextProfile(context);
   const redditSignals = await fetchRedditSignals({ fetchImpl: context.fetchImpl, limitPerCommunity: 4 });
   const insightGaps = extractPrivateInsightItems(context.privateInsights).slice(0, 5);
+  const { tiktokBackendTrendFeedProvider } = await import("./maraSocialResearch.mjs");
+  const tiktokResearch = await tiktokBackendTrendFeedProvider({ niche: profile.niche, fetchImpl: context.fetchImpl });
+  const tiktokSignals = (tiktokResearch.observations || []).slice(0, 6).map((item) => {
+    const evidence = item.evidence?.[0];
+    return evidence?.claim || item.hashtag;
+  }).filter(Boolean);
 
   // Learning loop: split scraped posts into real paid opportunities and
   // reusable lessons. LLM-classified when available, heuristic otherwise —
@@ -2253,6 +2260,7 @@ async function executeRedditMarketPulseTask(context) {
     lessonsLearned: classified.lessons.map((entry) => entry.lesson),
     niche: profile.niche,
     opportunities: classified.opportunities,
+    tiktokSignals,
     takeaways: redditSignals.slice(0, 3).map((signal) => signal.summary || signal.title)
   };
 
@@ -2271,7 +2279,7 @@ async function executeRedditMarketPulseTask(context) {
         value: classified.lessons.length > 0 ? classified.lessons.map((entry) => entry.lesson) : ["No new durable lessons this cycle — the playbook stands."]
       },
       { title: "Fresh Reddit creator signals", value: structuredContent.communitySignals.length > 0 ? structuredContent.communitySignals : ["No Reddit pulls were available during this cycle."] },
-      { title: "TikTok content gaps on file", value: insightGaps.length > 0 ? insightGaps : ["No trend data loaded yet — paste this week's TikTok trends on my desk."] }
+      { title: "TikTok evidence", value: [...tiktokSignals, ...insightGaps].slice(0, 8).length > 0 ? [...tiktokSignals, ...insightGaps].slice(0, 8) : ["No verified TikTok evidence was available this cycle. I will retry in the background; you do not need to supply it."] }
     ]),
     outputType: "market_pulse",
     structuredContent,
@@ -2461,7 +2469,7 @@ function executePortfolioRecommendationsTask(context) {
   ].filter(Boolean).slice(0, 6);
 
   const currentLikelyGaps = [
-    ...(insightGaps.length === 0 ? ["Trend-backed content gaps not loaded yet — paste weekly trends or sync Creative Center."] : []),
+    ...(insightGaps.length === 0 ? ["No verified trend-backed gaps were available this cycle. Mara will retry through Ryva's backend sources; nothing is needed from you."] : []),
     ...(creativeGaps.length === 0 ? ["No brand creative gaps on file — deep research a target brand."] : [`Open brand creative gaps: ${creativeGaps.slice(0, 2).join("; ")}`]),
     ...(analysisOpenings.some((value) => /mixed|unclear|unknown/i.test(String(value)))
       ? ["Recent rough cuts: product/opening clarity needs work in the first 2 seconds."]
@@ -2513,7 +2521,7 @@ function executeOutreachStrategyTask(context) {
     outreachCadence: "Start with a small focused batch each week rather than broad-volume outreach.",
     personalizationStrategy: getStructuredList(outreachModule, "principles", ["Use niche overlap, product fit, and a single concrete reason for contacting each brand."]).join(" | "),
     pitchAngle: profile.positioningOutput?.structuredContent?.brandFacingAngle || `Lead with ${profile.niche} fit and low-friction UGC value.`,
-    targetBrandCategories: ["Skincare", "Wellness", "Beauty-adjacent lifestyle"],
+    targetBrandCategories: [profile.niche === "your creator niche" ? "Brands supported by your real portfolio and product credibility" : `Brands aligned with ${profile.niche}`],
     whatToTrack: ["Brand", "Last touch", "Next follow-up", "Reply status", "Notes"]
   };
 
@@ -3479,7 +3487,7 @@ async function runMaraBrandResearchCycle({
   const content = buildRichContent([
     { title: "Brands researched today", value: brands.map((brand) => `${brand.brandName}: ${brand.summary} (${brand.website})`) },
     { title: "Fresh Reddit signals", value: redditSignals.length > 0 ? redditSignals.map((signal) => `[r/${signal.community}] ${signal.title}`) : ["No Reddit pulls were available during this cycle."] },
-    { title: "Private creator-search content gaps", value: privateContentGaps.length > 0 ? privateContentGaps : ["No private creator-search insight file is loaded yet."] }
+    { title: "Verified content gaps", value: privateContentGaps.length > 0 ? privateContentGaps : ["No verified creator-search gaps were available this cycle, so I did not invent any."] }
   ]);
 
   const output = await createWorkerOutput(store, {
@@ -5098,7 +5106,7 @@ export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
     { title: "Weekly brand research", description: "Find fresh aligned brand opportunities each week.", cadence: "weekly", dayOfWeek: "Monday" },
     { title: "Weekly content idea batch", description: "Prepare a weekly batch of UGC-friendly concepts.", cadence: "weekly", dayOfWeek: "Friday" },
     { title: "Follow-up review", description: "Review open follow-ups and stalled opportunities twice per week.", cadence: "weekly", dayOfWeek: "Wednesday" },
-    { title: "Monthly creator profile refresh", description: "Refresh positioning, brand fit, and workflow assumptions each month.", cadence: "monthly", dayOfWeek: null }
+    { title: "Monthly creator state check", description: "Check whether durable creator or business facts changed; update positioning or brand fit only when evidence requires it.", cadence: "monthly", dayOfWeek: null }
   ];
   const memoryEntries = [
     { title: "Creator profile summary", items: [creatorProfileSummary] },
@@ -5164,8 +5172,10 @@ export function runMaraActionDetector({
     memoriesToSave.push({ title: "Approval rules", items: [normalizedText] });
   }
 
-  if ((/skincare|beauty|wellness/.test(lower) || /brand/.test(lower)) && /reach out|outreach|pitch/.test(lower)) {
-    if (!existingTaskTitles.has(normalizeForComparison("Create first skincare pitch template"))) {
+  if (/brand/.test(lower) && /reach out|outreach|pitch/.test(lower)) {
+    const pitchTitle = /skincare|beauty|wellness/.test(lower) ? "Create first niche pitch framework" : "Create first pitch framework";
+    const researchTitle = "Find 5 reachable brand opportunities";
+    if (!existingTaskTitles.has(normalizeForComparison(pitchTitle))) {
       tasksToCreate.push({
         description: "Draft a reusable outreach template aligned with the user's niche and tone preferences.",
         evidenceUsed: [normalizedText],
@@ -5173,28 +5183,28 @@ export function runMaraActionDetector({
         requiredPermissions: permissions.canDraftOutreach ? [] : ["canDraftOutreach"],
         source: "memory_triggered",
         status: permissions.canCreateTasks ? "approved" : "proposed",
-        title: "Create first skincare pitch template"
+        title: pitchTitle
       });
     }
 
-    if (!existingTaskTitles.has(normalizeForComparison("Find 5 skincare brand leads"))) {
+    if (!existingTaskTitles.has(normalizeForComparison(researchTitle))) {
       researchItemsToCreate.push({
         evidence: [normalizedText],
         insights: [],
-        query: "Find 5 skincare brands aligned with the creator's niche and current stage.",
+        query: "Find 5 reachable brands aligned with the creator's actual niche, proof, and current stage.",
         scope: "user_specific",
         sourceType: "manual",
         status: "queued",
-        topic: "Find 5 skincare brand leads"
+        topic: researchTitle
       });
       tasksToCreate.push({
-        description: "Research a starter list of skincare brand opportunities and turn them into a workable lead set.",
+        description: "Research a starter list of reachable brand opportunities grounded in the creator's actual niche and current stage.",
         evidenceUsed: [normalizedText],
         priority: "high",
         requiredPermissions: permissions.canRunResearch ? [] : ["canRunResearch"],
         source: "research_triggered",
         status: permissions.canCreateTasks && permissions.canRunResearch ? "approved" : "proposed",
-        title: "Find 5 skincare brand leads"
+        title: researchTitle
       });
     }
 
@@ -5202,9 +5212,9 @@ export function runMaraActionDetector({
       cadence: "weekly",
       createdFrom: "memory",
       dayOfWeek: "Monday",
-      description: "Find a fresh batch of aligned skincare brand opportunities each week.",
+      description: "Find a fresh batch of reachable opportunities aligned with the creator's current niche and commercial stage.",
       permissionRequired: null,
-      title: "Weekly skincare brand research"
+      title: "Weekly reachable brand research"
     });
   }
 
@@ -5470,7 +5480,6 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   const hasPortfolioRecommendations = customerReadyOutputs.some((output) => output.outputType === "recommendation");
   const lowerMemory = JSON.stringify(whatMaraKnows).toLowerCase();
   const beginnerSignal = /beginner|starting|new/.test(lowerMemory);
-  const skincareSignal = /skincare|wellness|beauty/.test(lowerMemory);
   const lostTrackSignal = /follow up|follow-up|losing track|messy|missed/.test(lowerMemory);
   const outputsByType = latestOutputs.reduce((acc, item) => {
     const type = item.outputPreview?.type || "general";
@@ -5485,9 +5494,9 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       title: "Define creator positioning"
     });
   }
-  if (skincareSignal && !hasBrandCriteria) {
+  if (!hasBrandCriteria) {
     starterTasks.push({
-      description: "Document what skincare or wellness brands Mara should prioritize and avoid before outreach.",
+      description: "Document which brands match your actual niche, proof, preferences, and current commercial stage.",
       priority: "high",
       title: "Build brand fit criteria"
     });

@@ -74,7 +74,7 @@ export function mapRecurringToAutonomyAction(recurring) {
     return { kind: "update_tracker", recurringId: recurring.id };
   }
   if (/position|profile refresh|brand fit/.test(combined)) {
-    return { kind: "maintain_profile", recurringId: recurring.id };
+    return { kind: "record_recurring_check", recurringId: recurring.id };
   }
   if (/weekly plan|action plan/.test(combined)) {
     return { kind: "weekly_plan", recurringId: recurring.id };
@@ -127,13 +127,6 @@ export function planMaraAutonomyActions(context) {
       taskType: "creator_positioning",
       title: "Define creator positioning"
     });
-  } else if (isArtifactStale(recentOutputTypes.creator_positioning, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.creator_positioning)) {
-    actions.push({
-      kind: "maintain_artifact",
-      reason: "Creator positioning is due for a refresh.",
-      taskType: "creator_positioning",
-      title: "Refresh creator positioning"
-    });
   }
 
   if (!recentOutputTypes.brand_criteria) {
@@ -142,13 +135,6 @@ export function planMaraAutonomyActions(context) {
       reason: "No brand fit criteria on file yet.",
       taskType: "brand_fit_criteria",
       title: "Build brand fit criteria"
-    });
-  } else if (isArtifactStale(recentOutputTypes.brand_criteria, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.brand_criteria)) {
-    actions.push({
-      kind: "maintain_artifact",
-      reason: "Brand fit criteria are due for a refresh.",
-      taskType: "brand_fit_criteria",
-      title: "Refresh brand fit criteria"
     });
   }
 

@@ -113,7 +113,7 @@ export function inferTrendNiche({ accountContext, maraAnswers = {}, workerKnowle
     ? (workerKnowledge.find((entry) => String(entry?.title ?? "").trim() === "Preferences")?.items ?? [])
     : [];
   const preferenceNiche = preferences.find((item) => /skincare|wellness|beauty|ugc|creator|fitness|food/i.test(String(item)));
-  const onboardingNiche = String(maraAnswers.current_workflow || maraAnswers.email_volume || "").trim();
+  const onboardingNiche = String(maraAnswers.niche_focus || "").trim();
   return String(accountContext?.whatYouDo || onboardingNiche || preferenceNiche || "UGC creator brands").trim();
 }
 

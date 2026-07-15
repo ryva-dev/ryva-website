@@ -255,16 +255,22 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
     reason: maraDeskCopy(request.description),
     status: request.status
   }));
-  const outputs = workspace.latestOutputs.map((output) => ({
-    id: output.id,
-    title: output.outputPreview?.title || output.title,
-    summary: output.outputPreview?.preview || maraDeskCopy(output.description || "", "Ready for you to review."),
-    contentRefId: output.id,
-    sourceType: "worker_output",
-    sourceLabel: "Deliverable",
-    updatedAt: output.dueAt || new Date().toISOString(),
-    workerSlug: worker.slug
-  }));
+  // The desk and Deliverables library must share one publication source.
+  // Internal worker outputs never appear as "finished" until they have been
+  // explicitly projected into office_deliverables.
+  const outputs = workerDeliverables
+    .slice()
+    .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
+    .map((deliverable) => ({
+      id: deliverable.id,
+      title: deliverable.title,
+      summary: maraDeskCopy(deliverable.summary || deliverable.previewText || "", "Ready for you to review."),
+      contentRefId: deliverable.contentRefId,
+      sourceType: deliverable.sourceType,
+      sourceLabel: "Deliverable",
+      updatedAt: deliverable.updatedAt,
+      workerSlug: worker.slug
+    }));
   const inMotion = [
     ...workspace.runnableTasks,
     ...(workspace.currentWork && !workspace.runnableTasks.some((task) => task.id === workspace.currentWork?.id) ? [workspace.currentWork] : [])

@@ -69,6 +69,108 @@ async function fetchText(fetchImpl, url, headers = {}) {
   }
 }
 
+function compactMetric(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(number);
+}
+
+/** Parse only public trend facts embedded in TikTok Creative Center HTML. */
+export function extractTikTokCreativeCenterTrends(html, limit = 20) {
+  const source = String(html || "");
+  const found = [];
+  const seen = new Set();
+  const add = (candidate = {}) => {
+    const rawName = candidate.hashtagName || candidate.hashtag_name || candidate.name || candidate.keyword || "";
+    const name = String(rawName).replace(/^#/, "").trim();
+    if (!/^[\p{L}\p{N}_-]{2,80}$/u.test(name) || seen.has(name.toLowerCase())) return;
+    seen.add(name.toLowerCase());
+    found.push({
+      hashtag: `#${name}`,
+      posts: compactMetric(candidate.publishCnt ?? candidate.publish_cnt ?? candidate.videoCount ?? candidate.video_count),
+      views: compactMetric(candidate.videoViews ?? candidate.video_views ?? candidate.viewCount ?? candidate.view_count)
+    });
+  };
+  const walk = (value, depth = 0) => {
+    if (!value || depth > 12) return;
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, depth + 1);
+      return;
+    }
+    if (typeof value !== "object") return;
+    if (value.hashtagName || value.hashtag_name) add(value);
+    for (const nested of Object.values(value)) walk(nested, depth + 1);
+  };
+  try { walk(JSON.parse(source)); } catch { /* source may be HTML */ }
+  for (const match of source.matchAll(/<script[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try { walk(JSON.parse(match[1])); } catch { /* ignore non-JSON script content */ }
+  }
+  if (!found.length) {
+    for (const match of source.matchAll(/["']hashtag_(?:name|title)["']\s*:\s*["']([^"']+)["']/gi)) add({ hashtag_name: match[1] });
+  }
+  return found.slice(0, Math.max(1, Math.min(50, Number(limit) || 20)));
+}
+
+export async function tiktokBackendTrendFeedProvider({ niche = "UGC", fetchImpl = globalThis.fetch } = {}) {
+  const url = String(process.env.TIKTOK_TRENDS_FEED_URL || "").trim();
+  const token = String(process.env.TIKTOK_TRENDS_FEED_TOKEN || "").trim();
+  if (!url) {
+    return createProviderResult({
+      providerName: "tiktok_backend_trend_feed",
+      researchType: "ugc_strategy",
+      query: niche,
+      status: "not_configured",
+      reliability: 0,
+      error: "Operator-side TikTok trend feed is not configured. Creator input is not required.",
+      observations: []
+    });
+  }
+  try {
+    const payload = await fetchText(fetchImpl, url, {
+      "user-agent": "RyvaResearch/1.0",
+      ...(token ? { authorization: `Bearer ${token}` } : {})
+    });
+    const trends = extractTikTokCreativeCenterTrends(payload, 30);
+    const keywords = String(niche).toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && !["creator", "content", "ugc", "with", "and", "for"].includes(word));
+    const matched = trends.filter((trend) => keywords.some((word) => trend.hashtag.toLowerCase().includes(word)));
+    const selected = (matched.length ? matched : trends).slice(0, 10);
+    return createProviderResult({
+      providerName: "tiktok_backend_trend_feed",
+      researchType: "ugc_strategy",
+      query: niche,
+      retrievedUrl: url,
+      status: selected.length ? "ok" : "empty",
+      reliability: selected.length ? 0.65 : 0.2,
+      observations: selected.map((trend) => ({
+        platform: "tiktok",
+        kind: "trending_hashtag",
+        hashtag: trend.hashtag,
+        views: trend.views,
+        posts: trend.posts,
+        matchedToNiche: matched.includes(trend),
+        evidence: [createEvidenceItem({
+          kind: EVIDENCE_KINDS.OBSERVED,
+          claim: `TikTok Creative Center publicly listed ${trend.hashtag}${trend.views ? ` with ${trend.views} views` : ""}.`,
+          sourceUrl: url,
+          confidence: matched.includes(trend) ? 72 : 58,
+          rawExcerpt: `${trend.hashtag} ${trend.posts || ""} ${trend.views || ""}`.trim()
+        })]
+      }))
+    });
+  } catch (error) {
+    return createProviderResult({
+      providerName: "tiktok_backend_trend_feed",
+      researchType: "ugc_strategy",
+      query: niche,
+      retrievedUrl: url,
+      status: "unavailable",
+      reliability: 0,
+      error: String(error?.message || error),
+      observations: []
+    });
+  }
+}
+
 /** Pull public social profile URLs from brand site HTML. */
 export function extractSocialProfilesFromHtml(html, baseUrl = "") {
   const text = String(html || "");
@@ -448,7 +550,7 @@ export async function tiktokOfflineInsightsProvider({ niche = "", brandName = ""
       query: brandName || niche,
       status: "empty",
       reliability: 0.3,
-      error: "No TikTok trend insights loaded. Run Creative Center sync or paste weekly trends.",
+      error: "No verified TikTok trend snapshot is available from Ryva's backend providers yet.",
       observations: []
     });
   }
@@ -511,7 +613,7 @@ export async function tiktokLiveProvider({ brandName, fetchImpl = globalThis.fet
       query: brandName,
       status: "not_configured",
       reliability: 0,
-      error: "TIKTOK_ACCESS_TOKEN is not set. Use offline Creative Center sync / trend paste.",
+      error: "TikTok's operator-side API credentials are not configured. Creator input is not required.",
       observations: []
     });
   }
@@ -627,6 +729,7 @@ export function listSocialResearchProviders() {
   return [
     { name: "reddit_ugc_strategy", configured: true, status: "implemented", researchType: "ugc_strategy" },
     { name: "reddit_brand_social", configured: true, status: "implemented", researchType: "brand_social_mentions" },
+    { name: "tiktok_backend_trend_feed", configured: Boolean(String(process.env.TIKTOK_TRENDS_FEED_URL || "").trim()), status: String(process.env.TIKTOK_TRENDS_FEED_URL || "").trim() ? "implemented" : "not_configured", researchType: "ugc_strategy" },
     { name: "tiktok_offline_insights", configured: true, status: "implemented", researchType: "ugc_strategy" },
     {
       name: "tiktok_creative_center_live",
@@ -650,7 +753,11 @@ export async function researchUgcStrategyAcrossPlatforms({
 } = {}) {
   const runs = [];
   runs.push(await redditUgcStrategyProvider({ niche, fetchImpl }));
+  const backendTrends = await tiktokBackendTrendFeedProvider({ niche, fetchImpl });
+  if (backendTrends.status !== "not_configured") runs.push(backendTrends);
   runs.push(await tiktokOfflineInsightsProvider({ niche, insights }));
+  const tiktok = await tiktokLiveProvider({ brandName: niche, fetchImpl });
+  if (tiktok.status !== "not_configured") runs.push(tiktok);
   // Keyed platforms can still contribute strategy signals when configured.
   const x = await xBrandSearchProvider({ brandName: niche, fetchImpl });
   if (x.status !== "not_configured") runs.push(x);

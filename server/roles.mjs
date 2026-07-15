@@ -141,7 +141,7 @@ export const ROLE_CONFIGS = {
     ],
     starterTaskTypes: ["creator_positioning", "brand_fit_criteria", "weekly_action_plan"],
     autonomyPlaybook: [
-      "Keep creator positioning and brand-fit criteria current (refresh when older than two weeks).",
+      "Create creator positioning and brand-fit criteria once, then revise them only when durable creator preferences, proof, niche, offers, or commercial outcomes materially change.",
       "Research a small number of aligned brand opportunities daily when research permission is granted.",
       "Draft personalized pitches for researched brands that lack one.",
       "Generate brand-specific content ideas for brands without fresh ideas.",

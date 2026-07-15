@@ -2,12 +2,35 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   extractSocialProfilesFromHtml,
+  extractTikTokCreativeCenterTrends,
   listSocialResearchProviders,
   redditUgcStrategyProvider,
   metaAdLibraryProvider,
   xBrandSearchProvider,
-  researchUgcStrategyAcrossPlatforms
+  researchUgcStrategyAcrossPlatforms,
+  tiktokBackendTrendFeedProvider
 } from "./maraSocialResearch.mjs";
+
+test("TikTok backend-feed parser extracts embedded trend facts", () => {
+  const html = `<script type="application/json">{"data":{"list":[{"hashtagName":"fitnesstips","publishCnt":12000,"videoViews":3400000}]}}</script>`;
+  assert.deepEqual(extractTikTokCreativeCenterTrends(html), [{ hashtag: "#fitnesstips", posts: "12K", views: "3.4M" }]);
+});
+
+test("operator-side TikTok feed supplies trends without a creator connection", async () => {
+  const previousUrl = process.env.TIKTOK_TRENDS_FEED_URL;
+  process.env.TIKTOK_TRENDS_FEED_URL = "https://operator.example/tiktok-trends";
+  try {
+    const result = await tiktokBackendTrendFeedProvider({
+      niche: "fitness",
+      fetchImpl: async () => new Response(JSON.stringify({ list: [{ hashtag_name: "fitnesstips", video_views: 2500000 }] }), { status: 200 })
+    });
+    assert.equal(result.status, "ok");
+    assert.match(result.observations[0].evidence[0].claim, /fitnesstips/i);
+  } finally {
+    if (previousUrl == null) delete process.env.TIKTOK_TRENDS_FEED_URL;
+    else process.env.TIKTOK_TRENDS_FEED_URL = previousUrl;
+  }
+});
 
 test("extractSocialProfilesFromHtml finds public social links", () => {
   const html = `

@@ -1034,6 +1034,52 @@ async function syncWorkerDeliverables(userId, workerSlug) {
     userId, workerSlug
   )).map((row) => ({ ...row, structuredContent: parseJson(row.structuredContentJson, null) }));
 
+  // One early fallback shipped skincare/beauty categories for every creator.
+  // Remove only that exact platform-generated fingerprint when the creator
+  // never declared a related niche, then let Mara rebuild from real context.
+  const [accountContext, onboarding] = await Promise.all([
+    getUserOnboardingRecordAsync(userId),
+    readMaraOnboardingAnswers(userId, workerSlug)
+  ]);
+  const declaredNiche = `${accountContext?.whatYouDo || ""} ${onboarding?.answers?.niche_focus || ""}`;
+  const creatorDeclaredBeauty = /\b(skincare|skin care|beauty|cosmetic|wellness|serum)\b/i.test(declaredNiche);
+  if (!creatorDeclaredBeauty) {
+    const cleanupAt = nowIso();
+    await authStore.execute(
+      `UPDATE worker_tasks SET status = 'dismissed', updated_at = ?
+       WHERE user_id = ? AND worker_id = ? AND status NOT IN ('completed', 'dismissed')
+         AND (lower(title) LIKE '%skincare%' OR lower(description) LIKE '%skincare%')`,
+      cleanupAt, userId, workerSlug
+    );
+    await authStore.execute(
+      `UPDATE worker_research_items SET status = 'dismissed', updated_at = ?
+       WHERE user_id = ? AND worker_id = ? AND status <> 'dismissed'
+         AND (lower(topic) LIKE '%skincare%' OR lower(query) LIKE '%skincare%')`,
+      cleanupAt, userId, workerSlug
+    );
+    await authStore.execute(
+      `UPDATE worker_recurring_responsibilities SET is_active = 0, updated_at = ?
+       WHERE user_id = ? AND worker_id = ? AND is_active = 1
+         AND (lower(title) LIKE '%skincare%' OR lower(description) LIKE '%skincare%')`,
+      cleanupAt, userId, workerSlug
+    );
+  }
+  const contaminatedOutputIds = creatorDeclaredBeauty
+    ? []
+    : outputs.filter((output) => {
+        if (String(output.outputType) !== "brand_criteria") return false;
+        const fingerprint = `${output.content || ""} ${JSON.stringify(output.structuredContent || {})}`;
+        return /beauty-adjacent lifestyle/i.test(fingerprint) && /serums/i.test(fingerprint) && /supplements/i.test(fingerprint);
+      }).map((output) => output.id);
+  for (const outputId of contaminatedOutputIds) {
+    await authStore.execute(
+      `DELETE FROM office_deliverables WHERE user_id = ? AND worker_slug = ? AND source_type = 'worker_output' AND (source_id = ? OR content_ref_id = ?)`,
+      userId, workerSlug, outputId, outputId
+    );
+    await authStore.execute(`DELETE FROM worker_outputs WHERE id = ? AND user_id = ? AND worker_id = ?`, outputId, userId, workerSlug);
+  }
+  const cleanOutputs = outputs.filter((output) => !contaminatedOutputIds.includes(output.id));
+
   // Remove anything previously synced that no longer belongs on display.
   for (const hiddenType of HIDDEN_DELIVERABLE_OUTPUT_TYPES) {
     await authStore.execute(
@@ -1042,7 +1088,7 @@ async function syncWorkerDeliverables(userId, workerSlug) {
     , userId, workerSlug, hiddenType);
   }
 
-  for (const output of outputs) {
+  for (const output of cleanOutputs) {
     if (HIDDEN_DELIVERABLE_OUTPUT_TYPES.has(String(output.outputType))) {
       continue;
     }
@@ -2345,6 +2391,27 @@ async function syncMaraOperationalRecords(userId, workerSlug) {
     `UPDATE worker_tasks SET status = 'dismissed', updated_at = ?
      WHERE user_id = ? AND worker_id = ? AND task_type = 'ops_brief'
        AND source = 'autonomy_ops_brief' AND status NOT IN ('completed', 'dismissed')`,
+    nowIso(), userId, workerSlug
+  );
+  // Completed canonical artifacts satisfy older queued refresh work. This
+  // prevents a scheduler cycle from spending tokens on the same document.
+  for (const [taskType, outputType] of [["creator_positioning", "creator_positioning"], ["brand_fit_criteria", "brand_criteria"]]) {
+    await authStore.execute(
+      `UPDATE worker_tasks
+       SET status = 'dismissed', updated_at = ?
+       WHERE user_id = ? AND worker_id = ? AND task_type = ?
+         AND status NOT IN ('completed', 'dismissed')
+         AND EXISTS (
+           SELECT 1 FROM worker_outputs o
+           WHERE o.user_id = worker_tasks.user_id AND o.worker_id = worker_tasks.worker_id
+             AND o.output_type = ? AND o.created_at >= worker_tasks.created_at
+         )`,
+      nowIso(), userId, workerSlug, taskType, outputType
+    );
+  }
+  await authStore.execute(
+    `UPDATE worker_recurring_responsibilities SET is_active = 0, updated_at = ?
+     WHERE user_id = ? AND worker_id = ? AND normalized_title = 'monthly creator profile refresh'`,
     nowIso(), userId, workerSlug
   );
   await harvestMaraOutputSideEffects(userId, workerSlug);

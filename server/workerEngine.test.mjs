@@ -219,9 +219,22 @@ test("Mara can create tasks from memory-triggered chat", () => {
     workerId: MARA_WORKER_ID
   });
 
-  assert.ok(detector.tasksToCreate.some((task) => task.title.includes("pitch template")));
-  assert.ok(detector.researchItemsToCreate.some((item) => item.topic.includes("skincare")));
+  assert.ok(detector.tasksToCreate.some((task) => /pitch framework/i.test(task.title)));
+  assert.ok(detector.researchItemsToCreate.some((item) => /reachable brand/i.test(item.topic)));
   assert.ok(detector.memoriesToSave.length > 0);
+});
+
+test("generic brand outreach never creates skincare work", () => {
+  const detector = runMaraActionDetector({
+    openTasks: [],
+    permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
+    recentMessages: [],
+    triggerText: "I want to start reaching out to brands but I hate writing pitches.",
+    triggerType: "chat_message",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  assert.doesNotMatch(JSON.stringify(detector), /skincare|serum|beauty-adjacent/i);
 });
 
 test("Mara does not duplicate tasks", async () => {
@@ -694,9 +707,26 @@ test("brand fit criteria task produces saved output", async () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
-  const result = await runMaraTask({ store: db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  const result = await runMaraTask({
+    store: db,
+    taskId: created.id,
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders({ readAccountContext: () => ({ brandName: "Lift Lab", whatYouDo: "fitness tutorials for busy professionals" }) })
+  });
   assert.equal(result.output.outputType, "brand_criteria");
   assert.match(result.output.content, /Best-fit industries/);
+  assert.match(result.output.content, /fitness tutorials/i);
+  assert.doesNotMatch(result.output.content, /skincare|serums|beauty-adjacent|supplements/i);
+});
+
+test("worker output query preserves camel-case aliases on PostgreSQL", async () => {
+  let sql = "";
+  const store = { query: async (query) => { sql = query; return []; } };
+  await listWorkerOutputs(store, "user-1", MARA_WORKER_ID);
+  assert.match(sql, /AS "outputType"/);
+  assert.match(sql, /AS "structuredContentJson"/);
+  assert.match(sql, /AS "createdAt"/);
 });
 
 test("content idea batch task produces saved output", async () => {
