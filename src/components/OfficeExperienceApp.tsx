@@ -244,7 +244,7 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
     id: item.id,
     kind: item.kind,
     title: item.title,
-    summary: maraDeskCopy(item.nextStep || item.description || item.blockerReason || ""),
+    summary: maraDeskCopy(item.kind === "blocked_task" ? item.description || item.nextStep || item.blockerReason || "" : item.nextStep || item.description || item.blockerReason || ""),
     actionLabel: item.kind === "approval" || item.kind === "proposed_task" ? "Approve" : "Open"
   }));
   const approvals = workspace.pendingApprovals.map((request) => ({
@@ -1663,8 +1663,14 @@ function WorkerDeskSections({
                         {busyId === item.id ? "Running..." : "Approve & run"}
                       </button>
                     ) : item.kind === "blocked_task" ? (
-                      <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunTask(item.id)} disabled={busyId === item.id}>
-                        {busyId === item.id ? "Running..." : "Try again"}
+                      <button
+                        className="r-btn r-btn-accent"
+                        type="button"
+                        onClick={() => {
+                          onSeedCorrection(`I'm answering what you need for "${item.title}". ${item.summary}\n\nMy answer: `);
+                        }}
+                      >
+                        Answer Mara
                       </button>
                     ) : null}
                   </div>
@@ -3136,17 +3142,31 @@ function ApprovalsView({
 function AssignmentDetailModal({
   assignment,
   onClose,
+  onResolveBlocked,
   onOpenWorker,
   workerName
 }: {
   assignment: OverlayAssignment;
   onClose: () => void;
+  onResolveBlocked: (prompt: string) => void;
   onOpenWorker: () => void;
   workerName: string;
 }) {
   const statusLabel = sentenceCase(assignment.status.replace(/_/g, " "));
   const summary = humanizeMachineText(assignment.summary, "");
-  const preview = String(assignment.artifactPreview ?? "").trim();
+  let preview = String(assignment.artifactPreview ?? "").trim();
+  let blockerReason = humanizeMachineText(assignment.blockedReason, "");
+  let neededFromUser = assignment.status === "blocked" ? preview : "";
+  if (assignment.status === "blocked" && preview.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(preview) as { blockerReason?: string; neededFromUser?: string; suggestedNextStep?: string };
+      blockerReason = humanizeMachineText(parsed.blockerReason || blockerReason, "");
+      neededFromUser = humanizeMachineText(parsed.neededFromUser || parsed.suggestedNextStep || "", "");
+      preview = neededFromUser;
+    } catch {
+      preview = "";
+    }
+  }
 
   return (
     <div className="ro-doc-scrim" onClick={onClose}>
@@ -3165,10 +3185,10 @@ function AssignmentDetailModal({
 
         <div className="ro-doc-body">
           {summary ? <p className="ro-doc-para">{summary}</p> : null}
-          {assignment.blockedReason ? (
+          {blockerReason ? (
             <>
               <h3 className="ro-doc-heading">What's blocking it</h3>
-              <p className="ro-doc-para">{assignment.blockedReason}</p>
+              <p className="ro-doc-para">{blockerReason}</p>
             </>
           ) : null}
           {preview ? (
@@ -3183,7 +3203,16 @@ function AssignmentDetailModal({
         </div>
 
         <footer className="ro-doc-footer">
-          <button className="r-btn r-btn-accent" type="button" onClick={onOpenWorker}>Open {workerName.split(" ")[0]}'s desk</button>
+          {assignment.status === "blocked" ? (
+            <button
+              className="r-btn r-btn-accent"
+              type="button"
+              onClick={() => onResolveBlocked(`I'm answering what you need for "${assignment.title}". ${neededFromUser}\n\nMy answer: `)}
+            >
+              Answer {workerName.split(" ")[0]}
+            </button>
+          ) : null}
+          <button className="r-btn r-btn-ghost" type="button" onClick={onOpenWorker}>Open {workerName.split(" ")[0]}'s desk</button>
         </footer>
       </div>
     </div>
@@ -3193,11 +3222,13 @@ function AssignmentDetailModal({
 function AssignmentsView({
   workers,
   overlays,
-  onNavigate
+  onNavigate,
+  onSeedAssignment
 }: {
   workers: Worker[];
   overlays: Overlays;
   onNavigate: (h: string) => void;
+  onSeedAssignment: (workerSlug: string, prompt: string) => void;
 }) {
   const [openAssignment, setOpenAssignment] = useState<OverlayAssignment | null>(null);
   const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
@@ -3262,6 +3293,11 @@ function AssignmentsView({
         <AssignmentDetailModal
           assignment={openAssignment}
           onClose={() => setOpenAssignment(null)}
+          onResolveBlocked={(prompt) => {
+            const slug = openAssignment.workerSlug;
+            setOpenAssignment(null);
+            onSeedAssignment(slug, prompt);
+          }}
           onOpenWorker={() => {
             const slug = openAssignment.workerSlug;
             setOpenAssignment(null);
@@ -4324,7 +4360,10 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     );
   } else {
     switch (tab) {
-      case "assignments": main = <AssignmentsView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
+      case "assignments": main = <AssignmentsView workers={hiredWorkers} overlays={overlays} onNavigate={go} onSeedAssignment={(slug, prompt) => {
+        go(`#app/office/workers/${slug}/conversation`);
+        seedOfficeConversationDraft(prompt);
+      }} />; break;
       case "reviews": main = <ApprovalsView workers={hiredWorkers} overlays={overlays} desks={desks} onNavigate={go} onReload={reload} onApprove={(slug, id) => updateWorkerApproval(slug, id, "approved")} onReject={(slug, id) => updateWorkerApproval(slug, id, "rejected")} busyId={workerActionBusy} />; break;
       case "calendar": main = <CalendarView workers={hiredWorkers} overlays={overlays} onReload={reload} />; break;
       case "workers": {

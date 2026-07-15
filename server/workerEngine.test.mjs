@@ -19,6 +19,7 @@ import {
   discoverBrandCandidates,
   dismissWorkerTask,
   ensureWorkerPermissions,
+  findBlockedMaraTaskToResume,
   getMaraRelevantKnowledge,
   getWorkerPermissions,
   inferMaraTaskType,
@@ -336,6 +337,25 @@ test("Mara creates a personalized weekly schedule after the creator answers cons
   assert.match(detector.tasksToCreate[0].evidenceUsed.join(" "), /9–5/i);
 });
 
+test("a creator answer resumes the matching blocked assignment instead of another task", () => {
+  const blockedTask = {
+    id: "schedule-1",
+    status: "blocked",
+    taskType: "weekly_schedule",
+    title: "Build this week's schedule"
+  };
+  const otherBlockedTask = {
+    id: "contacts-1",
+    status: "blocked",
+    taskType: "brand_research",
+    title: "Find public contacts"
+  };
+  const answer = 'I\'m answering what you need for "Build this week\'s schedule". My answer: I work Monday through Friday until 5, can film Saturday morning, and review at 7 PM.';
+
+  assert.equal(findBlockedMaraTaskToResume([otherBlockedTask, blockedTask], answer)?.id, "schedule-1");
+  assert.equal(findBlockedMaraTaskToResume([otherBlockedTask], answer), null);
+});
+
 test("saved shift-worker availability satisfies consultation without assuming a 9–5", () => {
   const detector = runMaraActionDetector({
     knownScheduleContext: {
@@ -555,6 +575,30 @@ test("blocked tasks expose blocker reason and next step", async () => {
   assert.equal(workspace.blockedTasks[0].title, "Review inbox follow-ups");
   assert.match(workspace.blockedTasks[0].blockerReason, /inbox access is connected/i);
   assert.match(workspace.blockedTasks[0].nextStep, /Connect Gmail/i);
+});
+
+test("blocked tasks expose saved conversational guidance instead of serialized output", async () => {
+  const db = makeDb();
+  await ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = await createSuggestedTask(db, {
+    description: "Build a realistic creator schedule.",
+    priority: "high",
+    title: "Build this week's schedule",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const blocker = {
+    blockerReason: "A timed calendar would require Mara to guess when you are available.",
+    neededFromUser: "Tell Mara your fixed commitments, creator-work windows, filming preferences, and review time.",
+    suggestedNextStep: "Answer Mara and she will finish the same assignment."
+  };
+  db.prepare("UPDATE worker_tasks SET status = 'blocked', output = ? WHERE id = ?").run(JSON.stringify(blocker), created.id);
+
+  const workspace = await buildMaraWorkspace(db, "user-1", MARA_WORKER_ID);
+  assert.equal(workspace.waitingOnUser[0].description, blocker.neededFromUser);
+  assert.equal(workspace.waitingOnUser[0].blockerReason, blocker.blockerReason);
+  assert.equal(workspace.waitingOnUser[0].nextStep, blocker.suggestedNextStep);
+  assert.doesNotMatch(workspace.waitingOnUser[0].description, /^\{/);
 });
 
 test("current focus prefers highest-priority runnable task before lower-priority work", async () => {

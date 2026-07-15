@@ -37,6 +37,7 @@ import {
   createSuggestedTask,
   dismissWorkerTask,
   ensureWorkerPermissions,
+  findBlockedMaraTaskToResume,
   getMaraRelevantKnowledge,
   getWorkerPermissions,
   listWorkerOutputs,
@@ -927,12 +928,16 @@ async function syncWorkerAssignments(userId, workerSlug) {
 
   for (const task of workerTasks) {
     const parsedOutput = parseJson(task.output, null);
+    const isBlocked = mapWorkerTaskStatusToAssignmentStatus(task.status) === "blocked";
+    const blockerReason = isBlocked ? String(parsedOutput?.blockerReason || task.description || "Mara needs one more thing before continuing.") : "";
+    const neededFromUser = isBlocked ? String(parsedOutput?.neededFromUser || "Open Mara's conversation and answer the question she asks.") : "";
+    const suggestedNextStep = isBlocked ? String(parsedOutput?.suggestedNextStep || "Answer Mara in plain language and she will continue the assignment.") : "";
     await upsertOfficeAssignment({
-      artifactPreview: truncatePreview(parsedOutput?.preview || parsedOutput?.content || task.output || ""),
+      artifactPreview: isBlocked ? truncatePreview(neededFromUser, 500) : truncatePreview(parsedOutput?.preview || parsedOutput?.content || task.output || ""),
       artifactRefId: null,
-      artifactTitle: parsedOutput?.title || "",
+      artifactTitle: isBlocked ? "What Mara needs from you" : parsedOutput?.title || "",
       artifactType: parsedOutput?.type || (task.taskType ? inferArtifactTypeFromOutputType(task.taskType) : "none"),
-      blockedReason: mapWorkerTaskStatusToAssignmentStatus(task.status) === "blocked" ? truncatePreview(task.description, 180) : "",
+      blockedReason: truncatePreview(blockerReason, 500),
       createdAt: task.createdAt,
       dueAt: task.dueAt,
       kind: task.source === "recurring" ? "recurring" : "one_off",
@@ -942,7 +947,7 @@ async function syncWorkerAssignments(userId, workerSlug) {
       sourceLabel: formatTaskSourceLabel(task.source) || "In progress",
       sourceType: "worker_task",
       status: mapWorkerTaskStatusToAssignmentStatus(task.status),
-      summary: truncatePreview(task.description, 180),
+      summary: truncatePreview(isBlocked ? `${neededFromUser} ${suggestedNextStep}` : task.description, 300),
       title: task.title,
       updatedAt: task.updatedAt,
       userId,
@@ -6303,11 +6308,18 @@ function executeChatTasksInBackground(userId, workerSlug, worker, taskIds, trigg
       const blocked = executedResults.filter((result) => result?.blockerReason);
       const replyParts = [];
       for (const result of completed.slice(0, 2)) {
-        replyParts.push(`${result.output.title}\n\n${result.output.content}`);
+        if (workerSlug === MARA_SLUG) {
+          const destination = ["weekly_schedule", "weekly_plan"].includes(String(result.output.outputType || ""))
+            ? "I put it on your Calendar."
+            : "It's ready in Deliverables for you to review.";
+          replyParts.push(`I finished ${result.output.title}. ${destination}`);
+        } else {
+          replyParts.push(`${result.output.title}\n\n${result.output.content}`);
+        }
       }
       for (const blockedResult of blocked.slice(0, 1)) {
         replyParts.push(
-          `I couldn't complete that yet.\n\nReason: ${blockedResult.blockerReason}\nNeed from you: ${blockedResult.neededFromUser}\nNext: ${blockedResult.suggestedNextStep}`
+          `I need one thing from you before I can finish this: ${blockedResult.neededFromUser || blockedResult.blockerReason}\n\nReply here in plain language and I'll continue from where I stopped.`
         );
       }
       if (completed.length > 2) {
@@ -6409,6 +6421,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
     await ensureWorkerPermissions(maraStore, req.user.id, workerSlug);
     const createdChatTaskIds = [];
     const maraOnboarding = await readMaraOnboardingAnswers(req.user.id, workerSlug);
+    const openMaraTasks = await listWorkerTasksForUserWorker(maraStore, req.user.id, workerSlug);
     const detectorResult = runMaraActionDetector({
       knownScheduleContext: {
         fixedCommitments: maraOnboarding?.answers?.fixed_commitments,
@@ -6416,7 +6429,7 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
         filmingPreferences: maraOnboarding?.answers?.filming_preferences,
         reviewPreferences: maraOnboarding?.answers?.review_preferences
       },
-      openTasks: await listWorkerTasksForUserWorker(maraStore, req.user.id, workerSlug),
+      openTasks: openMaraTasks,
       permissions: await getWorkerPermissions(maraStore, req.user.id, workerSlug),
       recentMessages: await authStore.query(
         `SELECT author, text
@@ -6499,6 +6512,18 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
       });
     }
 
+    const blockedTaskToResume = findBlockedMaraTaskToResume(openMaraTasks, text);
+    if (blockedTaskToResume && !detectorResult.requiresUserInput) {
+      const evidence = [...new Set([...(blockedTaskToResume.evidenceUsed || []), text].map((item) => String(item).trim()).filter(Boolean))];
+      await maraStore.execute(
+        `UPDATE worker_tasks SET evidence_used_json = ?, output = NULL, updated_at = ?
+         WHERE id = ? AND user_id = ? AND worker_id = ?`,
+        JSON.stringify(evidence), nowIso(), blockedTaskToResume.id, req.user.id, workerSlug
+      );
+      await updateWorkerTaskStatus(maraStore, req.user.id, workerSlug, blockedTaskToResume.id, "approved");
+      createdChatTaskIds.push(blockedTaskToResume.id);
+    }
+
     if (detectorResult.requiresUserInput && detectorResult.userFacingSummary) {
       await authStore.execute(
         `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
@@ -6506,6 +6531,26 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
         randomUUID(), req.user.id, workerSlug, "Mara", detectorResult.userFacingSummary, new Date(Date.now() + 1000).toISOString()
       );
       res.status(201).json({ ok: true, executing: false, needsInput: true });
+      return;
+    }
+
+    if (createdChatTaskIds.length > 0) {
+      const taskNames = blockedTaskToResume
+        ? [blockedTaskToResume.title]
+        : detectorResult.tasksToCreate
+        .filter((task) => task.status === "approved")
+        .map((task) => task.title)
+        .slice(0, 2);
+      const acknowledgement = taskNames.length === 1
+        ? `I'm on it — I've started ${taskNames[0]}. I'll bring the finished work back here and put anything you need to review in the right place.`
+        : `I'm on it — I've started ${taskNames.join(" and ")}. I'll bring the finished work back here and put anything you need to review in the right place.`;
+      await authStore.execute(
+        `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, "Mara", acknowledgement, new Date(Date.now() + 1000).toISOString()
+      );
+      res.status(201).json({ ok: true, executing: true });
+      executeChatTasksInBackground(req.user.id, workerSlug, worker, createdChatTaskIds, text);
       return;
     }
 
@@ -6541,11 +6586,14 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
       const replyParts = [];
 
       for (const result of completedOutputs.slice(0, 2)) {
-        replyParts.push(`${result.output.title}\n\n${result.output.content}`);
+        const destination = ["weekly_schedule", "weekly_plan"].includes(String(result.output.outputType || ""))
+          ? "I put it on your Calendar."
+          : "It's ready in Deliverables for you to review.";
+        replyParts.push(`I finished ${result.output.title}. ${destination}`);
       }
 
       for (const blocked of blockedOutputs.slice(0, 1)) {
-        replyParts.push(`I couldn't complete that yet.\n\nReason: ${blocked.blockerReason}\nNeed from you: ${blocked.neededFromUser}\nNext: ${blocked.suggestedNextStep}`);
+        replyParts.push(`I need one thing from you before I can finish this: ${blocked.neededFromUser || blocked.blockerReason}\n\nReply here in plain language and I'll continue from where I stopped.`);
       }
 
       if (replyParts.length > 0) {

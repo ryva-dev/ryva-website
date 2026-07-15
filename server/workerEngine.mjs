@@ -520,6 +520,21 @@ export function normalizeForComparison(value) {
     .trim();
 }
 
+export function findBlockedMaraTaskToResume(openTasks = [], triggerText = "") {
+  const text = String(triggerText || "").trim();
+  const blockerAnswerMatch = text.match(/^I'm answering what you need for "([^"]+)"/i);
+  const answeredTaskTitle = String(blockerAnswerMatch?.[1] || "").trim();
+
+  return (Array.isArray(openTasks) ? openTasks : []).find((task) => {
+    if (task?.status !== "blocked") return false;
+    if (answeredTaskTitle) {
+      return normalizeForComparison(task.title) === normalizeForComparison(answeredTaskTitle);
+    }
+    return task.taskType === "weekly_schedule" &&
+      /\b(work|job|shift|free|available|availability|film|filming|review|commitment|weekend|morning|afternoon|evening|night)\b/i.test(text);
+  }) || null;
+}
+
 function ensureColumn(db, tableName, columnName, columnDefinition) {
   const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
   if (!columns.some((column) => column.name === columnName)) {
@@ -5551,10 +5566,23 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   const currentWork = runningTask || inProgressTask || highestPriorityRunnableTask;
   const blockedTaskDetails = blockedTasks.map((task) => {
     const primaryPermission = Array.isArray(task.requiredPermissions) ? task.requiredPermissions[0] : null;
-    const blocking = describePermissionBlocker(primaryPermission);
+    const savedBlocker = safeJsonParse(task.output, {});
+    const permissionBlocker = describePermissionBlocker(primaryPermission);
+    const blocking = savedBlocker?.blockerReason
+      ? {
+          blockerReason: String(savedBlocker.blockerReason),
+          neededFromUser: String(savedBlocker.neededFromUser || "Answer Mara's question in the conversation."),
+          nextStep: String(savedBlocker.suggestedNextStep || "Reply in Mara's conversation and she will continue.")
+        }
+      : {
+          blockerReason: permissionBlocker.blockerReason,
+          neededFromUser: permissionBlocker.nextStep,
+          nextStep: permissionBlocker.nextStep
+        };
     return {
       ...task,
       blockerReason: blocking.blockerReason,
+      neededFromUser: blocking.neededFromUser,
       nextStep: blocking.nextStep
     };
   });
@@ -5579,7 +5607,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       id: task.id,
       kind: "blocked_task",
       title: task.title,
-      description: task.description || "I need one more input before I can finish this.",
+      description: task.neededFromUser || "I need one more input before I can finish this.",
       blockerReason: task.blockerReason,
       nextStep: task.nextStep
     }))

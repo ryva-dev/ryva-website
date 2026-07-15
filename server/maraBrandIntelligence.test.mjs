@@ -111,10 +111,11 @@ test("growth intelligence returns one cautious Gymshark decision and removes raw
     { brandName: "Gymshark: Growth Tactics and Competitive Advantage", website: "https://growthegy.com/gymshark" },
     { brandName: "How Gymshark Built a $1.6B Brand with No", website: "https://tacticone.co/gymshark-case-study" }
   ]) {
+    const canonicalRow = resolveCanonicalDesiredBrand(row, ["Gymshark would be a DREAM for me"]);
     await createOrUpdateOpportunityFromResearch(store, {
       userId: "creator-dream",
       workerId: "mara-vale",
-      ...row,
+      ...canonicalRow,
       evidence: [
         { kind: "observed", claim: `Public article mentioning ${row.brandName}`, sourceUrl: row.website, confidence: 70 },
         { kind: "hypothesis", claim: "Gymshark would be a DREAM for me routine-led content", confidence: 40 }
