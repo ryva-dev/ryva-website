@@ -121,7 +121,7 @@ export function generateInterviewReply(worker: Worker, question: string) {
 
   if (worker.slug === "lena-carter") {
     if (lower.includes("help")) {
-      return "If you hired me, I would start by understanding your niche, portfolio, current outreach habits, and the kinds of brands you want to work with. From there, I would build a weekly pitching plan, tighten your positioning, draft outreach, track follow-ups, and help you get more consistent over time.";
+      return "If you hired me, I would start by understanding your niche, portfolio, current outreach habits, and the kinds of brands you want to work with. From there, I would build a weekly pitching plan, tighten your positioning, prepare outreach copy inside Ryva, track follow-ups, and help you get more consistent over time. You remain responsible for every external send.";
     }
 
     if (lower.includes("need from me")) {

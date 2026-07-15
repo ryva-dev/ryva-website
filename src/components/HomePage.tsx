@@ -162,7 +162,7 @@ function OfficeDemo() {
             </div>
             <div className="mk-office-row mk-office-row-quiet">
               <div>
-                <strong>Declined 2 briefs under your rate floor</strong>
+                <strong>Flagged 2 briefs under your rate floor</strong>
               </div>
               <span>Mara Vale · 26m ago</span>
             </div>
@@ -357,7 +357,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers, supportEmail }:
             <div className="mk-thread">
               <div className="mk-msg">
                 <WorkerMark seed="mara-vale" size={24} active />
-                <span>What&apos;s your floor rate for sponsored posts? I&apos;ll decline anything under it automatically.</span>
+                <span>What&apos;s your floor rate for sponsored posts? I&apos;ll flag anything under it for your review.</span>
               </div>
               <div className="mk-msg you">$500</div>
             </div>
@@ -437,7 +437,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers, supportEmail }:
           </h2>
           <p>
             Ryva&apos;s first role runs the operational side of a creator business: inbound triage, brand vetting,
-            outreach, rate negotiation, usage-rights tracking, scheduling, and the weekly report you never have time to
+            opportunity research, negotiation preparation, usage-rights tracking, scheduling, and the weekly report you never have time to
             write. It&apos;s a role drowning in exactly the kind of work that shouldn&apos;t need a human — which is
             why it&apos;s where Ryva starts, not where it ends.
           </p>
@@ -446,7 +446,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers, supportEmail }:
           {[
             ["Inbound briefs triaged", "daily"],
             ["Fake-follower screens", "every applicant"],
-            ["Rate floor enforcement", "automatic"],
+            ["Rate-floor exceptions", "flagged"],
             ["Usage-rights expirations", "tracked to the day"],
             ["Weekly operations report", "Fridays"]
           ].map(([label, value]) => (
@@ -517,7 +517,7 @@ export function HomePage({ onBrowseWorkers, onOpenAuth, workers, supportEmail }:
           Mara works where your <em>deals live.</em>
         </h2>
         <p className="mk-sec-line r-reveal">
-          Connect Gmail so Mara can draft outreach and organize brand replies. Sends stay approval-gated.
+          Connect Gmail so Mara can organize brand replies and prepare follow-up copy inside Ryva. Communication remains yours to send; Mara never creates Gmail drafts or sends messages.
           Billing runs through Stripe. Live ad libraries and contact enrichment are operator-configured —
           creators never paste platform API keys into the product.
         </p>

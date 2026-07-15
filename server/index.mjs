@@ -1271,7 +1271,7 @@ function fallbackInterviewReply(worker, question) {
 
   if (worker.slug === "lena-carter") {
     if (lower.includes("help")) {
-      return "I would start by understanding your niche, portfolio, current outreach habits, and the kinds of brands you want to attract. From there I would tighten your positioning, build a weekly pitching rhythm, draft outreach, and keep follow-up disciplined so deals move consistently instead of sporadically.";
+      return "I would start by understanding your niche, portfolio, current outreach habits, and the kinds of brands you want to attract. From there I would tighten your positioning, build a weekly pitching rhythm, prepare outreach copy inside Ryva, and keep follow-up disciplined so deals move consistently instead of sporadically. You remain responsible for every external send.";
     }
 
     if (lower.includes("need from me")) {
@@ -2559,6 +2559,9 @@ async function createGmailDraftForOutput(userId, workerSlug, spec) {
 }
 
 async function syncMaraGmailDraftsForOutputs(userId, workerSlug, outputIds = []) {
+  // Founder policy: Mara's artifacts stay inside Ryva. Gmail is read-only
+  // context; Mara never creates Gmail drafts or sends external communication.
+  if (isMaraWorker(workerSlug)) return { createdCount: 0, skipped: "mara_external_communication_prohibited" };
   const gmail = await getWorkerIntegration(userId, workerSlug, "gmail");
   if (!gmail || gmail.status !== "connected") {
     return { createdCount: 0, skipped: "gmail_not_connected" };
@@ -4256,6 +4259,7 @@ app.post("/api/office/workers/:slug/approval-requests/:approvalId/status", asser
       const gmail = await getWorkerIntegration(req.user.id, workerSlug, "gmail");
       const policy = evaluateActionPolicy({
         actionType: "send_email",
+        workerId: workerSlug,
         permissions,
         integrationConnected: gmail?.status === "connected",
         approvalId
@@ -5411,7 +5415,7 @@ app.get("/api/office/workers/:slug/gmail/callback", async (req, res) => {
     await updateWorkerPermissions(maraStore, statePayload.userId, workerSlug, {
       canDraftOutreach: true,
       canReadInbox: true,
-      canSendEmailsWithApproval: true,
+      canSendEmailsWithApproval: false,
       canUseConnectedIntegrations: true
     });
     await syncGmailInbox(statePayload.userId, workerSlug);

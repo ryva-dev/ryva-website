@@ -76,7 +76,7 @@ export function deriveMaraPermissionsFromOnboarding(answers = {}, { inboxConnect
     canSuggestTasks: true,
     approvalRequiredForExternalActions: true,
     canSendEmailsWithoutApproval: false,
-    canSendEmailsWithApproval: true,
+    canSendEmailsWithApproval: false,
     canReadInbox: inboxConnected,
     canUseConnectedIntegrations: inboxConnected,
     canUpdateExternalTrackers: inboxConnected
@@ -92,7 +92,7 @@ export function deriveMaraPermissionsFromOnboarding(answers = {}, { inboxConnect
 
   if (/never send|don't send|do not send|without my approval|always ask|always bring|bring back to me|check with me first|need my approval/i.test(combined)) {
     permissions.canSendEmailsWithoutApproval = false;
-    permissions.canSendEmailsWithApproval = true;
+    permissions.canSendEmailsWithApproval = false;
     permissions.approvalRequiredForExternalActions = true;
   }
 
@@ -101,7 +101,7 @@ export function deriveMaraPermissionsFromOnboarding(answers = {}, { inboxConnect
   // dedicated, inspectable policy flow rather than inferred from prose.
   if (/send on your own|you can send|approve yourself|without asking/i.test(combined)) {
     permissions.canSendEmailsWithoutApproval = false;
-    permissions.canSendEmailsWithApproval = true;
+    permissions.canSendEmailsWithApproval = false;
     permissions.approvalRequiredForExternalActions = true;
   }
 
@@ -116,7 +116,7 @@ export function deriveMaraPermissionsFromOnboarding(answers = {}, { inboxConnect
 
   if (/draft only|organize only|don't reply|do not reply/i.test(String(answers.reply_boundaries ?? "").toLowerCase())) {
     permissions.canSendEmailsWithoutApproval = false;
-    permissions.canSendEmailsWithApproval = true;
+    permissions.canSendEmailsWithApproval = false;
   }
 
   return permissions;

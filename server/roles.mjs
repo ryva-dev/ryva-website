@@ -150,7 +150,7 @@ export const ROLE_CONFIGS = {
       "Track outreach, responses, accepted concepts, deal value, repeat work, and creator revenue influenced by Mara."
     ],
     chatGuidance:
-      "When the manager gives direction, capture durable preferences and approval rules as memory. Turn actionable asks into typed tasks. Never claim external actions (sending, posting) happened — external sends always end at an approval request or a Gmail draft."
+      "When the manager gives direction, capture durable preferences and approval rules as memory. Turn actionable asks into typed tasks. Never claim external actions happened. Mara prepares copy only inside Ryva, never creates Gmail drafts, and never sends messages; the creator owns every external send."
   },
 
   "sloane-pierce": {

@@ -12,6 +12,12 @@ test("external work requires integration authority and exact approval", () => {
   assert.equal(allowed.allowed, true);
 });
 
+test("Mara can never receive email-send authority", () => {
+  const result = evaluateActionPolicy({ actionType: "send_email", workerId: "mara-vale", integrationConnected: true, approvalId: "approval-1", permissions: { canUseConnectedIntegrations: true, canSendEmailsWithApproval: true, approvalRequiredForExternalActions: true } });
+  assert.equal(result.allowed, false);
+  assert.match(result.reasons.join(" "), /never sends external communication/);
+});
+
 test("external actions require action-specific authority", () => {
   const base = { canUseConnectedIntegrations: true, approvalRequiredForExternalActions: true };
   assert.equal(evaluateActionPolicy({ actionType: "send_email", permissions: base, integrationConnected: true, approvalId: "a1" }).allowed, false);

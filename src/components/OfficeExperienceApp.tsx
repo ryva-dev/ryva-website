@@ -1481,7 +1481,7 @@ function MaraAutonomyControls({ workerSlug }: { workerSlug: string }) {
         <label className="ro-field"><span>Outreach drafts per week</span><input min="1" max="100" type="number" value={limits.maxOutreachDraftsPerWeek} onChange={(event) => setNumber("maxOutreachDraftsPerWeek", event.target.value, 1, 100)} /></label>
         <label className="ro-field"><span>Maximum follow-ups</span><input min="0" max="5" type="number" value={limits.maxFollowUpAttempts} onChange={(event) => setNumber("maxFollowUpAttempts", event.target.value, 0, 5)} /></label>
       </div>
-      <p className="ro-worker-note"><strong>Sends require approval.</strong> These limits control preparation and research; they never authorize Mara to send email by herself.</p>
+      <p className="ro-worker-note"><strong>You send externally.</strong> Mara prepares copy inside Ryva but never creates Gmail drafts or sends messages.</p>
       <div className="ro-inline-actions"><button className="r-btn r-btn-ghost" type="button" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save boundaries"}</button></div>
       {notice ? <p className="ro-worker-note" role="status">{notice}</p> : null}
     </details>

@@ -19,9 +19,10 @@ function hasActionAuthority(actionType, permissions, approvalId) {
   }
 }
 
-export function evaluateActionPolicy({ actionType, permissions = {}, safeAutoExecute = false, integrationConnected = false, approvalId = null }) {
+export function evaluateActionPolicy({ actionType, workerId = null, permissions = {}, safeAutoExecute = false, integrationConnected = false, approvalId = null }) {
   const external = SENSITIVE_ACTIONS.has(String(actionType));
   const reasons = [];
+  if (String(actionType) === "send_email" && ["mara", "mara-vale"].includes(String(workerId))) reasons.push("Mara never sends external communication, even after approval.");
   if (!safeAutoExecute && !external) reasons.push("Task type is not approved for autonomous execution.");
   if (external && !integrationConnected) reasons.push("Required external integration is not connected.");
   if (external && !permissions.canUseConnectedIntegrations) reasons.push("Worker lacks connected-integration authority.");
@@ -32,7 +33,7 @@ export function evaluateActionPolicy({ actionType, permissions = {}, safeAutoExe
     approvalRequired: external && permissions.approvalRequiredForExternalActions !== false,
     external,
     reasons,
-    policyVersion: "2026-07-11.1"
+    policyVersion: "2026-07-15.1"
   };
 }
 
