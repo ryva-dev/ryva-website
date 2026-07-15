@@ -88,7 +88,7 @@ export function extractContactsFromHtml(html, pageUrl) {
 
 async function fetchText(fetchImpl, url) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
     const response = await fetchImpl(url, { signal: controller.signal, headers: { accept: "text/html,application/xhtml+xml" } });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -439,12 +439,20 @@ export async function discoverContactsFromBrandSite(store, {
     return { savedIds, emails: [...allEmails], pagesFetched, ...failure, outreachReady: false, bestContact: null };
   }
 
-  const extra = [...new Set(pages.slice(1))].slice(0, 5);
-  for (const pageUrl of extra) {
+  const extra = [...new Set(pages.slice(1))].slice(0, 4);
+  const fetchedPages = await Promise.all(
+    extra.map(async (pageUrl) => {
+      try {
+        return { pageUrl, html: await fetchText(fetchImpl, pageUrl) };
+      } catch {
+        return null;
+      }
+    })
+  );
+  for (const page of fetchedPages.filter(Boolean)) {
     try {
-      const html = await fetchText(fetchImpl, pageUrl);
       pagesFetched += 1;
-      const extracted = extractContactsFromHtml(html, pageUrl);
+      const extracted = extractContactsFromHtml(page.html, page.pageUrl);
       hasForm = hasForm || extracted.hasContactForm;
       for (const email of extracted.emails) allEmails.add(email);
       savedIds.push(
@@ -454,7 +462,7 @@ export async function discoverContactsFromBrandSite(store, {
           publicBrandId,
           emails: extracted.emails,
           partnershipEmails: extracted.partnershipEmails,
-          sourceUrl: pageUrl
+          sourceUrl: page.pageUrl
         }))
       );
       if (extracted.hasContactForm) {
@@ -463,9 +471,9 @@ export async function discoverContactsFromBrandSite(store, {
             userId,
             workerId,
             publicBrandId,
-            url: pageUrl,
+            url: page.pageUrl,
             kind: "form",
-            sourceUrl: pageUrl
+            sourceUrl: page.pageUrl
           })
         );
       }

@@ -112,7 +112,7 @@ export const ROLE_CONFIGS = {
         label: "Weekly schedule",
         outputType: "weekly_schedule",
         description: "A time-blocked working week for the creator: filming blocks, posting slots, TikTok story cadence, outreach and admin windows — realistic for their actual life and goals, and placed directly on their calendar. blocks[].day must be a weekday name; start/end must be 24h HH:MM.",
-        schemaHint: '{"weekTheme":"","blocks":[{"day":"Monday","start":"09:00","end":"10:30","activity":"Outreach block","goal":"Draft pitches"},{"day":"Tuesday","start":"10:00","end":"12:00","activity":"Filming block","goal":"Capture concepts"}],"postingSlots":[{"day":"Monday","time":"19:00","contentType":"short-form"}],"storyCadence":"","notes":[]}'
+        schemaHint: '{"weekTheme":"","constraintsUsed":[],"blocks":[{"day":"Monday","start":"18:30","end":"19:00","activity":"Review Mara work","goal":"Approve prepared pitches","owner":"creator","kind":"review"},{"day":"Tuesday","start":"10:00","end":"12:00","activity":"Research contacts","goal":"Prepare outreach evidence","owner":"mara","kind":"research"}],"postingSlots":[{"day":"Monday","time":"19:00","contentType":"short-form"}],"reviewWindows":[],"storyCadence":"","assumptions":[],"notes":[]}'
       }),
       taskType("update_brand_tracker", {
         label: "Tracker update",

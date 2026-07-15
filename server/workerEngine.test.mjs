@@ -261,7 +261,7 @@ test("Mara does not duplicate tasks", async () => {
   assert.equal((await listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID)).length, 1);
 });
 
-test("completed work does not block a repeated direct chat assignment", () => {
+test("a weekly plan request pauses for real availability before creating calendar work", () => {
   const detector = runMaraActionDetector({
     openTasks: [{ title: "Create weekly action plan", status: "completed" }],
     permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
@@ -271,8 +271,31 @@ test("completed work does not block a repeated direct chat assignment", () => {
     userId: "user-1",
     workerId: MARA_WORKER_ID
   });
+  assert.equal(detector.tasksToCreate.length, 0);
+  assert.equal(detector.requiresUserInput, true);
+  assert.match(detector.userFacingSummary, /work, school, commute/i);
+  assert.match(detector.userFacingSummary, /filming/i);
+  assert.match(detector.userFacingSummary, /review/i);
+});
+
+test("Mara creates a personalized weekly schedule after the creator answers consultation questions", () => {
+  const detector = runMaraActionDetector({
+    openTasks: [],
+    permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
+    recentMessages: [
+      { author: "You", text: "I work 9–5, I am free after 6:30, I can film Saturday morning, and I can review your work at 7 PM." },
+      { author: "Mara", text: "Before I put this on your calendar, I need your real availability so I don't schedule over your life." },
+      { author: "You", text: "Create a weekly plan for me through Sunday." }
+    ],
+    triggerText: "I work 9–5, I am free after 6:30, I can film Saturday morning, and I can review your work at 7 PM.",
+    triggerType: "chat_message",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  assert.equal(detector.requiresUserInput, false);
   assert.equal(detector.tasksToCreate.length, 1);
-  assert.equal(detector.tasksToCreate[0].taskType, "weekly_action_plan");
+  assert.equal(detector.tasksToCreate[0].taskType, "weekly_schedule");
+  assert.match(detector.tasksToCreate[0].evidenceUsed.join(" "), /9–5/i);
 });
 
 test("Mara creates approval requests for external actions", async () => {

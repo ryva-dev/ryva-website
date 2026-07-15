@@ -48,7 +48,7 @@ function createResult(partial) {
 
 async function fetchText(fetchImpl, url) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), 4000);
   try {
     const response = await fetchImpl(url, {
       signal: controller.signal,
@@ -146,9 +146,17 @@ export async function freeSiteContactProbes({ website, fetchImpl = globalThis.fe
     /* sitemap optional */
   }
 
-  for (const url of [...new Set(urls)].slice(0, 12)) {
+  const fetchedPages = await Promise.all(
+    [...new Set(urls)].slice(0, 8).map(async (url) => {
+      try {
+        return await fetchText(fetchImpl, url);
+      } catch {
+        return null;
+      }
+    })
+  );
+  for (const html of fetchedPages.filter(Boolean)) {
     try {
-      const html = await fetchText(fetchImpl, url);
       pagesFetched += 1;
       for (const email of extractEmailsFromText(html)) emails.add(email);
       for (const email of extractEmailsFromJsonLd(html)) emails.add(email);
@@ -233,26 +241,34 @@ export async function apolloOrgContacts({ website, fetchImpl = globalThis.fetch 
     return createResult({ provider: ENRICHMENT_PROVIDERS.APOLLO, status: "skipped", error: "No domain" });
   }
   try {
-    const response = await fetchImpl("https://api.apollo.io/v1/mixed_people/search", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey
-      },
-      body: JSON.stringify({
-        q_organization_domains: domain,
-        person_titles: [
-          "influencer marketing",
-          "creator partnerships",
-          "brand partnerships",
-          "social media manager",
-          "growth marketing",
-          "pr manager"
-        ],
-        page: 1,
-        per_page: 10
-      })
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    let response;
+    try {
+      response = await fetchImpl("https://api.apollo.io/v1/mixed_people/search", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey
+        },
+        body: JSON.stringify({
+          q_organization_domains: domain,
+          person_titles: [
+            "influencer marketing",
+            "creator partnerships",
+            "brand partnerships",
+            "social media manager",
+            "growth marketing",
+            "pr manager"
+          ],
+          page: 1,
+          per_page: 10
+        })
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const parsed = await response.json();
     const emails = [];
@@ -286,15 +302,12 @@ export async function enrichAndPersistBrandContacts(store, {
   website,
   fetchImpl = globalThis.fetch
 }) {
-  const providers = [];
-  const free = await freeSiteContactProbes({ website, fetchImpl });
-  providers.push(free);
-
-  const hunter = await hunterDomainSearch({ website, fetchImpl });
-  providers.push(hunter);
-
-  const apollo = await apolloOrgContacts({ website, fetchImpl });
-  providers.push(apollo);
+  const [free, hunter, apollo] = await Promise.all([
+    freeSiteContactProbes({ website, fetchImpl }),
+    hunterDomainSearch({ website, fetchImpl }),
+    apolloOrgContacts({ website, fetchImpl })
+  ]);
+  const providers = [free, hunter, apollo];
 
   const savedIds = [];
   for (const result of providers) {

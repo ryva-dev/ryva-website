@@ -584,12 +584,22 @@ async function officeJson<T>(input: RequestInfo, init?: RequestInit): Promise<T>
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  const payload = await response.json().catch(() => null);
+  const raw = await response.text();
+  let payload: unknown = null;
+  try { payload = raw ? JSON.parse(raw) : null; } catch { payload = null; }
   if (!response.ok) {
-    const message = payload && typeof payload === "object" && "error" in payload ? String(payload.error) : "Office request failed.";
+    const message = payload && typeof payload === "object" && "error" in payload
+      ? String((payload as { error: unknown }).error)
+      : response.status === 504
+        ? "That research took too long. Please try again — Mara saved any contacts she found before the timeout."
+        : `Ryva could not complete that request (HTTP ${response.status}). Please try again.`;
     throw new Error(message);
   }
   return payload as T;
+}
+
+function creatorFacingCalendarNotes(notes: string | null | undefined) {
+  return String(notes ?? "").replace(/^\[mara:[^\]]+\]\s*/i, "").trim();
 }
 
 function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null; section: WorkbenchSection | null } {
@@ -3545,7 +3555,7 @@ function EventForm({
   const [end, setEnd] = useState(initEnd?.time ?? "10:00");
   const [type, setType] = useState(initial?.eventType ?? "Meeting");
   const [workerSlug, setWorkerSlug] = useState<string | null>(initial?.workerSlug ?? null);
-  const [notes, setNotes] = useState(initial?.notes ?? "");
+  const [notes, setNotes] = useState(creatorFacingCalendarNotes(initial?.notes));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -3573,7 +3583,7 @@ function EventForm({
       <div className="ro-modal" onClick={(e) => e.stopPropagation()}>
         <h3>{initial ? "Edit event" : "New event"}</h3>
         <label className="ro-field"><span>Title</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Creator call — Delaney" autoFocus />
+          <textarea value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Creator call — Delaney" rows={2} autoFocus={!initial} />
         </label>
         <div className="ro-field-row">
           <label className="ro-field"><span>Date</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
@@ -3598,7 +3608,7 @@ function EventForm({
           </div>
         )}
         <label className="ro-field"><span>Notes</span>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Optional" />
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} placeholder="Why this is on your calendar, what to prepare, and what done looks like." />
         </label>
         {error && <div className="ro-error">{error}</div>}
         <div className="ro-modal-actions">

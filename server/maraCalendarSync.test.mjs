@@ -175,6 +175,25 @@ test("weekly schedule times are interpreted in the creator timezone", () => {
   assert.equal(localClock(new Date(events[0].startsAt), "America/New_York").hour, "10");
 });
 
+test("weekly schedules cannot place creator work inside stated 9–5 work hours", () => {
+  const ready = ensureWeeklyScheduleCalendarReady({
+    blocks: [{ day: "Tuesday", start: "10:00", end: "12:00", activity: "Film", owner: "creator", kind: "filming" }]
+  }, { availabilityText: "I work 9–5 Monday through Friday and am free after 6." });
+  assert.equal(ready.blocks[0].start, "18:00");
+  assert.equal(ready.blocks[0].end, "20:00");
+});
+
+test("Mara-owned schedule blocks stay off the creator calendar and reviews are labeled", () => {
+  const { events } = buildEventsFromWeeklySchedule({
+    blocks: [
+      { day: "Monday", start: "18:30", end: "19:00", activity: "Review Mara's pitches", owner: "creator", kind: "review" },
+      { day: "Tuesday", start: "10:00", end: "11:00", activity: "Research contacts", owner: "mara", kind: "research" }
+    ]
+  }, { now: new Date("2026-07-13T08:00:00") });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "Review");
+});
+
 test("stampCalendarHarvest only marks synced when events were created or content was empty", () => {
   const synced = stampCalendarHarvest({}, { created: 3, ensuredHadContent: true });
   assert.ok(synced.calendarSyncedAt);

@@ -6492,6 +6492,16 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
       });
     }
 
+    if (detectorResult.requiresUserInput && detectorResult.userFacingSummary) {
+      await authStore.execute(
+        `INSERT INTO office_chat_messages (id, user_id, worker_slug, author, text, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        randomUUID(), req.user.id, workerSlug, "Mara", detectorResult.userFacingSummary, new Date(Date.now() + 1000).toISOString()
+      );
+      res.status(201).json({ ok: true, executing: false, needsInput: true });
+      return;
+    }
+
     const executedResults = await autoExecuteSafeMaraTasks({
         store: maraStore,
         taskIds: createdChatTaskIds,

@@ -2882,7 +2882,10 @@ export async function runMaraTask({
         context.workerOnboarding?.answers?.niche ||
         "UGC";
       result.outputType = "weekly_schedule";
-      result.structuredContent = ensureWeeklyScheduleCalendarReady(result.structuredContent, { niche });
+      result.structuredContent = ensureWeeklyScheduleCalendarReady(result.structuredContent, {
+        niche,
+        availabilityText: (task.evidenceUsed || []).join("\n")
+      });
     }
   }
 
@@ -5196,6 +5199,13 @@ export function runMaraActionDetector({
       .filter((task) => !["completed", "dismissed"].includes(String(task?.status || "").toLowerCase()))
       .map((task) => normalizeForComparison(task.title))
   );
+  const recentConversation = (Array.isArray(recentMessages) ? recentMessages : [])
+    .map((message) => ({ author: String(message?.author || ""), text: String(message?.text || "").trim() }))
+    .filter((message) => message.text);
+  const latestMaraMessage = recentConversation.find((message) => !/^(you|user)$/i.test(message.author));
+  const scheduleConsultationActive = /before i put this on your calendar, i need your real availability/i.test(
+    latestMaraMessage?.text || ""
+  );
 
   if (!normalizedText) {
     return {
@@ -5204,6 +5214,7 @@ export function runMaraActionDetector({
       recurringResponsibilitiesToSuggest,
       researchItemsToCreate,
       tasksToCreate,
+      requiresUserInput: false,
       userFacingSummary: ""
     };
   }
@@ -5309,13 +5320,46 @@ export function runMaraActionDetector({
     }
   }
 
-  if (/weekly schedule|time[- ]?block|put (it |them )?on (the |my )?calendar|calendar for (the |my )?week/.test(lower)) {
+  const explicitScheduleRequest = /weekly schedule|weekly (?:action )?plan|plan (?:my|the) week|build (?:a |my )?week|time[- ]?block|put (it |them )?on (the |my )?calendar|calendar for (the |my )?week/.test(lower);
+  const scheduleConversationText = [
+    ...recentConversation
+      .filter((message) => /^(you|user)$/i.test(message.author))
+      .map((message) => message.text)
+      .reverse(),
+    normalizedText
+  ].join("\n");
+  const hasFixedCommitments = /\b(work|job|shift|class|school|commut|caregiv|appointment|unavailable|busy)\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i.test(scheduleConversationText);
+  const hasAvailableWindows = /\b(free|available|availability|weeknights?|weekends?|before work|after work|morning|evening|night)\b/i.test(scheduleConversationText);
+  const hasFilmingContext = /\b(film|filming|shoot|record|content day|location|going out)\b/i.test(scheduleConversationText);
+  const hasReviewContext = /\b(review|approve|approval|check (?:your|mara)|feedback)\b/i.test(scheduleConversationText);
+  const missingScheduleContext = [
+    !hasFixedCommitments ? "your fixed commitments (work, school, commute, appointments)" : null,
+    !hasAvailableWindows ? "the windows you can realistically use" : null,
+    !hasFilmingContext ? "whether you have filming plans, preferred filming days, or locations this week" : null,
+    !hasReviewContext ? "when you want short windows to review and approve my work" : null
+  ].filter(Boolean);
+  const scheduleFollowUp = scheduleConsultationActive && /^(you|user)$/i.test(recentConversation[0]?.author || "");
+
+  if ((explicitScheduleRequest || scheduleFollowUp) && missingScheduleContext.length > 0) {
+    const questionList = missingScheduleContext.map((item, index) => `${index + 1}. ${item}`).join("\n");
+    return {
+      approvalRequests,
+      memoriesToSave,
+      recurringResponsibilitiesToSuggest,
+      researchItemsToCreate,
+      tasksToCreate,
+      requiresUserInput: true,
+      userFacingSummary: `Before I put this on your calendar, I need your real availability so I don't schedule over your life. Please tell me:\n${questionList}\n\nPlain language is perfect — for example: “I work 9–5, I’m free after 6:30, I can film Saturday morning, and I can review your work at 7 PM.”`
+    };
+  }
+
+  if (explicitScheduleRequest || scheduleFollowUp) {
     const scheduleTitle = "Build weekly schedule";
     if (!existingTaskTitles.has(normalizeForComparison(scheduleTitle))) {
       tasksToCreate.push({
         description:
-          "Build a time-blocked working week (outreach, filming, posting, admin) and place the blocks on the Office calendar.",
-        evidenceUsed: [normalizedText],
+          "Build a time-blocked working week around the manager's fixed commitments, filming logistics, realistic capacity, and review windows; distinguish Mara-owned work from creator-owned work and place only human-required blocks on the manager's Office calendar.",
+        evidenceUsed: [...new Set(scheduleConversationText.split("\n").map((item) => item.trim()).filter(Boolean))],
         priority: "high",
         requiredPermissions: [],
         source: "chat_direct_request",
@@ -5429,6 +5473,7 @@ export function runMaraActionDetector({
     recurringResponsibilitiesToSuggest,
     researchItemsToCreate,
     tasksToCreate,
+    requiresUserInput: false,
     userFacingSummary: userFacingSummaryParts.length > 0 ? `I ${userFacingSummaryParts.join(", ")} based on what you told me.` : ""
   };
 }

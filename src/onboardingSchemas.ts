@@ -281,8 +281,12 @@ const schemas: Record<string, OnboardingSchema> = {
       },
       {
         id: "operations",
-        learningFocus: ["Approvals", "Deadlines", "Priority setting"],
+        learningFocus: ["Real availability", "Filming logistics", "Review rhythm", "Approvals", "Deadlines"],
         questions: [
+          { id: "fixed_commitments", label: "What parts of a normal week are already spoken for — work, school, commute, caregiving, appointments, sleep?", helperText: "For example: I work 9–5 Monday–Friday and commute until 6.", memoryKey: "Availability", required: true, type: "long-text" },
+          { id: "creator_availability", label: "When can you realistically do creator work, and how many hours can you protect in a normal week?", helperText: "Give me real windows, not an ideal week. I will keep your calendar inside this capacity.", memoryKey: "Availability", required: true, type: "long-text" },
+          { id: "filming_preferences", label: "How does filming fit your life — preferred days, locations, outings I can plan around, and anything that makes a filming block impractical?", memoryKey: "Filming Logistics", required: true, type: "long-text" },
+          { id: "review_preferences", label: "When should I put short review windows on your calendar for pitches, concepts, and other work I prepare?", memoryKey: "Review Rhythm", required: true, type: "long-text" },
           { id: "deadline_style", label: "How do you want me to handle deadlines — gentle nudges early, a hard flag the day before, or both?", memoryKey: "Deadline Style", required: true, type: "long-text" },
           { id: "approval_rules", label: "What should never happen without your sign-off?", helperText: "For example: anything sent to a brand, anything involving money, anything public.", memoryKey: "Approval rules", required: true, type: "long-text" },
           { id: "daily_output", label: "When you check in on me at the end of a day, what do you want waiting for you?", memoryKey: "Daily Output", type: "long-text" }
@@ -339,6 +343,10 @@ export function buildOnboardingCompletionPayload(worker: Worker, answers: Record
       `Inbox priorities: ${answer(answers, "email_volume")}`,
       `Reply boundaries: ${answer(answers, "reply_boundaries")}`,
       `Integration intent: ${answer(answers, "integration_interest", "Not decided")}`,
+      `Fixed commitments: ${answer(answers, "fixed_commitments")}`,
+      `Creator availability: ${answer(answers, "creator_availability")}`,
+      `Filming logistics: ${answer(answers, "filming_preferences")}`,
+      `Review rhythm: ${answer(answers, "review_preferences")}`,
       `Deadline style: ${answer(answers, "deadline_style")}`,
       `Approval rules: ${answer(answers, "approval_rules")}`,
       `Daily output: ${answer(answers, "daily_output")}`
@@ -364,6 +372,9 @@ export function buildOnboardingCompletionPayload(worker: Worker, answers: Record
         { title: "Inbox Priorities", items: normalizeSummaryItems(answer(answers, "email_volume")) },
         { title: "Reply Boundaries", items: normalizeSummaryItems(answer(answers, "reply_boundaries")) },
         { title: "Integration Intent", items: [answer(answers, "integration_interest", "Not decided")] },
+        { title: "Availability", items: [...normalizeSummaryItems(answer(answers, "fixed_commitments")), ...normalizeSummaryItems(answer(answers, "creator_availability"))] },
+        { title: "Filming Logistics", items: normalizeSummaryItems(answer(answers, "filming_preferences")) },
+        { title: "Review Rhythm", items: normalizeSummaryItems(answer(answers, "review_preferences")) },
         { title: "Approval rules", items: normalizeSummaryItems(answer(answers, "approval_rules")) },
         { title: "Operating Rules", items: [answer(answers, "deadline_style"), answer(answers, "daily_output")] }
       ],

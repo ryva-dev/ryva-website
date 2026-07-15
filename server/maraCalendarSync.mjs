@@ -257,7 +257,9 @@ export function normalizeScheduleBlocks(structured = {}) {
       start,
       end,
       activity,
-      goal: String(block?.goal ?? "").trim()
+      goal: String(block?.goal ?? "").trim(),
+      owner: String(block?.owner ?? "creator").trim().toLowerCase() === "mara" ? "mara" : "creator",
+      kind: String(block?.kind ?? "focus").trim().toLowerCase()
     });
   }
   return blocks;
@@ -269,22 +271,55 @@ export function normalizeScheduleBlocks(structured = {}) {
 export function defaultWeeklyScheduleBlocks({ niche = "UGC" } = {}) {
   const label = String(niche || "UGC").trim() || "UGC";
   return [
-    { day: "Monday", start: "09:00", end: "10:30", activity: "Outreach block", goal: "Draft or send 3–5 brand pitches" },
-    { day: "Monday", start: "19:00", end: "19:45", activity: "Posting slot", goal: `Publish one ${label} piece` },
-    { day: "Tuesday", start: "10:00", end: "12:00", activity: "Filming block", goal: "Capture 2–3 concepts" },
-    { day: "Wednesday", start: "09:00", end: "10:00", activity: "Follow-ups + inbox", goal: "Clear replies and next touches" },
-    { day: "Wednesday", start: "19:00", end: "19:30", activity: "TikTok Stories", goal: "Keep account warm" },
-    { day: "Thursday", start: "10:00", end: "12:00", activity: "Filming / edits", goal: "Finish drafts for review" },
-    { day: "Thursday", start: "19:00", end: "19:45", activity: "Posting slot", goal: "Second weekly post" },
-    { day: "Friday", start: "09:00", end: "10:00", activity: "Admin + pipeline", goal: "Tracker, rates, next-week plan" }
+    { day: "Monday", start: "18:30", end: "19:00", activity: "Review Mara's priorities", goal: "Approve the week's highest-value work", owner: "creator", kind: "review" },
+    { day: "Tuesday", start: "19:00", end: "19:45", activity: "Filming prep", goal: "Confirm concepts, products, props, and locations", owner: "creator", kind: "prep" },
+    { day: "Wednesday", start: "18:30", end: "19:00", activity: "Outreach review", goal: "Review personalized pitches Mara prepared", owner: "creator", kind: "review" },
+    { day: "Thursday", start: "19:00", end: "19:45", activity: "Posting slot", goal: `Publish one ${label} piece`, owner: "creator", kind: "posting" },
+    { day: "Saturday", start: "10:00", end: "12:00", activity: "Filming block", goal: "Capture approved concepts", owner: "creator", kind: "filming" },
+    { day: "Sunday", start: "18:00", end: "18:30", activity: "Weekly review with Mara", goal: "Review results and adjust next week", owner: "creator", kind: "review" }
   ];
 }
 
-export function ensureWeeklyScheduleCalendarReady(structured = {}, { niche = "UGC" } = {}) {
+function inferWorkWindow(text) {
+  const source = String(text || "");
+  const match = source.match(/(?:work|job|shift)[^\n.]{0,40}?\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i)
+    || source.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|–|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?[^\n.]{0,40}?(?:work|job|shift)/i);
+  if (!match) return null;
+  const toMinutes = (hourRaw, minuteRaw, suffix, isEnd = false) => {
+    let hour = Number(hourRaw);
+    if (suffix?.toLowerCase() === "pm" && hour < 12) hour += 12;
+    if (suffix?.toLowerCase() === "am" && hour === 12) hour = 0;
+    if (!suffix && isEnd && hour <= 7) hour += 12;
+    return hour * 60 + Number(minuteRaw || 0);
+  };
+  const start = toMinutes(match[1], match[2], match[3]);
+  const end = toMinutes(match[4], match[5], match[6], true);
+  return end > start ? { start, end } : null;
+}
+
+function moveBlocksOutsideWorkHours(blocks, availabilityText) {
+  const work = inferWorkWindow(availabilityText);
+  if (!work) return blocks;
+  return blocks.map((block) => {
+    if (block.owner === "mara" || ["Saturday", "Sunday"].includes(block.day)) return block;
+    const [startHour, startMinute] = block.start.split(":").map(Number);
+    const [endHour, endMinute] = block.end.split(":").map(Number);
+    const start = startHour * 60 + startMinute;
+    const end = endHour * 60 + endMinute;
+    if (end <= work.start || start >= work.end) return block;
+    const duration = Math.max(15, end - start);
+    const shiftedStart = Math.min(work.end + 60, 21 * 60);
+    const shiftedEnd = Math.min(shiftedStart + duration, 22 * 60 + 30);
+    const clock = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    return { ...block, start: clock(shiftedStart), end: clock(shiftedEnd) };
+  });
+}
+
+export function ensureWeeklyScheduleCalendarReady(structured = {}, { niche = "UGC", availabilityText = "" } = {}) {
   const next = { ...(structured && typeof structured === "object" ? structured : {}) };
   const blocks = normalizeScheduleBlocks(next);
   if (blocks.length > 0) {
-    next.blocks = blocks;
+    next.blocks = moveBlocksOutsideWorkHours(blocks, availabilityText);
     return next;
   }
   next.blocks = defaultWeeklyScheduleBlocks({ niche });
@@ -379,6 +414,7 @@ export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(
   const events = [];
 
   for (const block of ready.blocks.slice(0, 20)) {
+    if (block.owner === "mara") continue;
     const targetDay = DAY_INDEX[block.day];
     const startMatch = TIME_RE.exec(block.start);
     const endMatch = TIME_RE.exec(block.end);
@@ -394,7 +430,7 @@ export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(
       title: block.activity.slice(0, 120),
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
-      eventType: "Focus",
+      eventType: block.kind === "review" || /review|approve|feedback/i.test(`${block.activity} ${block.goal}`) ? "Review" : "Focus",
       notes: String(block.goal || ready.weekTheme || "").slice(0, 240),
       sourceOutputId: outputId,
       sourceKind: "weekly_schedule"
