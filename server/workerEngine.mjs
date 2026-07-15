@@ -33,7 +33,7 @@ import { listDueOutreachSequences, prepareDueFollowUpDraft, startOutreachSequenc
 import { EVIDENCE_KINDS, createEvidenceItem } from "./maraEvidence.mjs";
 import { assertWithinBrandResearchLimit, assertWithinDeepResearchLimit, assertWithinOutreachDraftLimit, getAutonomyLimits } from "./maraAutonomyLimits.mjs";
 import { getMaraActivationJourney } from "./maraActivationJourney.mjs";
-import { runMaraShadowPlanning } from "./maraShadowRuntime.mjs";
+import { runMaraPhase3 } from "./maraPhase3Runtime.mjs";
 import { getMaraPhase2Flags } from "./maraFeatureFlags.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
@@ -4459,20 +4459,20 @@ export async function runMaraAutonomyCycle({
     });
   }
 
-  // Phase 2 runs beside the legacy planner and persists diagnostics only. Its
-  // output is intentionally not executed, copied into tasks, or exposed in the
-  // user-facing cycle summary.
+  // V2/V3 remains feature-flagged beside the legacy planner. Shadow is the
+  // default; task creation and controlled internal execution require separate
+  // flags and an explicit runtime mode.
   const phase2Flags = getMaraPhase2Flags();
   if (phase2Flags.shadowPlanner) {
     const shadowAccountContext = typeof readAccountContext === "function" ? await readAccountContext(userId) : null;
-    await runMaraShadowPlanning({
+    await runMaraPhase3({
       store,
       userId,
       workerId,
       flags: phase2Flags,
       legacyPlan: summary.plannedActions,
       permissions,
-      availableTools: ["internal_read", "internal_task_create", ...(permissions.canRunResearch ? ["research"] : [])],
+      availableTools: ["internal_read", "internal_records", "internal_task_create", "internal_artifact", "analytics", "contact_validation", ...(permissions.canRunResearch ? ["research"] : [])],
       budget: { maximumPlanningCostUsd: Number(process.env.MARA_SHADOW_MAX_PLAN_COST_USD || .15) },
       timeZone: String(process.env.APP_TIME_ZONE || "America/New_York"),
       existingScheduledWork: plannerContext.runnableApprovedTasks || [],
