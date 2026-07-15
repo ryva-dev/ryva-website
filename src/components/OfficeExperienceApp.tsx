@@ -3201,7 +3201,11 @@ function AssignmentDetailModal({
           ) : null}
           {preview ? (
             <>
-              <h3 className="ro-doc-heading">{humanizeMachineText(assignment.artifactTitle, "Latest work")}</h3>
+              <h3 className="ro-doc-heading">
+                {assignment.status === "blocked" && !needsCreatorInput
+                  ? "What happens next"
+                  : humanizeMachineText(assignment.artifactTitle, "Latest work")}
+              </h3>
               {renderDocumentBlocks(preview)}
             </>
           ) : null}
