@@ -3,7 +3,9 @@ import test from "node:test";
 import { resolvePostgresSsl } from "./postgresSsl.mjs";
 
 test("Postgres SSL defaults to verified TLS", () => {
-  assert.deepEqual(resolvePostgresSsl(undefined), { rejectUnauthorized: true });
+  // null bypasses an ambient PGSSL value while preserving the production API,
+  // where undefined intentionally means "read process.env.PGSSL".
+  assert.deepEqual(resolvePostgresSsl(null), { rejectUnauthorized: true });
   assert.deepEqual(resolvePostgresSsl("verify-full"), { rejectUnauthorized: true });
 });
 

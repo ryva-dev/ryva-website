@@ -67,6 +67,8 @@ jobs:
           METRICS_TOKEN: ci-metrics-token
           STRIPE_SECRET_KEY: sk_test_ci_placeholder
           STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
+          GOOGLE_CLIENT_ID: ci-google-client
+          GOOGLE_CLIENT_SECRET: ci-google-secret
           SMTP_HOST: smtp.invalid
           SUPPORT_EMAIL: support@example.com
           MARA_DISABLE_VIDEO_QA: "1"
@@ -87,6 +89,8 @@ jobs:
             -e METRICS_TOKEN="$METRICS_TOKEN" \
             -e STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" \
             -e STRIPE_WEBHOOK_SECRET="$STRIPE_WEBHOOK_SECRET" \
+            -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+            -e GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
             -e SMTP_HOST="$SMTP_HOST" \
             -e SUPPORT_EMAIL="$SUPPORT_EMAIL" \
             -e MARA_DISABLE_VIDEO_QA="$MARA_DISABLE_VIDEO_QA" \
