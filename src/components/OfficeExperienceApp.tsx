@@ -3583,7 +3583,7 @@ function EventForm({
       <div className="ro-modal" onClick={(e) => e.stopPropagation()}>
         <h3>{initial ? "Edit event" : "New event"}</h3>
         <label className="ro-field"><span>Title</span>
-          <textarea value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Creator call — Delaney" rows={2} autoFocus={!initial} />
+          <textarea className="ro-event-title-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Creator call — Delaney" rows={2} autoFocus={!initial} />
         </label>
         <div className="ro-field-row">
           <label className="ro-field"><span>Date</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
@@ -3608,7 +3608,7 @@ function EventForm({
           </div>
         )}
         <label className="ro-field"><span>Notes</span>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} placeholder="Why this is on your calendar, what to prepare, and what done looks like." />
+          <textarea className="ro-event-notes-input" value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} placeholder="Why this is on your calendar, what to prepare, and what done looks like." />
         </label>
         {error && <div className="ro-error">{error}</div>}
         <div className="ro-modal-actions">

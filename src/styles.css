@@ -4160,12 +4160,14 @@ a:focus-visible {
 
 /* ---- modal / forms (shared by event form + drawer) ---- */
 .ro-modal-scrim { position: fixed; inset: 0; background: rgba(22, 23, 27, 0.28); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 20px; }
-.ro-modal { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-lg); padding: 28px; width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto; overflow-x: hidden; }
+.ro-modal { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-lg); padding: 28px; width: 100%; max-width: 540px; max-height: calc(100vh - 24px); overflow-y: auto; overflow-x: hidden; }
 .ro-modal h3 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 18px; }
 .ro-field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
 .ro-field > span { font-size: 12.5px; font-weight: 550; color: var(--muted); }
 .ro-field input, .ro-field textarea { padding: 10px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; color: var(--ink); font-family: var(--body); resize: vertical; }
 .ro-field input:focus, .ro-field textarea:focus { outline: none; border-color: var(--accent); }
+.ro-modal .ro-field .ro-event-title-input { min-height: 72px; }
+.ro-modal .ro-field .ro-event-notes-input { min-height: 92px; }
 .ro-field-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 .ro-error { font-size: 13px; color: #c0392b; margin-bottom: 12px; }
 .ro-modal-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-top: 20px; }
