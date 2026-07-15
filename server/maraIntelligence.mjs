@@ -739,9 +739,14 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
       }))
     });
   }
+  const metrics = await getRevenueInfluenceMetrics(store, userId, workerId);
+  // Legacy research rows can outnumber the canonical brands shown above.
+  // The visible pipeline count must describe the same deduplicated book of
+  // business the creator is looking at, not obsolete article-shaped rows.
+  metrics.qualifiedOpportunityCount = enriched.filter((row) => !["discarded", "lost"].includes(String(row.status || "").toLowerCase())).length;
   return {
     opportunities: enriched,
-    metrics: await getRevenueInfluenceMetrics(store, userId, workerId),
+    metrics,
     creativeAnalyses: await listCreativeAnalyses(store, userId, workerId, 10)
   };
 }

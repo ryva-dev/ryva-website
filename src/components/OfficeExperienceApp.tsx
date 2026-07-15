@@ -2598,6 +2598,9 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
                     <span><b>Confidence</b>{item.confidence ?? item.opportunityPackage?.confidence ?? 0}%</span>
                     <span><b>Contact</b>{item.outreachReady ? "Ready" : item.contacts?.length ? "Needs confirmation" : "Not found"}</span>
                   </div>
+                  {item.outreachContact?.value ? (
+                    <p className="ro-intelligence-thesis"><b>Verified contact:</b> {item.outreachContact.value}</p>
+                  ) : null}
                   <p className="ro-intelligence-thesis">
                     {opportunityThesisText(item.opportunityPackage) ||
                       item.opportunityPackage?.creativeGap ||

@@ -126,6 +126,7 @@ test("growth intelligence returns one cautious Gymshark decision and removes raw
   assert.equal(snapshot.opportunities[0].brandName, "Gymshark");
   assert.equal(snapshot.opportunities[0].readiness, "later");
   assert.equal(snapshot.opportunities[0].decision, "build_toward");
+  assert.equal(snapshot.metrics.qualifiedOpportunityCount, 1);
   assert.doesNotMatch(JSON.stringify(snapshot.opportunities[0]), /DREAM for me/i);
 });
 
