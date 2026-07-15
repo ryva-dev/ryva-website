@@ -705,14 +705,18 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
         contacts = [];
       }
     }
+    contacts = contacts.filter((contact) => {
+      const local = String(contact?.value || "").split("@")[0] || "";
+      return !/^(press|pr|media|news|journalist|editorial)$/i.test(local);
+    });
     if (row.canonicalDesiredBrand) {
       const brandToken = brandNameKey(row.brandName).replace(/\s+/g, "");
       contacts = contacts.filter((contact) => {
         const emailDomain = String(contact?.value || "").split("@")[1]?.toLowerCase().replace(/[^a-z0-9]/g, "") || "";
         return brandToken.length >= 3 && emailDomain.includes(brandToken);
       });
-      outreachContact = contacts.find((contact) => Number(contact.mayUseForOutreach) === 1) || null;
     }
+    outreachContact = contacts.find((contact) => Number(contact.mayUseForOutreach) === 1 && String(contact.value || "").includes("@")) || null;
     const readiness = applyCreatorStageReadiness({ ...row, creatorProfile });
     enriched.push({
       ...row,

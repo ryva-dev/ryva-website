@@ -335,6 +335,14 @@ test("support mailboxes are not outreach-ready", () => {
     }).mayUseForOutreach,
     true
   );
+  assert.equal(
+    assessContactUsability({
+      contactType: CONTACT_TYPES.PARTNERSHIP_EMAIL,
+      source: "mailto",
+      value: "press@brand.example"
+    }).mayUseForOutreach,
+    false
+  );
 });
 
 test("email injection content is neutralized before research labeling", () => {

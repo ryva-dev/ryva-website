@@ -14,7 +14,7 @@ export const CONTACT_TYPES = Object.freeze({
   USER_PROVIDED: "user_provided"
 });
 
-const PARTNERSHIP_LOCAL = /^(partners?|partnerships?|collab|collaborations?|creators?|creator|influencer|ugc|press|hello|hi|team|marketing)$/i;
+const PARTNERSHIP_LOCAL = /^(partners?|partnerships?|collab|collaborations?|creators?|creator|influencer|ugc|hello|hi|team|marketing)$/i;
 
 export function assessContactUsability({ contactType, verificationState, inferred, source, value = "" }) {
   if (inferred || contactType === CONTACT_TYPES.INFERRED_PATTERN) {
@@ -23,17 +23,20 @@ export function assessContactUsability({ contactType, verificationState, inferre
   if (verificationState === "bounced" || verificationState === "revoked") {
     return { mayUseForOutreach: false, reason: "Contact is not deliverable." };
   }
+  const local = String(value || "").split("@")[0] || "";
+  if (/^(press|pr|media|news|journalist|editorial)$/i.test(local)) {
+    return { mayUseForOutreach: false, reason: "Press/media mailbox — evidence only, not a creator partnership contact." };
+  }
   if ([CONTACT_TYPES.PARTNERSHIP_EMAIL, CONTACT_TYPES.GMAIL_EXISTING, CONTACT_TYPES.USER_PROVIDED].includes(contactType)) {
     return { mayUseForOutreach: true, reason: "Public or user-owned contact path." };
   }
   if (contactType === CONTACT_TYPES.PUBLIC_EMPLOYEE_EMAIL && source === "mailto") {
-    const local = String(value || "").split("@")[0] || "";
     if (/^(support|help|noreply|no-reply|donotreply|billing|careers|jobs|privacy|legal)$/i.test(local)) {
       return { mayUseForOutreach: false, reason: "Public support/ops mailbox — not a creator outreach path." };
     }
     if (
-      /^(partners?|partnerships?|collab|collaborations?|creators?|creator|influencer|ugc|press|hello|hi|team|marketing)$/i.test(local) ||
-      /partner|collab|creator|influencer|ugc|press/i.test(local)
+      /^(partners?|partnerships?|collab|collaborations?|creators?|creator|influencer|ugc|hello|hi|team|marketing)$/i.test(local) ||
+      /partner|collab|creator|influencer|ugc/i.test(local)
     ) {
       return { mayUseForOutreach: true, reason: "Publicly listed outreach-style mailto address." };
     }
@@ -47,7 +50,7 @@ export function assessContactUsability({ contactType, verificationState, inferre
 
 export function isPartnershipEmail(email) {
   const local = String(email || "").split("@")[0] || "";
-  return PARTNERSHIP_LOCAL.test(local) || /partner|collab|creator|influencer|ugc|press/i.test(local);
+  return PARTNERSHIP_LOCAL.test(local) || /partner|collab|creator|influencer|ugc/i.test(local);
 }
 
 export function resolveAbsoluteUrl(baseUrl, href) {
