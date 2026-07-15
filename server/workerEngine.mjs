@@ -3842,21 +3842,22 @@ async function executeAutonomyPlannedAction(action, { store, fetchImpl, integrat
     case "brand_content_ideas_batch": {
       const brands = await listWorkerBrands(store, userId, workerId);
       const brand = action.brandId ? await getWorkerBrand(store, userId, workerId, action.brandId) : brands[0];
-      if (!brand) {
-        summary.notes.push("Brand content ideas were skipped because no researched brands are on file yet.");
+      const brandName = String(brand?.brandName ?? "").trim();
+      if (!brand || !brandName || /^(?:undefined|null|unknown)$/i.test(brandName) || isLikelyListicleTitle(brandName)) {
+        summary.notes.push("Brand content ideas were skipped because no usable researched brand is on file yet.");
         return;
       }
       const taskId = await createAndRunAutonomyTask(
         store,
         {
-          description: `Generate content ideas tailored to ${brand.brandName}'s identity and the creator's positioning.`,
+          description: `Generate content ideas tailored to ${brandName}'s identity and the creator's positioning.`,
           priority: "high",
           requiredPermissions: [],
           source: "autonomy_brand_content",
           status: "approved",
           targetBrandId: brand.id,
           taskType: "brand_content_ideas",
-          title: `Create content ideas for ${brand.brandName}`,
+          title: `Create content ideas for ${brandName}`,
           userId,
           workerId
         },
@@ -4736,10 +4737,10 @@ export async function createResearchItem(store, item) {
 
 export async function listWorkerBrands(store, userId, workerId) {
   return store.query(
-    `SELECT id, brand_name AS brandName, website, identity_summary AS identitySummary, vibe_notes AS vibeNotes,
-            suggested_angle AS suggestedAngle, contact_email AS contactEmail, contact_name AS contactName,
-            research_item_id AS researchItemId, last_content_ideas_at AS lastContentIdeasAt, last_pitch_at AS lastPitchAt,
-            created_at AS createdAt, updated_at AS updatedAt
+    `SELECT id, brand_name AS "brandName", website, identity_summary AS "identitySummary", vibe_notes AS "vibeNotes",
+            suggested_angle AS "suggestedAngle", contact_email AS "contactEmail", contact_name AS "contactName",
+            research_item_id AS "researchItemId", last_content_ideas_at AS "lastContentIdeasAt", last_pitch_at AS "lastPitchAt",
+            created_at AS "createdAt", updated_at AS "updatedAt"
      FROM worker_brands
      WHERE user_id = ? AND worker_id = ?
      ORDER BY updated_at DESC`,
@@ -4751,10 +4752,10 @@ export async function listWorkerBrands(store, userId, workerId) {
 export async function getWorkerBrand(store, userId, workerId, brandId) {
   return (
     await store.queryOne(
-      `SELECT id, brand_name AS brandName, website, identity_summary AS identitySummary, vibe_notes AS vibeNotes,
-              suggested_angle AS suggestedAngle, contact_email AS contactEmail, contact_name AS contactName,
-              research_item_id AS researchItemId, last_content_ideas_at AS lastContentIdeasAt, last_pitch_at AS lastPitchAt,
-              created_at AS createdAt, updated_at AS updatedAt
+      `SELECT id, brand_name AS "brandName", website, identity_summary AS "identitySummary", vibe_notes AS "vibeNotes",
+              suggested_angle AS "suggestedAngle", contact_email AS "contactEmail", contact_name AS "contactName",
+              research_item_id AS "researchItemId", last_content_ideas_at AS "lastContentIdeasAt", last_pitch_at AS "lastPitchAt",
+              created_at AS "createdAt", updated_at AS "updatedAt"
        FROM worker_brands
        WHERE id = ? AND user_id = ? AND worker_id = ?`,
       brandId,

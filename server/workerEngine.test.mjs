@@ -22,6 +22,7 @@ import {
   inferMaraTaskType,
   initWorkerTables,
   listWorkerKnowledgeModules,
+  listWorkerBrands,
   listRecurringResponsibilities,
   listWorkerOutputs,
   listWorkerTasksForUserWorker,
@@ -727,6 +728,15 @@ test("worker output query preserves camel-case aliases on PostgreSQL", async () 
   assert.match(sql, /AS "outputType"/);
   assert.match(sql, /AS "structuredContentJson"/);
   assert.match(sql, /AS "createdAt"/);
+});
+
+test("worker brand queries preserve camel-case aliases on PostgreSQL", async () => {
+  let sql = "";
+  const store = { query: async (query) => { sql = query; return []; } };
+  await listWorkerBrands(store, "user-1", MARA_WORKER_ID);
+  assert.match(sql, /AS "brandName"/);
+  assert.match(sql, /AS "identitySummary"/);
+  assert.match(sql, /AS "lastContentIdeasAt"/);
 });
 
 test("content idea batch task produces saved output", async () => {
