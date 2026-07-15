@@ -248,6 +248,13 @@ const schemas: Record<string, OnboardingSchema> = {
             helperText: "No wrong answer. If you're just starting, say so and I'll plan for that.",
             memoryKey: "Goals",
             type: "long-text"
+          },
+          {
+            id: "creator_profiles",
+            label: "Where can I review your work and audience today? Share your portfolio and any public Instagram, TikTok, YouTube, or other creator profile links.",
+            helperText: "Paste one or several links. Leave this blank if you do not have them yet.",
+            memoryKey: "Creator Profiles",
+            type: "long-text"
           }
         ],
         title: "Your brand"
@@ -326,6 +333,7 @@ export function buildOnboardingCompletionPayload(worker: Worker, answers: Record
   if (worker.slug === "mara-vale") {
     const summary = [
       `Current workflow: ${answer(answers, "current_workflow")}`,
+      `Creator profiles: ${answer(answers, "creator_profiles", "Not provided")}`,
       `Breakdowns to fix: ${answer(answers, "workflow_breakdowns")}`,
       `Admin bottleneck: ${answer(answers, "biggest_admin_drag")}`,
       `Inbox priorities: ${answer(answers, "email_volume")}`,
@@ -349,6 +357,7 @@ export function buildOnboardingCompletionPayload(worker: Worker, answers: Record
       knowledge: [
         { title: "Preferences", items: normalizeSummaryItems(answer(answers, "niche_focus", "")) },
         { title: "Goals", items: [...normalizeSummaryItems(answer(answers, "dream_brands", "")), ...normalizeSummaryItems(answer(answers, "current_stage", ""))] },
+        { title: "Creator Profiles", items: normalizeSummaryItems(answer(answers, "creator_profiles", "")) },
         { title: "Current Workflow", items: normalizeSummaryItems(answer(answers, "current_workflow")) },
         { title: "Pain points", items: [...normalizeSummaryItems(answer(answers, "workflow_breakdowns")), ...normalizeSummaryItems(answer(answers, "biggest_admin_drag"))] },
         { title: "Inbox Priorities", items: normalizeSummaryItems(answer(answers, "email_volume")) },

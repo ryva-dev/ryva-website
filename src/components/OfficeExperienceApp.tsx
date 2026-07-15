@@ -1517,7 +1517,6 @@ function WorkerDeskSections({
 }) {
   const isMara = isMaraWorker(activeWorker.slug);
   const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-  const sendApprovals = desk.approvals.filter((item) => /send/i.test(item.type) || /send|gmail|email/i.test(`${item.title} ${item.summary}`));
   const northStar = desk.commercialNorthStar;
   const outreachQueue = desk.outreachReadyQueue || [];
   const lastWorked = desk.recentActivity[0]?.createdAt ? timeAgo(desk.recentActivity[0].createdAt) : null;
@@ -1527,24 +1526,24 @@ function WorkerDeskSections({
           id: "gmail",
           done: canUseEmail,
           label: "Connect Gmail",
-          detail: "Unlock inbox sync and send approvals",
+          detail: "Let Mara organize brand conversations and prepare reply copy inside Ryva",
           action: () => onNavigate(`#app/office/workers/${activeWorker.slug}/knowledge`)
         },
         {
           id: "research",
           done: (desk.researchToday?.length || 0) > 0 || (desk.bookOfBusiness?.length || 0) > 0 || (desk.recentCompleted?.length || 0) > 0,
           label: "Let Mara research your niche",
-          detail: "She finds brands and drafts on her own once Gmail/permissions are set",
+          detail: "She finds aligned brands and prepares internal work from your current business state",
           action: onRunAutonomy
             ? () => void onRunAutonomy()
             : () => onNavigate(`#app/office/workers/${activeWorker.slug}/desk`)
         },
         {
           id: "send",
-          done: sendApprovals.length > 0 || desk.waitingOnUser.some((item) => item.kind === "approval"),
-          label: "Approve your first send",
-          detail: "External email never goes out without you",
-          action: () => onNavigate("#app/office/reviews")
+          done: Boolean(desk.activationJourney?.milestones.some((milestone) => milestone.id === "sent" && milestone.complete)),
+          label: "Send your first prepared outreach",
+          detail: "Mara prepares the work in Ryva; you always send external communication",
+          action: () => onNavigate("#app/office/deliverables")
         }
       ]
     : [];
@@ -1556,8 +1555,8 @@ function WorkerDeskSections({
         <section className="ro-limited-note">
           <span className="ro-doc-kicker">Limited mode</span>
           <p>
-            My reasoning engine isn't connected yet, so I can queue work but not produce finished deliverables.
-            Add the platform AI key to bring me fully online — I won't pass generic filler off as real work.
+            My reasoning service is temporarily unavailable, so I can organize work but cannot produce finished deliverables right now.
+            I will hold incomplete work instead of presenting generic filler as finished.
           </p>
         </section>
       ) : null}
@@ -1608,18 +1607,17 @@ function WorkerDeskSections({
       {isMara ? (
         <section className="ro-worker-drawer-section">
           <div className="ro-worker-drawer-row">
-            <strong>Autonomy</strong>
+            <strong>Working independently</strong>
             <span>{lastWorked ? `Last activity ${lastWorked}` : "Waiting for first work pass"}</span>
           </div>
           <p className="ro-worker-note">
-            I keep working on a schedule inside your limits. You only need to approve sends and unblock me.
+            I keep working within Ryva's safety boundaries. I will ask only when a decision or action genuinely requires you.
           </p>
           {onRunAutonomy ? (
             <button className="r-btn r-btn-ghost" type="button" onClick={() => void onRunAutonomy()} disabled={busyId === "mara-autonomy"}>
               {busyId === "mara-autonomy" ? "Working…" : "Run a work pass now"}
             </button>
           ) : null}
-          <MaraAutonomyControls workerSlug={activeWorker.slug} />
         </section>
       ) : null}
       {isMara && northStar ? (
@@ -1631,36 +1629,6 @@ function WorkerDeskSections({
               ? "No attributed revenue yet — that's normal until deals close through opportunities I tracked."
               : `${northStar.deals || 0} deals · avg ${money.format(northStar.averageDealValue || 0)} · ${Math.round((northStar.positiveResponseRate || 0) * 100)}% response · ${northStar.qualifiedOpportunityCount || 0} qualified`}
           </p>
-        </section>
-      ) : null}
-      {isMara && desk.commercialBriefing?.prioritized?.length ? (
-        <section className="ro-worker-drawer-section">
-          <div className="ro-worker-drawer-row">
-            <strong>While you were away</strong>
-            <span>{desk.commercialBriefing.headline || "Commercial moves"}</span>
-          </div>
-          <div className="ro-plain-list">
-            {desk.commercialBriefing.prioritized.slice(0, 6).map((entry, index) => (
-              <div className="ro-plain-row" key={`${entry.kind}-${entry.approvalId || entry.opportunityId || index}`}>
-                <div>
-                  <strong>{entry.title}</strong>
-                  <p>
-                    {entry.whatHappened}
-                    {entry.commercialImpact ? ` · ${money.format(Number(entry.commercialImpact))}` : ""}
-                    {entry.recommendedAction ? ` — ${entry.recommendedAction}` : ""}
-                  </p>
-                </div>
-                {entry.approvalId ? (
-                  <div className="ro-inline-actions">
-                    <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(entry.approvalId!)} disabled={busyId === entry.approvalId}>Deny</button>
-                    <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(entry.approvalId!)} disabled={busyId === entry.approvalId}>
-                      {busyId === entry.approvalId ? "Saving..." : "Approve"}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
         </section>
       ) : null}
       {isMara && desk.bookOfBusiness?.length ? (
@@ -1751,27 +1719,13 @@ function WorkerDeskSections({
         )}
       </section>
 
-      {isMara && (sendApprovals.length > 0 || outreachQueue.length > 0) ? (
+      {isMara && outreachQueue.length > 0 ? (
         <section className="ro-worker-drawer-section">
           <div className="ro-worker-drawer-row">
-            <strong>Ready to send / outreach queue</strong>
-            <span>{sendApprovals.length + outreachQueue.length} ready</span>
+            <strong>Outreach opportunities</strong>
+            <span>{outreachQueue.length} ready</span>
           </div>
           <div className="ro-plain-list">
-            {sendApprovals.slice(0, 3).map((item) => (
-              <div className="ro-plain-row" key={`send-${item.id}`}>
-                <div>
-                  <strong>Send approval: {item.title}</strong>
-                  <p>{item.summary}</p>
-                </div>
-                <div className="ro-inline-actions">
-                  <button className="r-btn r-btn-ghost" type="button" onClick={() => void onReject(item.id)} disabled={busyId === item.id}>Deny</button>
-                  <button className="r-btn r-btn-accent" type="button" onClick={() => void onApprove(item.id)} disabled={busyId === item.id}>
-                    {busyId === item.id ? "Sending..." : "Approve send"}
-                  </button>
-                </div>
-              </div>
-            ))}
             {outreachQueue.slice(0, 4).map((item) => (
               <div className="ro-plain-row" key={`ready-${item.id}`}>
                 <div>
@@ -1784,7 +1738,7 @@ function WorkerDeskSections({
                     type="button"
                     onClick={() => {
                       onNavigate(`#app/office/workers/${activeWorker.slug}/conversation`);
-                      onSeedCorrection(`Draft a personalized pitch to ${item.brandName} at ${item.contactEmail} and queue it for my approval before send.`);
+                      onSeedCorrection(`Prepare a personalized pitch to ${item.brandName} at ${item.contactEmail} inside Ryva for me to review and send.`);
                     }}
                   >
                     Draft pitch
@@ -1824,7 +1778,7 @@ function WorkerDeskSections({
 
       <section className="ro-worker-drawer-section">
         <div className="ro-worker-drawer-row">
-          <strong>{isMara ? "What I just finished" : `${activeWorker.name.split(" ")[0]} just shipped`}</strong>
+          <strong>{isMara ? "While you were away" : `${activeWorker.name.split(" ")[0]} just shipped`}</strong>
           <span>{desk.recentCompleted.length === 0 ? "Nothing yet" : `${desk.recentCompleted.length} items`}</span>
         </div>
         {desk.recentCompleted.length > 0 ? (
@@ -2292,20 +2246,15 @@ function WorkerKnowledgeView({
   activeWorker,
   connectedTools,
   desk,
-  isAdmin = false,
   onSeedCorrection,
   onReload
 }: {
   activeWorker: Worker;
   connectedTools: OverlayIntegration[];
   desk: WorkerDesk;
-  isAdmin?: boolean;
   onSeedCorrection: (prompt: string) => void;
   onReload?: () => Promise<void>;
 }) {
-  const [trendText, setTrendText] = useState("");
-  const [trendBusy, setTrendBusy] = useState(false);
-  const [trendNotice, setTrendNotice] = useState<string | null>(null);
   const [connectBusy, setConnectBusy] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [disconnectBusy, setDisconnectBusy] = useState<string | null>(null);
@@ -2355,55 +2304,9 @@ function WorkerKnowledgeView({
     }
   };
 
-  const submitTrends = async () => {
-    if (!trendText.trim() || trendBusy) return;
-    setTrendBusy(true);
-    setTrendNotice(null);
-    try {
-      const payload = await officeJson<{ hashtagCount: number; gapCount: number; outputTitle: string | null }>(
-        `/api/office/workers/${activeWorker.slug}/trends/manual`,
-        { method: "POST", body: JSON.stringify({ text: trendText.trim() }) }
-      );
-      setTrendText("");
-      setTrendNotice(
-        `Got it — ${payload.hashtagCount} hashtag${payload.hashtagCount === 1 ? "" : "s"} and ${payload.gapCount} content gap${payload.gapCount === 1 ? "" : "s"} loaded.${payload.outputTitle ? ` Fresh brief on your desk: “${payload.outputTitle}”.` : ""}`
-      );
-      if (onReload) await onReload();
-    } catch (error) {
-      setTrendNotice(error instanceof Error ? error.message : "That paste didn't go through.");
-    } finally {
-      setTrendBusy(false);
-    }
-  };
-
   return (
     <div className="ro-review-layout">
       <div>
-        {isAdmin && isMaraWorker(activeWorker.slug) ? (
-          <section className="ro-sec ro-sec-lead">
-            <div className="ro-sec-head">
-              <h2>Weekly trend intake</h2>
-              <span className="ro-sec-n">Ops only — invisible to users</span>
-            </div>
-            <p className="ro-page-meta">
-              Paste this week's TikTok trend data once. It becomes the global source: every user's Mara scopes it
-              to their own niche automatically and presents it as her own research.
-            </p>
-            <textarea
-              className="ro-trend-paste"
-              rows={5}
-              value={trendText}
-              onChange={(event) => setTrendText(event.target.value)}
-              placeholder={"#glowyskin — 2.1M views this week\n#morningroutine — 890K views\nGap: nobody covers routines for shift workers"}
-            />
-            <div className="ro-appr-actions">
-              <button className="r-btn r-btn-accent" type="button" disabled={trendBusy || !trendText.trim()} onClick={() => void submitTrends()}>
-                {trendBusy ? "Reading…" : "Give to Mara"}
-              </button>
-              {trendNotice ? <span className="ro-saved">{trendNotice}</span> : null}
-            </div>
-          </section>
-        ) : null}
         <section className="ro-sec ro-sec-lead">
           <div className="ro-sec-head">
             <h2>What {activeWorker.name.split(" ")[0]} knows</h2>
@@ -2415,9 +2318,10 @@ function WorkerKnowledgeView({
             <div className="ro-plain-list">
               {desk.memory.map((item) => (
                 <div className="ro-plain-row" key={item.id}>
-                  <strong>{item.text}</strong>
+                  <strong>{item.label}</strong>
+                  <p>{item.text}</p>
                   <div className="ro-handbook-meta">
-                    <span>Learned while working with {activeWorker.name.split(" ")[0]}</span>
+                    <span>From your confirmed context</span>
                     <button className="ro-inline-link" type="button" onClick={() => onSeedCorrection(`Correction for ${item.label.toLowerCase()}: `)}>
                       Correct in conversation
                     </button>
@@ -2834,7 +2738,6 @@ function WorkerDeskView({
   canUseEmail,
   connectedTools,
   desk,
-  isAdmin = false,
   overlays,
   onApprove,
   onApproveTask,
@@ -2851,7 +2754,6 @@ function WorkerDeskView({
   canUseEmail: boolean;
   connectedTools: OverlayIntegration[];
   desk: WorkerDesk;
-  isAdmin?: boolean;
   overlays: Overlays;
   onApprove: (approvalId: string) => Promise<void>;
   onApproveTask: (taskId: string) => Promise<void>;
@@ -2926,7 +2828,6 @@ function WorkerDeskView({
           activeWorker={activeWorker}
           connectedTools={connectedTools}
           desk={desk}
-          isAdmin={isAdmin}
           onSeedCorrection={onSeedCorrection}
           onReload={onReload}
         />
@@ -3885,6 +3786,14 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
       return true;
     });
   }, [overlays.deliverables, workerFilter]);
+  const groupedItems = useMemo(() => {
+    const groups = new Map<string, typeof items>();
+    for (const deliverable of items) {
+      const label = sentenceCase(deliverable.deliverableType.replace(/_/g, " "));
+      groups.set(label, [...(groups.get(label) || []), deliverable]);
+    }
+    return Array.from(groups.entries());
+  }, [items]);
   const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
 
   return (
@@ -3925,31 +3834,37 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
               ))}
             </div>
           ) : null}
-          <div className="ro-library-list">
-            {items.map((deliverable) => (
-              <button
-                className="ro-library-row"
-                key={deliverable.id}
-                type="button"
-                onClick={() => setSelectedDeliverable({
-                  id: deliverable.id,
-                  contentRefId: deliverable.contentRefId,
-                  sourceType: deliverable.sourceType,
-                  title: deliverable.title,
-                  summary: deliverable.summary || deliverable.previewText,
-                  sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
-                  updatedAt: deliverable.updatedAt,
-                  workerSlug: deliverable.workerSlug
-                })}
-              >
-                <span className="ro-library-title">{deliverable.title}</span>
-                <span className="ro-library-meta">
-                  {nameFor(deliverable.workerSlug)} · {sentenceCase(deliverable.deliverableType.replace(/_/g, " "))}
-                </span>
-                <span className="ro-library-date">{timeAgo(deliverable.updatedAt)}</span>
-              </button>
-            ))}
-          </div>
+          {groupedItems.map(([group, deliverables]) => (
+            <section className="ro-library-group" key={group}>
+              <div className="ro-sec-head"><h2>{group}</h2><span className="ro-sec-n">{deliverables.length}</span></div>
+              <div className="ro-library-list">
+                {deliverables.map((deliverable) => (
+                  <button
+                    className="ro-library-row"
+                    key={deliverable.id}
+                    type="button"
+                    onClick={() => setSelectedDeliverable({
+                      id: deliverable.id,
+                      contentRefId: deliverable.contentRefId,
+                      sourceType: deliverable.sourceType,
+                      title: deliverable.title,
+                      summary: deliverable.summary || deliverable.previewText,
+                      sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
+                      updatedAt: deliverable.updatedAt,
+                      workerSlug: deliverable.workerSlug
+                    })}
+                  >
+                    <span className="ro-library-copy">
+                      <span className="ro-library-title">{deliverable.title}</span>
+                      {deliverable.summary || deliverable.previewText ? <span className="ro-library-summary">{deliverable.summary || deliverable.previewText}</span> : null}
+                      <span className="ro-library-meta">{nameFor(deliverable.workerSlug)}</span>
+                    </span>
+                    <span className="ro-library-date">{timeAgo(deliverable.updatedAt)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
       )}
       {selectedDeliverable ? (
@@ -3973,6 +3888,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
   }, [overlays.globalSettings]);
 
   const [brandContext, setBrandContext] = useState<string>(parsed.brandContext ?? "");
+  const [creatorProfiles, setCreatorProfiles] = useState<string>(parsed.creatorProfiles ?? "");
   const [timezone, setTimezone] = useState<string>(parsed.timezone ?? "America/New_York");
   const [quietHours, setQuietHours] = useState<string>(parsed.quietHours ?? "");
   const [reviewCadence, setReviewCadence] = useState<string>(parsed.reviewCadence ?? "Weekly");
@@ -3986,6 +3902,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
 
   useEffect(() => {
     setBrandContext(parsed.brandContext ?? "");
+    setCreatorProfiles(parsed.creatorProfiles ?? "");
     setTimezone(parsed.timezone ?? "America/New_York");
     setQuietHours(parsed.quietHours ?? "");
     setReviewCadence(parsed.reviewCadence ?? "Weekly");
@@ -4047,7 +3964,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
     try {
       await officeJson("/api/office/settings", {
         method: "POST",
-        body: JSON.stringify({ settings: { ...parsed, brandContext, timezone, quietHours, reviewCadence, decisionStyle } }),
+        body: JSON.stringify({ settings: { ...parsed, brandContext, creatorProfiles, timezone, quietHours, reviewCadence, decisionStyle } }),
       });
       await onReload();
       setSaved(true);
@@ -4062,6 +3979,9 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
       <div className="ro-settings">
         <label className="ro-field"><span>What your business does</span>
           <textarea value={brandContext} onChange={(e) => setBrandContext(e.target.value)} rows={3} placeholder="A line or two on your brand, niche, and who you serve. Your workers read this as context." />
+        </label>
+        <label className="ro-field"><span>Portfolio and creator profiles</span>
+          <textarea value={creatorProfiles} onChange={(e) => setCreatorProfiles(e.target.value)} rows={3} placeholder="Paste your portfolio, Instagram, TikTok, YouTube, or other public profile links. Your workers use these as creator context." />
         </label>
         <label className="ro-field"><span>How you like decisions made</span>
           <textarea value={decisionStyle} onChange={(e) => setDecisionStyle(e.target.value)} rows={2} placeholder="e.g. Move fast on anything under $500, always check with me above that." />
@@ -4112,7 +4032,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
 
 /* ---------- shell ---------- */
 
-export function OfficeExperienceApp({ allWorkers, hiredWorkers, isAdmin = false, onNavigate, onNotice, userName }: OfficeExperienceAppProps) {
+export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNotice, userName }: OfficeExperienceAppProps) {
   const [route, setRoute] = useState(() => parseOfficeRoute(window.location.hash));
   const [overlays, setOverlays] = useState<Overlays>(EMPTY_OVERLAYS);
   const [loading, setLoading] = useState(true);
@@ -4396,7 +4316,6 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, isAdmin = false,
             <WorkerDeskView
               activeWorker={activeWorker}
               busyId={workerActionBusy}
-              isAdmin={isAdmin}
               canUseEmail={overlays.integrations.some((integration) => integration.workerSlug === activeWorker.slug && integration.status === "connected")}
               connectedTools={overlays.integrations.filter((integration) => integration.workerSlug === activeWorker.slug)}
               desk={activeDesk}

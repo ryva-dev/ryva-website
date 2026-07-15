@@ -42,7 +42,7 @@ export async function enqueueJob(store, { kind, userId = null, workerId = null, 
 
 function leaseMsForKind(kind, overrideMs) {
   if (Number.isFinite(overrideMs) && overrideMs > 0) return overrideMs;
-  if (["worker_autonomy", "mara_video_analysis"].includes(String(kind))) {
+  if (["worker_autonomy", "mara_first_day", "mara_video_analysis"].includes(String(kind))) {
     return DEFAULT_HEAVY_JOB_LEASE_MS;
   }
   return DEFAULT_JOB_LEASE_MS;

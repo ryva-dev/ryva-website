@@ -100,21 +100,23 @@ export async function buildCommercialReturnBriefing(store, userId, workerId, { s
   for (const approval of pendingApprovals || []) {
     const payload = parseJson(approval.payloadJson, {});
     const isSend = /send/i.test(approval.actionType || "") || /send|gmail/i.test(`${approval.title} ${approval.description}`);
+    // Mara never sends external communication. Historical send approvals must
+    // not resurface as actions in the customer briefing.
+    if (isSend) continue;
     const entry = item({
-      kind: isSend ? "draft_approval" : "decision",
+      kind: "decision",
       title: approval.title,
       whatHappened: approval.description || "Awaiting your decision.",
-      whyItMatters: isSend ? "Send approval unblocks outreach revenue." : "Mara is blocked on a sensitive action.",
+      whyItMatters: "Mara is blocked on a decision only you can make.",
       commercialImpact: payload.estimatedValue || null,
-      recommendedAction: isSend ? "Approve or reject this send" : "Review and decide",
-      onApprove: "Executes the approved side effect (e.g. send from your Gmail).",
-      urgency: isSend ? "high" : "normal",
+      recommendedAction: "Review and decide",
+      onApprove: null,
+      urgency: "normal",
       confidence: 95,
       approvalId: approval.id,
       opportunityId: payload.opportunityId || null
     });
-    if (isSend) sections.draftsReady.push(entry);
-    else sections.urgentDecisions.push(entry);
+    sections.urgentDecisions.push(entry);
   }
 
   for (const thread of recentThreads || []) {
@@ -127,7 +129,7 @@ export async function buildCommercialReturnBriefing(store, userId, workerId, { s
         title: `${thread.brandName || "Brand"}: ${thread.subject || "Reply"}`,
         whatHappened: thread.snippet || "Brand thread updated.",
         whyItMatters: "Brand replies are the shortest path to deals.",
-        recommendedAction: "Open thread — Mara can draft a reply for approval",
+        recommendedAction: "Open the thread — Mara can prepare reply copy inside Ryva",
         urgency: /payment|revision/i.test(`${thread.category} ${thread.subject}`) ? "high" : "normal",
         confidence: 70,
         deadline: thread.receivedAt
@@ -234,7 +236,7 @@ export async function buildCommercialReturnBriefing(store, userId, workerId, { s
   }
 
   for (const activity of (recentActivity || []).slice(0, 8)) {
-    if (/approval|send/i.test(`${activity.eventType} ${activity.title}`)) continue;
+    if (/approval|send|autonomy_cycle/i.test(`${activity.eventType} ${activity.title}`)) continue;
     sections.autonomousWork.push(
       item({
         kind: "autonomous",

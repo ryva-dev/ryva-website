@@ -10,6 +10,7 @@ import {
   convertResearchItemToTask,
   createApprovalRequest,
   createApprovedTaskIfPermissionAllows,
+  createWorkerOutput,
   createRecurringResponsibility,
   createResearchItem,
   createSuggestedTask,
@@ -200,6 +201,7 @@ test("onboarding completion plan generates Mara work items", () => {
   });
 
   assert.ok(plan.tasks.length >= 7);
+  assert.ok(plan.tasks.some((task) => inferMaraTaskType(task.title, "onboarding_generated") === "weekly_action_plan"));
   assert.ok(plan.recurringResponsibilities.length >= 4);
   assert.ok(plan.memoryEntries.some((entry) => entry.title === "Pain point map"));
 });
@@ -751,6 +753,16 @@ test("workspace includes latest outputs and runnable tasks", async () => {
     workerId: MARA_WORKER_ID
   });
   await runMaraTask({ store: db, taskId: completed.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  await createWorkerOutput(db, {
+    content: "A creator-specific positioning document.",
+    outputType: "creator_positioning",
+    source: "test",
+    structuredContent: { generatedBy: "llm" },
+    taskId: completed.id,
+    title: "Creator positioning",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
   await createApprovedTaskIfPermissionAllows(db, {
     description: "Build follow-up sequence.",
     priority: "medium",
@@ -767,6 +779,7 @@ test("workspace includes latest outputs and runnable tasks", async () => {
   });
 
   assert.ok(workspace.latestOutputs.length > 0);
+  assert.ok(workspace.latestOutputs.every((output) => output.structuredContent?.generatedBy !== "template"));
   assert.ok(workspace.runnableTasks.length > 0);
 });
 

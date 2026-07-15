@@ -4503,7 +4503,7 @@ export async function runMaraAutonomyCycle({
   summary.blockers.push(...plannerContext.blockers);
 
   await createWorkerActivityLog(store, {
-    description: `I planned ${plannedActions.length} move(s), finished ${summary.executedTaskIds.length} task(s), and shipped ${summary.outputs.length} deliverable(s).`,
+    description: `I reviewed the current priorities, completed ${summary.executedTaskIds.length} task${summary.executedTaskIds.length === 1 ? "" : "s"}, and prepared ${summary.outputs.length} deliverable${summary.outputs.length === 1 ? "" : "s"}.`,
     eventType: "autonomy_cycle_completed",
     metadata: {
       blockers: summary.blockers,
@@ -4512,7 +4512,7 @@ export async function runMaraAutonomyCycle({
       outputIds: summary.outputs.map((output) => output.id),
       plannedActions: summary.plannedActions
     },
-    title: "Mara autonomy cycle",
+    title: "Work pass complete",
     userId,
     workerId
   });
@@ -5096,7 +5096,7 @@ export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
     { title: "Create first content idea batch", description: "Draft initial content ideas Mara can turn into a repeatable workflow.", priority: "medium" },
     { title: "Build follow-up sequence", description: "Create a simple follow-up structure so outreach does not stall.", priority: "medium" },
     { title: "Set up brand tracker structure", description: "Prepare the tracking structure needed so conversations do not get lost.", priority: "medium" },
-    { title: "Review weekly UGC workflow", description: "Map the weekly rhythm Mara should own and where approvals are required.", priority: "medium" }
+    { title: "Create weekly action plan", description: "Build a realistic, day-anchored weekly plan from the creator's priorities and place the focus blocks on the Office calendar.", priority: "medium" }
   ];
   const recurringResponsibilities = [
     { title: "Weekly brand research", description: "Find fresh aligned brand opportunities each week.", cadence: "weekly", dayOfWeek: "Monday" },
@@ -5452,7 +5452,10 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       nextStep: task.nextStep
     }))
   ].slice(0, 5);
-  const latestOutputs = workerOutputs
+  const customerReadyOutputs = workerOutputs.filter(
+    (output) => !["placeholder", "template"].includes(String(output.structuredContent?.generatedBy || ""))
+  );
+  const latestOutputs = customerReadyOutputs
     .map((output) => ({
       ...output,
       outputPreview: {
@@ -5462,10 +5465,10 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       }
     }))
     .slice(0, 3);
-  const hasPositioning = workerOutputs.some((output) => output.outputType === "creator_positioning");
-  const hasBrandCriteria = workerOutputs.some((output) => output.outputType === "brand_criteria");
-  const hasFollowUpSequence = workerOutputs.some((output) => output.outputType === "follow_up_sequence");
-  const hasPortfolioRecommendations = workerOutputs.some((output) => output.outputType === "recommendation");
+  const hasPositioning = customerReadyOutputs.some((output) => output.outputType === "creator_positioning");
+  const hasBrandCriteria = customerReadyOutputs.some((output) => output.outputType === "brand_criteria");
+  const hasFollowUpSequence = customerReadyOutputs.some((output) => output.outputType === "follow_up_sequence");
+  const hasPortfolioRecommendations = customerReadyOutputs.some((output) => output.outputType === "recommendation");
   const lowerMemory = JSON.stringify(whatMaraKnows).toLowerCase();
   const beginnerSignal = /beginner|starting|new/.test(lowerMemory);
   const skincareSignal = /skincare|wellness|beauty/.test(lowerMemory);
@@ -5692,7 +5695,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
           section.title === "Brand fit criteria"
             ? "Your niche"
             : section.title === "Preferences"
-              ? "Your tone"
+              ? "Your preferences"
               : section.title === "Approval rules"
                 ? "Your rules"
                 : section.title === "Pain point map" || section.title === "Pain points"

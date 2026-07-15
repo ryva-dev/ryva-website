@@ -67,6 +67,7 @@ export function buildBrandContext({
   return {
     brandName: String(accountOnboarding?.brandName ?? "").trim(),
     whatTheyDo: String(accountOnboarding?.whatYouDo ?? "").trim(),
+    creatorProfiles: String(accountOnboarding?.creatorProfiles ?? "").trim(),
     accountGoals: String(accountOnboarding?.goals ?? accountOnboarding?.mainGoal ?? "").trim(),
     workerOnboardingAnswers: workerOnboardingAnswers && typeof workerOnboardingAnswers === "object" ? workerOnboardingAnswers : {},
     professionalKnowledge: (Array.isArray(professionalKnowledge) ? professionalKnowledge : []).slice(0, 12).map((entry) => ({
@@ -110,6 +111,7 @@ export function formatBrandContextForPrompt(brandContext) {
     "<tenant_context>",
     brandContext.brandName ? `Manager's brand: ${brandContext.brandName}` : "Manager's brand: (not yet provided — ask rather than assume)",
     brandContext.whatTheyDo ? `What they do: ${brandContext.whatTheyDo}` : "",
+    brandContext.creatorProfiles ? `Creator portfolio and public profiles: ${brandContext.creatorProfiles}` : "",
     brandContext.accountGoals ? `Account goals: ${brandContext.accountGoals}` : "",
     answers.length > 0 ? `Onboarding answers:\n${answers.join("\n")}` : "",
     brandContext.goals.length > 0 ? `Stated goals: ${brandContext.goals.join(" | ")}` : "",

@@ -448,11 +448,23 @@ async function isUserOnboarded(userId) {
 }
 
 async function getUserOnboardingRecordAsync(userId) {
-  return authStore.queryOne(
-    `SELECT user_id, brand_name AS "brandName", what_you_do AS "whatYouDo", completed_at AS "completedAt"
-     FROM user_onboarding WHERE user_id = ?`,
+  const record = await authStore.queryOne(
+    `SELECT uo.user_id, uo.brand_name AS "brandName", uo.what_you_do AS "whatYouDo",
+            uo.completed_at AS "completedAt", ogs.settings_json AS "settingsJson"
+     FROM user_onboarding uo
+     LEFT JOIN office_global_settings ogs ON ogs.user_id = uo.user_id
+     WHERE uo.user_id = ?`,
     userId
   );
+  if (!record) return null;
+  const settings = parseJson(record.settingsJson, {});
+  return {
+    brandName: String(settings.companyName || record.brandName || "").trim(),
+    completedAt: record.completedAt,
+    creatorProfiles: String(settings.creatorProfiles || "").trim(),
+    userId: record.user_id,
+    whatYouDo: String(settings.brandContext || record.whatYouDo || "").trim()
+  };
 }
 
 async function buildOfficeSettingsSeed(user, onboardingRecord) {
@@ -475,6 +487,7 @@ async function buildOfficeSettingsSeed(user, onboardingRecord) {
     companyOffer: String(parsedExisting.companyOffer ?? ""),
     companyOfferOutcome: String(parsedExisting.companyOfferOutcome ?? ""),
     companyVoice: String(parsedExisting.companyVoice ?? ""),
+    creatorProfiles: String(parsedExisting.creatorProfiles ?? ""),
     decisionStyle: String(parsedExisting.decisionStyle ?? ""),
     defaultTaskPriority: String(parsedExisting.defaultTaskPriority ?? "Medium"),
     digestDelivery: String(parsedExisting.digestDelivery ?? "Email and in-office"),
@@ -1007,6 +1020,17 @@ async function syncWorkerDeliverables(userId, workerSlug) {
 
   for (const output of outputs) {
     if (HIDDEN_DELIVERABLE_OUTPUT_TYPES.has(String(output.outputType))) {
+      continue;
+    }
+    if (["placeholder", "template"].includes(String(output.structuredContent?.generatedBy || ""))) {
+      // Keep the underlying record for diagnostics, but never present a
+      // generic fallback or held placeholder as completed professional work.
+      await authStore.execute(
+        `DELETE FROM office_deliverables
+         WHERE user_id = ? AND worker_slug = ? AND source_type = 'worker_output'
+           AND (source_id = ? OR content_ref_id = ?)`,
+        userId, workerSlug, output.id, output.id
+      );
       continue;
     }
     await upsertOfficeDeliverable({
@@ -2805,10 +2829,6 @@ await cleanHtmlEntitiesInDatabase();
  */
 async function purgeListicleArtifacts() {
   let purged = 0;
-  const titleTail = (title) => {
-    const match = String(title ?? "").match(/\bfor\s+(.{4,})$/i);
-    return match ? match[1].trim() : "";
-  };
 
   try {
     for (const row of await authStore.query(`SELECT id, brand_name AS "brandName" FROM worker_brands`)) {
@@ -2820,31 +2840,6 @@ async function purgeListicleArtifacts() {
       const topic = String(row.topic ?? "").replace(/^\[(Opportunity|r\/[^\]]+)\]\s*/i, "");
       if (isLikelyListicleTitle(topic) && !/^\[/.test(String(row.topic ?? ""))) {
         purged += (await authStore.execute("DELETE FROM worker_research_items WHERE id = ?", row.id)).changes;
-      }
-    }
-    for (const row of await authStore.query("SELECT id, title FROM worker_tasks")) {
-      const tail = titleTail(row.title);
-      if (tail && isLikelyListicleTitle(tail)) {
-        purged += (await authStore.execute("DELETE FROM worker_tasks WHERE id = ?", row.id)).changes;
-      }
-    }
-    for (const row of await authStore.query("SELECT id, title FROM worker_outputs")) {
-      const tail = titleTail(row.title);
-      if (tail && isLikelyListicleTitle(tail)) {
-        await authStore.execute("DELETE FROM office_deliverables WHERE content_ref_id = ?", row.id);
-        purged += (await authStore.execute("DELETE FROM worker_outputs WHERE id = ?", row.id)).changes;
-      }
-    }
-    for (const row of await authStore.query("SELECT id, title FROM office_deliverables")) {
-      const tail = titleTail(row.title);
-      if (tail && isLikelyListicleTitle(tail)) {
-        purged += (await authStore.execute("DELETE FROM office_deliverables WHERE id = ?", row.id)).changes;
-      }
-    }
-    for (const row of await authStore.query("SELECT id, title FROM office_assignments")) {
-      const tail = titleTail(row.title);
-      if (tail && isLikelyListicleTitle(tail)) {
-        purged += (await authStore.execute("DELETE FROM office_assignments WHERE id = ?", row.id)).changes;
       }
     }
   } catch (error) {
@@ -3413,7 +3408,7 @@ async function runScheduledMaraAutonomy() {
       onReclaim: ({ kind }) => incrementMetric("jobs_reclaimed_expired_lease", 1, { kind })
     });
     for (const job of jobs) {
-      const stopHeartbeat = ["worker_autonomy", "mara_video_analysis"].includes(job.kind)
+      const stopHeartbeat = ["worker_autonomy", "mara_first_day", "mara_video_analysis"].includes(job.kind)
         ? startJobLeaseHeartbeat(jobStore, job.id, jobLeaseOwner, {
             leaseMs: 15 * 60 * 1000,
             intervalMs: 60_000
@@ -3449,6 +3444,24 @@ async function runScheduledMaraAutonomy() {
             userId: job.user_id,
             workerId: job.worker_id,
             objectStorage
+          });
+          await completeJob(jobStore, job.id, jobLeaseOwner);
+          incrementMetric("jobs_completed", 1, { kind: job.kind });
+          continue;
+        }
+
+        if (job.kind === "mara_first_day") {
+          const onboarding = await readMaraOnboardingAnswers(job.user_id, job.worker_id);
+          const normalizedKnowledge = await readWorkerKnowledgeSections(job.user_id, job.worker_id);
+          if (!onboarding || onboarding.status !== "completed") {
+            throw new Error("Completed Mara onboarding context was not found.");
+          }
+          await runMaraFirstDayAutomation({
+            userId: job.user_id,
+            workerSlug: job.worker_id,
+            answers: onboarding.answers,
+            generatedSummary: onboarding.generatedSummary,
+            normalizedKnowledge
           });
           await completeJob(jobStore, job.id, jobLeaseOwner);
           incrementMetric("jobs_completed", 1, { kind: job.kind });
@@ -5105,6 +5118,7 @@ app.post("/api/office/calendar/events/:eventId/delete", assertOrigin, requireAut
 
 app.get("/api/office/deliverables/:deliverableId", requireAuth, async (req, res) => {
   const deliverableId = String(req.params.deliverableId ?? "").trim();
+  const workers = await readWorkers();
   const deliverable = await authStore.queryOne(
       `SELECT id, worker_slug AS "workerSlug", source_type AS "sourceType", source_id AS "sourceId", title, summary,
               deliverable_type AS "deliverableType", preview_text AS "previewText", content_ref_id AS "contentRefId"
@@ -5113,11 +5127,35 @@ app.get("/api/office/deliverables/:deliverableId", requireAuth, async (req, res)
     deliverableId, req.user.id);
 
   if (!deliverable) {
+    // Worker desks reference the canonical worker-output id, while the
+    // library uses a separate display-record id. Accept either, scoped to the
+    // signed-in user, so completed work opens consistently everywhere.
+    const directOutput = await authStore.queryOne(
+      `SELECT id, worker_id AS "workerSlug", output_type AS "outputType", title, content,
+              structured_content_json AS "structuredContentJson"
+       FROM worker_outputs WHERE id = ? AND user_id = ?`,
+      deliverableId, req.user.id
+    );
+    if (directOutput) {
+      const directWorker = workers.find((entry) => entry.slug === directOutput.workerSlug);
+      res.json({
+        deliverable: {
+          content: String(directOutput.content ?? ""),
+          previewText: "",
+          structuredContent: parseJson(directOutput.structuredContentJson, null),
+          summary: "",
+          title: directOutput.title,
+          type: sentenceCase(String(directOutput.outputType || "deliverable").replace(/_/g, " ")),
+          workerName: directWorker?.name ?? "Worker"
+        }
+      });
+      return;
+    }
     res.status(404).json({ error: "Deliverable not found." });
     return;
   }
 
-  const worker = WORKERS.find((entry) => entry.slug === deliverable.workerSlug);
+  const worker = workers.find((entry) => entry.slug === deliverable.workerSlug);
 
   if (deliverable.sourceType === "worker_output" || deliverable.contentRefId || deliverable.sourceId) {
     // Resolve the full output through a fallback chain so the reader never
@@ -6740,6 +6778,7 @@ app.post("/api/office/settings", assertOrigin, requireAuth, async (req, res) => 
     autoBriefingPrep: String(settings.autoBriefingPrep ?? "Enabled"),
     briefingDigestTime: String(settings.briefingDigestTime ?? "08:30"),
     brandContext: String(settings.brandContext ?? "").trim(),
+    creatorProfiles: String(settings.creatorProfiles ?? "").trim(),
     defaultTaskPriority: String(settings.defaultTaskPriority ?? "Medium"),
     decisionStyle: String(settings.decisionStyle ?? "").trim(),
     digestDelivery: String(settings.digestDelivery ?? "Email and in-office"),
@@ -6973,48 +7012,36 @@ app.post("/api/office/workers/:slug/onboarding/complete", assertOrigin, requireA
       timestamp
     );
 
-    let maraAutomationResult = null;
+    let maraFirstDayQueued = false;
     if (shouldRunMaraOnboardingAutomation) {
-      try {
-        maraAutomationResult = await runMaraFirstDayAutomation({
-          userId: req.user.id,
-          workerSlug,
-          answers,
-          generatedSummary: Array.isArray(generatedSummary) ? generatedSummary : [],
-          normalizedKnowledge
-        });
-      } catch (error) {
-        logCaught("Mara onboarding automation failed:", error);
-        await createWorkerActivityLog(maraStore, {
-          description: "I finished onboarding, but my first work pass needs another try.",
-          eventType: "onboarding_automation_failed",
-          metadata: { message: error instanceof Error ? error.message : String(error) },
-          relatedTaskId: null,
-          title: "First-day follow-up",
-          userId: req.user.id,
-          workerId: workerSlug
-        });
-      } finally {
-        await syncOfficeCanonicalRecords(req.user.id, workerSlug);
-      }
-    } else {
-      await syncOfficeCanonicalRecords(req.user.id, workerSlug);
+      const queued = await enqueueJob(jobStore, {
+        kind: "mara_first_day",
+        userId: req.user.id,
+        workerId: workerSlug,
+        payload: { requestedAt: timestamp },
+        idempotencyKey: `mara_first_day:${req.user.id}:${workerSlug}:v1`
+      });
+      maraFirstDayQueued = queued.enqueued;
     }
+    await syncOfficeCanonicalRecords(req.user.id, workerSlug);
     if (workerSlug === MARA_SLUG) {
       await syncMaraGrowthIntelligenceFromResearch(req.user.id, workerSlug);
     }
 
     res.json({
       ok: true,
+      firstWorkStatus: maraFirstDayQueued ? "queued" : null,
       workspace:
-        maraAutomationResult?.workspace ??
-        (workerSlug === MARA_SLUG
+        workerSlug === MARA_SLUG
           ? await buildMaraWorkspace(maraStore, req.user.id, workerSlug, {
               readKnowledgeSections: readWorkerKnowledgeSections,
               readOfficeOverlays: readOfficeOverlaysForUser
             })
-          : null)
+          : null
     });
+    if (maraFirstDayQueued && autonomySchedulerEnabled) {
+      void runScheduledMaraAutonomy().catch((error) => logCaught("Queued Mara first-day wake failed:", error));
+    }
   } catch (error) {
     logCaught("Worker onboarding completion failed:", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Unable to complete onboarding." });

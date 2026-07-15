@@ -4614,8 +4614,9 @@ a:focus-visible {
 .ro-library-filter:hover { color: var(--ink); }
 
 .ro-library-list { margin-top: 10px; }
+.ro-library-group { margin-top: 30px; }
 .ro-library-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 24px; align-items: baseline;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: start;
   width: 100%; text-align: left; background: none; border: none; cursor: pointer;
   padding: 18px 4px; border-bottom: 1px solid var(--line);
   transition: background 0.15s var(--ease);
@@ -4623,10 +4624,13 @@ a:focus-visible {
 .ro-library-row:first-child { border-top: 1px solid var(--line); }
 .ro-library-row:hover { background: rgba(29, 77, 59, 0.035); }
 .ro-library-title {
+  display: block;
   font-family: var(--display); font-size: 17px; font-weight: 480; color: var(--ink);
   letter-spacing: -0.005em; line-height: 1.3;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow-wrap: anywhere;
 }
+.ro-library-copy { min-width: 0; }
+.ro-library-summary { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .ro-library-meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .ro-library-date { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
 

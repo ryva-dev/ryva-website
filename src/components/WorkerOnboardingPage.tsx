@@ -64,7 +64,7 @@ function workerQuestionPrompt(worker: Worker, question: FlatQuestion) {
 function buildThread(worker: Worker, questions: FlatQuestion[], answers: Record<string, string>, activeIndex: number, isSummary: boolean) {
   const thread: ThreadMessage[] = [];
 
-  questions.forEach((question, index) => {
+  questions.forEach((question) => {
     const answer = answers[question.id]?.trim();
     if (!answer) return;
 
@@ -79,13 +79,6 @@ function buildThread(worker: Worker, questions: FlatQuestion[], answers: Record<
       text: answer
     });
 
-    if (index < activeIndex || isSummary) {
-      thread.push({
-        id: `${question.id}-ack`,
-        role: "worker",
-        text: "Captured."
-      });
-    }
   });
 
   if (!isSummary && questions[activeIndex]) {
@@ -119,13 +112,26 @@ export function WorkerOnboardingPage({
     buildThread(worker, questions, session?.answers ?? {}, 0, session?.status === "completed")
   );
   const threadRef = useRef<HTMLDivElement | null>(null);
+  const localAnswersRef = useRef<Record<string, string>>(session?.answers ?? {});
+  const hydratedWorkerRef = useRef(worker.slug);
 
   useEffect(() => {
     const nextAnswers = session?.answers ?? {};
     const nextSummary = session?.status === "completed";
+    const workerChanged = hydratedWorkerRef.current !== worker.slug;
+    const answersMatchLocal = JSON.stringify(nextAnswers) === JSON.stringify(localAnswersRef.current);
+
+    // Saving one answer refreshes the parent session. Do not treat that echo
+    // as a new onboarding session: rebuilding here used to erase anything the
+    // creator had already started typing and replace Mara's real reply with a
+    // hard-coded acknowledgement.
+    if (!workerChanged && answersMatchLocal) return;
+
     const nextIndex = questions.findIndex((question) => !nextAnswers[question.id]?.trim());
     const normalizedIndex = nextIndex === -1 ? Math.max(questions.length - 1, 0) : nextIndex;
 
+    hydratedWorkerRef.current = worker.slug;
+    localAnswersRef.current = nextAnswers;
     setAnswers(nextAnswers);
     setCurrentIndex(nextIndex === -1 ? questions.length : normalizedIndex);
     setComposerValue("");
@@ -162,6 +168,7 @@ export function WorkerOnboardingPage({
     setThreadError("");
     setComposerValue("");
     setIsReplying(true);
+    localAnswersRef.current = nextAnswers;
     setAnswers(nextAnswers);
     setThreadMessages((messages) => [
       ...messages,
@@ -219,6 +226,7 @@ export function WorkerOnboardingPage({
       }
     } catch (error) {
       setThreadError(error instanceof Error ? error.message : "Unable to continue onboarding right now.");
+      localAnswersRef.current = answers;
       setAnswers(answers);
       setComposerValue(answer);
       setThreadMessages(buildThread(worker, questions, answers, currentIndex, false));
