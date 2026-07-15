@@ -6408,7 +6408,14 @@ app.post("/api/office/workers/:slug/chat", assertOrigin, requireAuth, llmHeavyLi
   if (workerSlug === MARA_SLUG && worker) {
     await ensureWorkerPermissions(maraStore, req.user.id, workerSlug);
     const createdChatTaskIds = [];
+    const maraOnboarding = await readMaraOnboardingAnswers(req.user.id, workerSlug);
     const detectorResult = runMaraActionDetector({
+      knownScheduleContext: {
+        fixedCommitments: maraOnboarding?.answers?.fixed_commitments,
+        creatorAvailability: maraOnboarding?.answers?.creator_availability,
+        filmingPreferences: maraOnboarding?.answers?.filming_preferences,
+        reviewPreferences: maraOnboarding?.answers?.review_preferences
+      },
       openTasks: await listWorkerTasksForUserWorker(maraStore, req.user.id, workerSlug),
       permissions: await getWorkerPermissions(maraStore, req.user.id, workerSlug),
       recentMessages: await authStore.query(

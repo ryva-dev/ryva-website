@@ -315,14 +315,14 @@ function moveBlocksOutsideWorkHours(blocks, availabilityText) {
   });
 }
 
-export function ensureWeeklyScheduleCalendarReady(structured = {}, { niche = "UGC", availabilityText = "" } = {}) {
+export function ensureWeeklyScheduleCalendarReady(structured = {}, { niche = "UGC", availabilityText = "", allowDefaults = true } = {}) {
   const next = { ...(structured && typeof structured === "object" ? structured : {}) };
   const blocks = normalizeScheduleBlocks(next);
   if (blocks.length > 0) {
     next.blocks = moveBlocksOutsideWorkHours(blocks, availabilityText);
     return next;
   }
-  next.blocks = defaultWeeklyScheduleBlocks({ niche });
+  next.blocks = allowDefaults ? defaultWeeklyScheduleBlocks({ niche }) : [];
   if (!next.weekTheme) next.weekTheme = "Balanced outreach, filming, and posting";
   return next;
 }

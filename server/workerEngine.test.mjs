@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { wrapSqliteHandle } from "./dataStore.mjs";
 import {
   autoExecuteSafeMaraTasks,
+  assessWeeklyScheduleReadiness,
   buildMaraInitialWorkPlan,
   buildMaraExecutionContext,
   buildMaraWorkspace,
@@ -296,6 +297,45 @@ test("Mara creates a personalized weekly schedule after the creator answers cons
   assert.equal(detector.tasksToCreate.length, 1);
   assert.equal(detector.tasksToCreate[0].taskType, "weekly_schedule");
   assert.match(detector.tasksToCreate[0].evidenceUsed.join(" "), /9–5/i);
+});
+
+test("saved shift-worker availability satisfies consultation without assuming a 9–5", () => {
+  const detector = runMaraActionDetector({
+    knownScheduleContext: {
+      fixedCommitments: "I work three overnight shifts, Tuesday through Thursday, 7 PM–7 AM.",
+      creatorAvailability: "I have Monday afternoon and Saturday evening available, six hours total.",
+      filmingPreferences: "Film Monday afternoon at home.",
+      reviewPreferences: "Review Mara's work Saturday at 6 PM."
+    },
+    openTasks: [],
+    permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
+    recentMessages: [],
+    triggerText: "Build my weekly schedule.",
+    triggerType: "chat_message",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  assert.equal(detector.requiresUserInput, false);
+  assert.equal(detector.tasksToCreate[0].taskType, "weekly_schedule");
+  assert.match(detector.tasksToCreate[0].evidenceUsed.join(" "), /overnight shifts/i);
+});
+
+test("weekly schedule readiness accepts nontraditional hours and rejects missing life context", () => {
+  const ready = assessWeeklyScheduleReadiness({
+    currentTask: { evidenceUsed: [] },
+    workerKnowledge: [],
+    workerOnboarding: { answers: {
+      fixed_commitments: "Night shift Sunday through Wednesday, 10 PM–6 AM.",
+      creator_availability: "Thursday and Friday afternoons, four hours total.",
+      filming_preferences: "Film outside Friday afternoon.",
+      review_preferences: "Review approvals Thursday at 3 PM."
+    } }
+  });
+  assert.equal(ready.ready, true);
+
+  const missing = assessWeeklyScheduleReadiness({ currentTask: { evidenceUsed: ["Make my week"] } });
+  assert.equal(missing.ready, false);
+  assert.equal(missing.missing.length, 4);
 });
 
 test("Mara creates approval requests for external actions", async () => {
@@ -593,6 +633,24 @@ test("runMaraTask marks task blocked when required context is missing", async ()
   const result = await runMaraTask({ store: db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
   assert.match(result.blockerReason, /requires brand message text/i);
   assert.equal(db.prepare("SELECT status FROM worker_tasks WHERE id = ?").get(created.id).status, "blocked");
+});
+
+test("runMaraTask never invents a generic timed schedule when availability is unknown", async () => {
+  const db = makeDb();
+  await ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+  const created = await createApprovedTaskIfPermissionAllows(db, {
+    description: "Build a personal weekly calendar.",
+    evidenceUsed: ["Make my weekly schedule"],
+    priority: "high",
+    requiredPermissions: [],
+    taskType: "weekly_schedule",
+    title: "Build weekly schedule",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  const result = await runMaraTask({ store: db, taskId: created.id, userId: "user-1", workerId: MARA_WORKER_ID, ...makeExecutionReaders() });
+  assert.match(result.blockerReason, /guess when you are available/i);
+  assert.equal((await listWorkerOutputs(db, "user-1", MARA_WORKER_ID)).length, 0);
 });
 
 test("autoExecuteSafeMaraTasks executes safe onboarding tasks", async () => {

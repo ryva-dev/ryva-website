@@ -1526,6 +1526,37 @@ export async function buildMaraExecutionContext({
   };
 }
 
+export function assessWeeklyScheduleReadiness(context = {}) {
+  const answers = context.workerOnboarding?.answers || {};
+  const knowledge = Array.isArray(context.workerKnowledge) ? context.workerKnowledge : [];
+  const evidence = Array.isArray(context.currentTask?.evidenceUsed) ? context.currentTask.evidenceUsed : [];
+  const fixedCommitments = String(answers.fixed_commitments || "").trim();
+  const creatorAvailability = String(answers.creator_availability || "").trim();
+  const filmingPreferences = String(answers.filming_preferences || "").trim();
+  const reviewPreferences = String(answers.review_preferences || "").trim();
+  const contextText = [
+    fixedCommitments,
+    creatorAvailability,
+    filmingPreferences,
+    reviewPreferences,
+    ...getMemoryItem(knowledge, "Availability"),
+    ...getMemoryItem(knowledge, "Filming Logistics"),
+    ...getMemoryItem(knowledge, "Review Rhythm"),
+    ...evidence
+  ].filter(Boolean).join("\n");
+  const hasFixedCommitments = Boolean(fixedCommitments) || /\b(work|job|shift|class|school|commut|caregiv|appointment|unavailable|no fixed commitments?)\b/i.test(contextText);
+  const hasAvailability = Boolean(creatorAvailability) || /\b(free|available|availability|weeknights?|weekends?|before work|after work|morning|afternoon|evening|night)\b/i.test(contextText);
+  const hasFilming = Boolean(filmingPreferences) || /\b(film|filming|shoot|record|content day|location|going out)\b/i.test(contextText);
+  const hasReview = Boolean(reviewPreferences) || /\b(review|approve|approval|check (?:your|mara)|feedback)\b/i.test(contextText);
+  const missing = [
+    !hasFixedCommitments ? "fixed commitments or confirmation that there are none" : null,
+    !hasAvailability ? "realistic creator-work windows and weekly capacity" : null,
+    !hasFilming ? "filming days, plans, and location constraints" : null,
+    !hasReview ? "preferred review and approval windows" : null
+  ].filter(Boolean);
+  return { ready: missing.length === 0, missing, contextText };
+}
+
 function getKnowledgeModule(context, category) {
   return (context.relevantKnowledgeModules || []).find((module) => module.category === category) ?? null;
 }
@@ -2003,44 +2034,11 @@ function executeWeeklyActionPlanTask(context) {
 }
 
 function executeWeeklyScheduleTask(context) {
-  const profile = buildContextProfile(context);
-  const structuredContent = ensureWeeklyScheduleCalendarReady(
-    {
-      weekTheme: `Balanced outreach, filming, and posting for ${profile.niche || "your niche"}`,
-      postingSlots: [
-        { day: "Monday", time: "19:00", contentType: "short-form" },
-        { day: "Thursday", time: "19:00", contentType: "short-form" }
-      ],
-      storyCadence: "2–3 Stories mid-week to keep the account warm",
-      notes: [
-        "Blocks are on your Ryva Office calendar — adjust times to match your real life.",
-        "Outreach and filming are protected windows; posting sits in evening slots."
-      ]
-    },
-    { niche: profile.niche || "UGC" }
-  );
-
   return {
-    content: buildRichContent([
-      { title: "Week theme", value: structuredContent.weekTheme },
-      {
-        title: "Time blocks",
-        value: structuredContent.blocks.map(
-          (block) => `${block.day} ${block.start}–${block.end}: ${block.activity}${block.goal ? ` (${block.goal})` : ""}`
-        )
-      },
-      {
-        title: "Posting slots",
-        value: (structuredContent.postingSlots || []).map(
-          (slot) => `${slot.day} ${slot.time}: ${slot.contentType}`
-        )
-      },
-      { title: "Story cadence", value: structuredContent.storyCadence },
-      { title: "Notes", value: structuredContent.notes }
-    ]),
-    outputType: "weekly_schedule",
-    structuredContent,
-    title: "Weekly schedule"
+    blocked: true,
+    blockerReason: "Mara could not safely create a personalized timed schedule without the planning model.",
+    neededFromUser: "Nothing new if your availability is already saved.",
+    suggestedNextStep: "Retry when the planning model is available; Ryva will not substitute a generic evening or weekend schedule."
   };
 }
 
@@ -2813,6 +2811,15 @@ export async function runMaraTask({
     workerId
   });
 
+  const scheduleReadiness = task.taskType === "weekly_schedule" ? assessWeeklyScheduleReadiness(context) : null;
+  if (scheduleReadiness && !scheduleReadiness.ready) {
+    return markTaskBlocked(store, userId, workerId, taskId, {
+      blockerReason: "A timed calendar would require Mara to guess when you are available.",
+      neededFromUser: `Tell Mara your ${scheduleReadiness.missing.join(", ")}.`,
+      suggestedNextStep: "Reply in Mara's chat in plain language; she will build the schedule only after learning your real week."
+    });
+  }
+
   let result = null;
   if (LLM_FIRST_TASK_TYPES.has(task.taskType) && isMaraLlmConfigured()) {
     result = await tryExecuteLlmFirstMaraTask(context);
@@ -2884,8 +2891,16 @@ export async function runMaraTask({
       result.outputType = "weekly_schedule";
       result.structuredContent = ensureWeeklyScheduleCalendarReady(result.structuredContent, {
         niche,
-        availabilityText: (task.evidenceUsed || []).join("\n")
+        availabilityText: scheduleReadiness?.contextText || (task.evidenceUsed || []).join("\n"),
+        allowDefaults: false
       });
+      if (!result.structuredContent.blocks?.length) {
+        return markTaskBlocked(store, userId, workerId, taskId, {
+          blockerReason: "The planning model did not return a usable personalized schedule.",
+          neededFromUser: "Nothing — Mara already has your availability.",
+          suggestedNextStep: "Retry the task; Ryva will not replace a failed plan with assumed work hours."
+        });
+      }
     }
   }
 
@@ -5179,6 +5194,7 @@ export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
 }
 
 export function runMaraActionDetector({
+  knownScheduleContext = {},
   openTasks = [],
   permissions = DEFAULT_MARA_PERMISSIONS,
   recentMessages = [],
@@ -5322,16 +5338,17 @@ export function runMaraActionDetector({
 
   const explicitScheduleRequest = /weekly schedule|weekly (?:action )?plan|plan (?:my|the) week|build (?:a |my )?week|time[- ]?block|put (it |them )?on (the |my )?calendar|calendar for (the |my )?week/.test(lower);
   const scheduleConversationText = [
+    ...Object.values(knownScheduleContext || {}).map((value) => String(value || "").trim()).filter(Boolean),
     ...recentConversation
       .filter((message) => /^(you|user)$/i.test(message.author))
       .map((message) => message.text)
       .reverse(),
     normalizedText
   ].join("\n");
-  const hasFixedCommitments = /\b(work|job|shift|class|school|commut|caregiv|appointment|unavailable|busy)\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i.test(scheduleConversationText);
-  const hasAvailableWindows = /\b(free|available|availability|weeknights?|weekends?|before work|after work|morning|evening|night)\b/i.test(scheduleConversationText);
-  const hasFilmingContext = /\b(film|filming|shoot|record|content day|location|going out)\b/i.test(scheduleConversationText);
-  const hasReviewContext = /\b(review|approve|approval|check (?:your|mara)|feedback)\b/i.test(scheduleConversationText);
+  const hasFixedCommitments = Boolean(String(knownScheduleContext?.fixedCommitments || "").trim()) || /\b(work|job|shift|class|school|commut|caregiv|appointment|unavailable|busy|no fixed commitments?)\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i.test(scheduleConversationText);
+  const hasAvailableWindows = Boolean(String(knownScheduleContext?.creatorAvailability || "").trim()) || /\b(free|available|availability|weeknights?|weekends?|before work|after work|morning|afternoon|evening|night)\b/i.test(scheduleConversationText);
+  const hasFilmingContext = Boolean(String(knownScheduleContext?.filmingPreferences || "").trim()) || /\b(film|filming|shoot|record|content day|location|going out)\b/i.test(scheduleConversationText);
+  const hasReviewContext = Boolean(String(knownScheduleContext?.reviewPreferences || "").trim()) || /\b(review|approve|approval|check (?:your|mara)|feedback)\b/i.test(scheduleConversationText);
   const missingScheduleContext = [
     !hasFixedCommitments ? "your fixed commitments (work, school, commute, appointments)" : null,
     !hasAvailableWindows ? "the windows you can realistically use" : null,
