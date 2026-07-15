@@ -4084,8 +4084,9 @@ a:focus-visible {
 .ro-bubble time { display: block; font-family: var(--mono); font-size: 10px; color: var(--faint); margin-top: 6px; }
 .ro-msg.you .ro-bubble time { color: rgba(255, 255, 255, 0.5); }
 .ro-composer { display: flex; align-items: flex-end; gap: 10px; padding: 18px 32px 26px; border-top: 1px solid var(--line-soft); }
-.ro-composer textarea { flex: 1; padding: 12px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; color: var(--ink); font-family: var(--body); resize: none; line-height: 1.45; }
+.ro-composer textarea { flex: 1; min-height: 88px; max-height: 240px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; color: var(--ink); font-family: var(--body); resize: none; line-height: 1.5; overflow-y: hidden; }
 .ro-composer textarea:focus { outline: none; border-color: var(--accent); }
+.ro-composer .r-btn { min-width: 104px; }
 
 /* ---- approvals: flat entries, hairline separated ---- */
 .ro-appr-list { display: flex; flex-direction: column; }
@@ -4342,6 +4343,9 @@ a:focus-visible {
   .ro-page-alert { margin: 18px 20px 0; }
   .ro-chat { grid-template-columns: 1fr; }
   .ro-chat-list { display: none; }
+  .ro-composer { padding: 14px 16px 18px; }
+  .ro-composer textarea { min-height: 78px; }
+  .ro-composer .r-btn { min-width: 84px; padding-inline: 16px; }
   .ro-attention-hero-main strong { font-size: 20px; max-width: none; }
   .ro-worker-floor-row { grid-template-columns: 1fr; gap: 12px; }
   .ro-worker-floor-side { padding-top: 0; }

@@ -2044,6 +2044,7 @@ function ChatView({
   const [pendingMessage, setPendingMessage] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const thread = useMemo(
     () => overlays.chats.filter((c) => c.workerSlug === active?.slug),
     [overlays.chats, active?.slug]
@@ -2066,6 +2067,18 @@ function ChatView({
     window.addEventListener("ryva-office-seed-draft", handler);
     return () => window.removeEventListener("ryva-office-seed-draft", handler);
   }, []);
+
+  // Long directions and seeded blocker questions should remain readable while
+  // the creator answers. Grow until the composer reaches a useful ceiling,
+  // then scroll inside it without taking over the conversation pane.
+  useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+    composer.style.height = "0px";
+    const nextHeight = Math.min(240, Math.max(88, composer.scrollHeight));
+    composer.style.height = `${nextHeight}px`;
+    composer.style.overflowY = composer.scrollHeight > 240 ? "auto" : "hidden";
+  }, [draft]);
 
   const reloadOffice = useCallback(async () => {
     await onReload();
@@ -2164,6 +2177,7 @@ function ChatView({
           {sendError ? <div className="ro-chat-error" role="alert">{sendError}</div> : null}
           <div className="ro-composer">
             <textarea
+              ref={composerRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
