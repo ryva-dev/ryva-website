@@ -22,7 +22,7 @@ import {
 import { getRoleConfig } from "./roles.mjs";
 import { buildInboxOpsSummary, parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { getLatestTrendSnapshot, resolveGlobalTrendInsightsPath, syncUserTrendInsightsFromGlobal } from "./maraTrendOps.mjs";
-import { initMaraIntelligence, listTopPitchTargets, getRevenueInfluenceMetrics } from "./maraIntelligence.mjs";
+import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, listTopPitchTargets } from "./maraIntelligence.mjs";
 import { inferAndRecordCommercialOutcomes } from "./maraOutcomeInference.mjs";
 import { deepResearchBrand } from "./maraResearchProviders.mjs";
 import { createOrUpdateOpportunityFromResearch } from "./maraOpportunityPackages.mjs";
@@ -5628,23 +5628,35 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   let activationJourney = null;
   try {
     await initMaraIntelligence(store);
-    commercialNorthStar = await getRevenueInfluenceMetrics(store, userId, workerId);
-    const pitchTargets = await listTopPitchTargets(store, userId, workerId, 6);
-    outreachReadyQueue = pitchTargets
-      .filter((target) => target.outreachReady && target.contactEmail)
+    const growthSnapshot = await getMaraGrowthIntelligenceSnapshot(store, userId, workerId);
+    commercialNorthStar = growthSnapshot.metrics;
+    outreachReadyQueue = growthSnapshot.opportunities
+      .filter((target) => target.readiness === "now" && target.outreachReady && target.outreachContact?.value)
       .slice(0, 5)
       .map((target) => ({
         id: target.id,
         brandName: target.brandName,
         scoreTotal: target.scoreTotal,
         status: target.status,
-        contactEmail: target.contactEmail,
+        contactEmail: target.outreachContact.value,
         decision: target.decision || null
       }));
     const { buildCommercialReturnBriefing } = await import("./maraCommercialBriefing.mjs");
     const { listBookOfBusiness } = await import("./maraOpportunityStateEngine.mjs");
     commercialBriefing = await buildCommercialReturnBriefing(store, userId, workerId, { sinceHours: 72 });
-    bookOfBusiness = await listBookOfBusiness(store, userId, workerId, { limit: 20 });
+    const rawBook = await listBookOfBusiness(store, userId, workerId, { limit: 20 });
+    bookOfBusiness = growthSnapshot.opportunities.map((opportunity) => {
+      const brandToken = String(opportunity.brandName || "").toLowerCase();
+      const lifecycle = rawBook.find((item) => String(item.brandName || "").toLowerCase().includes(brandToken));
+      return {
+        ...(lifecycle || {}),
+        id: opportunity.id,
+        brandName: opportunity.brandName,
+        scoreTotal: opportunity.scoreTotal,
+        lifecycleStage: opportunity.readiness === "later" ? "build_toward" : lifecycle?.lifecycleStage || opportunity.status,
+        nextAction: opportunity.decisionReason ? { label: opportunity.decisionReason, requiresApproval: false } : lifecycle?.nextAction || null
+      };
+    });
     activationJourney = await getMaraActivationJourney(store, userId, workerId);
   } catch {
     /* growth intel tables may be unavailable in light stores */

@@ -1581,7 +1581,7 @@ function WorkerDeskSections({
         <section className="ro-worker-drawer-section">
           <div className="ro-worker-drawer-row">
             <strong>Book of business</strong>
-            <span>{desk.bookOfBusiness.length} active</span>
+            <span>{desk.bookOfBusiness.length} tracked</span>
           </div>
           <div className="ro-plain-list">
             {desk.bookOfBusiness.slice(0, 6).map((opp) => (
