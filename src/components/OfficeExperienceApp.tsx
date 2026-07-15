@@ -272,7 +272,9 @@ function buildMaraDesk(worker: Worker, overlays: Overlays, workspace: MaraWorksp
       updatedAt: deliverable.updatedAt,
       workerSlug: worker.slug
     }));
-  const firstPreparedOutreach = outputs.find((item) => /pitch|outreach|follow.?up|reply/i.test(item.deliverableType || item.sourceLabel || item.title)) || null;
+  const firstPreparedOutreach = outputs.find((item) => /pitch(?:_draft|_template)?/i.test(item.deliverableType || item.sourceLabel || item.title))
+    || outputs.find((item) => /outreach|follow.?up|reply/i.test(item.deliverableType || item.sourceLabel || item.title))
+    || null;
   const inMotion = [
     ...workspace.runnableTasks,
     ...(workspace.currentWork && !workspace.runnableTasks.some((task) => task.id === workspace.currentWork?.id) ? [workspace.currentWork] : [])
