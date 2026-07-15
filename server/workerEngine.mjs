@@ -3034,7 +3034,8 @@ export function isLikelyListicleTitle(title) {
   if (!text) return true;
   if (text.length > 60) return true;
   if (/\d+\s*\+/.test(text)) return true;
-  if (/\b(top|best|list of|guide to|ultimate|our favorite|favourites?)\b/i.test(text)) return true;
+  if (/\b(top|best|list of|guide to|ultimate|our favorite|favourites?|case study|growth tactics?|competitive advantage|marketing strateg(?:y|ies)|b2b lessons?)\b/i.test(text)) return true;
+  if (/\bhow\b.{0,40}\bbuilt\b/i.test(text)) return true;
   if (/\bbrands\b/i.test(text)) return true;
   if (/\b(20\d{2})\b/.test(text)) return true;
   return false;

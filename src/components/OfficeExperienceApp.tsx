@@ -1349,7 +1349,7 @@ function TodayView({
                               onNavigate("#app/office/calendar");
                             }}
                           >
-                            <span className="ro-evt-title">{e.title}</span>
+                            <span className="ro-evt-title">{calendarDisplayTitle(e.title)}</span>
                             <small>{e.workerSlug ? nameFor(e.workerSlug) : clock(e.startsAt)}</small>
                           </button>
                         );
@@ -3404,6 +3404,14 @@ function sameDay(left: Date, right: Date) {
   return left.toDateString() === right.toDateString();
 }
 
+function calendarDisplayTitle(value: string) {
+  const title = String(value || "").trim();
+  const firstClause = title.split(/\s+[—–]\s+|\s*\(|\.\s+/)[0]?.trim() || title;
+  if (firstClause.length <= 68) return firstClause;
+  const clipped = firstClause.slice(0, 68);
+  return `${clipped.slice(0, clipped.lastIndexOf(" ") > 40 ? clipped.lastIndexOf(" ") : 68).trim()}…`;
+}
+
 const EVENT_TYPES = ["Meeting", "Review", "Focus", "Deadline", "Mara"];
 
 function CalendarView({
@@ -3511,7 +3519,7 @@ function CalendarView({
                 type="button"
                 onClick={() => { setEditing(e); setShowForm(true); }}
               >
-                <span className="ro-evt-title">{e.title}</span>
+                <span className="ro-evt-title">{calendarDisplayTitle(e.title)}</span>
                 <small>{clock(e.startsAt)}</small>
               </button>
             );

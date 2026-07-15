@@ -23,6 +23,7 @@ import {
   getWorkerPermissions,
   inferMaraTaskType,
   initWorkerTables,
+  isLikelyListicleTitle,
   listWorkerKnowledgeModules,
   listWorkerBrands,
   listRecurringResponsibilities,
@@ -39,6 +40,9 @@ import {
 } from "./workerEngine.mjs";
 
 test("brand discovery ignores dream-brand leakage and rejects third-party articles", async () => {
+  assert.equal(isLikelyListicleTitle("Gymshark Growth Tactics and Competitive Advantage"), true);
+  assert.equal(isLikelyListicleTitle("How Gymshark Built a $1.6B Brand"), true);
+  assert.equal(isLikelyListicleTitle("Reachable Fit"), false);
   const requests = [];
   const fetchImpl = async (url) => {
     requests.push(String(url));
