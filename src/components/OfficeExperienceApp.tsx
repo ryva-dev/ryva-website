@@ -3175,6 +3175,7 @@ function AssignmentDetailModal({
     }
   }
   const needsCreatorInput = blockerNeedsCreatorInput(neededFromUser);
+  const detailPreview = assignment.status === "blocked" && !needsCreatorInput ? summary : preview;
 
   return (
     <div className="ro-doc-scrim" onClick={onClose}>
@@ -3192,21 +3193,21 @@ function AssignmentDetailModal({
         </header>
 
         <div className="ro-doc-body">
-          {summary ? <p className="ro-doc-para">{summary}</p> : null}
+          {summary && assignment.status !== "blocked" ? <p className="ro-doc-para">{summary}</p> : null}
           {blockerReason ? (
             <>
               <h3 className="ro-doc-heading">What's blocking it</h3>
               <p className="ro-doc-para">{blockerReason}</p>
             </>
           ) : null}
-          {preview ? (
+          {detailPreview ? (
             <>
               <h3 className="ro-doc-heading">
                 {assignment.status === "blocked" && !needsCreatorInput
                   ? "What happens next"
                   : humanizeMachineText(assignment.artifactTitle, "Latest work")}
               </h3>
-              {renderDocumentBlocks(preview)}
+              {renderDocumentBlocks(detailPreview)}
             </>
           ) : null}
           {!summary && !assignment.blockedReason && !preview ? (
