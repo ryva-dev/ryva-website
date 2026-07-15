@@ -4208,6 +4208,41 @@ a:focus-visible {
 .ro-decisions { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
 .ro-inline-actions { display: flex; gap: 14px; margin-top: 10px; }
 
+/* ---- Mara Intelligence: one readable commercial decision per brand ---- */
+.ro-intelligence-layout { gap: clamp(36px, 5vw, 72px); }
+.ro-intelligence-notice { margin: 0 0 22px; }
+.ro-intelligence-intro { max-width: 70ch; margin: 0 0 22px; }
+.ro-intelligence-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; overflow: hidden; border: 1px solid var(--line-soft); border-radius: 14px; background: var(--line-soft); }
+.ro-intelligence-metrics > div { display: flex; min-height: 116px; flex-direction: column; justify-content: center; gap: 5px; padding: 20px 22px; background: var(--surface); }
+.ro-intelligence-metrics span, .ro-intelligence-score span { color: var(--faint); font-size: 11px; font-weight: 600; letter-spacing: .055em; text-transform: uppercase; }
+.ro-intelligence-metrics strong { color: var(--ink); font-size: 25px; letter-spacing: -.025em; }
+.ro-intelligence-metrics small { color: var(--muted); line-height: 1.4; }
+.ro-intelligence-opportunities { display: flex; flex-direction: column; gap: 18px; }
+.ro-intelligence-opportunity { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 16px; padding: 24px; background: var(--surface); }
+.ro-intelligence-opportunity.is-now { border-left-color: #2f7a55; }
+.ro-intelligence-opportunity.is-later { border-left-color: #b67a25; }
+.ro-intelligence-opportunity-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.ro-intelligence-opportunity h3 { margin: 0; color: var(--ink); font-size: 21px; letter-spacing: -.02em; }
+.ro-intelligence-score { display: flex; flex-direction: column; align-items: flex-end; flex: 0 0 auto; }
+.ro-intelligence-score strong { color: var(--ink); font-size: 24px; line-height: 1; }
+.ro-intelligence-decision { margin: 16px 0 0; max-width: 68ch; color: var(--ink); font-size: 14px; line-height: 1.6; }
+.ro-intelligence-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; padding: 14px 0; border-block: 1px solid var(--line-soft); }
+.ro-intelligence-facts span { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.ro-intelligence-facts b { display: block; margin-bottom: 4px; color: var(--faint); font-size: 10px; letter-spacing: .05em; text-transform: uppercase; }
+.ro-intelligence-thesis { margin: 18px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.65; }
+.ro-intelligence-contact-review, .ro-intelligence-contact-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 18px; }
+.ro-intelligence-contact-review small { flex: 1 1 240px; }
+.ro-intelligence-contact-actions .ro-field { flex: 1 1 230px; min-width: 0; margin: 0; }
+.ro-intelligence-details { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+.ro-intelligence-details summary { width: fit-content; cursor: pointer; color: var(--ink); font-weight: 600; }
+.ro-intelligence-details p { margin: 10px 0 0; }
+
+@media (max-width: 640px) {
+  .ro-intelligence-metrics { grid-template-columns: 1fr; }
+  .ro-intelligence-facts { grid-template-columns: 1fr; }
+  .ro-intelligence-opportunity { padding: 20px; }
+}
+
 /* ---- worker desk page ---- */
 .ro-worker-desk-page { max-width: none; }
 .ro-desk-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }

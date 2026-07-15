@@ -2360,6 +2360,8 @@ type GrowthOpportunity = {
   decision?: string;
   decisionReason?: string;
   confidence?: number;
+  readiness?: "now" | "watch" | "later";
+  mergedResearchRecords?: number;
   publicBrandId?: string;
   outreachReady?: boolean;
   outreachContact?: { id: string; value: string; contactType: string; source: string } | null;
@@ -2434,6 +2436,7 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [contactDrafts, setContactDrafts] = useState<Record<string, string>>({});
   const [outcome, setOutcome] = useState({ opportunityId: "", revenueAmount: "", contacted: true, responded: false, conceptAccepted: false, hired: false, rehired: false });
@@ -2453,7 +2456,10 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  const confirmContact = async (contactId: string) => {
+  const confirmContact = async (contactId: string, opportunityId: string) => {
+    const actionKey = `confirm:${opportunityId}`;
+    if (actionBusy) return;
+    setActionBusy(actionKey);
     setNotice(null);
     try {
       await officeJson(`/api/office/workers/${workerSlug}/contacts/${contactId}/confirm`, { method: "POST", body: "{}" });
@@ -2461,12 +2467,20 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
       await load();
     } catch (confirmError) {
       setNotice(confirmError instanceof Error ? confirmError.message : "Could not confirm contact.");
+    } finally {
+      setActionBusy(null);
     }
   };
 
   const saveUserContact = async (publicBrandId: string, opportunityId: string) => {
     const email = String(contactDrafts[opportunityId] || "").trim();
-    if (!email) return;
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      setNotice("Enter a complete partnership email before saving.");
+      return;
+    }
+    const actionKey = `save:${opportunityId}`;
+    if (actionBusy) return;
+    setActionBusy(actionKey);
     setNotice(null);
     try {
       await officeJson(`/api/office/workers/${workerSlug}/brands/${publicBrandId}/contacts`, {
@@ -2478,10 +2492,15 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
       await load();
     } catch (saveError) {
       setNotice(saveError instanceof Error ? saveError.message : "Could not save contact.");
+    } finally {
+      setActionBusy(null);
     }
   };
 
-  const discoverContacts = async (publicBrandId: string) => {
+  const discoverContacts = async (publicBrandId: string, opportunityId: string) => {
+    const actionKey = `discover:${opportunityId}`;
+    if (actionBusy) return;
+    setActionBusy(actionKey);
     setNotice(null);
     try {
       const result = await officeJson<{ outreachReady?: boolean; bestContact?: { value?: string } }>(
@@ -2496,6 +2515,8 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
       await load();
     } catch (discoverError) {
       setNotice(discoverError instanceof Error ? discoverError.message : "Contact discovery failed.");
+    } finally {
+      setActionBusy(null);
     }
   };
 
@@ -2527,70 +2548,62 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
   const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
   return (
-    <div className="ro-review-layout">
+    <div className="ro-review-layout ro-intelligence-layout">
       <div>
+        {notice ? <p className="ro-review-notice ro-intelligence-notice" role="status">{notice}</p> : null}
         <section className="ro-sec ro-sec-lead">
           <div className="ro-sec-head"><h2>Your pipeline</h2><span className="ro-sec-n">Creator revenue</span></div>
           <p className="ro-blank" style={{ marginBottom: 12 }}>
             Mara updates this from inbox replies, payment signals, and approved sends. Use this page to confirm contacts and review creative feedback — day-to-day money decisions live on Today and Reviews.
           </p>
-          <div className="ro-plain-list">
-            <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.revenueInfluenced || 0)}</strong><span>{(intelligence.metrics.revenueInfluenced || 0) === 0 ? "No attributed revenue yet — normal until deals close through tracked opportunities" : "Recorded revenue connected to Mara's opportunities"}</span></div>
-            <div className="ro-plain-row"><strong>{money.format(intelligence.metrics.averageDealValue || 0)} avg deal</strong><span>{intelligence.metrics.deals || 0} deals · {intelligence.metrics.repeatDeals || 0} repeat · {intelligence.metrics.opportunitiesTracked || 0} outcomes tracked</span></div>
-            <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.positiveResponseRate || 0) * 100)}% positive-response rate</strong><span>{intelligence.metrics.contacted || 0} contacted · {intelligence.metrics.responded || 0} responded</span></div>
-            <div className="ro-plain-row"><strong>{Math.round((intelligence.metrics.pitchToDealConversion || 0) * 100)}% pitch-to-deal conversion</strong><span>{intelligence.metrics.conceptsAccepted || 0} concepts accepted · {intelligence.metrics.qualifiedOpportunityCount || 0} qualified opportunities</span></div>
+          <div className="ro-intelligence-metrics">
+            <div><span>Revenue connected</span><strong>{money.format(intelligence.metrics.revenueInfluenced || 0)}</strong><small>{(intelligence.metrics.revenueInfluenced || 0) === 0 ? "No closed revenue yet" : "From tracked opportunities"}</small></div>
+            <div><span>Average deal</span><strong>{money.format(intelligence.metrics.averageDealValue || 0)}</strong><small>{intelligence.metrics.deals || 0} won · {intelligence.metrics.repeatDeals || 0} repeat</small></div>
+            <div><span>Positive replies</span><strong>{Math.round((intelligence.metrics.positiveResponseRate || 0) * 100)}%</strong><small>{intelligence.metrics.responded || 0} from {intelligence.metrics.contacted || 0} contacts</small></div>
+            <div><span>Pitch to deal</span><strong>{Math.round((intelligence.metrics.pitchToDealConversion || 0) * 100)}%</strong><small>{intelligence.metrics.qualifiedOpportunityCount || 0} qualified</small></div>
           </div>
         </section>
 
         <section className="ro-sec">
-          <div className="ro-sec-head"><h2>Ranked opportunities</h2><span className="ro-sec-n">Creator-specific</span></div>
+          <div className="ro-sec-head"><h2>Brand decisions</h2><span className="ro-sec-n">One current read per brand</span></div>
+          <p className="ro-blank ro-intelligence-intro">Fit measures whether a brand makes sense for you. Readiness is Mara's more cautious call on whether it can realistically produce revenue now.</p>
           {intelligence.opportunities.length ? (
-            <div className="ro-plain-list">
+            <div className="ro-intelligence-opportunities">
               {intelligence.opportunities.slice(0, 8).map((item) => (
-                <div className="ro-plain-row" key={item.id}>
-                  <strong>
-                    {item.brandName} · {item.scoreTotal}/100 · {sentenceCase(String(item.status || "candidate").replace(/_/g, " "))}
-                    {item.decision ? ` · ${sentenceCase(String(item.decision).replace(/_/g, " "))}` : ""}
-                  </strong>
-                  <p className="ro-handbook-meta" style={{ marginTop: 4 }}>{opportunityStageStrip(item.status)}</p>
-                  <p>
+                <article className={`ro-intelligence-opportunity is-${item.readiness || "watch"}`} key={item.id}>
+                  <div className="ro-intelligence-opportunity-head">
+                    <div><span className="ro-alabel">{item.readiness === "now" ? "Revenue move now" : item.readiness === "later" ? "Build toward — not now" : "Watch and verify"}</span><h3>{item.brandName}</h3></div>
+                    <div className="ro-intelligence-score"><strong>{item.scoreTotal}</strong><span>fit / 100</span></div>
+                  </div>
+                  <p className="ro-intelligence-decision">{item.decisionReason || "Mara is still verifying whether this deserves your time."}</p>
+                  <div className="ro-intelligence-facts">
+                    <span><b>Readiness</b>{sentenceCase(String(item.decision || "monitor").replace(/_/g, " "))}</span>
+                    <span><b>Confidence</b>{item.confidence ?? item.opportunityPackage?.confidence ?? 0}%</span>
+                    <span><b>Contact</b>{item.outreachReady ? "Ready" : item.contacts?.length ? "Needs confirmation" : "Not found"}</span>
+                  </div>
+                  <p className="ro-intelligence-thesis">
                     {opportunityThesisText(item.opportunityPackage) ||
                       item.opportunityPackage?.creativeGap ||
                       "Opportunity thesis still needs evidence."}
                   </p>
-                  {item.opportunityPackage?.recommendedConceptTerritory?.messagingAngle ? (
-                    <p>Concept: {item.opportunityPackage.recommendedConceptTerritory.messagingAngle}</p>
-                  ) : null}
-                  <div className="ro-handbook-meta">
-                    <span>Gap: {item.opportunityPackage?.creativeGap || opportunityThesisText(item.opportunityPackage) || "Not established"}</span>
-                    <span>Confidence: {item.confidence ?? item.opportunityPackage?.confidence ?? 0}%</span>
-                    <span>
-                      {item.outreachReady
-                        ? `Contact ready: ${item.outreachContact?.value}`
-                        : item.contacts?.length
-                          ? "Contacts found — none sendable yet"
-                          : "No outreach-ready email"}
-                    </span>
-                  </div>
-                  {item.decisionReason ? <small>Decision: {item.decisionReason}</small> : null}
                   {(item.contacts || []).filter((contact) => contact.inferred).slice(0, 1).map((contact) => (
-                    <div key={contact.id} style={{ marginTop: 8 }}>
-                      <small>Inferred contact needs your confirmation: {contact.value}</small>
+                    <div className="ro-intelligence-contact-review" key={contact.id}>
+                      <small>Confirm before Mara can use {contact.value}</small>
                       <button
                         className="r-btn r-btn-ghost"
                         type="button"
-                        style={{ marginLeft: 8 }}
-                        onClick={() => void confirmContact(contact.id)}
+                        disabled={Boolean(actionBusy)}
+                        onClick={() => void confirmContact(contact.id, item.id)}
                       >
-                        Confirm for outreach
+                        {actionBusy === `confirm:${item.id}` ? "Confirming…" : "Confirm contact"}
                       </button>
                     </div>
                   ))}
                   {item.publicBrandId ? (() => {
                     const publicBrandId = item.publicBrandId;
                     return (
-                      <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <label className="ro-field" style={{ minWidth: 180 }}>
+                      <div className="ro-intelligence-contact-actions">
+                        <label className="ro-field">
                           <span>Partnership email</span>
                           <input
                             type="email"
@@ -2599,19 +2612,23 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
                             onChange={(event) => setContactDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
                           />
                         </label>
-                        <button className="r-btn r-btn-ghost" type="button" onClick={() => void saveUserContact(publicBrandId, item.id)}>
-                          Save contact
+                        <button className="r-btn r-btn-ghost" type="button" disabled={Boolean(actionBusy)} onClick={() => void saveUserContact(publicBrandId, item.id)}>
+                          {actionBusy === `save:${item.id}` ? "Saving…" : "Save contact"}
                         </button>
-                        <button className="r-btn r-btn-ghost" type="button" onClick={() => void discoverContacts(publicBrandId)}>
-                          Find public contacts
+                        <button className="r-btn r-btn-ghost" type="button" disabled={Boolean(actionBusy)} onClick={() => void discoverContacts(publicBrandId, item.id)}>
+                          {actionBusy === `discover:${item.id}` ? "Searching…" : "Find public contacts"}
                         </button>
                       </div>
                     );
                   })() : null}
-                  {(item.evidence || []).slice(0, 2).map((evidence, index) => (
-                    <small key={`${item.id}-${index}`}>{sentenceCase(evidence.basis || evidence.kind || "evidence")}: {evidence.claim}</small>
-                  ))}
-                </div>
+                  <details className="ro-intelligence-details">
+                    <summary>Why Mara thinks this</summary>
+                    <p className="ro-handbook-meta">{opportunityStageStrip(item.status)}</p>
+                    {item.opportunityPackage?.recommendedConceptTerritory?.messagingAngle ? <p><b>Possible concept:</b> {item.opportunityPackage.recommendedConceptTerritory.messagingAngle}</p> : null}
+                    {(item.evidence || []).slice(0, 3).map((evidence, index) => <p key={`${item.id}-${index}`}><b>{sentenceCase(evidence.basis || evidence.kind || "evidence")}:</b> {evidence.claim}</p>)}
+                    {item.mergedResearchRecords && item.mergedResearchRecords > 1 ? <small>Mara combined {item.mergedResearchRecords} older research records into this single current read.</small> : null}
+                  </details>
+                </article>
               ))}
             </div>
           ) : <p className="ro-blank">No evidence-qualified opportunities yet. Mara will not invent them.</p>}
@@ -2653,7 +2670,6 @@ function WorkerIntelligenceView({ workerSlug }: { workerSlug: string }) {
             <label className="ro-field"><span>Revenue influenced (USD)</span><input min="0" step="0.01" type="number" value={outcome.revenueAmount} onChange={(event) => setOutcome((current) => ({ ...current, revenueAmount: event.target.value }))} /></label>
             {(["contacted", "responded", "conceptAccepted", "hired", "rehired"] as const).map((key) => <label className="ro-check" key={key}><input type="checkbox" checked={outcome[key]} onChange={(event) => setOutcome((current) => ({ ...current, [key]: event.target.checked }))} /><span>{sentenceCase(key.replace(/([A-Z])/g, " $1"))}</span></label>)}
             <button className="r-btn r-btn-accent" type="button" disabled={saving} onClick={() => void saveOutcome()}>{saving ? "Saving…" : "Save correction"}</button>
-            {notice ? <p className="ro-review-notice">{notice}</p> : null}
           </details>
         </section>
       </aside>

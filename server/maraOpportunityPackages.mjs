@@ -66,7 +66,9 @@ export function buildOpportunityPackageV2({
     confidence: scoreDetail?.confidence ?? 0,
     riskScore: scoreDetail?.dimensions?.riskAdjustment?.score,
     hasContact: Boolean(usableContact),
-    hasObservedSource: observed.some((item) => item.sourceUrl)
+    hasObservedSource: observed.some((item) => item.sourceUrl),
+    creatorProfile,
+    brandName: brand?.brand_name || brand?.brandName
   });
 
   return {

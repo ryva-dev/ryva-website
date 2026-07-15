@@ -14,6 +14,66 @@ export const DIMENSION_WEIGHTS = Object.freeze({
   riskAdjustment: 0.1
 });
 
+function normalizedBrandName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b(inc|llc|ltd|limited|company|co|corp|corporation)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function isEarlyStageCreator(creatorStage) {
+  const stage = String(creatorStage || "").toLowerCase();
+  if (!stage.trim()) return false;
+  return /\b(brand[ -]?new|beginner|just start(?:ing|ed)?|starting out|no (?:paid )?(?:deal|client|win)s?|zero (?:deal|client|win)s?|haven'?t (?:landed|booked|worked)|not (?:landed|booked|paid)|first (?:deal|client))\b/.test(stage);
+}
+
+export function isDesiredBrand(brandName, desiredBrands = []) {
+  const brand = normalizedBrandName(brandName);
+  if (!brand) return false;
+  return (Array.isArray(desiredBrands) ? desiredBrands : []).some((entry) => {
+    const desired = normalizedBrandName(entry);
+    return desired === brand || (brand.length >= 4 && desired.includes(brand));
+  });
+}
+
+/**
+ * A fit score is not permission to spend the creator's time pursuing an implausible target.
+ * Strong commercial signals override this early-stage caution.
+ */
+export function applyCreatorStageReadiness({
+  creatorProfile,
+  brandName,
+  decision,
+  decisionReason,
+  status,
+  lifecycleStage
+} = {}) {
+  const advanced = new Set([
+    "active", "responded", "concept_accepted", "won", "won_repeat", "reply_received",
+    "negotiating", "contracted", "in_production", "submitted", "payment_due", "paid"
+  ]);
+  const hasCommercialMomentum = advanced.has(String(status || "").toLowerCase())
+    || advanced.has(String(lifecycleStage || "").toLowerCase());
+  const earlyStage = isEarlyStageCreator(creatorProfile?.business?.creatorStage);
+  const aspirational = isDesiredBrand(brandName, creatorProfile?.business?.desiredBrands);
+
+  if (earlyStage && aspirational && !hasCommercialMomentum) {
+    return {
+      decision: "build_toward",
+      decisionReason: "This is a dream brand, but it is not the most realistic next revenue move at your current stage. Build proof with reachable brands first, then reassess.",
+      pursueNow: false,
+      readiness: "later"
+    };
+  }
+  return {
+    decision: decision || "monitor",
+    decisionReason: decisionReason || "Mara is still collecting enough evidence to make a reliable recommendation.",
+    pursueNow: decision === "pursue" || hasCommercialMomentum,
+    readiness: decision === "pursue" || hasCommercialMomentum ? "now" : "watch"
+  };
+}
+
 function clamp(value) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, Math.min(100, number)) : 0;
@@ -126,7 +186,18 @@ export function buildDimensionFromEvidence(evidenceItems = [], { preferKinds = [
   };
 }
 
-export function decideOpportunityAction({ total, confidence, riskScore, hasContact, hasObservedSource }) {
+export function decideOpportunityAction({ total, confidence, riskScore, hasContact, hasObservedSource, creatorProfile, brandName, status, lifecycleStage }) {
+  const readiness = applyCreatorStageReadiness({
+    creatorProfile,
+    brandName,
+    decision: "pursue",
+    decisionReason: "Qualified opportunity.",
+    status,
+    lifecycleStage
+  });
+  if (readiness.decision === "build_toward") {
+    return { decision: readiness.decision, reason: readiness.decisionReason };
+  }
   if (riskScore != null && riskScore < 35) {
     return { decision: "avoid_pending_verification", reason: "Risk signals require verification before outreach." };
   }

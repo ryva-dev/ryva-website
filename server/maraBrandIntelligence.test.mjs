@@ -4,12 +4,12 @@ import Database from "better-sqlite3";
 import { wrapSqliteHandle } from "./dataStore.mjs";
 import { initMaraIntelligence } from "./maraIntelligence.mjs";
 import { initMaraBrandArchitecture, savePublicBrand, saveTenantEvidence, classifyBrandEntity } from "./maraBrandCanonical.mjs";
-import { scoreOpportunityDimensions, SCORE_VERSION } from "./maraOpportunityScoring.mjs";
+import { applyCreatorStageReadiness, decideOpportunityAction, scoreOpportunityDimensions, SCORE_VERSION } from "./maraOpportunityScoring.mjs";
 import { createOrUpdateOpportunityFromResearch } from "./maraOpportunityPackages.mjs";
 import { upsertBrandContact, assessContactUsability, CONTACT_TYPES } from "./maraContactDiscovery.mjs";
 import { buildConceptFromGap, conceptsAreNearDuplicates, saveConceptIfNovel } from "./maraConceptEngine.mjs";
 import { startOutreachSequence, stopOutreachSequence, prepareDueFollowUpDraft, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
-import { decideOpportunityAction } from "./maraOpportunityScoring.mjs";
+import { dedupeBrandOpportunities } from "./maraIntelligence.mjs";
 import { sanitizeUntrustedText } from "./maraEvidence.mjs";
 import { detectVideoMime, validateVideoUpload, processVideoAnalysisJob, registerMediaAsset, enqueueVideoAnalysis } from "./maraMediaPipeline.mjs";
 import { initJobQueue, claimJobs, completeJob } from "./jobQueue.mjs";
@@ -57,6 +57,41 @@ test("canonical scoring separates score and confidence and versions results", ()
   assert.ok(scored.total > 0);
   assert.ok(scored.confidence < 70);
   assert.equal(scored.dimensions.outreachFeasibility.unknown, true);
+});
+
+test("brand identity reuses a name-keyed record when later research adds its domain", async () => {
+  const store = makeStore();
+  await initMaraIntelligence(store);
+  await initMaraBrandArchitecture(store);
+  const first = await savePublicBrand(store, { brandName: "Gymshark" });
+  const second = await savePublicBrand(store, { brandName: "Gymshark", website: "https://www.gymshark.com/collections/new" });
+  assert.equal(second.id, first.id);
+  assert.equal((await store.query(`SELECT id FROM mara_public_brands WHERE lower(brand_name) = 'gymshark'`)).length, 1);
+});
+
+test("duplicate brand research collapses to one current commercial read", () => {
+  const rows = dedupeBrandOpportunities([
+    { id: "old-name", brandName: "Gymshark", scoreTotal: 84, status: "candidate", updatedAt: "2026-07-10", evidence: [{ kind: "observed", claim: "Old read" }] },
+    { id: "current-domain", brandName: "Gymshark Ltd", website: "https://gymshark.com", scoreTotal: 61, status: "qualified", updatedAt: "2026-07-15", evidence: [{ kind: "observed", claim: "Current read" }] }
+  ]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "current-domain");
+  assert.equal(rows[0].mergedResearchRecords, 2);
+  assert.equal(rows[0].evidence.length, 2);
+});
+
+test("a beginner's dream brand is build-toward, not an immediate revenue target", () => {
+  const creatorProfile = { business: { creatorStage: "Brand new, no paid deals yet", desiredBrands: ["Gymshark"] } };
+  const gated = applyCreatorStageReadiness({ creatorProfile, brandName: "Gymshark", decision: "pursue", status: "qualified" });
+  assert.equal(gated.decision, "build_toward");
+  assert.equal(gated.pursueNow, false);
+
+  const active = applyCreatorStageReadiness({ creatorProfile, brandName: "Gymshark", decision: "pursue", status: "active" });
+  assert.equal(active.pursueNow, true);
+  assert.equal(active.decision, "pursue");
+
+  const reachable = applyCreatorStageReadiness({ creatorProfile, brandName: "Local Lift Co", decision: "pursue", status: "qualified" });
+  assert.equal(reachable.pursueNow, true);
 });
 
 test("inferred contacts are not outreach-ready until confirmed", () => {

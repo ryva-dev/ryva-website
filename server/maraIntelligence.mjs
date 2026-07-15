@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { applyCreatorStageReadiness } from "./maraOpportunityScoring.mjs";
 
 export const EVIDENCE_BASIS = new Set(["observed", "inferred", "hypothesis", "creator_preference", "industry_benchmark"]);
 
@@ -369,7 +370,8 @@ export async function applyCommercialOutcomeToOpportunity(store, outcome) {
 /** Brands Mara should pitch next — high score, not cold/lost, prefer qualified+. */
 export async function listTopPitchTargets(store, userId, workerId, limit = 5) {
   const rows = await store.query(
-    `SELECT o.id, o.status, o.score_total AS "scoreTotal", o.scores_json AS "scoresJson",
+    `SELECT o.id, o.status, o.lifecycle_stage AS "lifecycleStage", o.decision, o.decision_reason AS "decisionReason",
+            o.score_total AS "scoreTotal", o.scores_json AS "scoresJson", o.updated_at AS "updatedAt",
             COALESCE(pb.brand_name, b.brand_name) AS "brandName",
             COALESCE(pb.website, b.website) AS website,
             COALESCE(o.public_brand_id, o.brand_profile_id) AS "brandProfileId",
@@ -384,15 +386,19 @@ export async function listTopPitchTargets(store, userId, workerId, limit = 5) {
        CASE o.status WHEN 'qualified' THEN 0 WHEN 'active' THEN 1 WHEN 'responded' THEN 2 WHEN 'candidate' THEN 3 ELSE 4 END,
        o.score_total DESC, o.updated_at DESC
      LIMIT ?`,
-    userId, workerId, Math.max(1, Math.min(20, Number(limit) || 5))
+    userId, workerId, 60
   );
   const parse = (value, fallback) => {
     if (value && typeof value === "object") return value;
     try { return JSON.parse(value); } catch { return fallback; }
   };
   const { findBestOutreachContact } = await import("./maraContactDiscovery.mjs");
+  const { getCreatorIntelligenceProfile } = await import("./maraCreatorProfile.mjs");
+  const creatorProfile = await getCreatorIntelligenceProfile(store, userId, workerId);
   const enriched = [];
-  for (const row of rows) {
+  for (const row of dedupeBrandOpportunities(rows)) {
+    const readiness = applyCreatorStageReadiness({ ...row, creatorProfile });
+    if (!readiness.pursueNow) continue;
     const publicBrandId = row.publicBrandId || row.brandProfileId;
     let outreachContact = null;
     if (publicBrandId) {
@@ -415,7 +421,54 @@ export async function listTopPitchTargets(store, userId, workerId, limit = 5) {
   }
   return enriched.sort(
     (left, right) => Number(Boolean(right.outreachReady)) - Number(Boolean(left.outreachReady))
-  );
+  ).slice(0, Math.max(1, Math.min(20, Number(limit) || 5)));
+}
+
+function brandNameKey(value) {
+  return String(value || "").toLowerCase()
+    .replace(/\b(inc|llc|ltd|limited|company|co|corp|corporation)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function brandDomainKey(value) {
+  try { return new URL(String(value || "")).hostname.toLowerCase().replace(/^www\./, ""); }
+  catch { return ""; }
+}
+
+/** Collapses legacy name-keyed and canonical domain-keyed research into one brand decision. */
+export function dedupeBrandOpportunities(rows = []) {
+  const groups = [];
+  for (const row of rows) {
+    const name = brandNameKey(row.brandName);
+    const domain = brandDomainKey(row.website);
+    let group = groups.find((candidate) => (name && candidate.names.has(name)) || (domain && candidate.domains.has(domain)));
+    if (!group) {
+      group = { names: new Set(), domains: new Set(), rows: [] };
+      groups.push(group);
+    }
+    if (name) group.names.add(name);
+    if (domain) group.domains.add(domain);
+    group.rows.push(row);
+  }
+  const stageRank = (row) => {
+    const value = String(row.lifecycleStage || row.status || "").toLowerCase();
+    return ["paid", "payment_due", "in_production", "contracted", "negotiating", "responded", "active", "qualified", "candidate", "researching", "discovered"].indexOf(value);
+  };
+  return groups.map((group) => {
+    const ordered = [...group.rows].sort((left, right) => {
+      const leftRank = stageRank(left); const rightRank = stageRank(right);
+      if (leftRank !== rightRank) return (leftRank < 0 ? 99 : leftRank) - (rightRank < 0 ? 99 : rightRank);
+      return String(right.updatedAt || "").localeCompare(String(left.updatedAt || ""));
+    });
+    const primary = ordered[0];
+    const evidence = ordered.flatMap((row) => Array.isArray(row.evidence) ? row.evidence : []);
+    return {
+      ...primary,
+      evidence: [...new Map(evidence.map((item) => [`${item?.kind || item?.basis}:${item?.claim}`, item])).values()],
+      sourceBrandIds: [...new Set(ordered.flatMap((row) => [row.publicBrandId, row.brandProfileId]).filter(Boolean))],
+      mergedResearchRecords: ordered.length
+    };
+  });
 }
 
 function validateTimestamp(value) {
@@ -526,6 +579,7 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
     `SELECT o.id, o.status, o.score_total AS "scoreTotal", o.scores_json AS "scoresJson",
             o.opportunity_package_json AS "opportunityPackageJson", o.evidence_json AS "evidenceJson",
             o.decision, o.decision_reason AS "decisionReason", o.confidence,
+            o.lifecycle_stage AS "lifecycleStage", o.updated_at AS "updatedAt",
             COALESCE(o.public_brand_id, o.brand_profile_id) AS "publicBrandId",
             COALESCE(pb.brand_name, b.brand_name) AS "brandName",
             COALESCE(pb.website, b.website) AS website,
@@ -541,24 +595,37 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
     if (value && typeof value === "object") return value;
     try { return JSON.parse(value); } catch { return fallback; }
   };
+  const parsed = opportunities.map((row) => ({
+    ...row,
+    scores: parse(row.scoresJson, {}),
+    opportunityPackage: parse(row.opportunityPackageJson, {}),
+    evidence: parse(row.evidenceJson, [])
+  }));
   const { findBestOutreachContact, listBrandContacts } = await import("./maraContactDiscovery.mjs");
+  const { getCreatorIntelligenceProfile } = await import("./maraCreatorProfile.mjs");
+  const creatorProfile = await getCreatorIntelligenceProfile(store, userId, workerId);
   const enriched = [];
-  for (const row of opportunities) {
+  for (const row of dedupeBrandOpportunities(parsed)) {
     let outreachContact = null;
     let contacts = [];
-    if (row.publicBrandId) {
+    const brandIds = row.sourceBrandIds?.length ? row.sourceBrandIds : [row.publicBrandId].filter(Boolean);
+    if (brandIds.length) {
       try {
-        contacts = await listBrandContacts(store, userId, workerId, row.publicBrandId);
-        outreachContact = await findBestOutreachContact(store, userId, workerId, row.publicBrandId);
+        for (const brandId of brandIds) {
+          contacts.push(...await listBrandContacts(store, userId, workerId, brandId));
+          const candidate = await findBestOutreachContact(store, userId, workerId, brandId);
+          if (!outreachContact || candidate?.value?.includes("@")) outreachContact = candidate || outreachContact;
+        }
       } catch {
         contacts = [];
       }
     }
+    const readiness = applyCreatorStageReadiness({ ...row, creatorProfile });
     enriched.push({
       ...row,
-      scores: parse(row.scoresJson, {}),
-      opportunityPackage: parse(row.opportunityPackageJson, {}),
-      evidence: parse(row.evidenceJson, []),
+      decision: readiness.decision,
+      decisionReason: readiness.decisionReason,
+      readiness: readiness.readiness,
       outreachReady: Boolean(outreachContact?.value?.includes("@")),
       outreachContact: outreachContact
         ? {

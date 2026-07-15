@@ -162,6 +162,10 @@ export function mergeResearchLifecycle({
     return current === "discovered" || current === "researching" ? "disqualified" : current;
   }
 
+  if (decision === "build_toward") {
+    return current === "discovered" ? "researching" : current;
+  }
+
   if (decision === "pursue") {
     if (hasOutreachContact) return "contact_found";
     return "contact_needed";

@@ -177,8 +177,24 @@ export async function savePublicBrand(store, input) {
     throw error;
   }
   const now = new Date().toISOString();
-  const brandKey = String(input.brandKey || normalizeBrandKey(input.canonicalDomain || input.brandName));
-  const id = input.id || randomUUID();
+  const canonicalDomain = classification.canonicalDomain || extractCanonicalDomain(input.website) || null;
+  let brandKey = String(input.brandKey || normalizeBrandKey(canonicalDomain || input.brandName));
+  const existingIdentity = await store.queryOne(
+    `SELECT id, brand_key AS "brandKey" FROM mara_public_brands
+     WHERE brand_key = ?
+        OR (? IS NOT NULL AND canonical_domain = ?)
+        OR lower(brand_name) = lower(?)
+     ORDER BY CASE WHEN brand_key = ? THEN 0 WHEN canonical_domain = ? THEN 1 ELSE 2 END
+     LIMIT 1`,
+    brandKey,
+    canonicalDomain,
+    canonicalDomain,
+    String(input.brandName),
+    brandKey,
+    canonicalDomain
+  );
+  if (existingIdentity?.brandKey) brandKey = existingIdentity.brandKey;
+  const id = existingIdentity?.id || input.id || randomUUID();
   const publicProfile = {
     description: input.description || null,
     productCategories: input.productCategories || [],
@@ -208,7 +224,7 @@ export async function savePublicBrand(store, input) {
     id,
     brandKey,
     String(input.brandName),
-    classification.canonicalDomain || extractCanonicalDomain(input.website) || null,
+    canonicalDomain,
     input.website || null,
     input.parentCompany || null,
     JSON.stringify(input.alternateNames || []),

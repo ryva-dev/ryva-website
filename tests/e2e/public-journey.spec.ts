@@ -110,6 +110,12 @@ test("a fresh customer can onboard, hire Mara, and reach the office", async ({ p
   await expect(page.getByText("Revenue journey", { exact: true })).toBeVisible();
   await expect(page.getByText(/Connect Gmail|Finish onboarding and connect Gmail/i).first()).toBeVisible();
 
+  await page.goto("/#app/office/workers/mara-vale/intelligence");
+  await expect(page.getByRole("heading", { name: "Your pipeline" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Brand decisions" })).toBeVisible();
+  await expect(page.getByText(/one current read per brand/i)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(page.viewportSize()!.width);
+
   const cleanup = await page.request.post("/api/account/delete", { data: { password } });
   expect(cleanup.ok(), await cleanup.text()).toBeTruthy();
 });
