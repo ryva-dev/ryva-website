@@ -353,6 +353,7 @@ test("a creator answer resumes the matching blocked assignment instead of anothe
   const answer = 'I\'m answering what you need for "Build this week\'s schedule". My answer: I work Monday through Friday until 5, can film Saturday morning, and review at 7 PM.';
 
   assert.equal(findBlockedMaraTaskToResume([otherBlockedTask, blockedTask], answer)?.id, "schedule-1");
+  assert.equal(findBlockedMaraTaskToResume([blockedTask], "Five hours total this week.")?.id, "schedule-1");
   assert.equal(findBlockedMaraTaskToResume([otherBlockedTask], answer), null);
 });
 

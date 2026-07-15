@@ -544,7 +544,7 @@ export function findBlockedMaraTaskToResume(openTasks = [], triggerText = "") {
       return normalizeForComparison(task.title) === normalizeForComparison(answeredTaskTitle);
     }
     return task.taskType === "weekly_schedule" &&
-      /\b(work|job|shift|free|available|availability|film|filming|review|commitment|weekend|morning|afternoon|evening|night)\b/i.test(text);
+      /\b(work|job|shift|free|available|availability|hours?|capacity|film|filming|review|approve|approval|commitment|location|home|studio|weekend|morning|afternoon|evening|night)\b/i.test(text);
   }) || null;
 }
 
