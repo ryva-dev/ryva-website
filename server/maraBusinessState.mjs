@@ -3,6 +3,7 @@ import { ensureMaraRuntimeTables, json } from "./maraRuntimeStorage.mjs";
 
 const EMPTY = Object.freeze({
   schemaVersion: 1, commercialObjective: "establish a credible path to creator income", bottleneck: "insufficient evidence",
+  creatorIdentity: { displayName: "the creator", role: "creator Mara works for" },
   activeOpportunities: [], unsentOutreachBacklog: [], repliesAndFollowUps: [], upcomingDeadlines: [],
   portfolio: { condition: "unknown", evidence: [], lastValidatedAt: null },
   readiness: { level: "unknown", blockers: [], confidence: 0 },

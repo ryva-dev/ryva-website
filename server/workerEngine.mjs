@@ -4464,6 +4464,7 @@ export async function runMaraAutonomyCycle({
   // user-facing cycle summary.
   const phase2Flags = getMaraPhase2Flags();
   if (phase2Flags.shadowPlanner) {
+    const shadowAccountContext = typeof readAccountContext === "function" ? await readAccountContext(userId) : null;
     await runMaraShadowPlanning({
       store,
       userId,
@@ -4473,8 +4474,13 @@ export async function runMaraAutonomyCycle({
       permissions,
       availableTools: ["internal_read", "internal_task_create", ...(permissions.canRunResearch ? ["research"] : [])],
       budget: { maximumPlanningCostUsd: Number(process.env.MARA_SHADOW_MAX_PLAN_COST_USD || .15) },
+      timeZone: String(process.env.APP_TIME_ZONE || "America/New_York"),
       existingScheduledWork: plannerContext.runnableApprovedTasks || [],
       seedState: {
+        creatorIdentity: {
+          displayName: String(shadowAccountContext?.name || shadowAccountContext?.brandName || "the creator"),
+          role: "creator Mara works for"
+        },
         commercialObjective: "make meaningful progress toward legitimate creator income",
         bottleneck: plannerContext.blockers?.[0] || "requires premium diagnosis",
         activeOpportunities: (plannerContext.growthPitchTargets || []).filter((item) => !["candidate", "cold", "lost"].includes(item.status)),

@@ -8,13 +8,26 @@ const URGENCY = new Set(["critical", "high", "normal", "low"]);
 const TIERS = new Set(["code", "small", "mid", "premium"]);
 
 export function validateShadowPlannerInput(input) {
-  for (const field of ["businessState", "meaningfulRecentEvents", "candidateWork", "playbooks", "availableTools", "permissions", "budget", "existingScheduledWork"]) {
+  for (const field of ["planningTime", "timeZone", "businessState", "meaningfulRecentEvents", "candidateWork", "playbooks", "availableTools", "permissions", "budget", "existingScheduledWork"]) {
     if (input?.[field] == null) throw new Error(`Shadow planner input missing ${field}.`);
   }
   return input;
 }
 
-export function validateShadowPlan(plan) {
+export function validateShadowPlan(plan, plannerInput = {}) {
+  const { planningTime } = plannerInput;
+  const explicitlyProvidedDates = new Set((JSON.stringify({
+    planningTime: plannerInput.planningTime,
+    businessState: plannerInput.businessState,
+    meaningfulRecentEvents: plannerInput.meaningfulRecentEvents,
+    candidateWork: plannerInput.candidateWork,
+    existingScheduledWork: plannerInput.existingScheduledWork
+  }).match(/\d{4}-\d{2}-\d{2}/g) || []));
+  const planningDay = new Date(String(planningTime).slice(0, 10) + "T00:00:00Z").getTime();
+  const futureAnchors = [...explicitlyProvidedDates]
+    .map((date) => new Date(`${date}T23:59:59Z`).getTime())
+    .filter((value) => Number.isFinite(value) && value >= planningDay);
+  const latestProvidedFutureDate = futureAnchors.length ? Math.max(...futureAnchors) : null;
   if (!plan || typeof plan !== "object") throw new Error("Shadow plan must be an object.");
   for (const field of ["situationSummary", "currentBottleneck", "emergingNeeds", "workToCreate", "workToSkip", "questionsForUser"]) {
     if (plan[field] == null) throw new Error(`Shadow plan missing ${field}.`);
@@ -25,9 +38,24 @@ export function validateShadowPlan(plan) {
       if (work[field] == null) throw new Error(`Planned work missing ${field}.`);
     }
     if (!OWNERS.has(work.owner) || !URGENCY.has(work.urgency) || !TIERS.has(work.executionModelTier)) throw new Error("Planned work contains an invalid enum.");
+    if (work.owner === "mara" && Number(work.creatorEffortMinutes) !== 0) throw new Error("Mara-owned work cannot hide creator effort; create a separate creator-owned task.");
     if (typeof work.confidence !== "number" || work.confidence < 0 || work.confidence > 1) throw new Error("Planned work confidence must be 0..1.");
     if (!Array.isArray(work.sourceCandidateTypes) || !Array.isArray(work.dependencies) || !Array.isArray(work.evidence)) throw new Error("Planned work source candidates, dependencies, and evidence must be arrays.");
     if (/send (an? )?(email|message)|create gmail draft/i.test(`${work.title} ${work.completionCondition}`)) throw new Error("Shadow plan attempted prohibited external execution.");
+    if (work.scheduledTime) {
+      const scheduled = new Date(work.scheduledTime).getTime();
+      const plannedAt = new Date(planningTime).getTime();
+      if (!Number.isFinite(scheduled) || scheduled < plannedAt) throw new Error("Planned work contains an invalid or past scheduledTime.");
+    }
+    for (const mentionedDate of String(work.schedulingWindow).match(/\d{4}-\d{2}-\d{2}/g) || []) {
+      const mentionedTime = new Date(`${mentionedDate}T12:00:00Z`).getTime();
+      const isVerifiedIntermediateDate = Number.isFinite(mentionedTime) && latestProvidedFutureDate != null
+        && mentionedTime >= planningDay && mentionedTime <= latestProvidedFutureDate;
+      if (!explicitlyProvidedDates.has(mentionedDate) && !isVerifiedIntermediateDate) {
+        work.schedulingWindow = String(work.schedulingWindow).replace(mentionedDate, "").replace(/\s{2,}/g, " ").trim();
+        work.scheduleNormalizedByCode = true;
+      }
+    }
   }
   return { schemaVersion: MARA_SHADOW_PLAN_SCHEMA_VERSION, ...plan };
 }
@@ -39,6 +67,7 @@ function systemPrompt(playbooks) {
     "Different states must yield different work. Skip unnecessary work. Portfolio work requires a demonstrated gap.",
     "Mara may create and schedule internal work but never sends external communication and never creates Gmail drafts.",
     "The creator owns sends and consequential approvals. Add anticipatory work only with evidence.",
+    "Use an exact scheduledTime only when input contains a real explicit future calendar slot. Otherwise use null and reuse relative availability labels such as 'next Sunday 14:00–16:00'. Never calculate or invent calendar dates; code owns exact calendar reliability.",
     "Return JSON only, exactly matching the requested structure.",
     ...playbooks.map((p) => `PLAYBOOK ${p.metadata.id}@${p.metadata.version}\n${p.content}`)
   ].join("\n\n");
@@ -47,6 +76,8 @@ function systemPrompt(playbooks) {
 function userPrompt(input) {
   return JSON.stringify({
     businessState: input.businessState,
+    planningTime: input.planningTime,
+    timeZone: input.timeZone,
     meaningfulRecentEvents: input.meaningfulRecentEvents,
     candidateWork: input.candidateWork,
     availableTools: input.availableTools,
@@ -73,14 +104,21 @@ export async function planMaraInShadow(input, { fetchImpl = globalThis.fetch, mo
   const started = Date.now();
   if (planningModel) {
     const result = await planningModel(input);
-    return { plan: validateShadowPlan(result.plan || result), provider: result.provider || "injected", model: result.model || selectedModel, usage: result.usage || {}, latencyMs: Date.now() - started };
+    return { plan: validateShadowPlan(result.plan || result, input), provider: result.provider || "injected", model: result.model || selectedModel, usage: result.usage || {}, latencyMs: Date.now() - started };
   }
   const text = await createAnthropicMessage({
     fetchImpl, maxTokens: 2600, model: selectedModel, system: systemPrompt(input.playbooks),
     messages: [{ role: "user", content: [{ type: "text", text: userPrompt(input) }] }], userId: input.userId,
     usageStore: store, usageContext: { workerId: input.workerId, taskType: "shadow_business_planning", acceptanceStatus: "unused", relatedEventId: input.meaningfulRecentEvents[0]?.id }
   });
-  const plan = validateShadowPlan(parseJsonFromLlmText(text));
+  const parsedPlan = parseJsonFromLlmText(text);
+  let plan;
+  try {
+    plan = validateShadowPlan(parsedPlan, input);
+  } catch (error) {
+    error.rawPlannerOutput = parsedPlan;
+    throw error;
+  }
   const recorded = store && input.userId
     ? await store.queryOne("SELECT estimated_cost_usd,input_tokens,output_tokens,cached_tokens FROM model_usage_events WHERE user_id = ? AND worker_id = ? AND task_type = ? ORDER BY created_at DESC LIMIT 1", input.userId, input.workerId, "shadow_business_planning")
     : null;

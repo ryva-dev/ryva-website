@@ -7,8 +7,8 @@
 | Production execution | Disabled; shadow plans cannot create or execute user-facing work |
 | Structural gate | Passed: 16/16 scenarios |
 | Offline planning-quality gate | Intentionally not accepted as proof: 14/16 using a schema-only test double |
-| Live premium gate | Blocked: configured Anthropic account returned `credit balance is too low` before inference |
-| Phase 3 authorization | Not granted |
+| Live premium gate | Passed after layer-specific corrections; see `MARA_PHASE2_LIVE_EVALUATION_2026-07-14.md` |
+| Phase 3 authorization | Eligible for founder review; production execution remains disabled |
 
 ## Executive result
 
@@ -16,7 +16,7 @@ The Phase 2 foundation is implemented and deployed additively at the database la
 
 The repository now proves that all 16 creator states produce the correct observable candidate space, that plan schemas and playbook selection work, that state is tenant-isolated and idempotent, that a payment changes future candidates, and that an unchanged state terminates before a second premium call.
 
-It does **not yet prove the founder's decisive acceptance criterion**—16 sensible, materially different premium-model plans. The live evaluator attempted the configured premium provider, but the provider rejected the request for insufficient credits. The offline schema test produced 15 unique signatures and correctly failed two planning-quality cases because its deliberately non-strategic test double selected pipeline work that a real planner should skip. That failure is evidence that code is not secretly making the strategic decision.
+The later live evaluation proves the founder's decisive acceptance criterion across all 16 scenarios, with 16 distinct signatures and scenario-specific commercial behavior. The full results, failure-layer corrections, and credit accounting are in [MARA_PHASE2_LIVE_EVALUATION_2026-07-14.md](MARA_PHASE2_LIVE_EVALUATION_2026-07-14.md). The offline test double remains deliberately non-strategic and is not treated as behavioral proof.
 
 ## Files and components
 
@@ -130,7 +130,7 @@ Structural result: 16/16. Schema-only signatures: 15 unique. The duplicate is in
 
 ## Verification
 
-- Repository tests: 212 total; 211 passed; 1 intentionally skipped; 0 failed.
+- Repository tests: 213 total; 212 passed; 1 intentionally skipped; 0 failed.
 - Phase 2 tests: 5/5 passed.
 - Production TypeScript/Vite build: passed.
 - SQL migration: applied successfully.
@@ -139,14 +139,9 @@ Structural result: 16/16. Schema-only signatures: 15 unique. The duplicate is in
 
 ## Known gaps and Phase 3 gate
 
-Before Phase 3:
+The live planning gate and human review are complete. Before any Phase 3 execution rollout:
 
-1. Restore premium-provider credit or configure an evaluated equivalent provider.
-2. Run `MARA_MODEL_USAGE_V1=1 node --env-file=.env scripts/evaluate-mara-phase2.mjs --live`.
-3. Require 16/16 planning-quality passes, materially differentiated schedules (especially strong-portfolio versus limited-time), at least 12 distinct plan signatures, valid costs, and zero safety failures.
-4. Human-review every plan against `MARA_EVALUATION_STANDARD.md`; automated keyword/type checks are insufficient for commercial judgment.
-5. Wire normalized events from real production change points incrementally and verify source-specific idempotency.
-6. Expand the legacy-to-V2 state adapter; its current role is deliberately partial while V2 is shadow-only.
-7. Add an evaluated same-tier provider fallback and per-tenant/cohort flag service before production shadow rollout.
-
-Do not build Phase 3 UI, integrations, or V2 execution until items 1–4 pass.
+1. Wire normalized events from real production change points incrementally and verify source-specific idempotency.
+2. Expand the legacy-to-V2 state adapter; its current role is deliberately partial while V2 is shadow-only.
+3. Add an evaluated same-tier provider fallback and per-tenant/cohort flag service before production shadow rollout.
+4. Keep the 16 live scenarios as a release gate for provider, model, playbook, state, or routing changes.

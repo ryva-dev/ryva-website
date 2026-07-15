@@ -17,7 +17,7 @@
     "migrate": "node server/migrate.mjs",
     "etl:sqlite-to-postgres": "node scripts/etl-sqlite-to-postgres.mjs",
     "sync:uploads-to-s3": "node scripts/sync-uploads-to-s3.mjs",
-    "test": "node --test server/*.test.mjs"
+    "test": "ANTHROPIC_API_KEY= OPENAI_API_KEY= node --test server/*.test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1085.0",

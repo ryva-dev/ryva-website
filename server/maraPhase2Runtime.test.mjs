@@ -7,6 +7,7 @@ import { loadMaraPlaybooks, REQUIRED_PLAYBOOK_METADATA, retrieveRelevantPlaybook
 import { MARA_PHASE2_SCENARIOS } from "./maraPhase2Scenarios.mjs";
 import { applyMaraEvents } from "./maraBusinessState.mjs";
 import { runMaraShadowPlanning } from "./maraShadowRuntime.mjs";
+import { validateShadowPlan } from "./maraShadowPlanner.mjs";
 
 test("events are idempotent and tenant isolated", async () => {
   const store = createStore({ databasePath: ":memory:" });
@@ -59,4 +60,24 @@ test("an unchanged state terminates before a second premium planning call", asyn
   assert.equal(second.diagnostics.premiumModelCalled, false);
   assert.equal(calls, 1);
   await store.close();
+});
+
+test("code normalizes untrusted schedule dates and rejects hidden creator effort", () => {
+  const basePlan = {
+    situationSummary: "One active deal is waiting.", currentBottleneck: "waiting on reply", emergingNeeds: [],
+    workToCreate: [{
+      title: "Monitor deal", sourceCandidateTypes: [], owner: "mara", commercialObjective: "Protect active revenue",
+      expectedBusinessEffect: "Flags a stalled deal before commercial momentum is lost.", urgency: "normal", creatorEffortMinutes: 0,
+      dependencies: [], scheduledTime: null, schedulingWindow: "Friday 2026-07-18 end of day", approvalRequirement: "none",
+      executionModelTier: "code", completionCondition: "Status checked", reassessmentTrigger: "Brand replies", confidence: .9,
+      evidence: ["active opportunity"]
+    }], workToSkip: [], questionsForUser: []
+  };
+  const input = { planningTime: "2026-07-14T12:00:00-04:00", businessState: {}, meaningfulRecentEvents: [], candidateWork: [], existingScheduledWork: [] };
+  const normalized = validateShadowPlan(structuredClone(basePlan), input);
+  assert.equal(normalized.workToCreate[0].schedulingWindow, "Friday end of day");
+  assert.equal(normalized.workToCreate[0].scheduleNormalizedByCode, true);
+  const hiddenEffort = structuredClone(basePlan);
+  hiddenEffort.workToCreate[0].creatorEffortMinutes = 10;
+  assert.throws(() => validateShadowPlan(hiddenEffort, input), /cannot hide creator effort/);
 });
