@@ -5,6 +5,15 @@ This runbook is part of the paying-user launch gate. Record the owner, provider-
 ## Ownership and response
 
 - Primary incident owner: the person monitoring `SUPPORT_EMAIL`, deployment alerts, Stripe, and Google OAuth.
+
+## Google OAuth callback configuration
+
+The Google Cloud OAuth client must be a **Web application** and must list both production callbacks under **Authorized redirect URIs** exactly—scheme, host, path, and trailing slash behavior all matter:
+
+- `https://www.ryvaforge.com/api/auth/google/callback`
+- `https://www.ryvaforge.com/api/office/workers/mara-vale/gmail/callback`
+
+Ryva derives these from `APP_URL`. If the production domain changes, update `APP_URL` and the Google Cloud client together. A `redirect_uri_mismatch` response occurs before Ryva receives a callback and therefore cannot be repaired by retrying or reconnecting inside the product.
 - Severity 1: login unavailable, checkout charging incorrectly, cross-tenant exposure, widespread email mis-send, or data loss. Pause autonomy, disable checkout if affected, preserve logs, and notify affected users promptly.
 - Severity 2: delayed autonomy, provider degradation, isolated Gmail reconnect, or non-critical feature outage. Communicate a workaround and expected next update.
 - Never delete uncertain external-action records. Reconcile Gmail/Stripe provider state before retrying.

@@ -5,6 +5,7 @@ import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import Stripe from "stripe";
 import { validateConfiguredPrice } from "../server/billingPricePolicy.mjs";
 import { validateConfig } from "../server/observability.mjs";
+import { getGmailConnectRedirectUri, getGoogleLoginRedirectUri } from "../server/googleOAuth.mjs";
 
 const args = new Set(process.argv.slice(2));
 const liveProviders = args.has("--live-providers");
@@ -46,6 +47,11 @@ try {
 
 const appUrl = required("APP_URL");
 record("public HTTPS URL", /^https:\/\//i.test(appUrl), appUrl ? "HTTPS required for public OAuth and secure cookies" : "APP_URL missing");
+if (appUrl) {
+  console.log(`INFO  Google login redirect URI — ${getGoogleLoginRedirectUri(appUrl)}`);
+  console.log(`INFO  Gmail connect redirect URI — ${getGmailConnectRedirectUri(appUrl, "mara-vale")}`);
+  console.log("INFO  Both exact URIs must be listed on the Google Cloud Web application OAuth client.");
+}
 const supportEmail = required("SUPPORT_EMAIL");
 record("support contact syntax", /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supportEmail), supportEmail ? "address is syntactically valid" : "SUPPORT_EMAIL missing");
 

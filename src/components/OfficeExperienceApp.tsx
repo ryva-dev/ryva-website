@@ -1507,23 +1507,26 @@ function WorkerDeskSections({
           id: "gmail",
           done: canUseEmail,
           label: "Connect Gmail",
-          detail: "Let Mara organize brand conversations and prepare reply copy inside Ryva",
+          detail: "Let me organize brand conversations and prepare reply copy inside Ryva",
+          actionLabel: "Connect Gmail",
           action: () => window.location.assign(`/api/office/workers/${activeWorker.slug}/connect-email/google`)
         },
         {
           id: "research",
           done: (desk.researchToday?.length || 0) > 0 || (desk.bookOfBusiness?.length || 0) > 0 || (desk.recentCompleted?.length || 0) > 0,
-          label: "Let Mara research your niche",
-          detail: "She finds aligned brands and prepares internal work from your current business state",
+          label: "Start niche research",
+          detail: "I'll find realistic, aligned brands and prepare work from your current business state",
+          actionLabel: "Start research",
           action: onRunAutonomy
             ? () => void onRunAutonomy()
             : () => onNavigate(`#app/office/workers/${activeWorker.slug}/desk`)
         },
         {
-          id: "send",
-          done: Boolean(desk.activationJourney?.milestones.some((milestone) => milestone.id === "sent" && milestone.complete)),
-          label: "Review your first prepared outreach",
-          detail: "Open the exact pitch Mara prepared, then send it yourself when it is ready",
+          id: "outreach",
+          done: Boolean(desk.firstPreparedOutreach),
+          label: "Prepare your first outreach asset",
+          detail: "I'll prepare an outreach asset here for you to review; sending remains your decision",
+          actionLabel: "Prepare outreach",
           action: () => {
             const pitch = desk.firstPreparedOutreach;
             if (pitch) onViewDeliverable(pitch);
@@ -1549,21 +1552,17 @@ function WorkerDeskSections({
       {isMara && setupIncomplete ? (
         <section className="ro-worker-drawer-section ro-desk-focus">
           <span className="ro-section-kicker">Get Mara ready</span>
-          <h3>Finish setup so I can move money work for you</h3>
+          <h3>Complete these steps so I can start working for you</h3>
           <div className="ro-plain-list">
-            {setupSteps.map((step) => (
+            {setupSteps.filter((step) => !step.done).map((step) => (
               <div className="ro-plain-row" key={step.id}>
                 <div>
-                  <strong>{step.done ? "Done — " : ""}{step.label}</strong>
+                  <strong>{step.label}</strong>
                   <p>{step.detail}</p>
                 </div>
-                {!step.done ? (
-                  <button className="r-btn r-btn-accent" type="button" onClick={() => void step.action()} disabled={busyId === "mara-autonomy"}>
-                    {step.id === "research" && busyId === "mara-autonomy" ? "Working…" : "Do this"}
-                  </button>
-                ) : (
-                  <span className="ro-row-aside">Complete</span>
-                )}
+                <button className="r-btn r-btn-accent" type="button" onClick={() => void step.action()} disabled={busyId === "mara-autonomy"}>
+                  {(step.id === "research" || step.id === "outreach") && busyId === "mara-autonomy" ? "Working…" : step.actionLabel}
+                </button>
               </div>
             ))}
           </div>
