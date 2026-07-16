@@ -4,8 +4,14 @@ import {
   buildGoogleAuthorizationUrl,
   exchangeGoogleCodeForTokens,
   getGmailConnectRedirectUri,
-  getGoogleLoginRedirectUri
+  getGoogleLoginRedirectUri,
+  GMAIL_CONNECT_SCOPES
 } from "./googleOAuth.mjs";
+
+test("Mara's Gmail consent is read-only and cannot create drafts or send", () => {
+  assert.match(GMAIL_CONNECT_SCOPES, /gmail\.readonly/);
+  assert.doesNotMatch(GMAIL_CONNECT_SCOPES, /gmail\.compose|gmail\.send|gmail\.modify/);
+});
 
 test("Gmail authorize and token exchange use the same redirect URI", async () => {
   const redirectUri = getGmailConnectRedirectUri("https://app.ryva.test", "mara-vale");

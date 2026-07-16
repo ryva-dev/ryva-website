@@ -122,8 +122,7 @@ export const GMAIL_CONNECT_SCOPES = [
   "openid",
   "email",
   "profile",
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/gmail.compose"
+  "https://www.googleapis.com/auth/gmail.readonly"
 ].join(" ");
 
 export const GOOGLE_LOGIN_SCOPES = ["openid", "email", "profile"].join(" ");

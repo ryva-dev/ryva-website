@@ -114,6 +114,7 @@ import { createEvidenceItem, EVIDENCE_KINDS } from "./maraEvidence.mjs";
 import { USER_SCOPED_TABLES, authorizeAccountDeletion } from "./accountErasure.mjs";
 import { ensureMaraRuntimeTables } from "./maraRuntimeStorage.mjs";
 import { normalizeAnthropicUsage, recordModelUsage } from "./modelUsageAccounting.mjs";
+import { listIntegrationCatalog } from "./integrationCatalog.mjs";
 
 function logCaught(message, error, fields = {}) {
   const errMessage = error instanceof Error ? error.message : String(error);
@@ -4758,6 +4759,12 @@ app.post("/api/office/workers/:slug/connect-email", assertOrigin, requireAuth, a
     ok: true,
     redirectUrl: `/api/office/workers/${workerSlug}/connect-email/google`
   });
+});
+
+// Public capability metadata only. OAuth credentials and connection metadata
+// never leave the server through this endpoint.
+app.get("/api/office/integrations/catalog", requireAuth, (_req, res) => {
+  res.json({ integrations: listIntegrationCatalog() });
 });
 
 // Disconnect an inbox: revoke the OAuth token at the provider, delete the stored
