@@ -31,6 +31,24 @@ function asStringList(value) {
   return value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
 }
 
+/**
+ * Operational projection should only harvest the newest plan of each weekly
+ * output type. Older revisions remain available in history, but replaying all
+ * of them can replace current calendar blocks and emit duplicate activity.
+ */
+export function keepCurrentWeeklyOutputs(rows = []) {
+  const newestByType = new Map();
+  for (const row of rows) {
+    if (!["weekly_plan", "weekly_schedule"].includes(String(row?.outputType || ""))) continue;
+    const type = String(row.outputType);
+    const createdAt = String(row.createdAt || "");
+    const current = newestByType.get(type);
+    if (!current || createdAt > String(current.createdAt || "")) newestByType.set(type, row);
+  }
+  const currentIds = new Set([...newestByType.values()].map((row) => row.id));
+  return rows.filter((row) => !["weekly_plan", "weekly_schedule"].includes(String(row?.outputType || "")) || currentIds.has(row.id));
+}
+
 /** Repair common model formatting defects before calendar copy reaches users. */
 export function normalizeCalendarCopy(value, { sentence = false } = {}) {
   let clean = String(value ?? "")

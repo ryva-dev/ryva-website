@@ -11,10 +11,21 @@ import {
   extractDayAnchoredActions,
   harvestWeeklyOutputToCalendar,
   inferWeeklyPlanRange,
+  keepCurrentWeeklyOutputs,
   normalizeCalendarCopy,
   persistCalendarEvents,
   stampCalendarHarvest
 } from "./maraCalendarSync.mjs";
+
+test("only the newest revision of each weekly output is projected", () => {
+  const rows = [
+    { id: "old-plan", outputType: "weekly_plan", createdAt: "2026-07-14T12:00:00.000Z" },
+    { id: "pulse", outputType: "market_pulse", createdAt: "2026-07-14T13:00:00.000Z" },
+    { id: "new-plan", outputType: "weekly_plan", createdAt: "2026-07-15T12:00:00.000Z" },
+    { id: "schedule", outputType: "weekly_schedule", createdAt: "2026-07-15T14:00:00.000Z" }
+  ];
+  assert.deepEqual(keepCurrentWeeklyOutputs(rows).map((row) => row.id), ["pulse", "new-plan", "schedule"]);
+});
 
 function localClock(date, timeZone) {
   return Object.fromEntries(new Intl.DateTimeFormat("en-US", {

@@ -2244,13 +2244,15 @@ async function syncInboxThreadsToCampaigns(userId, workerSlug) {
  * each output is harvested exactly once (or retried until events land).
  */
 async function harvestMaraOutputSideEffects(userId, workerSlug) {
-  const { harvestWeeklyOutputToCalendar, inferWeeklyPlanRange } = await import("./maraCalendarSync.mjs");
+  const { harvestWeeklyOutputToCalendar, inferWeeklyPlanRange, keepCurrentWeeklyOutputs } = await import("./maraCalendarSync.mjs");
   const recentThreshold = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
-  const rows = await authStore.query(
-    `SELECT id, task_id AS "taskId", output_type AS "outputType", structured_content_json AS "structuredContentJson"
+  const candidateRows = await authStore.query(
+    `SELECT id, task_id AS "taskId", output_type AS "outputType", structured_content_json AS "structuredContentJson",
+            created_at AS "createdAt"
      FROM worker_outputs
      WHERE user_id = ? AND worker_id = ? AND created_at >= ? AND output_type IN ('market_pulse', 'weekly_schedule', 'weekly_plan')`,
     userId, workerSlug, recentThreshold);
+  const rows = keepCurrentWeeklyOutputs(candidateRows);
 
   for (const row of rows) {
     const structured = parseJson(row.structuredContentJson, {});
