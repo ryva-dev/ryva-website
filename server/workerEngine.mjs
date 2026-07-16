@@ -5685,7 +5685,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   const whatMaraKnows = typeof readKnowledgeSections === "function" ? await readKnowledgeSections(userId, workerId) : [];
   let includedMonitoringPass = false;
   const recentActivity = (await store.query(
-      `SELECT id, event_type AS eventType, title, description, related_task_id AS relatedTaskId, metadata_json AS metadataJson, created_at AS createdAt
+      `SELECT id, event_type AS "eventType", title, description, related_task_id AS "relatedTaskId", metadata_json AS "metadataJson", created_at AS "createdAt"
        FROM worker_activity_log
        WHERE user_id = ? AND worker_id = ?
        ORDER BY created_at DESC

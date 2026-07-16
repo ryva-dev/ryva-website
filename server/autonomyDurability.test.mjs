@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const serverSource = await readFile(new URL("./index.mjs", import.meta.url), "utf8");
+const workerEngineSource = await readFile(new URL("./workerEngine.mjs", import.meta.url), "utf8");
 
 test("interactive Mara full runs are queued durably instead of detached promises", () => {
   assert.match(serverSource, /idempotencyKey: `manager_autonomy:/);
@@ -35,4 +36,10 @@ test("a broken Gmail connection degrades independently instead of aborting Mara'
 test("a failed office projection cannot rewrite a completed autonomy cycle as failed", () => {
   assert.match(serverSource, /Mara operational sync failed; autonomy cycle preserved/);
   assert.match(serverSource, /incrementMetric\("mara_operational_sync_failed"/);
+});
+
+test("Mara activity aliases preserve camelCase when PostgreSQL builds workspace history", () => {
+  assert.match(workerEngineSource, /event_type AS "eventType"/);
+  assert.match(workerEngineSource, /metadata_json AS "metadataJson"/);
+  assert.match(workerEngineSource, /created_at AS "createdAt"/);
 });
