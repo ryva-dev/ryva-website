@@ -31,3 +31,8 @@ test("a broken Gmail connection degrades independently instead of aborting Mara'
   assert.match(serverSource, /await syncGmailInboxWithoutBlockingAutonomy\(row\.userId, row\.workerSlug\)/);
   assert.match(serverSource, /gmail_sync_degraded_autonomy_continues/);
 });
+
+test("a failed office projection cannot rewrite a completed autonomy cycle as failed", () => {
+  assert.match(serverSource, /Mara operational sync failed; autonomy cycle preserved/);
+  assert.match(serverSource, /incrementMetric\("mara_operational_sync_failed"/);
+});

@@ -3828,7 +3828,18 @@ async function runScheduledMaraAutonomy() {
             workerId: row.workerSlug,
             ...buildMaraExecutionReaders()
           });
-          await syncMaraOperationalRecords(row.userId, row.workerSlug);
+          try {
+            await syncMaraOperationalRecords(row.userId, row.workerSlug);
+          } catch (error) {
+            // The autonomy cycle has already persisted its tasks, outputs, and
+            // activity. A projection/sync failure must remain retryable without
+            // rewriting a successful employee work cycle as failed.
+            incrementMetric("mara_operational_sync_failed", 1, { workerSlug: row.workerSlug });
+            logCaught("Mara operational sync failed; autonomy cycle preserved", error, {
+              userId: row.userId,
+              workerSlug: row.workerSlug
+            });
+          }
           const outputIds = Array.isArray(summary?.outputs) ? summary.outputs.map((output) => output?.id).filter(Boolean) : [];
           if (outputIds.length > 0) {
             await syncMaraGmailDraftsForOutputs(row.userId, row.workerSlug, outputIds);

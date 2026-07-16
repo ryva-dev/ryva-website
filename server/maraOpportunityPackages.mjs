@@ -6,6 +6,15 @@ import { EVIDENCE_KINDS } from "./maraEvidence.mjs";
 import { decideOpportunityAction, scoreOpportunityDimensions, SCORE_VERSION } from "./maraOpportunityScoring.mjs";
 import { savePublicBrand, saveTenantEvidence, projectOpportunityToWorkerBrand, officeFitScoreFromCanonical } from "./maraBrandCanonical.mjs";
 
+export const OPPORTUNITY_REFRESH_SQL = `UPDATE mara_creator_brand_opportunities
+ SET status = ?, lifecycle_stage = COALESCE(lifecycle_stage, ?), score_total = ?, scores_json = ?, opportunity_package_json = ?, evidence_json = ?,
+     score_version = ?, confidence = ?, public_brand_id = ?, decision = ?, decision_reason = ?,
+     brand_profile_id = ?, next_action_json = ?, blocking_reason = ?,
+     next_action_due_at = CASE WHEN CAST(? AS TEXT) IS NOT NULL THEN COALESCE(next_action_due_at, CAST(? AS TEXT)) ELSE NULL END,
+     attribution = COALESCE(NULLIF(attribution, ''), ?),
+     updated_at = ?
+ WHERE id = ? AND user_id = ?`;
+
 function unknown(field) {
   return { [field]: null, [`${field}Status`]: "unknown" };
 }
@@ -215,14 +224,7 @@ export async function createOrUpdateOpportunityFromResearch(store, {
   const id = existing?.id || randomUUID();
   if (existing?.id) {
     await store.execute(
-      `UPDATE mara_creator_brand_opportunities
-       SET status = ?, lifecycle_stage = COALESCE(lifecycle_stage, ?), score_total = ?, scores_json = ?, opportunity_package_json = ?, evidence_json = ?,
-           score_version = ?, confidence = ?, public_brand_id = ?, decision = ?, decision_reason = ?,
-           brand_profile_id = ?, next_action_json = ?, blocking_reason = ?,
-           next_action_due_at = CASE WHEN ? IS NOT NULL THEN COALESCE(next_action_due_at, ?) ELSE NULL END,
-           attribution = COALESCE(NULLIF(attribution, ''), ?),
-           updated_at = ?
-       WHERE id = ? AND user_id = ?`,
+      OPPORTUNITY_REFRESH_SQL,
       status,
       lifecycleStage,
       scoreDetail.total,
