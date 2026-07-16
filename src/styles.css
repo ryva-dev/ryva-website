@@ -3991,6 +3991,12 @@ a:focus-visible {
 .ro-rows { display: flex; flex-direction: column; }
 .ro-row { display: flex; align-items: baseline; gap: 18px; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--line-soft); padding: 15px 0; cursor: pointer; transition: background 0.12s; }
 .ro-row:hover { background: color-mix(in srgb, var(--paper) 55%, transparent); }
+.ro-row.is-deep-linked {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 14px;
+  padding-right: 14px;
+}
 .ro-row-copy { flex: 1; min-width: 0; }
 .ro-row-kicker { display: block; margin-bottom: 7px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint); }
 .ro-row-copy strong { display: block; font-size: 14.5px; font-weight: 550; letter-spacing: -0.005em; color: var(--ink); line-height: 1.4; }
@@ -4005,6 +4011,11 @@ a:focus-visible {
 .ro-row-person { align-items: center; padding: 18px 0; }
 .ro-row-end { display: flex; align-items: baseline; gap: 18px; }
 .ro-row-cta { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+
+@media (max-width: 720px) {
+  .ro-row-activity { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .ro-row-activity .ro-row-end { width: 100%; justify-content: space-between; }
+}
 
 .ro-blank { font-size: 13.5px; color: var(--muted); padding: 16px 0 0; line-height: 1.6; margin: 0; }
 .ro-textlink { background: none; border: none; padding: 0; font-family: var(--body); font-size: 13.5px; font-weight: 550; color: var(--accent); cursor: pointer; }

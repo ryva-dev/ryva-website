@@ -606,24 +606,26 @@ function creatorFacingCalendarNotes(notes: string | null | undefined) {
   return String(notes ?? "").replace(/^\[mara:[^\]]+\]\s*/i, "").trim();
 }
 
-function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null; section: WorkbenchSection | null } {
-  const parts = hash.replace(/^#/, "").replace(/^\/+/, "").split("/").filter(Boolean);
-  if (parts[0] !== "app" || parts[1] !== "office") return { tab: "today", workerSlug: null, section: null };
+function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null; section: WorkbenchSection | null; focusId: string | null } {
+  const [path, rawQuery = ""] = hash.replace(/^#/, "").replace(/^\/+/, "").split("?", 2);
+  const parts = path.split("/").filter(Boolean);
+  const focusId = new URLSearchParams(rawQuery).get("focus");
+  if (parts[0] !== "app" || parts[1] !== "office") return { tab: "today", workerSlug: null, section: null, focusId: null };
   if (parts[2] === "workers" && parts[3] && parts[4] === "onboarding") {
-    return { tab: "worker-onboarding", workerSlug: parts[3], section: null };
+    return { tab: "worker-onboarding", workerSlug: parts[3], section: null, focusId };
   }
   if (parts[2] === "workers" && parts[3]) {
     const rawSection = parts[4] as WorkbenchSection | undefined;
     const section: WorkbenchSection = rawSection && (["desk", "conversation", "intelligence", "knowledge", "history"] as WorkbenchSection[]).includes(rawSection)
       ? rawSection
       : "desk";
-    return { tab: "workers", workerSlug: parts[3], section };
+    return { tab: "workers", workerSlug: parts[3], section, focusId };
   }
   if (parts[2] === "chat" && parts[3]) {
-    return { tab: "workers", workerSlug: parts[3], section: "conversation" };
+    return { tab: "workers", workerSlug: parts[3], section: "conversation", focusId };
   }
   if (parts[2] === "desk" && parts[3]) {
-    return { tab: "workers", workerSlug: parts[3], section: "desk" };
+    return { tab: "workers", workerSlug: parts[3], section: "desk", focusId };
   }
   const aliases: Record<string, Tab> = {
     approvals: "reviews",
@@ -639,7 +641,7 @@ function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null; 
     workers: "workers"
   };
   const tab = aliases[parts[2] ?? ""] ?? "today";
-  return { tab, workerSlug: null, section: null };
+  return { tab, workerSlug: null, section: null, focusId };
 }
 
 function timeAgo(iso: string): string {
@@ -1109,7 +1111,9 @@ function TodayView({
         kind: "Shipped",
         title: item.title,
         summary: item.summary,
-        workerSlug: desk.workerSlug
+        workerSlug: desk.workerSlug,
+        destination: `#app/office/deliverables?focus=${encodeURIComponent(item.id)}`,
+        actionLabel: "Review deliverable"
       }));
       const activity = desk.recentActivity.slice(0, 2).map((item) => ({
         createdAt: item.createdAt,
@@ -1117,7 +1121,9 @@ function TodayView({
         kind: sentenceCase(item.title),
         title: item.summary,
         summary: "",
-        workerSlug: desk.workerSlug
+        workerSlug: desk.workerSlug,
+        destination: `#app/office/workers/${desk.workerSlug}/history?focus=${encodeURIComponent(item.id)}`,
+        actionLabel: "View activity"
       }));
       return [...completed, ...activity];
     })
@@ -1212,11 +1218,11 @@ function TodayView({
             <section className="ro-sec">
               <div className="ro-sec-head">
                 <h2>Since you were away</h2>
-                <button className="ro-textlink" type="button" onClick={() => onNavigate("#app/office/workers")}>View worker history</button>
+                <button className="ro-textlink" type="button" onClick={() => onNavigate(`#app/office/workers/${recentChanges[0].workerSlug}/history`)}>Open activity history</button>
               </div>
               <div className="ro-rows">
                 {recentChanges.map((item) => (
-                  <button key={item.id} className="ro-row ro-row-activity" type="button" onClick={() => onOpenWorkerDetails(item.workerSlug)}>
+                  <button key={item.id} className="ro-row ro-row-activity" type="button" onClick={() => onNavigate(item.destination)}>
                     <div className="ro-row-copy">
                       <span className="ro-row-kicker">{item.kind}</span>
                       <strong>{item.title}</strong>
@@ -1224,6 +1230,7 @@ function TodayView({
                     </div>
                     <div className="ro-row-end">
                       <span className="ro-row-aside">{nameFor(item.workerSlug)} · {clock(item.createdAt) || timeAgo(item.createdAt)}</span>
+                      <span className="ro-row-cta">{item.actionLabel} →</span>
                     </div>
                   </button>
                 ))}
@@ -2388,13 +2395,24 @@ function WorkerKnowledgeView({
   );
 }
 
-function WorkerHistoryView({ desk }: { desk: WorkerDesk }) {
+function WorkerHistoryView({ desk, focusId }: { desk: WorkerDesk; focusId?: string | null }) {
+  const focusedItemRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!focusId || !focusedItemRef.current) return;
+    focusedItemRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusId]);
+
   return desk.recentActivity.length === 0 ? (
     <p className="ro-blank">Nothing to show yet.</p>
   ) : (
     <div className="ro-rows">
       {desk.recentActivity.map((item) => (
-        <div className="ro-row" key={item.id}>
+        <div
+          className={`ro-row${focusId === item.id ? " is-deep-linked" : ""}`}
+          key={item.id}
+          ref={focusId === item.id ? focusedItemRef : undefined}
+        >
           <div className="ro-row-copy">
             <strong>{sentenceCase(item.title)}</strong>
             <p>{item.summary}</p>
@@ -2751,7 +2769,8 @@ function WorkerDeskView({
   onRunTask,
   onSeedCorrection,
   onReload,
-  section
+  section,
+  focusId
 }: {
   activeWorker: Worker;
   busyId: string | null;
@@ -2768,6 +2787,7 @@ function WorkerDeskView({
   onSeedCorrection: (prompt: string) => void;
   onReload: () => Promise<void>;
   section: WorkbenchSection;
+  focusId?: string | null;
 }) {
   const [selectedDeliverable, setSelectedDeliverable] = useState<WorkerDeskDeliverable | null>(null);
   const [managing, setManaging] = useState(false);
@@ -2846,7 +2866,7 @@ function WorkerDeskView({
   } else if (section === "history") {
     body = (
       <div className="ro-worker-page-main">
-        <WorkerHistoryView desk={desk} />
+        <WorkerHistoryView desk={desk} focusId={focusId} />
       </div>
     );
   } else {
@@ -3839,7 +3859,7 @@ function deliverableFolder(type: string) {
   return folders[type] ?? ["Other", sentenceCase(type.replace(/_/g, " "))];
 }
 
-function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void }) {
+function DeliverablesView({ workers, overlays, onNavigate, focusId }: { workers: Worker[]; overlays: Overlays; onNavigate: (h: string) => void; focusId?: string | null }) {
   const [selectedDeliverable, setSelectedDeliverable] = useState<WorkerDeskDeliverable | null>(null);
   const [workerFilter, setWorkerFilter] = useState<string | null>(null);
 
@@ -3872,6 +3892,23 @@ function DeliverablesView({ workers, overlays, onNavigate }: { workers: Worker[]
     return Array.from(groups.entries());
   }, [items]);
   const nameFor = (slug: string) => workers.find((worker) => worker.slug === slug)?.name ?? "Worker";
+
+  useEffect(() => {
+    if (!focusId) return;
+    const deliverable = overlays.deliverables.find((item) => item.id === focusId);
+    if (!deliverable) return;
+    setWorkerFilter(null);
+    setSelectedDeliverable({
+      id: deliverable.id,
+      contentRefId: deliverable.contentRefId,
+      sourceType: deliverable.sourceType,
+      title: deliverable.title,
+      summary: deliverable.summary || deliverable.previewText,
+      sourceLabel: sentenceCase(deliverable.deliverableType.replace(/_/g, " ")),
+      updatedAt: deliverable.updatedAt,
+      workerSlug: deliverable.workerSlug
+    });
+  }, [focusId, overlays.deliverables]);
 
   return (
     <div className="ro-main-scroll">
@@ -4176,7 +4213,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
     };
   }, [hiredWorkers, overlays]);
 
-  const { tab, workerSlug, section } = route;
+  const { tab, workerSlug, section, focusId } = route;
   const hasWorkers = hiredWorkers.length > 0;
   const go = (hash: string) => onNavigate(hash);
   const onboardingByWorker = useMemo(
@@ -4420,6 +4457,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
                 seedOfficeConversationDraft(prompt);
               }}
               section={section ?? "desk"}
+              focusId={focusId}
             />
           );
         } else {
@@ -4428,7 +4466,7 @@ export function OfficeExperienceApp({ allWorkers, hiredWorkers, onNavigate, onNo
         }
         break;
       }
-      case "deliverables": main = <DeliverablesView workers={hiredWorkers} overlays={overlays} onNavigate={go} />; break;
+      case "deliverables": main = <DeliverablesView workers={hiredWorkers} overlays={overlays} onNavigate={go} focusId={focusId} />; break;
       case "handbook": main = <HandbookView overlays={overlays} workers={hiredWorkers} />; break;
       case "settings": main = <SettingsView overlays={overlays} onReload={reload} />; break;
       default: main = (
