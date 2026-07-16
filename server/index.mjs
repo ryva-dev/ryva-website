@@ -2657,6 +2657,47 @@ async function syncGmailInbox(userId, workerSlug) {
   };
 }
 
+async function syncGmailInboxWithoutBlockingAutonomy(userId, workerSlug) {
+  const dedupeKey = `integration:gmail:reconnect:${userId}:${workerSlug}`;
+  try {
+    const result = await syncGmailInbox(userId, workerSlug);
+    const timestamp = nowIso();
+    await authStore.execute(
+      `UPDATE office_notifications SET read_at = ?, updated_at = ? WHERE user_id = ? AND dedupe_key = ? AND read_at IS NULL`,
+      timestamp, timestamp, userId, dedupeKey
+    );
+    return { ok: true, ...result };
+  } catch (error) {
+    const timestamp = nowIso();
+    await authStore.execute(
+      `UPDATE office_worker_integrations SET status = 'needs_reconnect', updated_at = ?
+       WHERE user_id = ? AND worker_slug = ? AND provider = 'gmail'`,
+      timestamp, userId, workerSlug
+    );
+    await authStore.execute(
+      `INSERT INTO office_notifications
+       (id, user_id, worker_slug, kind, title, body, action_url, delivery, status, scheduled_for, sent_at, read_at, dedupe_key, metadata_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'integration_repair', 'Reconnect Gmail', ?, ?, 'In-office only', 'sent', NULL, ?, NULL, ?, '{}', ?, ?)
+       ON CONFLICT(dedupe_key) DO UPDATE SET body = excluded.body, status = 'sent', read_at = NULL, updated_at = excluded.updated_at`,
+      randomUUID(),
+      userId,
+      workerSlug,
+      "I couldn't read your inbox, so I paused Gmail access without pausing the rest of my work.",
+      `#app/office/workers/${workerSlug}/knowledge`,
+      timestamp,
+      dedupeKey,
+      timestamp,
+      timestamp
+    );
+    log.warn("gmail_sync_degraded_autonomy_continues", {
+      userId,
+      workerSlug,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function extractDraftBrandLabel(...values) {
   for (const value of values) {
     const text = String(value ?? "").trim();
@@ -3776,7 +3817,7 @@ async function runScheduledMaraAutonomy() {
         if (row.workerSlug === MARA_SLUG) {
           const gmail = await getWorkerIntegration(row.userId, row.workerSlug, "gmail");
           if (gmail?.status === "connected") {
-            await syncGmailInbox(row.userId, row.workerSlug);
+            await syncGmailInboxWithoutBlockingAutonomy(row.userId, row.workerSlug);
           }
           // Full mode: the scheduled loop is exactly where the heavy
           // autonomous work (research, inbox organization) should happen.

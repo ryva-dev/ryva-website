@@ -1245,7 +1245,7 @@ function TodayView({
                 {upcomingNotifications.map((item) => (
                   <button key={item.id} className="ro-row" type="button" onClick={() => openNotification(item)}>
                     <div className="ro-row-copy"><strong>{item.title}</strong><p>{item.body}</p></div>
-                    <div className="ro-row-end"><span className="ro-row-cta">Open calendar →</span></div>
+                    <div className="ro-row-end"><span className="ro-row-cta">{item.kind === "calendar_reminder" ? "Open calendar" : "Fix connection"} →</span></div>
                   </button>
                 ))}
               </div>

@@ -24,3 +24,10 @@ test("production autonomy is enabled by default and can only be paused explicitl
 test("Mara chat assignments stay on Mara's specialized task runtime", () => {
   assert.match(serverSource, /workerSlug !== MARA_SLUG && hasRoleConfig\(workerSlug\)/);
 });
+
+test("a broken Gmail connection degrades independently instead of aborting Mara's autonomy", () => {
+  assert.match(serverSource, /async function syncGmailInboxWithoutBlockingAutonomy/);
+  assert.match(serverSource, /status = 'needs_reconnect'/);
+  assert.match(serverSource, /await syncGmailInboxWithoutBlockingAutonomy\(row\.userId, row\.workerSlug\)/);
+  assert.match(serverSource, /gmail_sync_degraded_autonomy_continues/);
+});
