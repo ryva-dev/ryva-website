@@ -606,6 +606,23 @@ function creatorFacingCalendarNotes(notes: string | null | undefined) {
   return String(notes ?? "").replace(/^\[mara:[^\]]+\]\s*/i, "").trim();
 }
 
+function polishedCalendarCopy(value: string | null | undefined, sentence = false) {
+  let clean = String(value ?? "")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([.!?])(?=[A-Z])/g, "$1 ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return "";
+  clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+  return sentence && !/[.!?]$/.test(clean) ? `${clean}.` : clean;
+}
+
+function isGeneratedMaraCalendarEvent(event: OverlayCalendarEvent) {
+  return /^\[mara:/i.test(String(event.notes || "")) || event.eventType === "Mara";
+}
+
 function parseOfficeRoute(hash: string): { tab: Tab; workerSlug: string | null; section: WorkbenchSection | null; focusId: string | null } {
   const [path, rawQuery = ""] = hash.replace(/^#/, "").replace(/^\/+/, "").split("?", 2);
   const parts = path.split("/").filter(Boolean);
@@ -3597,17 +3614,18 @@ function CalendarView({
             if (eventDayIndex < 0) return null;
             const top = (hourOf(e.startsAt) - WIN_START) * HOUR_PX;
             const height = Math.max(26, (hourOf(e.endsAt) - hourOf(e.startsAt)) * HOUR_PX - 4);
+            const displayTitle = isGeneratedMaraCalendarEvent(e) ? polishedCalendarCopy(e.title) : e.title;
             return (
               <button
                 key={e.id}
                 className={`ro-evt type-${e.eventType.toLowerCase()}`}
-                aria-label={`${e.title}, ${clock(e.startsAt)} to ${clock(e.endsAt)}`}
-                title={`${e.title} · ${clock(e.startsAt)}–${clock(e.endsAt)}`}
+                aria-label={`${displayTitle}, ${clock(e.startsAt)} to ${clock(e.endsAt)}`}
+                title={`${displayTitle} · ${clock(e.startsAt)}–${clock(e.endsAt)}`}
                 style={{ top, height, left: `calc(58px + (${eventDayIndex} * (100% - 58px) / ${displayDays.length}) + 4px)`, width: `calc((100% - 58px) / ${displayDays.length} - 8px)` }}
                 type="button"
                 onClick={() => { setEditing(e); setShowForm(true); }}
               >
-                <span className="ro-evt-title">{calendarDisplayTitle(e.title)}</span>
+                <span className="ro-evt-title">{calendarDisplayTitle(displayTitle)}</span>
                 <small>{clock(e.startsAt)}</small>
               </button>
             );
@@ -3649,13 +3667,16 @@ function EventForm({
   const init = initial ? toLocalInput(initial.startsAt) : null;
   const initEnd = initial ? toLocalInput(initial.endsAt) : null;
   const pad = (n: number) => String(n).padStart(2, "0");
-  const [title, setTitle] = useState(initial?.title ?? "");
+  const generatedByMara = initial ? isGeneratedMaraCalendarEvent(initial) : false;
+  const [title, setTitle] = useState(generatedByMara ? polishedCalendarCopy(initial?.title) : initial?.title ?? "");
   const [date, setDate] = useState(init?.date ?? `${defaultDate.getFullYear()}-${pad(defaultDate.getMonth() + 1)}-${pad(defaultDate.getDate())}`);
   const [start, setStart] = useState(init?.time ?? "09:00");
   const [end, setEnd] = useState(initEnd?.time ?? "10:00");
   const [type, setType] = useState(initial?.eventType ?? "Meeting");
   const [workerSlug, setWorkerSlug] = useState<string | null>(initial?.workerSlug ?? null);
-  const [notes, setNotes] = useState(creatorFacingCalendarNotes(initial?.notes));
+  const [notes, setNotes] = useState(generatedByMara
+    ? polishedCalendarCopy(creatorFacingCalendarNotes(initial?.notes), true)
+    : creatorFacingCalendarNotes(initial?.notes));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
