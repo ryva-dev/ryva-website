@@ -688,6 +688,12 @@ function clock(iso: string): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function activityTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return sameDay(date, new Date()) ? clock(iso) : timeAgo(iso);
+}
+
 function isMaraWorker(workerSlug: string | null | undefined) {
   return workerSlug === "mara-vale";
 }
@@ -1166,7 +1172,7 @@ function TodayView({
   const hourLabel = (h: number) => (h === 0 ? "12 AM" : h === 12 ? "12 PM" : h > 12 ? `${h - 12} PM` : `${h} AM`);
   const leadAttention = attentionItems[0] ?? null;
   const secondaryAttention = attentionItems.slice(1, 4);
-  const nextEvent = todaysEvents[0] ?? null;
+  const nextEvent = todaysEvents.find((event) => +new Date(event.endsAt || event.startsAt) > +today) ?? null;
   const upcomingNotifications = overlays.notifications.filter((item) => !item.readAt).slice(0, 4);
   const openNotification = (item: OverlayNotification) => {
     void officeJson(`/api/office/notifications/${encodeURIComponent(item.id)}/read`, { method: "POST", body: JSON.stringify({}) });
@@ -1275,7 +1281,7 @@ function TodayView({
                       {item.summary ? <p>{truncatePreview(item.summary, 120)}</p> : null}
                     </div>
                     <div className="ro-row-end">
-                      <span className="ro-row-aside">{nameFor(item.workerSlug)} · {clock(item.createdAt) || timeAgo(item.createdAt)}</span>
+                      <span className="ro-row-aside">{nameFor(item.workerSlug)} · {activityTime(item.createdAt)}</span>
                       <span className="ro-row-cta">{item.actionLabel} →</span>
                     </div>
                   </button>
@@ -1317,7 +1323,7 @@ function TodayView({
                       </div>
                     </div>
                     <div className="ro-worker-floor-side">
-                      <span>{entry.recentMove ? timeAgo(entry.recentMove.createdAt) : "Open desk"}</span>
+                      <span>{entry.recentMove ? `Checked ${timeAgo(entry.recentMove.createdAt)}` : "Open desk"}</span>
                     </div>
                   </button>
                 ))}
@@ -2463,7 +2469,7 @@ function WorkerHistoryView({ desk, focusId }: { desk: WorkerDesk; focusId?: stri
             <p>{item.summary}</p>
           </div>
           <div className="ro-row-end">
-            <span className="ro-row-aside">{clock(item.createdAt) || timeAgo(item.createdAt)}</span>
+            <span className="ro-row-aside">{activityTime(item.createdAt)}</span>
           </div>
         </div>
       ))}
