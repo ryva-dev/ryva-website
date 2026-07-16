@@ -5,7 +5,7 @@ import { wrapSqliteHandle } from "./dataStore.mjs";
 import { dedupeBrandOpportunities, getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, resolveCanonicalDesiredBrand } from "./maraIntelligence.mjs";
 import { initMaraBrandArchitecture, savePublicBrand, saveTenantEvidence, classifyBrandEntity } from "./maraBrandCanonical.mjs";
 import { applyCreatorStageReadiness, decideOpportunityAction, scoreOpportunityDimensions, SCORE_VERSION } from "./maraOpportunityScoring.mjs";
-import { createOrUpdateOpportunityFromResearch, OPPORTUNITY_REFRESH_SQL } from "./maraOpportunityPackages.mjs";
+import { createOrUpdateOpportunityFromResearch, buildOpportunityRefreshSql } from "./maraOpportunityPackages.mjs";
 import { upsertBrandContact, assessContactUsability, CONTACT_TYPES } from "./maraContactDiscovery.mjs";
 import { buildConceptFromGap, conceptsAreNearDuplicates, saveConceptIfNovel } from "./maraConceptEngine.mjs";
 import { startOutreachSequence, stopOutreachSequence, prepareDueFollowUpDraft, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
@@ -19,9 +19,11 @@ function makeStore() {
   return wrapSqliteHandle(db);
 }
 
-test("opportunity refresh gives nullable timestamps an explicit PostgreSQL type", () => {
-  assert.match(OPPORTUNITY_REFRESH_SQL, /CASE WHEN CAST\(\? AS TEXT\) IS NOT NULL/);
-  assert.match(OPPORTUNITY_REFRESH_SQL, /COALESCE\(next_action_due_at, CAST\(\? AS TEXT\)\)/);
+test("opportunity refresh lets PostgreSQL infer the due timestamp from its column", () => {
+  const withRetry = buildOpportunityRefreshSql(true);
+  assert.match(withRetry, /next_action_due_at = COALESCE\(next_action_due_at, \?\)/);
+  assert.doesNotMatch(withRetry, /CASE WHEN|CAST\(/);
+  assert.match(buildOpportunityRefreshSql(false), /next_action_due_at = NULL/);
 });
 
 test("listicle and marketplace entities are rejected", () => {
