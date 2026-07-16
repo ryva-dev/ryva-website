@@ -530,7 +530,22 @@ export function extractBlockerAnswer(value) {
 }
 
 function hasWeeklyCapacitySignal(value) {
-  return /\b(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|twelve|fifteen|twenty)\s*(?:hours?|hrs?)\b|\b(?:light|limited|packed|flexible)\s+(?:week|schedule|capacity)\b/i.test(String(value || ""));
+  return /\b(?:\d+(?:\.\d+)?|a|an|half|one|two|three|four|five|six|seven|eight|nine|ten|twelve|fifteen|twenty|few|several)\s*(?:hours?|hrs?|minutes?|mins?)\b|\b(?:a\s+)?couple(?:\s+of)?\s+(?:hours?|hrs?)\b|\b(?:light|limited|packed|flexible)\s+(?:week|schedule|capacity)\b/i.test(String(value || ""));
+}
+
+function formatScheduleClarification(missing, { followUp = false } = {}) {
+  const details = missing.map((item) => String(item || "").trim().replace(/[.;]+$/, "")).filter(Boolean);
+  const joined = details.length <= 1
+    ? details[0] || "the remaining schedule details"
+    : `${details.slice(0, -1).join("; ")}; and ${details.at(-1)}`;
+  if (followUp) {
+    return details.length <= 1
+      ? `I couldn't determine ${joined} from your answer, and I don't want to guess.`
+      : `I couldn't determine these remaining details from your answer, and I don't want to guess: ${joined}.`;
+  }
+  return details.length <= 1
+    ? `Before I finish the calendar, I still need ${joined}.`
+    : `Before I finish the calendar, I still need these details: ${joined}.`;
 }
 
 export function findBlockedMaraTaskToResume(openTasks = [], triggerText = "") {
@@ -544,7 +559,7 @@ export function findBlockedMaraTaskToResume(openTasks = [], triggerText = "") {
       return normalizeForComparison(task.title) === normalizeForComparison(answeredTaskTitle);
     }
     return task.taskType === "weekly_schedule" &&
-      /\b(work|job|shift|free|available|availability|hours?|capacity|film|filming|review|approve|approval|commitment|location|home|studio|weekend|morning|afternoon|evening|night)\b/i.test(text);
+      /\b(work|job|shift|free|available|availability|hours?|minutes?|capacity|film|filming|review|approve|approval|commitment|location|home|studio|weekend|morning|afternoon|evening|night|continue|finish)\b/i.test(text);
   }) || null;
 }
 
@@ -5441,7 +5456,6 @@ export function runMaraActionDetector({
     (scheduleConsultationActive && /^(you|user)$/i.test(recentConversation[0]?.author || ""));
 
   if ((explicitScheduleRequest || scheduleFollowUp) && missingScheduleContext.length > 0) {
-    const questionList = missingScheduleContext.map((item, index) => `${index + 1}. ${item}`).join("\n");
     return {
       approvalRequests,
       memoriesToSave,
@@ -5449,7 +5463,7 @@ export function runMaraActionDetector({
       researchItemsToCreate,
       tasksToCreate,
       requiresUserInput: true,
-      userFacingSummary: `I saved what you just told me. I still need only these details before I can finish the calendar without guessing:\n${questionList}\n\nReply in plain language and I'll use everything you've already given me.`
+      userFacingSummary: formatScheduleClarification(missingScheduleContext, { followUp: Boolean(scheduleFollowUp) })
     };
   }
 

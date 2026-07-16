@@ -381,6 +381,8 @@ test("a partial blocker answer is captured without restarting or repeating the s
   assert.match(partial.userFacingSummary, /how many hours/i);
   assert.match(partial.userFacingSummary, /filming/i);
   assert.match(partial.userFacingSummary, /review/i);
+  assert.doesNotMatch(partial.userFacingSummary, /reply in plain language|everything you've already given me/i);
+  assert.match(partial.userFacingSummary, /\.$/);
 
   const complete = runMaraActionDetector({
     openTasks: [{ ...blockedTask, evidenceUsed: [...blockedTask.evidenceUsed, firstAnswer] }],
@@ -393,6 +395,27 @@ test("a partial blocker answer is captured without restarting or repeating the s
   });
   assert.equal(complete.requiresUserInput, false);
   assert.equal(complete.tasksToCreate.length, 0);
+});
+
+test("natural daily capacity and negative filming answers complete schedule consultation", () => {
+  const firstAnswer = "I work a 9 am - 5 pm job and go to the gym from 5-7 pm.";
+  const detector = runMaraActionDetector({
+    openTasks: [{
+      id: "schedule-natural",
+      status: "blocked",
+      taskType: "weekly_schedule",
+      title: "Plan this week's schedule",
+      evidenceUsed: [firstAnswer]
+    }],
+    permissions: defaultPermissionsForWorker(MARA_WORKER_ID),
+    recentMessages: [],
+    triggerText: "I can put away an hour a day in the morning before work and an hour after the gym to creator work. I don't have preferred days for anything and have currently no filming plans. I'd like to review and approve your work in the mornings right before work.",
+    triggerType: "chat_message",
+    userId: "user-1",
+    workerId: MARA_WORKER_ID
+  });
+  assert.equal(detector.requiresUserInput, false);
+  assert.equal(detector.tasksToCreate.length, 0);
 });
 
 test("saved shift-worker availability satisfies consultation without assuming a 9–5", () => {
