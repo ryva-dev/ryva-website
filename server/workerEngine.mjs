@@ -176,6 +176,7 @@ const SAFE_AUTO_EXECUTE_TASK_TYPES = new Set([
   "follow_up_sequence",
   "personalized_pitch",
   "pitch_template",
+  "portfolio_recommendations",
   "reddit_market_pulse",
   "tiktok_trend_pulse",
   "ugc_strategy_brief",
@@ -212,7 +213,7 @@ const TASK_TYPE_OUTPUT_TYPE_MAP = {
   pasted_message_analysis: "message_analysis",
   personalized_pitch: "pitch_draft",
   pitch_template: "pitch_template",
-  portfolio_recommendations: "recommendation",
+  portfolio_recommendations: "portfolio_recommendations",
   research_queue_summary: "summary",
   ugc_shot_list: "shot_list",
   weekly_action_plan: "weekly_plan",
@@ -2525,12 +2526,12 @@ function executePortfolioRecommendationsTask(context) {
   ].filter(Boolean).slice(0, 6);
 
   const currentLikelyGaps = [
-    ...(insightGaps.length === 0 ? ["No verified trend-backed gaps were available this cycle. Mara will retry through Ryva's backend sources; nothing is needed from you."] : []),
+    ...(insightGaps.length === 0 ? ["No verified trend-backed gaps were available this cycle. I'll keep researching through Ryva's backend sources."] : []),
     ...(creativeGaps.length === 0 ? ["No brand creative gaps on file — deep research a target brand."] : [`Open brand creative gaps: ${creativeGaps.slice(0, 2).join("; ")}`]),
     ...(analysisOpenings.some((value) => /mixed|unclear|unknown/i.test(String(value)))
       ? ["Recent rough cuts: product/opening clarity needs work in the first 2 seconds."]
       : []),
-    ...(!analyses.length ? ["No rough-cut analyses yet — upload a draft for Mara to revise."] : []),
+    ...(!analyses.length ? ["No rough-cut analyses yet — upload a draft when you want me to revise it."] : []),
     "Before/after proof",
     "Category-specific examples"
   ].slice(0, 6);
@@ -2561,7 +2562,7 @@ function executePortfolioRecommendationsTask(context) {
       { title: "Beginner roadmap tie-in", value: getStructuredList(roadmapModule, "steps", []).slice(0, 3) },
       { title: "Next 3 portfolio improvements", value: structuredContent.nextThreeImprovements }
     ]),
-    outputType: "recommendation",
+    outputType: "portfolio_recommendations",
     structuredContent,
     title: "Portfolio recommendations"
   };
@@ -5218,6 +5219,24 @@ export async function updateApprovalRequestStatus(store, userId, workerId, appro
   };
 }
 
+export function assessCreatorPortfolio({ accountContext = {}, maraAnswers = {} } = {}) {
+  const directAnswer = String(
+    maraAnswers.creator_portfolio ??
+    maraAnswers.portfolio ??
+    maraAnswers.portfolio_link ??
+    maraAnswers.media_kit ??
+    ""
+  ).trim();
+  const accountProfiles = String(accountContext?.creatorProfiles || "").trim();
+  const combined = [directAnswer, accountProfiles].filter(Boolean).join(" ");
+  const hasPortfolioUrl = /https?:\/\/\S+/i.test(directAnswer) || /\b(?:portfolio|media kit|mediakit)\b[^\n]*https?:\/\/\S+/i.test(combined);
+  const explicitlyMissing = /\b(?:no|none|not yet|don['’]?t|do not|haven['’]?t|have not|without)\b[^\n]{0,45}\b(?:portfolio|media kit)\b|\b(?:portfolio|media kit)\b[^\n]{0,45}\b(?:none|missing|not provided|don['’]?t have|do not have|haven['’]?t built|not yet)\b/i.test(combined);
+
+  if (hasPortfolioUrl) return { condition: "available", evidence: directAnswer || accountProfiles };
+  if (explicitlyMissing) return { condition: "missing", evidence: directAnswer || accountProfiles };
+  return { condition: "unknown", evidence: directAnswer || accountProfiles };
+}
+
 export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
   const niche = inferMaraNiche({ accountContext, maraAnswers, workerKnowledge: [] });
   const workflowPain = String(maraAnswers.workflow_breakdowns || "Tracking follow-ups and brand conversations").trim();
@@ -5226,8 +5245,9 @@ export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
   const approvalRules = String(maraAnswers.approval_rules || "Sensitive external actions should be approval-gated.").trim();
   const dailyOutput = String(maraAnswers.daily_output || "A clear list of what moved, what is blocked, and what needs approval.").trim();
   const brandName = String(accountContext?.brandName || "Your brand").trim();
+  const portfolio = assessCreatorPortfolio({ accountContext, maraAnswers });
 
-  const creatorProfileSummary = `You are focused on ${String(accountContext?.whatYouDo || niche).trim()}. Mara supports your research, outreach, content planning, follow-through, and commercial momentum.`;
+  const creatorProfileSummary = `You are focused on ${String(accountContext?.whatYouDo || niche).trim()}. I support your research, outreach, content planning, follow-through, and commercial momentum.`;
   const brandFitCriteria = [
     `Brands aligned with ${niche}`,
     "UGC-friendly and open to creator partnerships",
@@ -5236,6 +5256,7 @@ export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
   const painPointMap = [workflowPain, adminBottleneck, `Inbox priorities: ${inboxPriorities}`];
   const first7DayActionPlan = [
     "Clarify your positioning and ideal brand fit",
+    ...(portfolio.condition === "missing" ? ["Plan the minimum credible sample set and a simple portfolio before scaling outreach"] : []),
     "Research reachable brands before preparing brand-specific outreach",
     "Generate a first batch of research-backed opportunities",
     "Create a repeatable follow-up rhythm"
@@ -5249,6 +5270,7 @@ export function buildMaraInitialWorkPlan({ accountContext, maraAnswers }) {
   const tasks = [
     { title: "Define your creator positioning", description: "Turn your onboarding context into a clear positioning statement Mara can use across future work.", priority: "high" },
     { title: "Build brand fit criteria", description: "Document what kinds of brands Mara should prioritize or avoid.", priority: "high" },
+    ...(portfolio.condition === "missing" ? [{ title: "Create portfolio recommendations", description: "Build a practical portfolio and sample-content plan that gives reachable brands credible proof before outreach scales.", priority: "high" }] : []),
     { title: "Set up brand tracker structure", description: "Prepare the tracking structure needed so conversations do not get lost.", priority: "medium" },
     { title: "Create weekly action plan", description: "Build a realistic, day-anchored weekly plan from your priorities and place the focus blocks on the Office calendar.", priority: "medium" }
   ];
@@ -5695,9 +5717,13 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   const hasPositioning = customerReadyOutputs.some((output) => output.outputType === "creator_positioning");
   const hasBrandCriteria = customerReadyOutputs.some((output) => output.outputType === "brand_criteria");
   const hasFollowUpSequence = customerReadyOutputs.some((output) => output.outputType === "follow_up_sequence");
-  const hasPortfolioRecommendations = customerReadyOutputs.some((output) => output.outputType === "recommendation");
+  const hasPortfolioRecommendations = customerReadyOutputs.some((output) =>
+    output.outputType === "portfolio_recommendations" ||
+    /\bportfolio\b/i.test(`${output.title || ""} ${output.content || ""}`)
+  );
   const lowerMemory = JSON.stringify(whatMaraKnows).toLowerCase();
   const beginnerSignal = /beginner|starting|new/.test(lowerMemory);
+  const missingPortfolioSignal = /\b(?:no|without|missing) portfolio\b|\bportfolio:\s*(?:none|no|not provided|missing)\b|\b(?:don['’]?t|do not|haven['’]?t|have not)\b[^.]{0,40}\bportfolio\b/.test(lowerMemory);
   const lostTrackSignal = /follow up|follow-up|losing track|messy|missed/.test(lowerMemory);
   const outputsByType = latestOutputs.reduce((acc, item) => {
     const type = item.outputPreview?.type || "general";
@@ -5719,7 +5745,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
       title: "Build brand fit criteria"
     });
   }
-  if (beginnerSignal && !hasPortfolioRecommendations) {
+  if ((beginnerSignal || missingPortfolioSignal) && !hasPortfolioRecommendations) {
     starterTasks.push({
       description: "Map the simplest portfolio structure and sample-project plan before pushing more outreach volume.",
       priority: "high",

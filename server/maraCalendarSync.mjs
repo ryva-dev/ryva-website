@@ -31,6 +31,21 @@ function asStringList(value) {
   return value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
 }
 
+/** Repair common model formatting defects before calendar copy reaches users. */
+export function normalizeCalendarCopy(value, { sentence = false } = {}) {
+  let clean = String(value ?? "")
+    .replace(/\*\*|__|`/g, "")
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([.!?])(?=[A-Z])/g, "$1 ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return "";
+  clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+  if (sentence && !/[.!?]$/.test(clean)) clean += ".";
+  return clean;
+}
+
 function safeTimeZone(value) {
   const candidate = String(value || "").trim();
   if (!candidate) return null;
@@ -248,7 +263,7 @@ export function normalizeScheduleBlocks(structured = {}) {
       dayRaw.charAt(0).toUpperCase() + dayRaw.slice(1).toLowerCase();
     const start = String(block?.start ?? "").trim();
     const end = String(block?.end ?? "").trim();
-    const activity = String(block?.activity ?? "").trim();
+    const activity = normalizeCalendarCopy(block?.activity);
     if (DAY_INDEX[day] === undefined || !TIME_RE.test(start) || !TIME_RE.test(end) || !activity) {
       continue;
     }
@@ -257,7 +272,7 @@ export function normalizeScheduleBlocks(structured = {}) {
       start,
       end,
       activity,
-      goal: String(block?.goal ?? "").trim(),
+      goal: normalizeCalendarCopy(block?.goal, { sentence: true }),
       owner: String(block?.owner ?? "creator").trim().toLowerCase() === "mara" ? "mara" : "creator",
       kind: String(block?.kind ?? "focus").trim().toLowerCase()
     });
@@ -415,11 +430,11 @@ export function buildEventsFromWeeklyPlan(structured = {}, { now = new Date(), o
     end.setTime(start.getTime() + 45 * 60_000);
     perDayCount[action.day] = usedToday + 1;
     events.push({
-      title: action.activity.slice(0, 120),
+      title: normalizeCalendarCopy(action.activity).slice(0, 120),
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
       eventType: "Focus",
-      notes: String(ready.priority || ready.focusForTheWeek || "").slice(0, 240),
+      notes: normalizeCalendarCopy(ready.priority || ready.focusForTheWeek || "", { sentence: true }).slice(0, 240),
       sourceOutputId: outputId,
       sourceKind: "weekly_plan"
     });
@@ -445,7 +460,7 @@ export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(
     if (end.getTime() <= start.getTime()) continue;
 
     events.push({
-      title: block.activity.slice(0, 120),
+      title: normalizeCalendarCopy(block.activity).slice(0, 120),
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
       eventType: block.owner === "mara"
@@ -453,7 +468,7 @@ export function buildEventsFromWeeklySchedule(structured = {}, { now = new Date(
         : block.kind === "review" || /review|approve|feedback/i.test(`${block.activity} ${block.goal}`)
           ? "Review"
           : "Focus",
-      notes: String(block.goal || ready.weekTheme || "").slice(0, 240),
+      notes: normalizeCalendarCopy(block.goal || ready.weekTheme || "", { sentence: true }).slice(0, 240),
       sourceOutputId: outputId,
       sourceKind: "weekly_schedule"
     });

@@ -3854,7 +3854,8 @@ function deliverableFolder(type: string) {
     growth_intelligence_brief: ["Intelligence", "Growth intelligence"],
     market_pulse: ["Intelligence", "Market signals"],
     tiktok_trend_pulse: ["Intelligence", "Social trends"],
-    recommendation: ["Strategy", "Recommendations"]
+    recommendation: ["Strategy", "Recommendations"],
+    portfolio_recommendations: ["Portfolio", "Plan and samples"]
   };
   return folders[type] ?? ["Other", sentenceCase(type.replace(/_/g, " "))];
 }

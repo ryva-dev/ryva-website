@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { wrapSqliteHandle } from "./dataStore.mjs";
 import {
   autoExecuteSafeMaraTasks,
+  assessCreatorPortfolio,
   assessWeeklyScheduleReadiness,
   buildMaraInitialWorkPlan,
   buildMaraExecutionContext,
@@ -246,6 +247,27 @@ test("onboarding completion plan generates Mara work items", () => {
   assert.ok(plan.tasks.some((task) => inferMaraTaskType(task.title, "onboarding_generated") === "weekly_action_plan"));
   assert.ok(plan.recurringResponsibilities.length >= 4);
   assert.ok(plan.memoryEntries.some((entry) => entry.title === "Pain point map"));
+});
+
+test("onboarding makes a missing portfolio an expert-led first-week priority", () => {
+  const plan = buildMaraInitialWorkPlan({
+    accountContext: { brandName: "New Creator" },
+    maraAnswers: { creator_portfolio: "I do not have a portfolio yet." }
+  });
+
+  assert.equal(assessCreatorPortfolio({ maraAnswers: { creator_portfolio: "I do not have a portfolio yet." } }).condition, "missing");
+  assert.ok(plan.tasks.some((task) => task.title === "Create portfolio recommendations" && task.priority === "high"));
+  assert.ok(plan.first7DayActionPlan.some((step) => /portfolio before scaling outreach/i.test(step)));
+});
+
+test("onboarding leaves an existing portfolio alone", () => {
+  const plan = buildMaraInitialWorkPlan({
+    accountContext: { brandName: "Established Creator" },
+    maraAnswers: { creator_portfolio: "https://creator.example/portfolio" }
+  });
+
+  assert.equal(assessCreatorPortfolio({ maraAnswers: { creator_portfolio: "https://creator.example/portfolio" } }).condition, "available");
+  assert.equal(plan.tasks.some((task) => /portfolio/i.test(task.title)), false);
 });
 
 test("Mara can create tasks from memory-triggered chat", () => {
@@ -868,6 +890,31 @@ test("runMaraAutonomyCycle executes existing approved starter tasks", async () =
 
   assert.ok(summary.executedTaskIds.length >= 2);
   assert.ok((await listWorkerOutputs(db, "user-1", MARA_WORKER_ID)).length >= 2);
+});
+
+test("autonomy repairs an existing creator's explicitly missing portfolio", async () => {
+  const db = makeDb();
+  await ensureWorkerPermissions(db, "user-1", MARA_WORKER_ID);
+
+  await runMaraAutonomyCycle({
+    store: db,
+    fetchImpl: async () => ({ ok: false, text: async () => "" }),
+    userId: "user-1",
+    workerId: MARA_WORKER_ID,
+    ...makeExecutionReaders({
+      readMaraOnboarding: () => ({
+        answers: { creator_portfolio: "No, I do not have a portfolio yet." },
+        generatedSummary: [],
+        status: "completed"
+      })
+    })
+  });
+
+  const outputs = await listWorkerOutputs(db, "user-1", MARA_WORKER_ID);
+  assert.ok(outputs.some((output) => output.outputType === "portfolio_recommendations"), JSON.stringify({
+    outputs: outputs.map((output) => ({ title: output.title, outputType: output.outputType })),
+    tasks: (await listWorkerTasksForUserWorker(db, "user-1", MARA_WORKER_ID)).map((task) => ({ title: task.title, taskType: task.taskType, status: task.status }))
+  }));
 });
 
 test("task type inference works for onboarding-generated tasks", async () => {

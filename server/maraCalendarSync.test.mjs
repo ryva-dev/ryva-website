@@ -11,6 +11,7 @@ import {
   extractDayAnchoredActions,
   harvestWeeklyOutputToCalendar,
   inferWeeklyPlanRange,
+  normalizeCalendarCopy,
   persistCalendarEvents,
   stampCalendarHarvest
 } from "./maraCalendarSync.mjs";
@@ -72,9 +73,19 @@ test("buildEventsFromWeeklyPlan creates focus blocks for day-anchored lines", ()
     { now: monday, outputId: "out-1" }
   );
   assert.equal(events.length, 2);
-  assert.equal(events[0].title, "pitch Brand A");
+  assert.equal(events[0].title, "Pitch Brand A");
   assert.equal(new Date(events[0].startsAt).getDay(), 1);
   assert.equal(events[0].eventType, "Focus");
+});
+
+test("calendar copy repairs common grammar and formatting defects", () => {
+  assert.equal(normalizeCalendarCopy("**review pitches**"), "Review pitches");
+  assert.equal(normalizeCalendarCopy("approve my work.Reply with notes", { sentence: true }), "Approve my work. Reply with notes.");
+  const { events } = buildEventsFromWeeklySchedule({
+    blocks: [{ day: "Monday", start: "18:00", end: "18:30", activity: "  review portfolio samples ", goal: "choose strongest three" }]
+  }, { now: new Date("2026-07-13T08:00:00Z") });
+  assert.equal(events[0].title, "Review portfolio samples");
+  assert.equal(events[0].notes, "Choose strongest three.");
 });
 
 test("a midweek through-Sunday request stays in the current week and uses the creator timezone", () => {
@@ -320,8 +331,8 @@ test("a new weekly plan replaces only Mara's older future plan blocks", async ()
 
   const rows = await store.query(`SELECT title, notes FROM office_calendar_events WHERE user_id = ? ORDER BY title`, "u1");
   assert.ok(rows.some((row) => row.title === "Creator meeting"));
-  assert.ok(rows.some((row) => row.title === "new revenue block"));
-  assert.ok(rows.some((row) => row.title === "review outcomes"));
+  assert.ok(rows.some((row) => row.title === "New revenue block"));
+  assert.ok(rows.some((row) => row.title === "Review outcomes"));
   assert.ok(rows.some((row) => row.notes === "Added by creator"));
   assert.ok(rows.every((row) => !String(row.notes).includes("old-plan")));
 });
