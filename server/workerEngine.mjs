@@ -1743,6 +1743,13 @@ async function executePitchTemplateTask(context) {
     if (llmResult) {
       return await stampPitchOutreachMetadata(context, llmResult);
     }
+    // Stage 0: never ship Mad Libs as a "personalized pitch."
+    return {
+      blocked: true,
+      blockerReason: "I couldn't draft a personalized pitch with enough brand-specific evidence yet.",
+      neededFromUser: "Nothing — I'll keep researching this brand and redraft when the evidence is strong enough.",
+      suggestedNextStep: "Continue brand research or confirm an outreach contact so the next draft can be sendable."
+    };
   }
 
   const profile = buildContextProfile(context);
@@ -1750,28 +1757,21 @@ async function executePitchTemplateTask(context) {
   const pitchModule = getKnowledgeModule(context, "pitch_templates");
   const positioning = context.previousOutputs.find((output) => output.outputType === "creator_positioning")?.structuredContent?.creatorPositioningStatement
     || `${profile.brandName} creates native-feeling ${profile.niche} content.`;
-  const personalizedTarget = context.currentTask.taskType === "personalized_pitch"
-    ? extractPersonalizedBrandTarget(context)
-    : null;
-  const brandLabel = personalizedTarget?.brandName || "[Brand]";
-  const fitReason = personalizedTarget?.summary
-    ? `A quick fit reason: ${personalizedTarget.summary}`
-    : `Reason for fit: native-feeling ${profile.niche} content with a clear product angle.`;
   const structuredContent = {
-    casualVersion: `Hey ${brandLabel} — I create ${profile.niche} content that feels natural and easy to plug into your organic or paid mix. ${fitReason} If helpful, I can send a few quick concepts tailored to your current push.`,
-    emailPitch: `Hi ${brandLabel},\n\nI'm ${profile.brandName} and I create ${profile.niche} content that helps brands look credible without feeling over-produced. ${positioning}\n\n${fitReason}\n\nIf you're open to it, I can send a few fast concept angles tailored to your current campaign.\n\nBest,\n[Your name]`,
+    casualVersion: `Hey [Brand] — I create ${profile.niche} content that feels natural and easy to plug into your organic or paid mix. Reason for fit: native-feeling ${profile.niche} content with a clear product angle. If helpful, I can send a few quick concepts tailored to your current push.`,
+    emailPitch: `Hi [Brand],\n\nI'm ${profile.brandName} and I create ${profile.niche} content that helps brands look credible without feeling over-produced. ${positioning}\n\nReason for fit: native-feeling ${profile.niche} content with a clear product angle.\n\nIf you're open to it, I can send a few fast concept angles tailored to your current campaign.\n\nBest,\n[Your name]`,
     personalisationPlaceholders: getStructuredList(pitchModule, "placeholders", ["[Brand]", "[product / campaign]", "[specific reason you fit them]"]),
-    professionalVersion: `Hi ${brandLabel}, I create concise ${profile.niche} UGC designed to feel trustworthy and easy for brand teams to brief. ${fitReason} I'd be happy to send a few tailored concept angles if you're exploring new creator content.`,
+    professionalVersion: `Hi [Brand], I create concise ${profile.niche} UGC designed to feel trustworthy and easy for brand teams to brief. Reason for fit: native-feeling ${profile.niche} content with a clear product angle. I'd be happy to send a few tailored concept angles if you're exploring new creator content.`,
     subjectLineOptions: getStructuredList(pitchModule, "subjectLines", ["UGC idea for [Brand]", "Quick creator fit for [Brand]", `${profile.niche} UGC concept for [Brand]`]),
     usageNotes: [
       ...getStructuredList(outreachModule, "principles", ["Personalize the first line", "Keep the value proposition clear"]).slice(0, 2),
       "Use the casual version for DMs and the professional version for email"
     ],
-    warmDmPitch: `Hey ${brandLabel} — I make ${profile.niche} UGC that feels straightforward and credible. ${fitReason} I had a couple of quick concept ideas if you'd want me to send them over.`,
-    generatedBy: context.currentTask.taskType === "personalized_pitch" ? "template" : undefined
+    warmDmPitch: `Hey [Brand] — I make ${profile.niche} UGC that feels straightforward and credible. Reason for fit: native-feeling ${profile.niche} content with a clear product angle. I had a couple of quick concept ideas if you'd want me to send them over.`,
+    generatedBy: "template"
   };
 
-  return stampPitchOutreachMetadata(context, {
+  return {
     content: buildRichContent([
       { title: "Short email pitch", value: structuredContent.emailPitch },
       { title: "Short DM pitch", value: structuredContent.warmDmPitch },
@@ -1781,10 +1781,10 @@ async function executePitchTemplateTask(context) {
       { title: "Personalization placeholders", value: structuredContent.personalisationPlaceholders },
       { title: "Usage notes", value: structuredContent.usageNotes }
     ]),
-    outputType: context.currentTask.taskType === "personalized_pitch" ? "pitch_draft" : "pitch_template",
+    outputType: "pitch_template",
     structuredContent,
-    title: context.currentTask.taskType === "personalized_pitch" ? `Personalized pitch for ${brandLabel}` : "Pitch template"
-  });
+    title: "Pitch template"
+  };
 }
 
 async function stampPitchOutreachMetadata(context, result) {
@@ -1852,14 +1852,21 @@ async function stampPitchOutreachMetadata(context, result) {
       evidenceSupportsBuying: Boolean(structured.evidenceSupportsBuying)
     });
     structured.pitchQuality = quality;
-    const hardBlockCodes = new Set(["wrong_brand", "wrong_contact", "unsupported_buying_claim", "unsupported_factual_claim", "fake_familiarity"]);
+    const hardBlockCodes = new Set([
+      "wrong_brand",
+      "wrong_contact",
+      "unsupported_buying_claim",
+      "unsupported_factual_claim",
+      "fake_familiarity",
+      "unfilled_placeholder"
+    ]);
     const hardBlocks = quality.issues.filter((item) => item.severity === "critical" && hardBlockCodes.has(item.code));
     if (hardBlocks.length && context.currentTask?.taskType === "personalized_pitch") {
       return {
         blocked: true,
         blockerReason: hardBlocks.map((item) => item.message).join(" "),
-        neededFromUser: "Review the pitch issues before I redraft.",
-        suggestedNextStep: "Fix the critical pitch issues, then ask me to redraft."
+        neededFromUser: "Nothing required — I'll redraft once the pitch is brand-specific and complete.",
+        suggestedNextStep: "Keep researching this brand or confirm an outreach contact, then I'll try again."
       };
     }
     // Missing contact is a send blocker, not a draft-blocker — keep the deliverable.
@@ -2320,6 +2327,23 @@ async function executeRedditMarketPulseTask(context) {
     tiktokSignals,
     takeaways: redditSignals.slice(0, 3).map((signal) => signal.summary || signal.title)
   };
+
+  const { isEmptyMarketPulseStructured } = await import("./maraDeliverablePublication.mjs");
+  if (isEmptyMarketPulseStructured(structuredContent)) {
+    structuredContent.generatedBy = "empty_scan";
+    return {
+      content: buildRichContent([
+        { title: "Focus area", value: [profile.niche] },
+        {
+          title: "Paid opportunities spotted",
+          value: ["No clear paid opportunities or usable creator signals this cycle. I kept this internal and will scan again later."]
+        }
+      ]),
+      outputType: "market_pulse",
+      structuredContent,
+      title: "Creator market pulse"
+    };
+  }
 
   return {
     content: buildRichContent([
@@ -2877,9 +2901,16 @@ export async function runMaraTask({
     result = await Promise.resolve(executeTaskByType(context));
     // Data-driven executors stay factually grounded, but their prose is
     // robotic — rewrite in the worker's voice using only the draft's facts.
+    // Never polish empty scans into dream-brand essays.
+    const skipVoicePolish =
+      result?.structuredContent?.generatedBy === "empty_scan" ||
+      (task.taskType === "reddit_market_pulse" &&
+        result?.structuredContent &&
+        (await import("./maraDeliverablePublication.mjs")).isEmptyMarketPulseStructured(result.structuredContent));
     if (
       result?.content &&
       !result.blocked &&
+      !skipVoicePolish &&
       VOICE_POLISH_TASK_TYPES.has(task.taskType) &&
       isMaraLlmConfigured()
     ) {
@@ -5924,14 +5955,32 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     bookOfBusiness = growthSnapshot.opportunities.map((opportunity) => {
       const brandToken = String(opportunity.brandName || "").toLowerCase();
       const lifecycle = rawBook.find((item) => String(item.brandName || "").toLowerCase().includes(brandToken));
+      const isLater = opportunity.readiness === "later" || opportunity.decision === "build_toward";
+      const confirmableContact = (opportunity.contacts || []).find(
+        (contact) => contact?.inferred && contact?.id && Number(contact.mayUseForOutreach) !== 1
+      ) || null;
+      const lifecycleNext = lifecycle?.nextAction || null;
+      const nextAction = isLater
+        ? { label: opportunity.decisionReason || "Dream brand — build proof with reachable brands first.", requiresApproval: false, autonomous: true }
+        : lifecycleNext || (opportunity.decisionReason ? { label: opportunity.decisionReason, requiresApproval: false } : null);
       return {
         ...(lifecycle || {}),
         id: opportunity.id,
         brandName: opportunity.brandName,
         scoreTotal: opportunity.scoreTotal,
-        lifecycleStage: opportunity.readiness === "later" ? "build_toward" : lifecycle?.lifecycleStage || opportunity.status,
-        nextAction: opportunity.decisionReason ? { label: opportunity.decisionReason, requiresApproval: false } : lifecycle?.nextAction || null
+        decision: opportunity.decision || null,
+        readiness: opportunity.readiness || null,
+        lifecycleStage: isLater ? "build_toward" : lifecycle?.lifecycleStage || opportunity.status,
+        nextAction,
+        confirmableContactId: confirmableContact?.id || null,
+        outreachReady: Boolean(opportunity.outreachReady),
+        outreachContact: opportunity.outreachContact || null
       };
+    }).sort((left, right) => {
+      const leftLater = left.readiness === "later" || left.decision === "build_toward" || left.lifecycleStage === "build_toward" ? 1 : 0;
+      const rightLater = right.readiness === "later" || right.decision === "build_toward" || right.lifecycleStage === "build_toward" ? 1 : 0;
+      if (leftLater !== rightLater) return leftLater - rightLater;
+      return Number(right.scoreTotal || 0) - Number(left.scoreTotal || 0);
     });
     activationJourney = await getMaraActivationJourney(store, userId, workerId);
   } catch {

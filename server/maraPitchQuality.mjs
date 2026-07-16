@@ -2,6 +2,8 @@
  * Pitch quality gates before Gmail draft persistence.
  */
 
+import { hasUnfilledPlaceholders } from "./maraDeliverablePublication.mjs";
+
 const GENERIC_OPENERS = [
   /^hope you('?re| are) (doing )?well/i,
   /^my name is /i,
@@ -77,6 +79,20 @@ export function runPitchQualityChecks({
   }
   if (!String(subject || "").trim()) {
     issues.push({ code: "missing_subject", severity: "high", message: "Missing subject line." });
+  }
+  if (hasUnfilledPlaceholders(text) || hasUnfilledPlaceholders(subject)) {
+    issues.push({
+      code: "unfilled_placeholder",
+      severity: "critical",
+      message: "Pitch still contains unfilled placeholders like [Your Name] or [Brand] — not sendable."
+    });
+  }
+  if (/^\[brand\]$/i.test(brand) || brand === "[Brand]") {
+    issues.push({
+      code: "unfilled_placeholder",
+      severity: "critical",
+      message: "Pitch target is still a placeholder brand, not a real company."
+    });
   }
 
   const critical = issues.filter((item) => item.severity === "critical");

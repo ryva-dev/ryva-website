@@ -441,6 +441,10 @@ type MaraWorkspace = {
     blockingReason?: string | null;
     nextAction?: { label?: string; requiresApproval?: boolean } | null;
     stall?: { daysStalled?: number; likelyReason?: string; valueAtRisk?: number } | null;
+    confirmableContactId?: string | null;
+    outreachReady?: boolean;
+    readiness?: string | null;
+    decision?: string | null;
   }>;
   outreachReadyQueue?: Array<{
     id: string;
@@ -550,6 +554,10 @@ type WorkerDesk = {
     blockingReason?: string | null;
     nextAction?: { label?: string; requiresApproval?: boolean } | null;
     stall?: { daysStalled?: number; likelyReason?: string; valueAtRisk?: number } | null;
+    confirmableContactId?: string | null;
+    outreachReady?: boolean;
+    readiness?: string | null;
+    decision?: string | null;
   }>;
   outreachReadyQueue?: Array<{
     id: string;
@@ -1663,7 +1671,7 @@ function WorkerDeskSections({
                   >
                     Open pipeline
                   </button>
-                  {/contact/i.test(`${opp.nextAction?.label || ""} ${opp.blockingReason || ""}`) ? (
+                  {opp.confirmableContactId ? (
                     <button
                       className="r-btn r-btn-accent"
                       type="button"

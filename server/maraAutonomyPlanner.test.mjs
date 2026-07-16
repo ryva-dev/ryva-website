@@ -55,6 +55,7 @@ test("planner switches to reddit pulse when brand research cap is reached", () =
     brandResearchRemaining: 0,
     brands: [],
     dueRecurring: [],
+    growthPitchTargets: [],
     hasConnectedEmail: false,
     integrations: [],
     leadCount: 0,
@@ -66,6 +67,36 @@ test("planner switches to reddit pulse when brand research cap is reached", () =
 
   const actions = planMaraAutonomyActions(context);
   assert.ok(actions.some((action) => action.kind === "reddit_pulse"));
+});
+
+test("planner prefers contact hunt over reddit pulse when research capacity remains", () => {
+  const context = buildAutonomyPlannerContext({
+    approvals: [],
+    blockedTasks: [],
+    brandResearchRemaining: 2,
+    brands: [],
+    dueRecurring: [],
+    growthPitchTargets: [
+      {
+        brandName: "Local Lift Co",
+        website: "https://locallift.example",
+        status: "qualified",
+        outreachReady: false,
+        decision: "pursue",
+        readiness: "now"
+      }
+    ],
+    hasConnectedEmail: false,
+    integrations: [],
+    leadCount: 0,
+    onboarding: { status: "completed" },
+    outputs: [{ outputType: "creator_positioning", createdAt: new Date().toISOString() }, { outputType: "brand_criteria", createdAt: new Date().toISOString() }],
+    permissions: { canRunResearch: true },
+    tasks: []
+  });
+  const actions = planMaraAutonomyActions(context);
+  assert.ok(actions.some((action) => action.kind === "deep_brand_research" && action.brandName === "Local Lift Co"));
+  assert.equal(actions.some((action) => action.kind === "reddit_pulse"), false);
 });
 
 test("positioning and brand fit do not refresh because a clock elapsed", () => {

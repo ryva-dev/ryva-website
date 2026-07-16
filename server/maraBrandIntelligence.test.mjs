@@ -134,8 +134,27 @@ test("growth intelligence returns one cautious Gymshark decision and removes raw
   assert.equal(snapshot.opportunities[0].brandName, "Gymshark");
   assert.equal(snapshot.opportunities[0].readiness, "later");
   assert.equal(snapshot.opportunities[0].decision, "build_toward");
-  assert.equal(snapshot.metrics.qualifiedOpportunityCount, 1);
+  assert.equal(snapshot.metrics.qualifiedOpportunityCount, 0);
   assert.doesNotMatch(JSON.stringify(snapshot.opportunities[0]), /DREAM for me/i);
+});
+
+test("missing creator stage fails closed so dream brands stay build-toward", () => {
+  const gated = applyCreatorStageReadiness({
+    creatorProfile: { business: { desiredBrands: ["Gymshark"] } },
+    brandName: "Gymshark",
+    decision: "pursue",
+    status: "qualified"
+  });
+  assert.equal(gated.decision, "build_toward");
+  assert.equal(gated.pursueNow, false);
+
+  const mature = applyCreatorStageReadiness({
+    creatorProfile: { business: { creatorStage: "Established full-time with consistent paid deals", desiredBrands: ["Gymshark"] } },
+    brandName: "Gymshark",
+    decision: "pursue",
+    status: "qualified"
+  });
+  assert.equal(mature.pursueNow, true);
 });
 
 test("a beginner's dream brand is build-toward, not an immediate revenue target", () => {

@@ -747,7 +747,22 @@ export async function getMaraGrowthIntelligenceSnapshot(store, userId, workerId)
   // Legacy research rows can outnumber the canonical brands shown above.
   // The visible pipeline count must describe the same deduplicated book of
   // business the creator is looking at, not obsolete article-shaped rows.
-  metrics.qualifiedOpportunityCount = enriched.filter((row) => !["discarded", "lost"].includes(String(row.status || "").toLowerCase())).length;
+  metrics.qualifiedOpportunityCount = enriched.filter((row) => {
+    const status = String(row.status || "").toLowerCase();
+    if (["discarded", "lost"].includes(status)) return false;
+    // Dream / later targets stay tracked but do not inflate "qualified now."
+    if (row.readiness === "later" || row.decision === "build_toward") return false;
+    return true;
+  }).length;
+  enriched.sort((left, right) => {
+    const leftLater = left.readiness === "later" || left.decision === "build_toward" ? 1 : 0;
+    const rightLater = right.readiness === "later" || right.decision === "build_toward" ? 1 : 0;
+    if (leftLater !== rightLater) return leftLater - rightLater;
+    const leftReady = Number(Boolean(left.outreachReady));
+    const rightReady = Number(Boolean(right.outreachReady));
+    if (leftReady !== rightReady) return rightReady - leftReady;
+    return Number(right.scoreTotal || 0) - Number(left.scoreTotal || 0);
+  });
   return {
     opportunities: enriched,
     metrics,

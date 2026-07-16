@@ -222,6 +222,18 @@ test("pitch quality blocks wrong brand, missing contact, unsupported buying clai
   assert.ok(bad.issues.some((item) => item.code === "missing_contact"));
 });
 
+test("pitch quality blocks unfilled Mad Libs placeholders", () => {
+  const bad = runPitchQualityChecks({
+    body: "Hi [Brand], I'm [Your Name] and I create fitness UGC. Would you be open to a concept?",
+    subject: "Quick follow-up — [Your Name] x [Brand Name]",
+    brandName: "Local Lift Co",
+    contactEmail: "hello@locallift.example",
+    hasObservedEvidence: true
+  });
+  assert.equal(bad.canCreateDraft, false);
+  assert.ok(bad.issues.some((item) => item.code === "unfilled_placeholder"));
+});
+
 test("deal terms flag perpetual usage and gifted-not-paid", () => {
   const terms = extractDealTermsFromText("Gifted product only, perpetual usage, exclusivity, $50");
   const evaled = evaluateDealTerms(terms, { creatorMinimums: { baseRate: 400 } });

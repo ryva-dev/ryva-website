@@ -226,6 +226,21 @@ test("Mara-owned schedule blocks appear as a distinct calendar overlay and revie
   assert.equal(events[1].title, "Research contacts");
 });
 
+test("default weekly schedule includes Mara-owned research and creator-owned film/approve blocks", () => {
+  const ready = ensureWeeklyScheduleCalendarReady({}, { niche: "fitness", allowDefaults: true });
+  assert.ok(ready.blocks.some((block) => block.owner === "mara" && /research|outreach|pipeline/i.test(block.activity)));
+  assert.ok(ready.blocks.some((block) => block.owner === "creator" && /film|review|post/i.test(block.activity)));
+});
+
+test("normalizeScheduleBlocks infers Mara ownership for research-style activities", () => {
+  const ready = ensureWeeklyScheduleCalendarReady({
+    blocks: [
+      { day: "Thursday", start: "19:00", end: "20:00", activity: "Mara: brand research for fitness DTC", goal: "Find reachable brands" }
+    ]
+  }, { allowDefaults: false });
+  assert.equal(ready.blocks[0].owner, "mara");
+});
+
 test("stampCalendarHarvest only marks synced when events were created or content was empty", () => {
   const synced = stampCalendarHarvest({}, { created: 3, ensuredHadContent: true });
   assert.ok(synced.calendarSyncedAt);

@@ -285,14 +285,23 @@ export function normalizeScheduleBlocks(structured = {}) {
     if (DAY_INDEX[day] === undefined || !TIME_RE.test(start) || !TIME_RE.test(end) || !activity) {
       continue;
     }
+    const explicitOwner = String(block?.owner ?? "").trim().toLowerCase();
+    let owner = "creator";
+    if (explicitOwner === "mara") {
+      owner = "mara";
+    } else if (explicitOwner === "creator") {
+      owner = "creator";
+    } else if (/^mara\b|:\s*brand research|contact discovery|personalized outreach|pipeline follow-up|market pulse|growth intelligence/i.test(`${activity} ${block?.goal || ""}`)) {
+      owner = "mara";
+    }
     blocks.push({
       day,
       start,
       end,
       activity,
       goal: normalizeCalendarCopy(block?.goal, { sentence: true }),
-      owner: String(block?.owner ?? "creator").trim().toLowerCase() === "mara" ? "mara" : "creator",
-      kind: String(block?.kind ?? "focus").trim().toLowerCase()
+      owner,
+      kind: String(block?.kind ?? (owner === "mara" ? "research" : "focus")).trim().toLowerCase()
     });
   }
   return blocks;
@@ -300,14 +309,18 @@ export function normalizeScheduleBlocks(structured = {}) {
 
 /**
  * Default realistic creator week when LLM/template omitted valid blocks.
+ * Mara owns research/prep; creator owns film/approve/send.
  */
 export function defaultWeeklyScheduleBlocks({ niche = "UGC" } = {}) {
   const label = String(niche || "UGC").trim() || "UGC";
   return [
+    { day: "Monday", start: "10:00", end: "11:00", activity: "Mara: brand and contact research", goal: "Find reachable brands and outreach-ready contacts", owner: "mara", kind: "research" },
     { day: "Monday", start: "18:30", end: "19:00", activity: "Review Mara's priorities", goal: "Approve the week's highest-value work", owner: "creator", kind: "review" },
     { day: "Tuesday", start: "19:00", end: "19:45", activity: "Filming prep", goal: "Confirm concepts, products, props, and locations", owner: "creator", kind: "prep" },
-    { day: "Wednesday", start: "18:30", end: "19:00", activity: "Outreach review", goal: "Review personalized pitches Mara prepared", owner: "creator", kind: "review" },
+    { day: "Wednesday", start: "10:00", end: "11:00", activity: "Mara: draft personalized outreach", goal: "Prepare send-ready pitches for reachable brands", owner: "mara", kind: "outreach" },
+    { day: "Wednesday", start: "18:30", end: "19:00", activity: "Outreach review", goal: "Approve personalized pitches Mara prepared", owner: "creator", kind: "review" },
     { day: "Thursday", start: "19:00", end: "19:45", activity: "Posting slot", goal: `Publish one ${label} piece`, owner: "creator", kind: "posting" },
+    { day: "Friday", start: "10:00", end: "11:00", activity: "Mara: pipeline follow-up prep", goal: "Advance stalled deals and prepare follow-ups", owner: "mara", kind: "ops" },
     { day: "Saturday", start: "10:00", end: "12:00", activity: "Filming block", goal: "Capture approved concepts", owner: "creator", kind: "filming" },
     { day: "Sunday", start: "18:00", end: "18:30", activity: "Weekly review with Mara", goal: "Review results and adjust next week", owner: "creator", kind: "review" }
   ];

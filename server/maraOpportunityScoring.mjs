@@ -23,9 +23,14 @@ function normalizedBrandName(value) {
 }
 
 export function isEarlyStageCreator(creatorStage) {
-  const stage = String(creatorStage || "").toLowerCase();
-  if (!stage.trim()) return false;
-  return /\b(brand[ -]?new|beginner|just start(?:ing|ed)?|starting out|no (?:paid )?(?:deal|client|win)s?|zero (?:deal|client|win)s?|haven'?t (?:landed|booked|worked)|not (?:landed|booked|paid)|first (?:deal|client))\b/.test(stage);
+  const stage = String(creatorStage || "").toLowerCase().trim();
+  // Fail closed: unknown or ambiguous stage is treated as early so dream brands
+  // never become overnight revenue targets for creators who haven't proven maturity.
+  if (!stage) return true;
+  if (/\b(established|experienced|advanced|full[ -]?time|agency|scaled|consistent (?:paid )?deals?|multiple (?:paid )?brands?|already (?:booking|landing|getting) (?:paid )?deals?)\b/.test(stage)) {
+    return false;
+  }
+  return true;
 }
 
 export function isDesiredBrand(brandName, desiredBrands = []) {

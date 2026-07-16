@@ -151,16 +151,24 @@ export function planMaraAutonomyActions(context) {
   actions.push({ kind: "manage_stalled_opportunities" });
   actions.push({ kind: "advance_won_opportunities" });
 
-  // Deep-refresh only an opportunity that can advance. Contactless brands are
-  // handled by the retry queue while broad research finds alternatives.
-  const deepRefreshTarget = (context.growthPitchTargets || []).find(
-    (target) => Boolean(target.outreachReady || target.contactEmail || target.outreachContact?.value)
-  );
+  // Deep-refresh: prefer outreach-ready brands, otherwise chase contacts on
+  // revenue-ready (pursueNow) targets. Never deep-research dream brands as the
+  // overnight primary move for early creators.
+  const deepRefreshTarget =
+    (context.growthPitchTargets || []).find(
+      (target) => Boolean(target.outreachReady || target.contactEmail || target.outreachContact?.value)
+    ) ||
+    (context.growthPitchTargets || []).find(
+      (target) => target.pursueNow !== false && target.readiness !== "later" && target.decision !== "build_toward"
+    );
   if (permissions.canRunResearch && brandResearchRemaining > 0 && deepRefreshTarget) {
     actions.push({
       kind: "deep_brand_research",
       brandName: deepRefreshTarget.brandName,
-      website: deepRefreshTarget.website || null
+      website: deepRefreshTarget.website || null,
+      reason: deepRefreshTarget.outreachReady
+        ? "Deep-refresh a reachable brand that can advance toward pitch."
+        : "Hunt an outreach-ready contact for a revenue-ready brand."
     });
   }
 
@@ -234,12 +242,19 @@ export function planMaraAutonomyActions(context) {
     });
   }
 
-  // Market-pulse work must not spam the library: only one fresh pulse doc at
-  // a time, and never generate a trend brief when no trend data exists.
+  // Market-pulse is filler only when the commercial loop has nothing better to do.
   const marketPulseFresh = recentOutputTypes.market_pulse
     && !isArtifactStale(recentOutputTypes.market_pulse, MAINTAIN_ARTIFACT_MAX_AGE_HOURS.tiktok_trends);
+  const hasCommercialPitchWork = brandsNeedingPitches.length > 0;
+  const hasContactHunt = Boolean(deepRefreshTarget) && !deepRefreshTarget.outreachReady;
 
-  if (permissions.canRunResearch && brandResearchRemaining === 0 && !marketPulseFresh) {
+  if (
+    permissions.canRunResearch &&
+    brandResearchRemaining === 0 &&
+    !marketPulseFresh &&
+    !hasCommercialPitchWork &&
+    !hasContactHunt
+  ) {
     actions.push({ kind: "reddit_pulse", reason: "I'll scan creator communities for fresh angles while brand research cools down." });
   }
 

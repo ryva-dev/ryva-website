@@ -15,6 +15,7 @@ import { sendTransactionalEmail } from "./mailer.mjs";
 import { extractGmailBodyText } from "./maraInboxParser.mjs";
 import { parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { deriveMaraPermissionsFromOnboarding, firstPersonMaraSpeech, formatTaskSourceLabel, safeList, sentenceCase } from "./maraOfficeUtils.mjs";
+import { shouldPublishWorkerOutput } from "./maraDeliverablePublication.mjs";
 import { createDurableRateLimitStore, initRateLimitStore, rateLimitKeyForRequest } from "./rateLimitStore.mjs";
 import {
   deleteUserTrendArtifacts,
@@ -1119,9 +1120,9 @@ async function syncWorkerDeliverables(userId, workerSlug) {
     if (HIDDEN_DELIVERABLE_OUTPUT_TYPES.has(String(output.outputType))) {
       continue;
     }
-    if (["placeholder", "template"].includes(String(output.structuredContent?.generatedBy || ""))) {
-      // Keep the underlying record for diagnostics, but never present a
-      // generic fallback or held placeholder as completed professional work.
+    if (!shouldPublishWorkerOutput(output, { hiddenTypes: HIDDEN_DELIVERABLE_OUTPUT_TYPES })) {
+      // Keep the underlying record for diagnostics, but never present empty
+      // scans, Mad Libs, or generic fallbacks as completed professional work.
       await authStore.execute(
         `DELETE FROM office_deliverables
          WHERE user_id = ? AND worker_slug = ? AND source_type = 'worker_output'
@@ -3607,14 +3608,24 @@ const DIGEST_INTERVAL_DAYS = Number.parseInt(process.env.DIGEST_INTERVAL_DAYS ??
  * Weekly digest for one user. Idempotent via user_digest_log + job idempotency key.
  */
 async function sendDigestForUser(user, threshold) {
-  const outputs = await authStore.query(
-    `SELECT title, output_type AS "outputType", worker_id AS "workerId", created_at AS "createdAt"
+  const rawOutputs = await authStore.query(
+    `SELECT title, output_type AS "outputType", worker_id AS "workerId", created_at AS "createdAt",
+            structured_content_json AS "structuredContentJson", content
      FROM worker_outputs
      WHERE user_id = ? AND created_at >= ?
      ORDER BY created_at DESC
-     LIMIT 12`,
+     LIMIT 24`,
     user.id, threshold
   );
+  const outputs = rawOutputs
+    .map((row) => ({
+      ...row,
+      structuredContent: (() => {
+        try { return JSON.parse(row.structuredContentJson || "null"); } catch { return null; }
+      })()
+    }))
+    .filter((output) => shouldPublishWorkerOutput(output, { hiddenTypes: HIDDEN_DELIVERABLE_OUTPUT_TYPES }))
+    .slice(0, 12);
   const approvals = await authStore.query(
     `SELECT title FROM worker_approval_requests WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 8`,
     user.id
