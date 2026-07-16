@@ -3532,8 +3532,8 @@ function CalendarView({
         </h1>
         <div className="ro-cal-nav">
           <div className="r-seg">
-            <button type="button" className={`r-seg-btn${mode === "day" ? " on" : ""}`} onClick={() => setMode("day")}>Day</button>
-            <button type="button" className={`r-seg-btn${mode === "week" ? " on" : ""}`} onClick={() => setMode("week")}>Week</button>
+            <button type="button" aria-pressed={mode === "day"} className={`r-seg-btn${mode === "day" ? " on" : ""}`} onClick={() => setMode("day")}>Day</button>
+            <button type="button" aria-pressed={mode === "week"} className={`r-seg-btn${mode === "week" ? " on" : ""}`} onClick={() => setMode("week")}>Week</button>
           </div>
           <button type="button" onClick={() => shiftDay(-1)} aria-label={mode === "week" ? "Previous week" : "Previous day"}>‹</button>
           <button type="button" className="ro-cal-today" onClick={() => { const d = new Date(); d.setHours(0, 0, 0, 0); setDay(d); }}>Today</button>
@@ -3581,6 +3581,8 @@ function CalendarView({
               <button
                 key={e.id}
                 className={`ro-evt type-${e.eventType.toLowerCase()}`}
+                aria-label={`${e.title}, ${clock(e.startsAt)} to ${clock(e.endsAt)}`}
+                title={`${e.title} · ${clock(e.startsAt)}–${clock(e.endsAt)}`}
                 style={{ top, height, left: `calc(58px + (${eventDayIndex} * (100% - 58px) / ${displayDays.length}) + 4px)`, width: `calc((100% - 58px) / ${displayDays.length} - 8px)` }}
                 type="button"
                 onClick={() => { setEditing(e); setShowForm(true); }}

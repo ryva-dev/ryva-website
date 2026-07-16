@@ -1490,6 +1490,25 @@ a:focus-visible {
   gap: 10px;
 }
 
+.r-seg-btn {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--line, #d7e1ec);
+  border-radius: 9px;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 12px;
+}
+
+.r-seg-btn:hover { border-color: var(--ink, #111827); color: var(--ink, #111827); }
+.r-seg-btn.on { background: var(--ink, #111827); border-color: var(--ink, #111827); color: var(--surface, #fff); }
+
 .r-seg-option {
   display: inline-flex;
   align-items: center;
@@ -4121,14 +4140,16 @@ a:focus-visible {
 .ro-review-rail { min-width: 0; }
 
 /* ---- calendar: full week, full day, sticky header, scrollable ---- */
-.ro-cal-head { padding-bottom: 20px; }
-.ro-cal-nav { display: flex; align-items: center; gap: 8px; }
+.ro-cal-head { align-items: flex-end; display: flex; flex-wrap: wrap; gap: 18px 28px; justify-content: space-between; padding-bottom: 20px; }
+.ro-cal-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ro-cal-nav .r-seg { align-items: center; flex-direction: row; gap: 4px; }
+.ro-cal-nav .r-seg-btn { min-width: 0; white-space: nowrap; }
 .ro-cal-nav > button:not(.r-btn) { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 15px; color: var(--muted); }
 .ro-cal-nav > button:not(.r-btn):hover { border-color: var(--ink); color: var(--ink); }
 .ro-cal-today { width: auto !important; padding: 0 14px; font-size: 13px !important; font-weight: 550; }
 .ro-cal-nav .r-btn { font-size: 13px; padding: 8px 18px; }
 
-.ro-cal { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); position: relative; }
+.ro-cal { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--line); position: relative; overscroll-behavior: contain; }
 .ro-cal-days { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: 58px repeat(7, 1fr); background: var(--surface); border-bottom: 1px solid var(--line); }
 .ro-cal-days-day { grid-template-columns: 58px 1fr; }
 .ro-cal-sidehead { background: var(--surface); }
@@ -4353,10 +4374,36 @@ a:focus-visible {
   .ro-commercial-scorecard { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 16px; }
   .ro-autonomy-grid { grid-template-columns: 1fr; }
   .ro-journey-track { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ro-cal-days, .ro-cal-row-days { grid-template-columns: 58px repeat(7, minmax(90px, 1fr)); }
+  .ro-cal-days-week, .ro-cal-grid-week { min-width: 760px; }
+  .ro-cal-days { grid-template-columns: 58px repeat(7, minmax(0, 1fr)); }
+  .ro-cal-days-day { grid-template-columns: 58px 1fr; min-width: 0; }
+  .ro-cal-row-days { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .ro-cal-grid-day .ro-cal-row-days { grid-template-columns: 1fr; }
   .ro-worker-page-id { flex-direction: column; }
   .ro-worker-page-actions { align-items: stretch; }
   .ro-worker-page-actions .r-btn { width: 100%; }
+}
+
+/* Calendar responds to its actual split-screen panel, not only viewport width. */
+.ro-main-wide { container-name: office-calendar; container-type: inline-size; }
+
+@container office-calendar (max-width: 820px) {
+  .ro-cal-head { align-items: flex-start; gap: 14px; }
+  .ro-main-wide.ro-main-scroll .ro-cal-head h1 { font-size: clamp(25px, 5cqw, 31px); width: 100%; }
+  .ro-cal-nav { width: 100%; }
+  .ro-cal-nav .r-seg { align-items: center; flex-direction: row; width: auto; }
+  .ro-cal-nav .r-btn { margin-left: auto; }
+  .ro-cal-days-week, .ro-cal-grid-week { min-width: 760px; }
+  .ro-evt { gap: 3px; padding-inline: 6px; }
+  .ro-evt small { display: none; }
+}
+
+@container office-calendar (max-width: 520px) {
+  .ro-main-wide.ro-main-scroll .ro-cal-head h1 { font-size: 24px; }
+  .ro-cal-nav { align-items: stretch; }
+  .ro-cal-nav .r-btn { flex: 1 1 120px; margin-left: 0; }
+  .ro-cal-today { padding-inline: 10px; }
+  .ro-cal-key { margin-top: 2px; }
 }
 
 /* ============================================================
