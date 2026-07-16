@@ -42,4 +42,6 @@ test("Mara activity aliases preserve camelCase when PostgreSQL builds workspace 
   assert.match(workerEngineSource, /event_type AS "eventType"/);
   assert.match(workerEngineSource, /metadata_json AS "metadataJson"/);
   assert.match(workerEngineSource, /created_at AS "createdAt"/);
+  assert.match(workerEngineSource, /const seenActivity = new Set\(\)/);
+  assert.match(workerEngineSource, /seenActivity\.has\(fingerprint\)/);
 });

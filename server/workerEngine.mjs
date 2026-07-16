@@ -5684,6 +5684,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   const permissions = await getWorkerPermissions(store, userId, workerId);
   const whatMaraKnows = typeof readKnowledgeSections === "function" ? await readKnowledgeSections(userId, workerId) : [];
   let includedMonitoringPass = false;
+  const seenActivity = new Set();
   const recentActivity = (await store.query(
       `SELECT id, event_type AS "eventType", title, description, related_task_id AS "relatedTaskId", metadata_json AS "metadataJson", created_at AS "createdAt"
        FROM worker_activity_log
@@ -5695,6 +5696,14 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     ))
     .map((row) => ({ ...row, metadata: safeJsonParse(row.metadataJson, {}) }))
     .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "task_execution_started", "task_execution_completed", "task_execution_blocked", "worker_output_created", "task_auto_executed", "chat_task_created", "chat_task_executed", "recurring_responsibility_created", "autonomy_cycle_completed"].includes(row.eventType))
+    .filter((row) => {
+      const fingerprint = [row.eventType, row.title, row.description]
+        .map((value) => String(value || "").trim())
+        .join("|");
+      if (seenActivity.has(fingerprint)) return false;
+      seenActivity.add(fingerprint);
+      return true;
+    })
     .filter((row) => {
       const isNoChangeMonitoringPass = row.eventType === "autonomy_cycle_completed" && Number(row.metadata?.meaningfulChanges || 0) === 0;
       if (!isNoChangeMonitoringPass) return true;
