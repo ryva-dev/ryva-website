@@ -115,6 +115,7 @@ import { USER_SCOPED_TABLES, authorizeAccountDeletion } from "./accountErasure.m
 import { ensureMaraRuntimeTables } from "./maraRuntimeStorage.mjs";
 import { normalizeAnthropicUsage, recordModelUsage } from "./modelUsageAccounting.mjs";
 import { listIntegrationCatalog } from "./integrationCatalog.mjs";
+import { createDueCalendarNotifications, deliverOfficeNotification, initOfficeNotifications } from "./officeNotifications.mjs";
 
 function logCaught(message, error, fields = {}) {
   const errMessage = error instanceof Error ? error.message : String(error);
@@ -208,6 +209,7 @@ await initExternalActions(auditStore);
 await initMaraIntelligence(professionalStore);
 await initMaraBrandArchitecture(professionalStore);
 await ensureMaraRuntimeTables(appStore);
+await initOfficeNotifications(appStore);
 await authStore.execute(`CREATE TABLE IF NOT EXISTS agent_llm_usage (
   user_id TEXT NOT NULL,
   day TEXT NOT NULL,
@@ -603,7 +605,8 @@ async function readOfficeOverlaysForUser(userId) {
     globalSettings,
     onboarding,
     integrations,
-    handbookEntries
+    handbookEntries,
+    notifications
   ] = await Promise.all([
     authStore.query(
       `SELECT id, worker_slug AS "workerSlug", source_type AS "sourceType", source_id AS "sourceId", source_label AS "sourceLabel",
@@ -720,6 +723,15 @@ async function readOfficeOverlaysForUser(userId) {
        WHERE user_id = ?
        ORDER BY section ASC, subsection ASC, updated_at DESC, created_at DESC`,
       userId
+    ),
+    authStore.query(
+      `SELECT id, worker_slug AS "workerSlug", kind, title, body, action_url AS "actionUrl", status,
+              scheduled_for AS "scheduledFor", sent_at AS "sentAt", read_at AS "readAt", created_at AS "createdAt"
+       FROM office_notifications
+       WHERE user_id = ?
+       ORDER BY created_at DESC
+       LIMIT 30`,
+      userId
     )
   ]);
 
@@ -740,7 +752,8 @@ async function readOfficeOverlaysForUser(userId) {
     globalSettings: globalSettings ?? null,
     onboarding,
     integrations,
-    handbookEntries
+    handbookEntries,
+    notifications
   };
 }
 
@@ -3667,6 +3680,16 @@ async function runScheduledMaraAutonomy() {
     }
 
     await enqueueWeeklyDigests();
+    const dueNotifications = await createDueCalendarNotifications(authStore);
+    for (const notification of dueNotifications) {
+      await enqueueJob(jobStore, {
+        kind: "office_notification",
+        userId: notification.userId,
+        workerId: notification.workerSlug || null,
+        payload: { notificationId: notification.id },
+        idempotencyKey: `office_notification:${notification.id}`
+      });
+    }
 
     const jobs = await claimJobs(jobStore, {
       owner: jobLeaseOwner,
@@ -3698,6 +3721,16 @@ async function runScheduledMaraAutonomy() {
             user.name = row.name;
           }
           await sendDigestForUser(user, job.payload?.threshold || new Date(Date.now() - DIGEST_INTERVAL_DAYS * 24 * 60 * 60 * 1000).toISOString());
+          await completeJob(jobStore, job.id, jobLeaseOwner);
+          incrementMetric("jobs_completed", 1, { kind: job.kind });
+          continue;
+        }
+
+        if (job.kind === "office_notification") {
+          await deliverOfficeNotification(authStore, job.payload?.notificationId, {
+            sendEmail: sendTransactionalEmail,
+            appUrl
+          });
           await completeJob(jobStore, job.id, jobLeaseOwner);
           incrementMetric("jobs_completed", 1, { kind: job.kind });
           continue;
@@ -7167,6 +7200,19 @@ app.post("/api/office/settings", assertOrigin, requireAuth, async (req, res) => 
     await syncHandbookEntries(req.user.id, row.workerSlug);
   }
 
+  res.json({ ok: true });
+});
+
+app.post("/api/office/notifications/:id/read", assertOrigin, requireAuth, async (req, res) => {
+  const timestamp = nowIso();
+  const result = await authStore.execute(
+    `UPDATE office_notifications SET read_at = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+    timestamp, timestamp, req.params.id, req.user.id
+  );
+  if (Number(result?.rowCount ?? result?.changes ?? 0) === 0) {
+    res.status(404).json({ error: "Notification not found." });
+    return;
+  }
   res.json({ ok: true });
 });
 

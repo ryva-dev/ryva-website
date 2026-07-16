@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createStore } from "./dataStore.mjs";
 import {
   extractSocialProfilesFromHtml,
   extractTikTokCreativeCenterTrends,
@@ -8,8 +9,43 @@ import {
   metaAdLibraryProvider,
   xBrandSearchProvider,
   researchUgcStrategyAcrossPlatforms,
-  tiktokBackendTrendFeedProvider
+  tiktokBackendTrendFeedProvider,
+  youtubeNicheResearchProvider
 } from "./maraSocialResearch.mjs";
+
+test("YouTube niche research uses observed public metrics and a durable cache", async () => {
+  const previous = process.env.YOUTUBE_API_KEY;
+  process.env.YOUTUBE_API_KEY = "test-key";
+  const store = createStore({ databasePath: ":memory:" });
+  await store.init();
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    calls += 1;
+    if (String(url).includes("/search")) {
+      return new Response(JSON.stringify({ items: [{ id: { videoId: "abc123" } }] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ items: [{
+      id: "abc123",
+      snippet: { title: "Three fitness hooks", channelTitle: "Creator Lab", publishedAt: "2026-07-14T12:00:00.000Z" },
+      statistics: { viewCount: "12000", likeCount: "900", commentCount: "40" },
+      contentDetails: { duration: "PT32S" }
+    }] }), { status: 200 });
+  };
+  try {
+    const args = { niche: "fitness and wellness", fetchImpl, cacheStore: store, now: new Date("2026-07-16T12:00:00.000Z") };
+    const first = await youtubeNicheResearchProvider(args);
+    const second = await youtubeNicheResearchProvider(args);
+    assert.equal(first.status, "ok");
+    assert.equal(first.observations[0].viewsPerDay, 6000);
+    assert.match(first.observations[0].evidence[0].claim, /12,000 public views/);
+    assert.equal(second.cached, true);
+    assert.equal(calls, 2);
+  } finally {
+    await store.close();
+    if (previous == null) delete process.env.YOUTUBE_API_KEY;
+    else process.env.YOUTUBE_API_KEY = previous;
+  }
+});
 
 test("TikTok backend-feed parser extracts embedded trend facts", () => {
   const html = `<script type="application/json">{"data":{"list":[{"hashtagName":"fitnesstips","publishCnt":12000,"videoViews":3400000}]}}</script>`;

@@ -1,7 +1,7 @@
 # Ryva Integration Framework
 
 Status: authoritative architecture for connector expansion  
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 ## Purpose
 
@@ -123,15 +123,14 @@ Raw provider payloads should be encrypted, access-restricted, and retained only 
 
 ### Priority 1: creator performance loop
 
-1. **Instagram:** read an eligible creator's profile, media, and insights. Use performance to learn formats, hooks, topics, and content gaps. Do not represent this as broad Instagram trend access.
-2. **TikTok:** use creator-authorized Display API data for the creator's profile and videos. Pair it with a separate licensed or official trend source; Display access alone is not trend intelligence.
-3. **YouTube:** use public Data API search/statistics for niche discovery and creator-authorized channel/analytics data for outcome learning. Cache aggressively because search is quota-expensive.
+1. **YouTube public research — implemented:** use Data API search/statistics for recent niche discovery. The adapter stores observed titles, channels, publication dates, views, likes, comments, durations, and view velocity with source URLs. Results are cached by normalized niche, region, and language for 12 hours. `YOUTUBE_API_KEY` enables it; no creator connection is required. Owned-channel OAuth and analytics remain later work.
+2. **Instagram:** read an eligible creator's profile, media, and insights. Use performance to learn formats, hooks, topics, and content gaps. Do not represent this as broad Instagram trend access.
+3. **TikTok:** use creator-authorized Display API data for the creator's profile and videos. Pair it with a separate licensed or official trend source; Display access alone is not trend intelligence.
 
 ### Priority 2: creator workspace
 
-1. **Notion:** user-selected page access, approved artifact publishing, and webhooks for edits/corrections.
-2. **Google Drive:** a user-selected Ryva folder for portfolios, source assets, and approved deliverables; use change events instead of broad polling.
-3. **Canva:** create an editable design starting point from an approved concept, deep-link the creator into Canva, and import/export the resulting asset. Only stable, publicly reviewable APIs may be production dependencies.
+1. **Notion and Google Drive:** implement the shared workspace contract, then expose user-selected page/folder access, approved artifact publishing, and change events for edits/corrections.
+2. **Canva:** create an editable design starting point from an approved concept, deep-link the creator into Canva, and import/export the resulting asset. Only stable, publicly reviewable APIs may be production dependencies.
 
 ### Priority 3: wider intelligence and destinations
 

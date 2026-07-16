@@ -163,7 +163,8 @@ export function formatMaraCurrentFocus({
   runnableTask = null,
   waitingItem = null,
   recommendedLabel = null,
-  hasTrackedWork = false
+  hasTrackedWork = false,
+  latestAutonomyActivity = null
 }) {
   if (runningTask?.title || inProgressTask?.title) {
     const title = runningTask?.title || inProgressTask?.title;
@@ -179,7 +180,10 @@ export function formatMaraCurrentFocus({
     return `I'm ready to move on ${recommendedLabel}.`;
   }
   if (hasTrackedWork) {
-    return "I'm caught up on my queue and ready for the next move.";
+    if (latestAutonomyActivity) {
+      return "I'm monitoring your active work and looking for the next move worth making.";
+    }
+    return "I'm reviewing your business for the next move worth making.";
   }
   return "I'm getting oriented on your brand and setting up my first pieces of work.";
 }

@@ -2692,7 +2692,8 @@ async function executeUgcStrategyBriefTask(context) {
   const research = await researchUgcStrategyAcrossPlatforms({
     niche: profile.niche || "UGC",
     insights: context.privateInsights,
-    fetchImpl: context.fetchImpl || globalThis.fetch
+    fetchImpl: context.fetchImpl || globalThis.fetch,
+    cacheStore: context.store || null
   });
   // Creator-facing brief: strategy only. Platform API keys are ops-owned — never surface provider/key status.
   const structuredContent = {
@@ -4581,10 +4582,28 @@ export async function runMaraAutonomyCycle({
   } catch {
     dueFollowUpCount = 0;
   }
+  const recentAutonomyRows = await store.query(
+    `SELECT metadata_json AS "metadataJson", created_at AS "createdAt"
+     FROM worker_activity_log
+     WHERE user_id = ? AND worker_id = ? AND event_type = 'autonomy_cycle_completed'
+     ORDER BY created_at DESC
+     LIMIT 12`,
+    userId,
+    workerId
+  );
+  const lastBrandResearchAttempt = recentAutonomyRows.find((row) =>
+    safeJsonParse(row.metadataJson, {}).plannedActions?.includes("brand_research")
+  );
+  const brandResearchCooldownHours = Math.max(1, Number(process.env.MARA_BRAND_RESEARCH_COOLDOWN_HOURS || 6));
+  const brandResearchOnCooldown = lastBrandResearchAttempt
+    ? Date.now() - new Date(lastBrandResearchAttempt.createdAt).getTime() < brandResearchCooldownHours * 60 * 60 * 1000
+    : false;
   const plannerContext = buildAutonomyPlannerContext({
     approvals: (await listApprovalRequests(store, userId, workerId)).filter((entry) => entry.status === "pending"),
     blockedTasks: (await listWorkerTasksForUserWorker(store, userId, workerId)).filter((entry) => entry.status === "blocked"),
-    brandResearchRemaining: Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - await countBrandResearchItemsToday(store, userId, workerId)),
+    brandResearchRemaining: brandResearchOnCooldown
+      ? 0
+      : Math.max(0, MARA_DAILY_BRAND_RESEARCH_LIMIT - await countBrandResearchItemsToday(store, userId, workerId)),
     brands: await listWorkerBrands(store, userId, workerId),
     dueFollowUpCount,
     dueRecurring: (await listRecurringResponsibilities(store, userId, workerId)).filter((entry) => isRecurringDue(entry)),
@@ -4661,17 +4680,25 @@ export async function runMaraAutonomyCycle({
 
   summary.blockers.push(...plannerContext.blockers);
 
+  const meaningfulChanges = summary.executedTaskIds.length + summary.createdTaskIds.length + summary.outputs.length;
+  const nextCheckMinutes = Math.max(1, Number(process.env.MARA_AUTONOMY_INTERVAL_MINUTES || 15));
+  const monitoringDescription = meaningfulChanges > 0
+    ? `I completed ${summary.executedTaskIds.length} task${summary.executedTaskIds.length === 1 ? "" : "s"}, created ${summary.createdTaskIds.length} next task${summary.createdTaskIds.length === 1 ? "" : "s"}, and prepared ${summary.outputs.length} deliverable${summary.outputs.length === 1 ? "" : "s"}.`
+    : `I checked active deals, follow-ups, the brand pipeline, and current research. Nothing new met the bar to change your plan, so I'll check again automatically in about ${nextCheckMinutes} minutes.`;
   await createWorkerActivityLog(store, {
-    description: `I reviewed the current priorities, completed ${summary.executedTaskIds.length} task${summary.executedTaskIds.length === 1 ? "" : "s"}, and prepared ${summary.outputs.length} deliverable${summary.outputs.length === 1 ? "" : "s"}.`,
+    description: monitoringDescription,
     eventType: "autonomy_cycle_completed",
     metadata: {
       blockers: summary.blockers,
       createdTaskIds: summary.createdTaskIds,
       executedTaskIds: summary.executedTaskIds,
       outputIds: summary.outputs.map((output) => output.id),
-      plannedActions: summary.plannedActions
+      plannedActions: summary.plannedActions,
+      meaningfulChanges,
+      nextAutomaticCheckMinutes: nextCheckMinutes,
+      notes: summary.notes.slice(0, 8)
     },
-    title: "Work pass complete",
+    title: meaningfulChanges > 0 ? "Work pass complete" : "Monitoring pass complete",
     userId,
     workerId
   });
@@ -5625,6 +5652,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   const inboxLeadSnapshot = await buildInboxLeadSnapshot(store, userId, workerId);
   const permissions = await getWorkerPermissions(store, userId, workerId);
   const whatMaraKnows = typeof readKnowledgeSections === "function" ? await readKnowledgeSections(userId, workerId) : [];
+  let includedMonitoringPass = false;
   const recentActivity = (await store.query(
       `SELECT id, event_type AS eventType, title, description, related_task_id AS relatedTaskId, metadata_json AS metadataJson, created_at AS createdAt
        FROM worker_activity_log
@@ -5636,6 +5664,13 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     ))
     .map((row) => ({ ...row, metadata: safeJsonParse(row.metadataJson, {}) }))
     .filter((row) => ["task_created", "task_completed", "memory_created", "research_item_created", "approval_requested", "task_execution_started", "task_execution_completed", "task_execution_blocked", "worker_output_created", "task_auto_executed", "chat_task_created", "chat_task_executed", "recurring_responsibility_created", "autonomy_cycle_completed"].includes(row.eventType))
+    .filter((row) => {
+      const isNoChangeMonitoringPass = row.eventType === "autonomy_cycle_completed" && Number(row.metadata?.meaningfulChanges || 0) === 0;
+      if (!isNoChangeMonitoringPass) return true;
+      if (includedMonitoringPass) return false;
+      includedMonitoringPass = true;
+      return true;
+    })
     .slice(0, 5)
     .map((row) => ({
       ...row,
@@ -5850,7 +5885,8 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     runnableTask: highestPriorityRunnableTask,
     waitingItem: waitingOnUser[0] ?? null,
     recommendedLabel: hasTrackedWork ? recommendedNextActions[0] ?? null : null,
-    hasTrackedWork
+    hasTrackedWork,
+    latestAutonomyActivity: recentActivity.find((item) => item.eventType === "autonomy_cycle_completed") ?? null
   });
 
   let commercialNorthStar = {

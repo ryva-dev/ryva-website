@@ -73,6 +73,7 @@ type OverlayHandbookEntry = {
 };
 type OverlayBriefing = { workerSlug: string; id: string; title: string; dateLabel: string; summary: string; agendaJson: string; decisionsJson: string; actionsJson: string };
 type OverlayCalendarEvent = { id: string; workerSlug: string | null; title: string; startsAt: string; endsAt: string; eventType: string; notes: string; updatedAt: string };
+type OverlayNotification = { id: string; workerSlug: string | null; kind: string; title: string; body: string; actionUrl: string; status: string; scheduledFor?: string | null; sentAt?: string | null; readAt?: string | null; createdAt: string };
 type OverlaySuggestedAction = {
   workerSlug: string;
   id: string;
@@ -573,10 +574,11 @@ type Overlays = {
   globalSettings: OverlayGlobalSettings;
   integrations: OverlayIntegration[];
   onboarding: OverlayOnboarding[];
+  notifications: OverlayNotification[];
 };
 
 const EMPTY_OVERLAYS: Overlays = {
-  chats: [], assignments: [], tasks: [], suggestedActions: [], worklog: [], files: [], deliverables: [], briefings: [], handbookEntries: [], calendarEvents: [], globalSettings: null, integrations: [], onboarding: [],
+  chats: [], assignments: [], tasks: [], suggestedActions: [], worklog: [], files: [], deliverables: [], briefings: [], handbookEntries: [], calendarEvents: [], globalSettings: null, integrations: [], onboarding: [], notifications: [],
 };
 
 type Tab = "today" | "assignments" | "reviews" | "workers" | "deliverables" | "calendar" | "handbook" | "settings" | "worker-onboarding";
@@ -948,7 +950,7 @@ function buildWorkerDesk(
     approvals: approvalsFromOverlay,
     connectedTools,
     currentFocus: workspace?.currentFocus || fallbackFocus,
-    currentFocusReason: workspace?.currentWork?.description || inMotion[0]?.summary || `${worker.name.split(" ")[0]} is available for the next piece of work.`,
+    currentFocusReason: workspace?.currentWork?.description || inMotion[0]?.summary || workspace?.recentActivity?.[0]?.description || "I'll keep checking your business and surface the next move when the evidence supports it.",
     inboxLeads: workspace?.inboxLeadSnapshot?.items.map((item) => ({
       brandName: item.brandName,
       contactEmail: item.contactEmail,
@@ -1157,6 +1159,11 @@ function TodayView({
   const leadAttention = attentionItems[0] ?? null;
   const secondaryAttention = attentionItems.slice(1, 4);
   const nextEvent = todaysEvents[0] ?? null;
+  const upcomingNotifications = overlays.notifications.filter((item) => !item.readAt).slice(0, 4);
+  const openNotification = (item: OverlayNotification) => {
+    void officeJson(`/api/office/notifications/${encodeURIComponent(item.id)}/read`, { method: "POST", body: JSON.stringify({}) });
+    onNavigate(item.actionUrl || "#app/office/today");
+  };
   const dateLine = today.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
   const needsYouIds = new Set([
     ...attentionItems.map((item) => `${item.workerSlug}:${item.id}`),
@@ -1230,6 +1237,20 @@ function TodayView({
               <p className="ro-blank">Nothing else is waiting on you right now.</p>
             )}
           </section>
+
+          {upcomingNotifications.length > 0 ? (
+            <section className="ro-sec" aria-label="Office notifications">
+              <div className="ro-sec-head"><h2>Coming up</h2><span className="ro-sec-n">{upcomingNotifications.length}</span></div>
+              <div className="ro-rows">
+                {upcomingNotifications.map((item) => (
+                  <button key={item.id} className="ro-row" type="button" onClick={() => openNotification(item)}>
+                    <div className="ro-row-copy"><strong>{item.title}</strong><p>{item.body}</p></div>
+                    <div className="ro-row-end"><span className="ro-row-cta">Open calendar →</span></div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           {recentChanges.length > 0 ? (
             <section className="ro-sec">
@@ -1766,7 +1787,7 @@ function WorkerDeskSections({
             ))}
           </div>
         ) : (
-          <p className="ro-worker-note">{isMara ? "My queue is clear — message me if you want me on something specific." : "Ready for the next assignment."}</p>
+          <p className="ro-worker-note">{isMara ? "I'm continuing to monitor your pipeline, deadlines, and market signals between assignments." : "Ready for the next assignment."}</p>
         )}
       </section>
 
@@ -4024,6 +4045,8 @@ function DeliverablesView({ workers, overlays, onNavigate, focusId }: { workers:
 /* ---------- Settings (user-owned; always works) ---------- */
 
 const REVIEW_CADENCES = ["Daily", "Weekly", "Biweekly"];
+const NOTIFICATION_DELIVERY = ["Email and in-office", "In-office only", "Off"];
+const REMINDER_LEADS = ["30 minutes before", "1 hour before", "2 hours before", "1 day before"];
 
 function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: () => Promise<void> }) {
   const parsed = useMemo(() => {
@@ -4036,6 +4059,8 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
   const [quietHours, setQuietHours] = useState<string>(parsed.quietHours ?? "");
   const [reviewCadence, setReviewCadence] = useState<string>(parsed.reviewCadence ?? "Weekly");
   const [decisionStyle, setDecisionStyle] = useState<string>(parsed.decisionStyle ?? "");
+  const [digestDelivery, setDigestDelivery] = useState<string>(parsed.digestDelivery ?? "Email and in-office");
+  const [reviewReminderLead, setReviewReminderLead] = useState<string>(parsed.reviewReminderLead ?? "2 hours before");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -4050,6 +4075,8 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
     setQuietHours(parsed.quietHours ?? "");
     setReviewCadence(parsed.reviewCadence ?? "Weekly");
     setDecisionStyle(parsed.decisionStyle ?? "");
+    setDigestDelivery(parsed.digestDelivery ?? "Email and in-office");
+    setReviewReminderLead(parsed.reviewReminderLead ?? "2 hours before");
   }, [parsed]);
 
   const openBillingPortal = async () => {
@@ -4107,7 +4134,7 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
     try {
       await officeJson("/api/office/settings", {
         method: "POST",
-        body: JSON.stringify({ settings: { ...parsed, brandContext, creatorProfiles, timezone, quietHours, reviewCadence, decisionStyle } }),
+        body: JSON.stringify({ settings: { ...parsed, brandContext, creatorProfiles, timezone, quietHours, reviewCadence, decisionStyle, digestDelivery, reviewReminderLead } }),
       });
       await onReload();
       setSaved(true);
@@ -4143,6 +4170,18 @@ function SettingsView({ overlays, onReload }: { overlays: Overlays; onReload: ()
               <button key={c} type="button" className={`r-seg-btn${reviewCadence === c ? " on" : ""}`} onClick={() => setReviewCadence(c)}>{c}</button>
             ))}
           </div>
+        </div>
+        <div className="ro-field-row">
+          <label className="ro-field"><span>Calendar reminders</span>
+            <select value={digestDelivery} onChange={(e) => setDigestDelivery(e.target.value)}>
+              {NOTIFICATION_DELIVERY.map((option) => <option key={option}>{option}</option>)}
+            </select>
+          </label>
+          <label className="ro-field"><span>Remind me</span>
+            <select value={reviewReminderLead} onChange={(e) => setReviewReminderLead(e.target.value)} disabled={digestDelivery === "Off"}>
+              {REMINDER_LEADS.map((option) => <option key={option}>{option}</option>)}
+            </select>
+          </label>
         </div>
         <div className="ro-settings-foot">
           {saved && <span className="ro-saved">Saved ✓</span>}

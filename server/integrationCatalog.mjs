@@ -60,7 +60,7 @@ const catalog = [
     id: "youtube",
     name: "YouTube",
     category: "social",
-    implementationStatus: "planned",
+    implementationStatus: "live",
     authorization: "api_key_and_oauth2",
     capabilities: [
       INTEGRATION_CAPABILITIES.OWN_PROFILE_READ,

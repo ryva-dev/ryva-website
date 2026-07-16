@@ -16,6 +16,7 @@ import {
   transitionOpportunityStage,
   listStalledOpportunities
 } from "./maraOpportunityStateEngine.mjs";
+
 import { classifyBrandReply } from "./maraReplyClassifier.mjs";
 import { runPitchQualityChecks, detectUnsupportedBuyingClaim } from "./maraPitchQuality.mjs";
 import { extractDealTermsFromText, evaluateDealTerms } from "./maraDealTerms.mjs";
@@ -27,6 +28,23 @@ import {
 import { applyOutcomeToLearning, getCreatorLearningState, resetCreatorLearningState } from "./maraLearningLoop.mjs";
 import { buildContactDiscoveryFailurePlan } from "./maraContactDiscovery.mjs";
 import { getMultimodalProvider, getTranscriptionProvider } from "./maraMediaPipeline.mjs";
+
+test("Postgres lifecycle schema installation is concurrent-safe", async () => {
+  const statements = [];
+  const store = {
+    kind: "postgres",
+    execute: async (sql) => { statements.push(String(sql).trim()); await Promise.resolve(); return { rowCount: 0 }; }
+  };
+  await Promise.all([
+    ensureOpportunityLifecycleSchema(store),
+    ensureOpportunityLifecycleSchema(store),
+    ensureOpportunityLifecycleSchema(store)
+  ]);
+  const alters = statements.filter((sql) => /^ALTER TABLE/i.test(sql));
+  assert.ok(alters.length > 0);
+  assert.ok(alters.every((sql) => /ADD COLUMN IF NOT EXISTS/i.test(sql)));
+  assert.equal(alters.length, new Set(alters).size);
+});
 
 function makeStore() {
   const db = new Database(":memory:");

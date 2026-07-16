@@ -3,6 +3,7 @@
  * Free/public sources run when available; keyed APIs activate only when configured.
  * Never fabricates ads, engagement, or handles.
  */
+import { createHash } from "node:crypto";
 import { createEvidenceItem, EVIDENCE_KINDS, sanitizeUntrustedText } from "./maraEvidence.mjs";
 
 function createProviderResult({
@@ -73,6 +74,118 @@ function compactMetric(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
   return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(number);
+}
+
+function youtubeCacheKey(niche, regionCode, relevanceLanguage) {
+  return `youtube:${createHash("sha256").update(`${String(niche).trim().toLowerCase()}|${regionCode}|${relevanceLanguage}`).digest("hex")}`;
+}
+
+async function ensureResearchProviderCache(store) {
+  if (!store) return;
+  await store.execute(`CREATE TABLE IF NOT EXISTS research_provider_cache (
+    cache_key TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    query_text TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    retrieved_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`);
+}
+
+/** Public, server-side YouTube niche research with a durable shared cache. */
+export async function youtubeNicheResearchProvider({
+  niche = "UGC",
+  fetchImpl = globalThis.fetch,
+  cacheStore = null,
+  regionCode = "US",
+  relevanceLanguage = "en",
+  cacheHours = 12,
+  now = new Date()
+} = {}) {
+  const apiKey = String(process.env.YOUTUBE_API_KEY || "").trim();
+  if (!apiKey) {
+    return createProviderResult({ providerName: "youtube_public_discovery", researchType: "ugc_strategy", query: niche, status: "not_configured", reliability: 0, error: "YouTube Data API is not configured.", observations: [] });
+  }
+
+  const cacheKey = youtubeCacheKey(niche, regionCode, relevanceLanguage);
+  if (cacheStore) {
+    await ensureResearchProviderCache(cacheStore);
+    const cached = await cacheStore.queryOne(
+      `SELECT payload_json AS "payloadJson" FROM research_provider_cache WHERE cache_key = ? AND expires_at > ?`,
+      cacheKey,
+      now.toISOString()
+    );
+    if (cached?.payloadJson) {
+      try { return { ...JSON.parse(cached.payloadJson), cached: true }; } catch { /* refresh corrupt cache */ }
+    }
+  }
+
+  const publishedAfter = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const query = `${String(niche).trim()} creator content`;
+  const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+  searchUrl.search = new URLSearchParams({ part: "snippet", type: "video", q: query, order: "viewCount", maxResults: "10", publishedAfter, regionCode, relevanceLanguage, key: apiKey }).toString();
+  try {
+    const searchResponse = await fetchImpl(searchUrl, { headers: { accept: "application/json" } });
+    if (!searchResponse.ok) throw new Error(`YouTube search returned HTTP ${searchResponse.status}`);
+    const search = await searchResponse.json();
+    const ids = (search.items || []).map((item) => item?.id?.videoId).filter(Boolean).slice(0, 10);
+    if (!ids.length) return createProviderResult({ providerName: "youtube_public_discovery", researchType: "ugc_strategy", query, status: "empty", reliability: 0.7, observations: [] });
+
+    const detailsUrl = new URL("https://www.googleapis.com/youtube/v3/videos");
+    detailsUrl.search = new URLSearchParams({ part: "snippet,statistics,contentDetails", id: ids.join(","), key: apiKey }).toString();
+    const detailsResponse = await fetchImpl(detailsUrl, { headers: { accept: "application/json" } });
+    if (!detailsResponse.ok) throw new Error(`YouTube video details returned HTTP ${detailsResponse.status}`);
+    const details = await detailsResponse.json();
+    const observations = (details.items || []).map((video) => {
+      const publishedAt = String(video?.snippet?.publishedAt || "");
+      const ageDays = Math.max(1, (now.getTime() - new Date(publishedAt).getTime()) / 86_400_000);
+      const views = Number(video?.statistics?.viewCount || 0);
+      const title = sanitizeUntrustedText(video?.snippet?.title || "Untitled video", { maxLength: 180, label: "youtube_title" }).text;
+      const channelTitle = sanitizeUntrustedText(video?.snippet?.channelTitle || "Unknown channel", { maxLength: 100, label: "youtube_channel" }).text;
+      const sourceUrl = `https://www.youtube.com/watch?v=${video.id}`;
+      return {
+        platform: "youtube",
+        kind: "recent_content_signal",
+        title,
+        channelTitle,
+        publishedAt,
+        views,
+        viewsPerDay: Math.round(views / ageDays),
+        likes: Number(video?.statistics?.likeCount || 0),
+        comments: Number(video?.statistics?.commentCount || 0),
+        duration: String(video?.contentDetails?.duration || ""),
+        sourceUrl,
+        evidence: [createEvidenceItem({
+          kind: EVIDENCE_KINDS.OBSERVED,
+          claim: `${title} by ${channelTitle} received ${views.toLocaleString("en-US")} public views after about ${Math.round(ageDays)} day${Math.round(ageDays) === 1 ? "" : "s"}.`,
+          sourceUrl,
+          confidence: 82,
+          rawExcerpt: `${title} · ${channelTitle} · ${views} views · ${publishedAt}`
+        })]
+      };
+    }).sort((a, b) => b.viewsPerDay - a.viewsPerDay);
+    const result = createProviderResult({
+      providerName: "youtube_public_discovery",
+      researchType: "ugc_strategy",
+      query,
+      retrievedUrl: searchUrl.toString().replace(apiKey, "[redacted]"),
+      status: observations.length ? "ok" : "empty",
+      reliability: 0.82,
+      observations
+    });
+    if (cacheStore) {
+      const expiresAt = new Date(now.getTime() + Math.max(1, Number(cacheHours)) * 3_600_000).toISOString();
+      await cacheStore.execute(
+        `INSERT INTO research_provider_cache (cache_key, provider, query_text, payload_json, retrieved_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(cache_key) DO UPDATE SET payload_json = excluded.payload_json, retrieved_at = excluded.retrieved_at, expires_at = excluded.expires_at`,
+        cacheKey, "youtube_public_discovery", query, JSON.stringify(result), now.toISOString(), expiresAt
+      );
+    }
+    return result;
+  } catch (error) {
+    return createProviderResult({ providerName: "youtube_public_discovery", researchType: "ugc_strategy", query, status: "unavailable", reliability: 0, error: String(error?.message || error), observations: [] });
+  }
 }
 
 /** Parse only public trend facts embedded in TikTok Creative Center HTML. */
@@ -727,6 +840,7 @@ export function listSocialResearchProviders() {
   const igConfigured = metaConfigured && Boolean(String(process.env.IG_USER_ID || "").trim());
   const tiktokLiveConfigured = Boolean(String(process.env.TIKTOK_ACCESS_TOKEN || "").trim());
   return [
+    { name: "youtube_public_discovery", configured: Boolean(String(process.env.YOUTUBE_API_KEY || "").trim()), status: String(process.env.YOUTUBE_API_KEY || "").trim() ? "implemented" : "not_configured", researchType: "ugc_strategy" },
     { name: "reddit_ugc_strategy", configured: true, status: "implemented", researchType: "ugc_strategy" },
     { name: "reddit_brand_social", configured: true, status: "implemented", researchType: "brand_social_mentions" },
     { name: "tiktok_backend_trend_feed", configured: Boolean(String(process.env.TIKTOK_TRENDS_FEED_URL || "").trim()), status: String(process.env.TIKTOK_TRENDS_FEED_URL || "").trim() ? "implemented" : "not_configured", researchType: "ugc_strategy" },
@@ -749,9 +863,12 @@ export function listSocialResearchProviders() {
 export async function researchUgcStrategyAcrossPlatforms({
   niche = "UGC",
   insights = null,
-  fetchImpl = globalThis.fetch
+  fetchImpl = globalThis.fetch,
+  cacheStore = null
 } = {}) {
   const runs = [];
+  const youtube = await youtubeNicheResearchProvider({ niche, fetchImpl, cacheStore });
+  if (youtube.status !== "not_configured") runs.push(youtube);
   runs.push(await redditUgcStrategyProvider({ niche, fetchImpl }));
   const backendTrends = await tiktokBackendTrendFeedProvider({ niche, fetchImpl });
   if (backendTrends.status !== "not_configured") runs.push(backendTrends);

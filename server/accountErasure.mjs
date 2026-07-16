@@ -23,6 +23,7 @@ export const USER_SCOPED_TABLES = [
   "user_onboarding",
   "office_onboarding_sessions",
   "office_calendar_events",
+  "office_notifications",
   "office_worker_integrations",
   "office_email_threads",
   "office_campaigns",

@@ -27,24 +27,31 @@ function parseJson(value, fallback) {
   }
 }
 
-export async function ensureOpportunityLifecycleSchema(store) {
-  // SQLite / dual-backend additive columns — ignore if already present.
+const opportunitySchemaPromises = new WeakMap();
+
+async function installOpportunityLifecycleSchema(store) {
+  // Postgres supports IF NOT EXISTS and must use it here. A read-then-alter
+  // check races when the scheduler and an office request wake at the same
+  // time, which used to flood production with duplicate-column errors.
+  const addColumn = (table, definition) => store.kind === "postgres"
+    ? `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${definition}`
+    : `ALTER TABLE ${table} ADD COLUMN ${definition}`;
   const alters = [
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN lifecycle_stage TEXT`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN previous_lifecycle_stage TEXT`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN stage_changed_at TEXT`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN estimated_deal_value REAL NOT NULL DEFAULT 0`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN confirmed_deal_value REAL NOT NULL DEFAULT 0`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN expected_revenue REAL NOT NULL DEFAULT 0`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN actual_revenue REAL NOT NULL DEFAULT 0`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN next_action_json TEXT`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN next_action_due_at TEXT`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN blocking_reason TEXT`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN attribution TEXT NOT NULL DEFAULT 'uncertain'`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN loss_reason TEXT`,
-    `ALTER TABLE mara_creator_brand_opportunities ADD COLUMN deal_terms_json TEXT`,
-    `ALTER TABLE office_leads ADD COLUMN opportunity_id TEXT`,
-    `ALTER TABLE office_campaigns ADD COLUMN opportunity_id TEXT`
+    addColumn("mara_creator_brand_opportunities", "lifecycle_stage TEXT"),
+    addColumn("mara_creator_brand_opportunities", "previous_lifecycle_stage TEXT"),
+    addColumn("mara_creator_brand_opportunities", "stage_changed_at TEXT"),
+    addColumn("mara_creator_brand_opportunities", "estimated_deal_value REAL NOT NULL DEFAULT 0"),
+    addColumn("mara_creator_brand_opportunities", "confirmed_deal_value REAL NOT NULL DEFAULT 0"),
+    addColumn("mara_creator_brand_opportunities", "expected_revenue REAL NOT NULL DEFAULT 0"),
+    addColumn("mara_creator_brand_opportunities", "actual_revenue REAL NOT NULL DEFAULT 0"),
+    addColumn("mara_creator_brand_opportunities", "next_action_json TEXT"),
+    addColumn("mara_creator_brand_opportunities", "next_action_due_at TEXT"),
+    addColumn("mara_creator_brand_opportunities", "blocking_reason TEXT"),
+    addColumn("mara_creator_brand_opportunities", "attribution TEXT NOT NULL DEFAULT 'uncertain'"),
+    addColumn("mara_creator_brand_opportunities", "loss_reason TEXT"),
+    addColumn("mara_creator_brand_opportunities", "deal_terms_json TEXT"),
+    addColumn("office_leads", "opportunity_id TEXT"),
+    addColumn("office_campaigns", "opportunity_id TEXT")
   ];
   for (const sql of alters) {
     try {
@@ -78,6 +85,17 @@ export async function ensureOpportunityLifecycleSchema(store) {
   } catch {
     // ignore
   }
+}
+
+export async function ensureOpportunityLifecycleSchema(store) {
+  const existing = opportunitySchemaPromises.get(store);
+  if (existing) return existing;
+  const pending = installOpportunityLifecycleSchema(store).catch((error) => {
+    opportunitySchemaPromises.delete(store);
+    throw error;
+  });
+  opportunitySchemaPromises.set(store, pending);
+  return pending;
 }
 
 export function classifyTransitionSensitivity({ toStage, confidence = 0, source = "system" } = {}) {
