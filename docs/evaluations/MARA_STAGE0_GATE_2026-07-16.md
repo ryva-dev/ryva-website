@@ -2,37 +2,35 @@
 
 | Field | Value |
 |---|---|
-| Status | **Stage 0A PARTIAL — honesty green; calendar residue blocked advance** |
-| Environment | Production `ryvaforge.com` after deploy of `acd6fe07` |
-| Re-check | 2026-07-16 ~20:20 ET |
-| Follow-up fix | Calendar filler purge pushed (pending next deploy) |
+| Status | **Stage 0A PASS** |
+| Environment | Production `ryvaforge.com` |
+| Confirmed | 2026-07-16 ~20:30 ET (founder: calendar fixed) |
+| Branch policy | All future Stage work pushes to `mara/outcome-flywheel` (not `main`) |
 
 ## Hard rule applied
 
 Do not begin Stage 0B overnight 70% scoring, or Stage 1, until Stage 0A exits hold on the live product.
 
-## Stage 0A re-check (post-deploy)
+## Stage 0A exits
 
 | Exit | Live result | Evidence |
 |---|---|---|
 | Dream brands not overnight primary | **PASS** | Desk labels Gymshark `build_toward`; empty Gymshark market pulse removed from Deliverables |
-| No placeholder pitches | **PASS** | Mad Libs follow-up + pitch template gone from Deliverables (6 → 3 docs) |
-| No empty / fake market pulses as shipped | **PASS** | “Creator market pulse” / Gymshark pulse no longer in library or Today shipped |
-| No “I shipped X” when X hidden/unusable | **PASS** | Today shows monitoring honesty + remaining shipped items match Deliverables |
-| Completed real work visible in Deliverables | **PASS** | Positioning, brand fit, content ideas remain and open as deliverables |
-| Honest blockers / Gmail UX layout | **PASS** | Outlook (soon) button gone from Knowledge; Gmail path intact |
-| No calendar filler as Mara work | **FAIL → fix ready** | Calendar still had “approve … Gymshark pitch drafts” and related residue at re-check; purge + schedule filter committed for next deploy |
+| No placeholder pitches | **PASS** | Mad Libs follow-up + pitch template gone from Deliverables |
+| No empty / fake market pulses as shipped | **PASS** | Empty pulses no longer in library or Today shipped |
+| No “I shipped X” when X hidden/unusable | **PASS** | Today honesty + shipped items match Deliverables |
+| Completed real work visible in Deliverables | **PASS** | Positioning, brand fit, content ideas remain |
+| Honest blockers / Gmail UX layout | **PASS** | Outlook (soon) button gone; Gmail path intact |
+| No calendar filler as Mara work | **PASS** | Founder confirmed calendar fixed |
 
-## Stage 0B — not opened
+## Stage 0B — open
 
-Still blocked until calendar Stage 0A exit is green on live.
+Overnight opportunity/pitch scoring toward **≥70% worth-pursuing**. Pitches should need only minor edits.
 
-Informal: remaining deliverables are setup artifacts (positioning / criteria / ideas), not scored opportunity packages — overnight 70% gate needs real opportunities after 0A calendar clean.
+Do not start Stage 1 until 0B gate passes.
 
 ## Stage 1+ — not started
 
 ## Next action
 
-1. Deploy the calendar filler purge commit.
-2. Hard-refresh office / open Calendar — Gymshark approve blocks should be gone.
-3. Re-run Stage 0A gate → if PASS, open Stage 0B overnight scoring toward ≥70% worth-pursuing.
+Run Stage 0B overnight scoring once Mara produces real opportunity packages (not only setup deliverables).
