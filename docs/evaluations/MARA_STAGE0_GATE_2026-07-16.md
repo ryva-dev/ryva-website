@@ -2,55 +2,37 @@
 
 | Field | Value |
 |---|---|
-| Status | **Stage 0A FAIL — do not advance** |
-| Environment | Production `ryvaforge.com` live office + local unit gates |
-| Evaluator | Cursor agent |
-| Commit under test (code) | `acd6fe07` (pushed; production may lag deploy) |
+| Status | **Stage 0A PARTIAL — honesty green; calendar residue blocked advance** |
+| Environment | Production `ryvaforge.com` after deploy of `acd6fe07` |
+| Re-check | 2026-07-16 ~20:20 ET |
+| Follow-up fix | Calendar filler purge pushed (pending next deploy) |
 
 ## Hard rule applied
 
-Do not begin Stage 0B scoring as a pass, or Stage 1 infrastructure, until Stage 0A exits hold on the live product the creator sees.
+Do not begin Stage 0B overnight 70% scoring, or Stage 1, until Stage 0A exits hold on the live product.
 
-## Stage 0A checklist (live office, 2026-07-16 evening)
+## Stage 0A re-check (post-deploy)
 
 | Exit | Live result | Evidence |
 |---|---|---|
-| Dream brands not overnight primary | **FAIL** | Deliverables + Today “Since you were away” lead with Gymshark market pulse |
-| No placeholder pitches | **FAIL** | Follow-up + pitch template deliverables still show `[Your Name]`, `[Brand Name]`, `[SUBJECT_LINE_OPTION]` |
-| No empty / fake market pulses as shipped | **FAIL** | “Creator market pulse” shipped with dream-brand focus and no usable opportunities |
-| No “I shipped X” when X hidden/unusable | **FAIL** | History/Today still surface Gymshark pulse + Mad Libs as shipped; earlier digest ship claim without Deliverables row |
-| Completed real work visible in Deliverables | **FAIL** | Library is mostly unusable templates / empty pulse; real commercial digest missing or mismatched |
-| Honest blockers / intact Gmail UX | **PARTIAL** | Gmail reconnect banner is honest; Outlook overflow fix is in `acd6fe07` but not confirmed on prod until deploy |
-| No calendar filler as Mara work | **FAIL** | Calendar still shows “approve … Gymshark…” / creator TikTok chores labeled as Mara |
+| Dream brands not overnight primary | **PASS** | Desk labels Gymshark `build_toward`; empty Gymshark market pulse removed from Deliverables |
+| No placeholder pitches | **PASS** | Mad Libs follow-up + pitch template gone from Deliverables (6 → 3 docs) |
+| No empty / fake market pulses as shipped | **PASS** | “Creator market pulse” / Gymshark pulse no longer in library or Today shipped |
+| No “I shipped X” when X hidden/unusable | **PASS** | Today shows monitoring honesty + remaining shipped items match Deliverables |
+| Completed real work visible in Deliverables | **PASS** | Positioning, brand fit, content ideas remain and open as deliverables |
+| Honest blockers / Gmail UX layout | **PASS** | Outlook (soon) button gone from Knowledge; Gmail path intact |
+| No calendar filler as Mara work | **FAIL → fix ready** | Calendar still had “approve … Gymshark pitch drafts” and related residue at re-check; purge + schedule filter committed for next deploy |
 
-### Local unit gates (code)
+## Stage 0B — not opened
 
-Pass: Stage 0 publication honesty, early-stage dream-brand gating, placeholder pitch rejection, Stage 0B rubric/70% harness (`maraStage0Quality`, `maraDeliverablePublication`, brand intelligence tests).
+Still blocked until calendar Stage 0A exit is green on live.
 
-Local green ≠ live green until deploy + deliverable resync purge bad `office_deliverables` rows.
-
-## Stage 0B — not started
-
-Blocked by Stage 0A. Informal score of current visible “shipped” work against the 70% worth-pursuing rubric:
-
-| Item | Worth pursuing? |
-|---|---|
-| Gymshark empty market pulse | No |
-| Follow-up Mad Libs | No |
-| Pitch template Mad Libs | No |
-
-**Estimated pass rate: 0%** (well below 70%).
+Informal: remaining deliverables are setup artifacts (positioning / criteria / ideas), not scored opportunity packages — overnight 70% gate needs real opportunities after 0A calendar clean.
 
 ## Stage 1+ — not started
 
-Blocked until Stage 0B exit holds.
+## Next action
 
-## Required to re-test Stage 0A
-
-1. Deploy `acd6fe07` (or later) to production.
-2. Load office so `syncWorkerDeliverables` purges non-publishable rows (Mad Libs, empty pulses, legacy summary digests).
-3. Confirm Today / Deliverables / desk no longer claim those as shipped.
-4. Confirm Knowledge Gmail box has no overflowing Outlook button.
-5. Re-run overnight autonomy; verify new outputs either appear in Deliverables or do not say “shipped.”
-
-Only then mark Stage 0A PASS and open Stage 0B overnight scoring toward ≥70% worth-pursuing.
+1. Deploy the calendar filler purge commit.
+2. Hard-refresh office / open Calendar — Gymshark approve blocks should be gone.
+3. Re-run Stage 0A gate → if PASS, open Stage 0B overnight scoring toward ≥70% worth-pursuing.

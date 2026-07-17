@@ -285,6 +285,10 @@ export function normalizeScheduleBlocks(structured = {}) {
     if (DAY_INDEX[day] === undefined || !TIME_RE.test(start) || !TIME_RE.test(end) || !activity) {
       continue;
     }
+    // Stage 0A: never place dream-brand chasing or Mad Libs on the calendar.
+    if (isStage0ACalendarFiller(`${activity} ${block?.goal || ""}`)) {
+      continue;
+    }
     const explicitOwner = String(block?.owner ?? "").trim().toLowerCase();
     let owner = "creator";
     if (explicitOwner === "mara") {
@@ -305,6 +309,15 @@ export function normalizeScheduleBlocks(structured = {}) {
     });
   }
   return blocks;
+}
+
+/** Calendar copy that must not ship as this week's work under Stage 0A. */
+export function isStage0ACalendarFiller(text = "") {
+  const value = String(text || "");
+  if (/\[[A-Za-z][^\]]{0,40}\]/.test(value)) return true;
+  if (/\bgymshark\b/i.test(value) && /\b(approve|pitch|draft|review|outreach)\b/i.test(value)) return true;
+  if (/\bdream brand\b/i.test(value) && /\b(pitch|approve|send|outreach)\b/i.test(value)) return true;
+  return false;
 }
 
 /**

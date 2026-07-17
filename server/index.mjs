@@ -1321,7 +1321,32 @@ async function syncHandbookEntries(userId, workerSlug) {
 async function syncOfficeCanonicalRecords(userId, workerSlug) {
   await syncWorkerAssignments(userId, workerSlug);
   await syncWorkerDeliverables(userId, workerSlug);
+  await purgeStage0ACalendarFiller(userId, workerSlug);
   await syncHandbookEntries(userId, workerSlug);
+}
+
+/**
+ * Stage 0A: remove calendar residue that presents dream-brand chasing or Mad Libs
+ * as this week's Mara/creator work. Regenerated schedules use cleaner defaults.
+ */
+async function purgeStage0ACalendarFiller(userId, workerSlug) {
+  try {
+    await authStore.execute(
+      `DELETE FROM office_calendar_events
+       WHERE user_id = ? AND worker_slug = ?
+         AND (
+           lower(title) LIKE '%gymshark%'
+           OR lower(notes) LIKE '%gymshark%'
+           OR lower(title) LIKE '%[your name]%'
+           OR lower(title) LIKE '%[brand%'
+           OR lower(title) LIKE '%dream brand% pitch%'
+         )`,
+      userId,
+      workerSlug
+    );
+  } catch {
+    /* older schemas may lack calendar table */
+  }
 }
 
 function makeWorkerReply(name) {

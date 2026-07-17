@@ -213,6 +213,18 @@ test("weekly schedules keep creator work outside job and gym commitments", () =>
   assert.equal(result.blocks[0].end, "20:15");
 });
 
+test("normalizeScheduleBlocks drops Stage 0A dream-brand and Mad Libs filler", () => {
+  const ready = ensureWeeklyScheduleCalendarReady({
+    blocks: [
+      { day: "Thursday", start: "07:00", end: "07:30", activity: "Morning review: approve Mara's brand research digest and Gymshark pitch drafts", owner: "creator", kind: "review" },
+      { day: "Thursday", start: "19:00", end: "20:00", activity: "Mara: brand research for reachable fitness DTC", owner: "mara", kind: "research" },
+      { day: "Friday", start: "09:00", end: "09:30", activity: "Send [Your Name] x [Brand] follow-up", owner: "creator", kind: "outreach" }
+    ]
+  }, { allowDefaults: false });
+  assert.equal(ready.blocks.length, 1);
+  assert.match(ready.blocks[0].activity, /reachable fitness DTC/i);
+});
+
 test("Mara-owned schedule blocks appear as a distinct calendar overlay and reviews are labeled", () => {
   const { events } = buildEventsFromWeeklySchedule({
     blocks: [
