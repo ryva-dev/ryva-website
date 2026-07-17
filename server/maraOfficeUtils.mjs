@@ -1,3 +1,5 @@
+import { shouldClaimShippedActivity } from "./maraDeliverablePublication.mjs";
+
 const DEFAULT_MARA_PERMISSIONS_BASE = {
   approvalRequiredForExternalActions: true,
   canCreateRecurringResponsibilities: true,
@@ -188,7 +190,7 @@ export function formatMaraCurrentFocus({
   return "I'm getting oriented on your brand and setting up my first pieces of work.";
 }
 
-export function formatMaraActivityDescription(eventType, title, description) {
+export function formatMaraActivityDescription(eventType, title, description, metadata = {}) {
   const cleanTitle = String(title ?? "").trim();
   const cleanDescription = String(description ?? "").trim();
   if (eventType === "autonomy_cycle_completed") {
@@ -204,6 +206,12 @@ export function formatMaraActivityDescription(eventType, title, description) {
     return cleanTitle ? `I need your approval on ${cleanTitle}.` : "I need your approval on something.";
   }
   if (eventType === "worker_output_created") {
+    // Stage 0A honesty: never say "shipped" for work hidden from Deliverables.
+    if (!shouldClaimShippedActivity(metadata, cleanTitle)) {
+      return cleanTitle
+        ? `I finished internal notes on ${cleanTitle} (not a customer deliverable).`
+        : "I finished internal notes (not a customer deliverable).";
+    }
     return cleanTitle ? `I shipped ${cleanTitle}.` : "I shipped a new deliverable.";
   }
   return cleanDescription || cleanTitle || "I updated my work.";

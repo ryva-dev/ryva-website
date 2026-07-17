@@ -15,7 +15,7 @@ import { sendTransactionalEmail } from "./mailer.mjs";
 import { extractGmailBodyText } from "./maraInboxParser.mjs";
 import { parseUnparsedInboxThreads } from "./maraInboxOps.mjs";
 import { deriveMaraPermissionsFromOnboarding, firstPersonMaraSpeech, formatTaskSourceLabel, safeList, sentenceCase } from "./maraOfficeUtils.mjs";
-import { shouldPublishWorkerOutput } from "./maraDeliverablePublication.mjs";
+import { shouldPublishWorkerOutput, INTERNAL_OUTPUT_TYPES } from "./maraDeliverablePublication.mjs";
 import { createDurableRateLimitStore, initRateLimitStore, rateLimitKeyForRequest } from "./rateLimitStore.mjs";
 import {
   deleteUserTrendArtifacts,
@@ -1025,14 +1025,7 @@ async function syncWorkerAssignments(userId, workerSlug) {
  * artifacts stay off it: plain summaries, status notes, and weekly
  * schedules (those live on the calendar, where they belong).
  */
-const HIDDEN_DELIVERABLE_OUTPUT_TYPES = new Set([
-  "summary",
-  "status_note",
-  "ops_brief",
-  "tracker_structure",
-  "weekly_plan",
-  "weekly_schedule"
-]);
+const HIDDEN_DELIVERABLE_OUTPUT_TYPES = INTERNAL_OUTPUT_TYPES;
 
 function personalizeCreatorPositioningText(value) {
   return String(value ?? "")
