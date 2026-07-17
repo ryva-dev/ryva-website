@@ -2433,10 +2433,8 @@ function WorkerKnowledgeView({
                 <button className="r-btn r-btn-accent" type="button" disabled={connectBusy} onClick={() => void connectGmail()}>
                   {connectBusy ? "Opening Google…" : "Connect Gmail"}
                 </button>
-                <button className="r-btn r-btn-ghost" type="button" disabled title="Outlook support is coming soon.">
-                  Outlook (soon)
-                </button>
               </div>
+              <p className="ro-connect-inbox-soon">Outlook support is coming later — Gmail is the live path today.</p>
               {connectError ? <p className="ro-review-notice">{connectError}</p> : null}
             </div>
           ) : null}

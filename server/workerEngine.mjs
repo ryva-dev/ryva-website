@@ -201,7 +201,7 @@ const MARA_DAILY_BRAND_RESEARCH_LIMIT = 5;
 
 const TASK_TYPE_OUTPUT_TYPE_MAP = {
   brand_fit_criteria: "brand_criteria",
-  brand_research_digest: "summary",
+  brand_research_digest: "brand_research_digest",
   brand_tracker_structure: "tracker_structure",
   content_idea_batch: "content_ideas",
   creator_positioning: "creator_positioning",
@@ -1347,7 +1347,12 @@ export async function createWorkerOutput(store, output) {
     createdAt: timestamp,
     description: output.title,
     eventType: "worker_output_created",
-    metadata: { outputType: output.outputType, source: output.source },
+    metadata: {
+      outputType: output.outputType,
+      source: output.source,
+      generatedBy: output.structuredContent?.generatedBy || null,
+      brandCount: Array.isArray(output.structuredContent?.brands) ? output.structuredContent.brands.length : null
+    },
     relatedTaskId: output.taskId ?? null,
     title: output.title,
     userId: output.userId,
@@ -3640,15 +3645,27 @@ async function runMaraBrandResearchCycle({
     { title: "Verified content gaps", value: privateContentGaps.length > 0 ? privateContentGaps : ["No verified creator-search gaps were available this cycle, so I did not invent any."] }
   ]);
 
+  // Stage 0A: never claim a "shipped" digest with zero brands, and never hide a
+  // real research digest behind the internal `summary` type.
+  if (!brands.length) {
+    return {
+      createdPitchTaskIds,
+      createdResearchIds,
+      createdSignalResearchIds,
+      note: "Brand research ran, but no reachable brands cleared quality filters this cycle — nothing customer-facing to ship."
+    };
+  }
+
   const output = await createWorkerOutput(store, {
     content,
-    outputType: "summary",
+    outputType: "brand_research_digest",
     source: "research",
     structuredContent: {
       brands,
       createdSignalResearchIds,
       privateContentGaps,
-      redditSignals
+      redditSignals,
+      generatedBy: "research"
     },
     title: "Daily brand research digest",
     userId,
@@ -5714,7 +5731,7 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
     .slice(0, 5)
     .map((row) => ({
       ...row,
-      description: formatMaraActivityDescription(row.eventType, row.title, row.description)
+      description: formatMaraActivityDescription(row.eventType, row.title, row.description, row.metadata)
     }));
   const openTasks = tasks.filter((task) => ["approved", "in_progress"].includes(task.status));
   const proposedTasks = tasks.filter((task) => task.status === "proposed");
@@ -5777,7 +5794,8 @@ export async function buildMaraWorkspace(store, userId, workerId, { readKnowledg
   const customerReadyOutputs = workerOutputs.filter(
     (output) =>
       !customerHiddenOutputTypes.has(String(output.outputType || "")) &&
-      !["placeholder", "template"].includes(String(output.structuredContent?.generatedBy || ""))
+      !["placeholder", "template", "empty_scan"].includes(String(output.structuredContent?.generatedBy || "")) &&
+      !(String(output.outputType || "") === "brand_research_digest" && !(output.structuredContent?.brands || []).length)
   );
   const latestOutputs = customerReadyOutputs
     .map((output) => ({

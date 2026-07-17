@@ -55,4 +55,12 @@ test("publication gate hides templates, empty scans, and Mad Libs", () => {
     }),
     true
   );
+  assert.equal(
+    shouldPublishWorkerOutput({
+      outputType: "brand_research_digest",
+      title: "Daily brand research digest",
+      structuredContent: { brands: [], generatedBy: "research" }
+    }),
+    false
+  );
 });
