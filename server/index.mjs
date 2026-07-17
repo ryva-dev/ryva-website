@@ -1331,15 +1331,23 @@ async function syncOfficeCanonicalRecords(userId, workerSlug) {
  */
 async function purgeStage0ACalendarFiller(userId, workerSlug) {
   try {
+    // Match by user first — some older events have null / mismatched worker_slug.
     await authStore.execute(
       `DELETE FROM office_calendar_events
-       WHERE user_id = ? AND worker_slug = ?
+       WHERE user_id = ?
          AND (
-           lower(title) LIKE '%gymshark%'
-           OR lower(notes) LIKE '%gymshark%'
-           OR lower(title) LIKE '%[your name]%'
-           OR lower(title) LIKE '%[brand%'
-           OR lower(title) LIKE '%dream brand% pitch%'
+           lower(coalesce(title, '')) LIKE '%gymshark%'
+           OR lower(coalesce(notes, '')) LIKE '%gymshark%'
+           OR lower(coalesce(title, '')) LIKE '%[your name]%'
+           OR lower(coalesce(title, '')) LIKE '%[brand%'
+           OR lower(coalesce(title, '')) LIKE '%dream brand% pitch%'
+           OR (
+             (worker_slug = ? OR worker_slug IS NULL OR lower(coalesce(worker_slug, '')) LIKE 'mara%')
+             AND (
+               lower(coalesce(title, '')) LIKE '%approve%pitch draft%'
+               OR lower(coalesce(title, '')) LIKE '%gymshark pitch%'
+             )
+           )
          )`,
       userId,
       workerSlug
