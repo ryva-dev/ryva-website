@@ -37,11 +37,12 @@ Overnight output was essentially one **Daily brand research digest** that:
 
 Do not score 70% until overnight research stops chasing dream brands and ships reachable targets.
 
-## Fix in flight
+## Fix in flight / shipped
 
 - Exclude desired/dream brands from overnight discovery
-- Reject support/help hosts and “how brand scaled” article URLs
+- Reject support/help hosts and “how brand scaled” article URLs for outreach
 - Never use preference-echo text as niche / content-gap evidence
 - Hide preference-echo digests from publication
 - Map `brand_research_digest` → Strategy / Brand research
 - Stop false “AI draft” banner on `generatedBy: research`
+- **Learn from research:** athlete/creator pages → `learned.brandDiscoveryRoutes` (no pitch; tag @Brand / #Brand in captions)

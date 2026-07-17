@@ -28,7 +28,7 @@ import { getMaraGrowthIntelligenceSnapshot, initMaraIntelligence, listTopPitchTa
 import { inferAndRecordCommercialOutcomes } from "./maraOutcomeInference.mjs";
 import { deepResearchBrand } from "./maraResearchProviders.mjs";
 import { createOrUpdateOpportunityFromResearch } from "./maraOpportunityPackages.mjs";
-import { getCreatorIntelligenceProfile } from "./maraCreatorProfile.mjs";
+import { getCreatorIntelligenceProfile, upsertCreatorIntelligenceProfile } from "./maraCreatorProfile.mjs";
 import { findBestOutreachContact, discoverAndPersistBrandContacts, findOutreachContactByBrandName } from "./maraContactDiscovery.mjs";
 import { buildConceptFromGap, saveConceptIfNovel, markHypothesisClearly, listCreativeConcepts } from "./maraConceptEngine.mjs";
 import { listDueOutreachSequences, prepareDueFollowUpDraft, startOutreachSequence, stopOutreachSequence, SEQUENCE_STOP_REASONS } from "./maraOutreachSequences.mjs";
@@ -38,7 +38,14 @@ import { getMaraActivationJourney } from "./maraActivationJourney.mjs";
 import { runMaraPhase3 } from "./maraPhase3Runtime.mjs";
 import { getMaraPhase2Flags } from "./maraFeatureFlags.mjs";
 import { classifyBrandEntity } from "./maraBrandCanonical.mjs";
-import { isCreatorPreferenceEcho, isDesiredBrand } from "./maraOpportunityScoring.mjs";
+import { cleanDesiredBrandName, isCreatorPreferenceEcho, isDesiredBrand } from "./maraOpportunityScoring.mjs";
+import {
+  contentAdviceFromDiscoveryRoutes,
+  extractBrandDiscoveryIntel,
+  formatDiscoveryRoutesForDeliverable,
+  mergeBrandDiscoveryRoute,
+  shouldAllowOutreachPitch
+} from "./maraBrandDiscoveryIntel.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -1961,6 +1968,21 @@ async function executeContentIdeaBatchTask(context) {
   const hashtags = Array.isArray(context.privateInsights?.hashtags) ? context.privateInsights.hashtags.slice(0, 8) : [];
   const nicheAnchor = `#${String(profile.niche || "creator").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 24) || "creator"}`;
 
+  let discoveryRoutes = [];
+  let discoveryTags = [];
+  if (context.store && context.userId && context.workerId) {
+    try {
+      const creatorProfile = await getCreatorIntelligenceProfile(context.store, context.userId, context.workerId);
+      discoveryRoutes = Array.isArray(creatorProfile?.learned?.brandDiscoveryRoutes)
+        ? creatorProfile.learned.brandDiscoveryRoutes
+        : [];
+      discoveryTags = contentAdviceFromDiscoveryRoutes(discoveryRoutes);
+    } catch {
+      discoveryRoutes = [];
+      discoveryTags = [];
+    }
+  }
+
   const ideas = [];
   const savedConceptIds = [];
   for (let index = 0; index < 10; index += 1) {
@@ -1976,6 +1998,9 @@ async function executeContentIdeaBatchTask(context) {
     const rotation = hashtags.length
       ? hashtags.slice(index % hashtags.length).concat(hashtags).slice(0, 3).map((item) => item.hashtag)
       : [];
+    const discoverySlice = discoveryTags.length
+      ? discoveryTags.slice(index % discoveryTags.length).concat(discoveryTags).slice(0, 2)
+      : [];
     const idea = {
       difficultyLevel: index < 3 ? "Low" : index < 7 ? "Medium" : "Medium",
       format: concept.visualFormat || formats[index % formats.length],
@@ -1990,7 +2015,7 @@ async function executeContentIdeaBatchTask(context) {
       storyStructure: concept.storyStructure,
       shotList: concept.shotList,
       onScreenText: concept.onScreenText,
-      hashtags: [...new Set([...rotation, nicheAnchor, "#ugccreator"])].slice(0, 5),
+      hashtags: [...new Set([...rotation, ...discoverySlice, nicheAnchor, "#ugccreator"])].slice(0, 7),
       growthTactic: growthTactics[index % Math.max(growthTactics.length, 1)] || null,
       conceptSignature: concept.signature
     };
@@ -2011,19 +2036,32 @@ async function executeContentIdeaBatchTask(context) {
     }
   }
 
+  const discoveryLines = formatDiscoveryRoutesForDeliverable(discoveryRoutes);
   return {
     content: buildRichContent([
       {
         title: "10 UGC content ideas",
-        value: ideas.map((idea) => `${idea.idea}: ${idea.hook} | ${idea.format} | ${idea.whyItWorks} | Difficulty: ${idea.difficultyLevel}`)
+        value: ideas.map((idea) => `${idea.idea}: ${idea.hook} | ${idea.format} | ${idea.whyItWorks} | Tags: ${(idea.hashtags || []).join(" ")} | Difficulty: ${idea.difficultyLevel}`)
       },
       {
         title: "Shot lists (first 5)",
         value: ideas.slice(0, 5).map((idea) => `${idea.idea} — ${(idea.shotList || []).join(", ")}`)
-      }
+      },
+      ...(discoveryLines.length
+        ? [{
+          title: "Dream-brand discovery tags (do not pitch)",
+          value: discoveryLines
+        }]
+        : [])
     ]),
     outputType: "content_ideas",
-    structuredContent: { ideas, privateContentGapsUsed: insightGaps, savedConceptIds },
+    structuredContent: {
+      ideas,
+      privateContentGapsUsed: insightGaps,
+      savedConceptIds,
+      discoveryTags,
+      discoveryRoutes
+    },
     title: "Content idea batch"
   };
 }
@@ -2169,7 +2207,7 @@ async function executeUpdateBrandTrackerTask(context, { includeStructureGuide = 
   };
 }
 
-function executeBrandContentIdeasTaskTemplate(context) {
+function executeBrandContentIdeasTaskTemplate(context, { discoveryTags = [] } = {}) {
   const profile = buildContextProfile(context);
   const brand = context.targetBrand;
   if (!brand) {
@@ -2185,6 +2223,11 @@ function executeBrandContentIdeasTaskTemplate(context) {
   const hookIdeas = getStructuredList(contentStrategyModule, "hookIdeas", ["Problem-first", "Why this works", "Before you buy"]);
   const formats = getStructuredList(contentStrategyModule, "formats", ["Demo", "Routine", "Testimonial"]);
   const identity = String(brand.identitySummary || brand.vibeNotes || brand.suggestedAngle || "").trim();
+  const brandToken = String(brand.brandName || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const brandDiscoveryTags = discoveryTags.filter((tag) => {
+    const compact = String(tag || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+    return brandToken && compact.includes(brandToken.slice(0, Math.min(brandToken.length, 8)));
+  });
   const ideas = Array.from({ length: 8 }, (_, index) => ({
     brandName: brand.brandName,
     difficultyLevel: index < 3 ? "Low" : "Medium",
@@ -2192,17 +2235,21 @@ function executeBrandContentIdeasTaskTemplate(context) {
     hook: `${hookIdeas[index % hookIdeas.length]} for ${brand.brandName}`,
     idea: `${brand.brandName} concept ${index + 1}: ${brand.suggestedAngle || profile.niche} angle rooted in ${identity.slice(0, 120) || "the brand's current positioning"}`,
     productFit: brand.suggestedAngle || profile.niche,
-    whyItWorks: `Uses ${brand.brandName}'s identity and the creator's ${profile.niche} positioning together instead of generic prompts.`
+    whyItWorks: `Uses ${brand.brandName}'s identity and the creator's ${profile.niche} positioning together instead of generic prompts.`,
+    hashtags: brandDiscoveryTags.slice(0, 4)
   }));
 
   return {
     content: buildRichContent([
-      { title: `Content ideas for ${brand.brandName}`, value: ideas.map((idea) => `${idea.idea} | ${idea.hook} | ${idea.format}`) },
+      { title: `Content ideas for ${brand.brandName}`, value: ideas.map((idea) => `${idea.idea} | ${idea.hook} | ${idea.format}${(idea.hashtags || []).length ? ` | Tags: ${idea.hashtags.join(" ")}` : ""}`) },
       { title: "Brand identity Mara used", value: [identity || "Research summary pending"] },
-      { title: "Suggested angle", value: [brand.suggestedAngle || "Angle still forming from research"] }
+      { title: "Suggested angle", value: [brand.suggestedAngle || "Angle still forming from research"] },
+      ...(brandDiscoveryTags.length
+        ? [{ title: "Caption tags from brand research", value: brandDiscoveryTags }]
+        : [])
     ]),
     outputType: "content_ideas",
-    structuredContent: { brandId: brand.id, brandName: brand.brandName, generatedBy: "template", ideas },
+    structuredContent: { brandId: brand.id, brandName: brand.brandName, generatedBy: "template", ideas, discoveryTags: brandDiscoveryTags },
     title: `Content ideas for ${brand.brandName}`
   };
 }
@@ -2216,11 +2263,27 @@ async function executeBrandContentIdeasTask(context) {
       suggestedNextStep: "Name a real brand and I'll build ideas for it."
     };
   }
+  let discoveryTags = [];
+  if (context.store && context.userId && context.workerId) {
+    try {
+      const creatorProfile = await getCreatorIntelligenceProfile(context.store, context.userId, context.workerId);
+      discoveryTags = contentAdviceFromDiscoveryRoutes(creatorProfile?.learned?.brandDiscoveryRoutes || []);
+    } catch {
+      discoveryTags = [];
+    }
+  }
   const llmResult = await tryGenerateMaraBrandContentIdeas(context);
   if (llmResult) {
+    if (discoveryTags.length && Array.isArray(llmResult.structuredContent?.ideas)) {
+      llmResult.structuredContent.ideas = llmResult.structuredContent.ideas.map((idea, index) => ({
+        ...idea,
+        hashtags: [...new Set([...(idea.hashtags || []), ...discoveryTags.slice(index % discoveryTags.length).concat(discoveryTags).slice(0, 2)])].slice(0, 6)
+      }));
+      llmResult.structuredContent.discoveryTags = discoveryTags;
+    }
     return llmResult;
   }
-  return executeBrandContentIdeasTaskTemplate(context);
+  return executeBrandContentIdeasTaskTemplate(context, { discoveryTags });
 }
 
 async function executeTikTokTrendPulseTask(context) {
@@ -3150,15 +3213,16 @@ function extractHostname(url) {
   }
 }
 
-function isAllowedBrandResearchUrl(url) {
+function isAllowedBrandResearchUrl(url, { allowSupportHosts = false } = {}) {
   const host = extractHostname(url);
   if (!host) return false;
   if (/(reddit\.com|linkedin\.com|instagram\.com|tiktok\.com|youtube\.com|duckduckgo\.com)/i.test(host)) {
     return false;
   }
-  // Support/help docs are not brand storefronts — they produce "Gymshark Athlete" noise.
+  // Support/help docs are not brand storefronts for outreach — but they often
+  // explain athlete/creator discovery rules we should learn from.
   if (/^(support|help|docs|care|community|status|cdn|api)\./i.test(host)) {
-    return false;
+    return allowSupportHosts;
   }
   try {
     const path = new URL(url).pathname || "";
@@ -3261,9 +3325,20 @@ export async function discoverBrandCandidates({
 }) {
   const queries = buildBrandResearchQueries({ niche, privateInsights, redditSignals });
   const candidates = [];
+  const discoveryIntel = [];
   const seenHosts = new Set();
   let searchFetchFailures = 0;
   let searchFetchSuccesses = 0;
+
+  const pushIntel = (intel) => {
+    if (!intel) return;
+    const key = String(intel.brandName || "").toLowerCase();
+    if (!key) return;
+    if (discoveryIntel.some((row) => String(row.brandName || "").toLowerCase() === key && row.sourceUrl === intel.sourceUrl)) {
+      return;
+    }
+    discoveryIntel.push(intel);
+  };
 
   for (const query of queries) {
     if (candidates.length >= limit) break;
@@ -3296,11 +3371,15 @@ export async function discoverBrandCandidates({
         || pageHtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:site_name["']/i)?.[1]
         || "";
       const brandName = stripHtml(siteName || pageTitle).split("|")[0].split("—")[0].split("-")[0].trim() || stripHtml(title) || hostname;
+      const pageText = stripHtml(`${pageTitle}\n${metaDescription}\n${pageHtml.slice(0, 12000)}`);
       // Articles and listicles are not brands — skip them entirely.
       if (isLikelyListicleTitle(brandName) || isLikelyListicleTitle(stripHtml(title))) continue;
       if (classifyBrandEntity({ brandName, website: url, pageTitle: stripHtml(title), metaDescription }).reject) continue;
-      // Stage 0A: dream brands are never overnight primary research targets.
-      if (isDesiredBrand(brandName, excludeDesiredBrands)) continue;
+      // Dream brands: never outreach candidates, but learn discovery rules from their site.
+      if (isDesiredBrand(brandName, excludeDesiredBrands)) {
+        pushIntel(extractBrandDiscoveryIntel({ text: pageText, brandName, url }));
+        continue;
+      }
       const hostParts = hostname.split(".").filter(Boolean);
       const hostStem = (hostParts.length > 1 ? hostParts.at(-2) : hostParts[0] || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
       const nameStem = brandName.replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -3317,8 +3396,11 @@ export async function discoverBrandCandidates({
         privateInsights,
         redditSignals
       });
+      const intel = extractBrandDiscoveryIntel({ text: pageText, brandName, url });
+      pushIntel(intel);
       candidates.push({
         brandName,
+        discoveryIntel: intel || null,
         matchedInsights: fit.matchedInsights,
         matchedSignals: fit.matchedSignals,
         summary: fit.fitSummary.slice(0, 320),
@@ -3332,8 +3414,63 @@ export async function discoverBrandCandidates({
 
   return {
     candidates: candidates.slice(0, limit),
+    discoveryIntel,
     searchUnavailable: searchFetchSuccesses === 0 && searchFetchFailures > 0
   };
+}
+
+/**
+ * Learn outreach-vs-tag rules for dream brands from athlete/creator-program pages
+ * (including support docs). Never creates pitch targets.
+ */
+async function harvestDesiredBrandDiscoveryIntel({
+  fetchImpl,
+  desiredBrands = [],
+  existingRoutes = []
+}) {
+  const learned = [];
+  const already = new Set(
+    (Array.isArray(existingRoutes) ? existingRoutes : [])
+      .filter((route) => route?.mode === "tag_discovery")
+      .map((route) => String(route.brandName || "").toLowerCase())
+  );
+
+  for (const rawDesired of (Array.isArray(desiredBrands) ? desiredBrands : []).slice(0, 5)) {
+    const brandName = String(rawDesired || "").trim();
+    if (!brandName) continue;
+    const queryBrand = cleanDesiredBrandName(brandName) || brandName;
+    if (!queryBrand || already.has(queryBrand.toLowerCase())) continue;
+
+    let html = "";
+    try {
+      html = await fetchText(
+        fetchImpl,
+        `https://duckduckgo.com/html/?q=${encodeURIComponent(`${queryBrand} athlete OR creator partnership OR sponsorship program`)}`
+      );
+    } catch {
+      continue;
+    }
+
+    const matches = [...html.matchAll(/result__a[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/gims)].slice(0, 4);
+    for (const match of matches) {
+      const url = decodeDuckDuckGoResultUrl(match[1]);
+      if (!isAllowedBrandResearchUrl(url, { allowSupportHosts: true })) continue;
+      let pageHtml = "";
+      try {
+        pageHtml = await fetchText(fetchImpl, url);
+      } catch {
+        continue;
+      }
+      const pageText = stripHtml(pageHtml.slice(0, 16000));
+      const intel = extractBrandDiscoveryIntel({ text: pageText, brandName: queryBrand, url });
+      if (!intel) continue;
+      learned.push(intel);
+      already.add(queryBrand.toLowerCase());
+      break;
+    }
+  }
+
+  return learned;
 }
 
 async function fetchRedditSignals({ communities = MARA_REDDIT_COMMUNITIES, fetchImpl, limitPerCommunity = 2 }) {
@@ -3585,11 +3722,42 @@ async function runMaraBrandResearchCycle({
     privateInsights: privateContentGaps,
     redditSignals
   });
+  const harvestedIntel = await harvestDesiredBrandDiscoveryIntel({
+    desiredBrands,
+    existingRoutes: creatorProfile?.learned?.brandDiscoveryRoutes || [],
+    fetchImpl
+  });
+  const discoveryIntel = [...(discovery.discoveryIntel || []), ...harvestedIntel];
+  let brandDiscoveryRoutes = Array.isArray(creatorProfile?.learned?.brandDiscoveryRoutes)
+    ? [...creatorProfile.learned.brandDiscoveryRoutes]
+    : [];
+  for (const intel of discoveryIntel) {
+    brandDiscoveryRoutes = mergeBrandDiscoveryRoute(brandDiscoveryRoutes, intel);
+  }
+  if (discoveryIntel.length > 0) {
+    try {
+      await upsertCreatorIntelligenceProfile(store, {
+        userId,
+        workerId,
+        learned: { brandDiscoveryRoutes },
+        provenance: { basis: EVIDENCE_KINDS.OBSERVED, source: "brand_discovery_intel" },
+        confidence: Math.max(Number(creatorProfile?.confidence || 0), 62)
+      });
+    } catch {
+      /* profile table may be unavailable in light stores */
+    }
+  }
+
   const brands = discovery.candidates;
   if (brands.length === 0) {
     if (discovery.searchUnavailable) {
       return {
         note: "Live brand search was unavailable this cycle (the search source blocked or failed every request). I did not fabricate research — I'll retry next cycle."
+      };
+    }
+    if (discoveryIntel.length > 0) {
+      return {
+        note: `Learned discovery rules for ${discoveryIntel.map((row) => row.brandName).join(", ")} (tag/hashtag paths — not outreach). No new reachable brands this cycle.`
       };
     }
     return { note: "Live search ran but no new reachable brand candidates matched this cycle. Dream brands and article noise were skipped; I'll broaden queries next cycle." };
@@ -3663,6 +3831,10 @@ async function runMaraBrandResearchCycle({
       } catch {
         /* contact discovery is best-effort during research */
       }
+      // Tag-only / no-inbox brands become caption advice, not pitch drafts.
+      if (!shouldAllowOutreachPitch(brand.discoveryIntel)) {
+        continue;
+      }
       const pitchTask = await convertResearchItemToTask(store, userId, workerId, research.id, {
         description: `Draft a personalized pitch using the brand's identity, site language, ${brand.suggestedAngle || "the strongest current angle"}, and current fit with ${niche}.`,
         priority: "high",
@@ -3676,8 +3848,17 @@ async function runMaraBrandResearchCycle({
     }
   }
 
+  const discoveryLines = formatDiscoveryRoutesForDeliverable(
+    discoveryIntel.length ? discoveryIntel : brandDiscoveryRoutes
+  );
   const content = buildRichContent([
     { title: "Brands researched today", value: brands.map((brand) => `${brand.brandName}: ${brand.summary} (${brand.website})`) },
+    {
+      title: "Discovery lessons (not outreach)",
+      value: discoveryLines.length > 0
+        ? discoveryLines
+        : ["No new tag/hashtag discovery rules this cycle."]
+    },
     { title: "Fresh Reddit signals", value: redditSignals.length > 0 ? redditSignals.map((signal) => `[r/${signal.community}] ${signal.title}`) : ["No Reddit pulls were available during this cycle."] },
     { title: "Verified content gaps", value: privateContentGaps.length > 0 ? privateContentGaps : ["No verified creator-search gaps were available this cycle, so I did not invent any."] }
   ]);
@@ -3699,6 +3880,7 @@ async function runMaraBrandResearchCycle({
     source: "research",
     structuredContent: {
       brands,
+      discoveryIntel,
       createdSignalResearchIds,
       privateContentGaps,
       redditSignals,

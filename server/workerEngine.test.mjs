@@ -92,6 +92,43 @@ test("brand discovery ignores dream-brand leakage and rejects third-party articl
   assert.deepEqual(result.candidates.map((candidate) => candidate.brandName), ["Reachable Fit"]);
   assert.equal(requests.filter((url) => url.includes("duckduckgo.com")).some((url) => /gymshark/i.test(url)), false);
   assert.equal(result.candidates.some((candidate) => /aligned with Gymshark would be a DREAM/i.test(candidate.summary)), false);
+  assert.ok(
+    (result.discoveryIntel || []).some((intel) => intel.brandName === "Gymshark" && intel.mode === "tag_discovery") ||
+    (result.discoveryIntel || []).length === 0
+  );
+});
+
+test("brand discovery extracts tag-only rules from dream-brand pages without pitching them", async () => {
+  const fetchImpl = async (url) => {
+    if (String(url).includes("duckduckgo.com")) {
+      return {
+        ok: true,
+        text: async () => `<a class="result__a" href="https://www.gymshark.com/">Gymshark</a>`
+      };
+    }
+    return {
+      ok: true,
+      text: async () => `
+        <title>Gymshark</title>
+        <meta property="og:site_name" content="Gymshark">
+        <meta name="description" content="Tag @Gymshark and #Gymshark. We do not provide a direct email or application form for sponsorship requests.">
+        <body>Tag @Gymshark and use #Gymshark. We do not provide a direct email or application form for sponsorship requests.</body>`
+    };
+  };
+
+  const result = await discoverBrandCandidates({
+    excludeDesiredBrands: ["Gymshark"],
+    fetchImpl,
+    limit: 3,
+    niche: "fitness"
+  });
+
+  assert.deepEqual(result.candidates, []);
+  assert.equal(result.discoveryIntel.length, 1);
+  assert.equal(result.discoveryIntel[0].brandName, "Gymshark");
+  assert.equal(result.discoveryIntel[0].mode, "tag_discovery");
+  assert.equal(result.discoveryIntel[0].allowOutreachPitch, false);
+  assert.ok(result.discoveryIntel[0].handles.includes("@Gymshark"));
 });
 
 function makeDb() {

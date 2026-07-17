@@ -58,6 +58,7 @@ const EMPTY_PROFILE = () => ({
     rejectedConcepts: [],
     contentPatternsWithBetterOutcomes: [],
     brandFeedback: [],
+    brandDiscoveryRoutes: [],
     repeatWorkSignals: [],
     revenueByOpportunityType: {}
   }
