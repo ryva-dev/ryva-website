@@ -63,4 +63,16 @@ test("publication gate hides templates, empty scans, and Mad Libs", () => {
     }),
     false
   );
+  assert.equal(
+    shouldPublishWorkerOutput({
+      outputType: "brand_research_digest",
+      title: "Daily brand research digest",
+      content: "Gymshark appears aligned with Gymshark would be a DREAM for me.",
+      structuredContent: {
+        generatedBy: "research",
+        brands: [{ brandName: "Gymshark", summary: "Gymshark appears aligned with Gymshark would be a DREAM for me." }]
+      }
+    }),
+    false
+  );
 });

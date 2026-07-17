@@ -38,6 +38,7 @@ import { getMaraActivationJourney } from "./maraActivationJourney.mjs";
 import { runMaraPhase3 } from "./maraPhase3Runtime.mjs";
 import { getMaraPhase2Flags } from "./maraFeatureFlags.mjs";
 import { classifyBrandEntity } from "./maraBrandCanonical.mjs";
+import { isCreatorPreferenceEcho, isDesiredBrand } from "./maraOpportunityScoring.mjs";
 import {
   deriveMaraPermissionsFromOnboarding,
   formatMaraActivityDescription,
@@ -1434,6 +1435,7 @@ function isUsableNichePhrase(value) {
   const text = String(value ?? "").trim();
   if (!text || text.length > 60) return false;
   if (/^i\s/i.test(text)) return false;
+  if (isCreatorPreferenceEcho(text)) return false;
   if (/\b(do not|don't|dont|cannot|can't|won't|not have|have no|nothing)\b/i.test(text)) return false;
   if (/[?!]/.test(text)) return false;
   if (text.split(/\s+/).length > 9) return false;
@@ -1615,17 +1617,21 @@ function getKnowledgeModule(context, category) {
 }
 
 function extractPrivateInsightItems(privateInsights) {
-  if (!privateInsights) return [];
-  if (Array.isArray(privateInsights)) {
-    return privateInsights.map((item) => String(item?.contentGap || item?.summary || item?.title || item).trim()).filter(Boolean);
-  }
-  if (Array.isArray(privateInsights.contentGaps)) {
-    return privateInsights.contentGaps.map((item) => String(item?.label || item?.gap || item?.title || item).trim()).filter(Boolean);
-  }
-  if (Array.isArray(privateInsights.insights)) {
-    return privateInsights.insights.map((item) => String(item?.contentGap || item?.summary || item?.title || item).trim()).filter(Boolean);
-  }
-  return [];
+  const raw = (() => {
+    if (!privateInsights) return [];
+    if (Array.isArray(privateInsights)) {
+      return privateInsights.map((item) => String(item?.contentGap || item?.summary || item?.title || item).trim()).filter(Boolean);
+    }
+    if (Array.isArray(privateInsights.contentGaps)) {
+      return privateInsights.contentGaps.map((item) => String(item?.label || item?.gap || item?.title || item).trim()).filter(Boolean);
+    }
+    if (Array.isArray(privateInsights.insights)) {
+      return privateInsights.insights.map((item) => String(item?.contentGap || item?.summary || item?.title || item).trim()).filter(Boolean);
+    }
+    return [];
+  })();
+  // Dream-brand preference answers are not content-gap evidence.
+  return raw.filter((item) => !isCreatorPreferenceEcho(item));
 }
 
 function extractPersonalizedBrandTarget(context) {
@@ -3119,7 +3125,8 @@ export function isLikelyListicleTitle(title) {
   if (text.length > 60) return true;
   if (/\d+\s*\+/.test(text)) return true;
   if (/\b(top|best|list of|guide to|ultimate|our favorite|favourites?|case study|growth tactics?|competitive advantage|marketing strateg(?:y|ies)|b2b lessons?)\b/i.test(text)) return true;
-  if (/\bhow\b.{0,40}\bbuilt\b/i.test(text)) return true;
+  if (/\bhow\b.{0,60}\b(built|grew|scaled)\b/i.test(text)) return true;
+  if (/\bscale[- ]from[- ]startup\b/i.test(text)) return true;
   if (/\bbrands\b/i.test(text)) return true;
   if (/\b(20\d{2})\b/.test(text)) return true;
   return false;
@@ -3146,7 +3153,22 @@ function extractHostname(url) {
 function isAllowedBrandResearchUrl(url) {
   const host = extractHostname(url);
   if (!host) return false;
-  return !/(reddit\.com|linkedin\.com|instagram\.com|tiktok\.com|youtube\.com|duckduckgo\.com)/i.test(host);
+  if (/(reddit\.com|linkedin\.com|instagram\.com|tiktok\.com|youtube\.com|duckduckgo\.com)/i.test(host)) {
+    return false;
+  }
+  // Support/help docs are not brand storefronts — they produce "Gymshark Athlete" noise.
+  if (/^(support|help|docs|care|community|status|cdn|api)\./i.test(host)) {
+    return false;
+  }
+  try {
+    const path = new URL(url).pathname || "";
+    if (/\/(how-did-|how-|case-study|growth-tactics|scale-from)/i.test(path)) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 export function createFetchWithTimeout(fetchImpl = globalThis.fetch, timeoutMs = 8000) {
@@ -3178,7 +3200,7 @@ function buildBrandResearchQueries({ niche, redditSignals = [], privateInsights 
   const themeTerms = [...privateInsights, ...redditSignals]
     .filter((item) => {
       const text = String(item?.label || item?.title || item || "");
-      return !/\bdream\b.*\bfor me\b|\bwould be (?:a )?dream\b|\bi (?:really )?(?:want|would love) to work with\b/i.test(text);
+      return !isCreatorPreferenceEcho(text);
     })
     .flatMap((item) => String(item?.label || item?.title || item || "").toLowerCase().split(/[^a-z0-9]+/g))
     .map((part) => part.trim())
@@ -3203,7 +3225,7 @@ function summarizeBrandResearchFit({ brandName, niche, pageTitle, metaDescriptio
     .filter(Boolean)
     // Desired-brand answers are preferences, not trend evidence or creative
     // angles. Echoing them into every research record destroys trust.
-    .filter((label) => !/\bdream\b.*\bfor me\b|\bwould be (?:a )?dream\b|\bi (?:really )?(?:want|would love) to work with\b/i.test(label))
+    .filter((label) => !isCreatorPreferenceEcho(label))
     .filter((label) => lowerSource.includes(label.toLowerCase().split(" ")[0]));
   const matchedSignals = redditSignals
     .map((item) => String(item?.title || "").trim())
@@ -3229,7 +3251,14 @@ function summarizeBrandResearchFit({ brandName, niche, pageTitle, metaDescriptio
   };
 }
 
-export async function discoverBrandCandidates({ fetchImpl, limit, niche, privateInsights = [], redditSignals = [] }) {
+export async function discoverBrandCandidates({
+  fetchImpl,
+  limit,
+  niche,
+  privateInsights = [],
+  redditSignals = [],
+  excludeDesiredBrands = []
+}) {
   const queries = buildBrandResearchQueries({ niche, privateInsights, redditSignals });
   const candidates = [];
   const seenHosts = new Set();
@@ -3270,6 +3299,8 @@ export async function discoverBrandCandidates({ fetchImpl, limit, niche, private
       // Articles and listicles are not brands — skip them entirely.
       if (isLikelyListicleTitle(brandName) || isLikelyListicleTitle(stripHtml(title))) continue;
       if (classifyBrandEntity({ brandName, website: url, pageTitle: stripHtml(title), metaDescription }).reject) continue;
+      // Stage 0A: dream brands are never overnight primary research targets.
+      if (isDesiredBrand(brandName, excludeDesiredBrands)) continue;
       const hostParts = hostname.split(".").filter(Boolean);
       const hostStem = (hostParts.length > 1 ? hostParts.at(-2) : hostParts[0] || "").replace(/[^a-z0-9]/gi, "").toLowerCase();
       const nameStem = brandName.replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -3534,14 +3565,20 @@ async function runMaraBrandResearchCycle({
     return { note: "Daily brand research cap reached." };
   }
 
+  const previousOutputs = await listWorkerOutputs(store, userId, workerId);
   const niche = inferMaraNiche({
     accountContext,
-    previousOutputs: await listWorkerOutputs(store, userId, workerId),
+    previousOutputs,
     workerKnowledge
   });
+  const creatorProfile = await getCreatorIntelligenceProfile(store, userId, workerId);
+  const desiredBrands = Array.isArray(creatorProfile?.business?.desiredBrands)
+    ? creatorProfile.business.desiredBrands
+    : [];
   const redditSignals = await fetchRedditSignals({ fetchImpl });
   const privateContentGaps = extractPrivateInsightItems(privateInsights).slice(0, 6);
   const discovery = await discoverBrandCandidates({
+    excludeDesiredBrands: desiredBrands,
     fetchImpl,
     limit: remaining,
     niche,
@@ -3555,7 +3592,7 @@ async function runMaraBrandResearchCycle({
         note: "Live brand search was unavailable this cycle (the search source blocked or failed every request). I did not fabricate research — I'll retry next cycle."
       };
     }
-    return { note: "Live search ran but no new brand candidates matched this cycle. Nothing was fabricated; I'll broaden queries next cycle." };
+    return { note: "Live search ran but no new reachable brand candidates matched this cycle. Dream brands and article noise were skipped; I'll broaden queries next cycle." };
   }
 
   const createdResearchIds = [];

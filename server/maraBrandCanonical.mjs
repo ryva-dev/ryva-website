@@ -16,7 +16,7 @@
 import { randomUUID } from "node:crypto";
 import { createEvidenceItem, validateEvidenceList } from "./maraEvidence.mjs";
 
-const LISTICLE_RE = /\b(best|top)\s+\d+|brands?\s+to\s+know|roundup|listicle|case study|growth tactics?|competitive advantage|marketing strateg(?:y|ies)|b2b lessons?|how .{0,40}\bbuilt\b/i;
+const LISTICLE_RE = /\b(best|top)\s+\d+|brands?\s+to\s+know|roundup|listicle|case study|growth tactics?|competitive advantage|marketing strateg(?:y|ies)|b2b lessons?|how .{0,60}\b(built|grew|scaled)\b|scale[- ]from[- ]startup|oem produ/i;
 const MARKETPLACE_HOSTS = new Set([
   "amazon.com", "etsy.com", "ebay.com", "walmart.com", "target.com", "alibaba.com"
 ]);

@@ -163,6 +163,14 @@ test("a beginner's dream brand is build-toward, not an immediate revenue target"
   assert.equal(gated.decision, "build_toward");
   assert.equal(gated.pursueNow, false);
 
+  const athleteAlias = applyCreatorStageReadiness({
+    creatorProfile: { business: { creatorStage: "Brand new", desiredBrands: ["Gymshark would be a DREAM for me"] } },
+    brandName: "Gymshark Athlete",
+    decision: "pursue",
+    status: "qualified"
+  });
+  assert.equal(athleteAlias.decision, "build_toward");
+
   const active = applyCreatorStageReadiness({ creatorProfile, brandName: "Gymshark", decision: "pursue", status: "active" });
   assert.equal(active.pursueNow, true);
   assert.equal(active.decision, "pursue");

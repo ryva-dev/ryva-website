@@ -2004,7 +2004,7 @@ function WorkerDeskDeliverableModal({
             <span>{detail?.workerName || workerName}</span>
             {dateLine ? <span>{dateLine}</span> : null}
           </div>
-          {generatedBy && generatedBy !== "llm" ? (
+          {generatedBy && !["llm", "research", "heuristic"].includes(generatedBy) ? (
             <p className="ro-doc-provenance">
               {generatedBy === "placeholder"
                 ? "Held — the finished version arrives once the reasoning engine is connected."
@@ -3904,6 +3904,7 @@ function deliverableFolder(type: string) {
     brand_criteria: ["Strategy", "Brand fit"],
     opportunity_package: ["Strategy", "Opportunities"],
     brand_research: ["Strategy", "Brand research"],
+    brand_research_digest: ["Strategy", "Brand research"],
     growth_intelligence_brief: ["Intelligence", "Growth intelligence"],
     market_pulse: ["Intelligence", "Market signals"],
     tiktok_trend_pulse: ["Intelligence", "Social trends"],

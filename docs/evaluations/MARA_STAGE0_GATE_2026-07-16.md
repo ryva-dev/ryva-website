@@ -2,35 +2,46 @@
 
 | Field | Value |
 |---|---|
-| Status | **Stage 0A PASS** |
+| Status | **Stage 0A FAIL (regression) — Stage 0B blocked** |
 | Environment | Production `ryvaforge.com` |
-| Confirmed | 2026-07-16 ~20:30 ET (founder: calendar fixed) |
+| Overnight re-check | 2026-07-17 ~08:20 ET |
 | Branch policy | All future Stage work pushes to `mara/outcome-flywheel` (not `main`) |
 
 ## Hard rule applied
 
 Do not begin Stage 0B overnight 70% scoring, or Stage 1, until Stage 0A exits hold on the live product.
 
+## Overnight failure (2026-07-17)
+
+Overnight output was essentially one **Daily brand research digest** that:
+
+- Treated dream-brand preference as niche (`aligned with Gymshark would be a DREAM for me`)
+- Shipped Gymshark / Gymshark Athlete / Gymshark-about OEM article noise as researched brands
+- Landed in Deliverables **Other** instead of Strategy
+- Showed a false “Working draft — AI connected” banner on a research digest
+
 ## Stage 0A exits
 
 | Exit | Live result | Evidence |
 |---|---|---|
-| Dream brands not overnight primary | **PASS** | Desk labels Gymshark `build_toward`; empty Gymshark market pulse removed from Deliverables |
-| No placeholder pitches | **PASS** | Mad Libs follow-up + pitch template gone from Deliverables |
-| No empty / fake market pulses as shipped | **PASS** | Empty pulses no longer in library or Today shipped |
-| No “I shipped X” when X hidden/unusable | **PASS** | Today honesty + shipped items match Deliverables |
-| Completed real work visible in Deliverables | **PASS** | Positioning, brand fit, content ideas remain |
-| Honest blockers / Gmail UX layout | **PASS** | Outlook (soon) button gone; Gmail path intact |
-| No calendar filler as Mara work | **PASS** | Founder confirmed calendar fixed |
+| Dream brands not overnight primary | **FAIL** | Digest led with Gymshark / Athlete / Gymshark article OEM |
+| No placeholder pitches | **PASS** (hold) | No Mad Libs overnight |
+| No empty / fake market pulses as shipped | **PASS** (hold) | — |
+| No “I shipped X” when X hidden/unusable | **FAIL** | Preference-echo digest was customer-facing |
+| Completed real work visible in Deliverables | **WEAK** | Only the bad digest overnight; setup docs remain |
+| Honest blockers / Gmail UX layout | **PASS** (hold) | — |
+| No calendar filler as Mara work | **PASS** (hold) | Founder confirmed earlier |
+| Deliverable categorization | **FAIL** | `brand_research_digest` → Other |
 
-## Stage 0B — open
+## Stage 0B — blocked again
 
-Overnight opportunity/pitch scoring toward **≥70% worth-pursuing**. Pitches should need only minor edits.
+Do not score 70% until overnight research stops chasing dream brands and ships reachable targets.
 
-Do not start Stage 1 until 0B gate passes.
+## Fix in flight
 
-## Stage 1+ — not started
-
-## Next action
-
-Run Stage 0B overnight scoring once Mara produces real opportunity packages (not only setup deliverables).
+- Exclude desired/dream brands from overnight discovery
+- Reject support/help hosts and “how brand scaled” article URLs
+- Never use preference-echo text as niche / content-gap evidence
+- Hide preference-echo digests from publication
+- Map `brand_research_digest` → Strategy / Brand research
+- Stop false “AI draft” banner on `generatedBy: research`

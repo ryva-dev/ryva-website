@@ -3,6 +3,8 @@
  * Digests, office deliverables, and desk "while you were away" must agree.
  */
 
+import { isCreatorPreferenceEcho } from "./maraOpportunityScoring.mjs";
+
 const NON_PUBLISH_GENERATED_BY = new Set(["placeholder", "template", "empty_scan"]);
 
 /** Internal / operational types that must never be claimed as shipped deliverables. */
@@ -58,6 +60,14 @@ export function shouldPublishWorkerOutput(output, { hiddenTypes = null } = {}) {
   }
 
   if (outputType === "brand_research_digest" && isEmptyBrandResearchDigest(output?.structuredContent || {})) {
+    return false;
+  }
+
+  // Stage 0A: digests that echo dream-brand preference copy are not usable work.
+  if (
+    outputType === "brand_research_digest" &&
+    (isCreatorPreferenceEcho(output?.content) || isCreatorPreferenceEcho(JSON.stringify(output?.structuredContent || {})))
+  ) {
     return false;
   }
 

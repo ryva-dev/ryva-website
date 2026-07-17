@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { applyCreatorStageReadiness } from "./maraOpportunityScoring.mjs";
+import { applyCreatorStageReadiness, cleanDesiredBrandName, isCreatorPreferenceEcho } from "./maraOpportunityScoring.mjs";
 
 export const EVIDENCE_BASIS = new Set(["observed", "inferred", "hypothesis", "creator_preference", "industry_benchmark"]);
 
@@ -447,16 +447,6 @@ function websiteLooksOwnedByBrand(website, brandName) {
   return Boolean(domain && compactBrand.length >= 3 && domain.replace(/[^a-z0-9]/g, "").includes(compactBrand));
 }
 
-function cleanDesiredBrandName(value) {
-  return String(value || "")
-    .trim()
-    .replace(/^i(?:'d| would)?\s+(?:really\s+)?(?:love|like|want)\s+to\s+work\s+with\s+/i, "")
-    .replace(/\s+(?:would be|is)\s+(?:a\s+)?(?:dream|dream brand).*$/i, "")
-    .replace(/\s+is\s+my\s+dream(?:\s+brand)?(?:\s+.*)?$/i, "")
-    .replace(/[.!]+$/, "")
-    .trim();
-}
-
 /**
  * Resolve headline-shaped research records such as "How Gymshark Built..."
  * back to a creator-declared brand. Article publishers must never become
@@ -474,11 +464,6 @@ export function resolveCanonicalDesiredBrand(row = {}, desiredBrands = []) {
     website: websiteLooksOwnedByBrand(row.website, matched) ? row.website : null,
     canonicalDesiredBrand: true
   };
-}
-
-function isCreatorPreferenceEcho(value) {
-  const text = String(value || "").trim();
-  return /\bdream\b.*\bfor me\b|\bwould be (?:a )?dream\b|\bi (?:really )?(?:want|would love) to work with\b/i.test(text);
 }
 
 function removePreferenceEchoes(row) {

@@ -33,12 +33,34 @@ export function isEarlyStageCreator(creatorStage) {
   return true;
 }
 
+/** Strip "would be a dream" / "I'd love to work with" wrappers to the brand name. */
+export function cleanDesiredBrandName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^i(?:'d| would)?\s+(?:really\s+)?(?:love|like|want)\s+to\s+work\s+with\s+/i, "")
+    .replace(/\s+(?:would be|is)\s+(?:a\s+)?(?:dream|dream brand).*$/i, "")
+    .replace(/\s+is\s+my\s+dream(?:\s+brand)?(?:\s+.*)?$/i, "")
+    .replace(/[.!]+$/, "")
+    .trim();
+}
+
+/** Onboarding preference sentences must never become niche, angles, or evidence. */
+export function isCreatorPreferenceEcho(value) {
+  const text = String(value || "").trim();
+  return /\bdream\b.*\bfor me\b|\bwould be (?:a )?dream\b|\bi (?:really )?(?:want|would love) to work with\b|\bis my dream(?:\s+brand)?\b/i.test(text);
+}
+
 export function isDesiredBrand(brandName, desiredBrands = []) {
   const brand = normalizedBrandName(brandName);
   if (!brand) return false;
   return (Array.isArray(desiredBrands) ? desiredBrands : []).some((entry) => {
-    const desired = normalizedBrandName(entry);
-    return desired === brand || (brand.length >= 4 && desired.includes(brand));
+    const desired = normalizedBrandName(cleanDesiredBrandName(entry));
+    if (!desired || desired.length < 3) return false;
+    if (desired === brand) return true;
+    // "Gymshark Athlete" matches desired "Gymshark" / "Gymshark would be a DREAM for me".
+    if (` ${brand} `.includes(` ${desired} `)) return true;
+    if (brand.length >= 4 && desired.includes(brand)) return true;
+    return false;
   });
 }
 

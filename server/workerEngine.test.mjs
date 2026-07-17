@@ -44,6 +44,7 @@ import {
 test("brand discovery ignores dream-brand leakage and rejects third-party articles", async () => {
   assert.equal(isLikelyListicleTitle("Gymshark Growth Tactics and Competitive Advantage"), true);
   assert.equal(isLikelyListicleTitle("How Gymshark Built a $1.6B Brand"), true);
+  assert.equal(isLikelyListicleTitle("How Gymshark grew from a UK startup"), true);
   assert.equal(isLikelyListicleTitle("Reachable Fit"), false);
   const requests = [];
   const fetchImpl = async (url) => {
@@ -53,11 +54,26 @@ test("brand discovery ignores dream-brand leakage and rejects third-party articl
         ok: true,
         text: async () => `
           <a class="result__a" href="https://marketing.example.com/gymshark-growth">Gymshark Growth Tactics</a>
+          <a class="result__a" href="https://support.gymshark.com/en/articles/athlete">Gymshark Athlete</a>
+          <a class="result__a" href="https://www.gymshark.com/">Gymshark</a>
+          <a class="result__a" href="https://fukigymwear.com/how-did-gymshark-scale-from-startup-to-global-brand/">How Gymshark scaled</a>
           <a class="result__a" href="https://shop.reachablefit.com/">Reachable Fit</a>`
       };
     }
     if (String(url).includes("marketing.example.com")) {
       return { ok: true, text: async () => '<title>Gymshark Growth Tactics</title><meta property="og:site_name" content="Marketing Example">' };
+    }
+    if (String(url).includes("gymshark.com")) {
+      return {
+        ok: true,
+        text: async () => '<title>Gymshark</title><meta property="og:site_name" content="Gymshark"><meta name="description" content="Workout clothes.">'
+      };
+    }
+    if (String(url).includes("fukigymwear.com")) {
+      return {
+        ok: true,
+        text: async () => '<title>How Gymshark scaled</title><meta property="og:site_name" content="Fukigymwear"><meta name="description" content="Discover how Gymshark grew from a UK startup.">'
+      };
     }
     return {
       ok: true,
@@ -66,14 +82,16 @@ test("brand discovery ignores dream-brand leakage and rejects third-party articl
   };
 
   const result = await discoverBrandCandidates({
+    excludeDesiredBrands: ["Gymshark would be a DREAM for me"],
     fetchImpl,
-    limit: 3,
+    limit: 5,
     niche: "fitness and wellness",
     privateInsights: ["Gymshark would be a DREAM for me"]
   });
 
   assert.deepEqual(result.candidates.map((candidate) => candidate.brandName), ["Reachable Fit"]);
   assert.equal(requests.filter((url) => url.includes("duckduckgo.com")).some((url) => /gymshark/i.test(url)), false);
+  assert.equal(result.candidates.some((candidate) => /aligned with Gymshark would be a DREAM/i.test(candidate.summary)), false);
 });
 
 function makeDb() {
