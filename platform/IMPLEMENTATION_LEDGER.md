@@ -1,26 +1,59 @@
 # Ryva Pro Implementation Ledger
 
-**Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.  
-**Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness  
-**Completed redesign increment:** UI Redesign Increment 2 — Shared component system  
-**Active construction increment:** UI Redesign Increment 3 — Application shell and global navigation  
+**Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
+**Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
+**Completed redesign increment:** UI Redesign Increment 3 — Application shell and global navigation
+**Active construction increment:** None — Increment 4 has not started
 **Last updated:** 2026-07-20
 
 ## UI Redesign Increment 3 scope ledger
 
 | Requirement | Status | Implementation evidence |
 |---|---|---|
-| Approved global navigation hierarchy | Implemented; validation active | Operate, Intelligence, Commercial, Analyze, and System groups with capability-controlled Operations |
-| Desktop application shell | Implemented; validation active | Persistent 240/72 token-driven sidebar, expanded/collapsed states, active routes, tooltips, utility footer and profile menu |
-| Tablet navigation | Implemented; validation active | 72-wide collapsed rail at the approved tablet breakpoint with temporary overlay expansion, scrim dismissal and route-close behavior |
-| Mobile navigation | Implemented; validation active | Fixed top context bar, Home/Tasks/Placements/Search/More bottom navigation and full-height More sheet |
-| Shell utilities | Implemented; validation active | Search and keyboard shortcut, unread Notifications, status-aware profile menu, Certification, Subscription, Settings and sign out |
-| Capability and access behavior | Implemented; validation active | Restricted access navigation is derived from server-issued capabilities; Operations remains Admin/Support only |
-| Accessibility behavior | Implemented; validation active | Navigation landmarks, active-page semantics, focus trap/restore, Escape close, body scroll lock, live menu state, tooltips and reduced motion |
-| Contextual route preservation | Implemented; validation active | Contacts, Sources, Territories and AI Copilot remain valid contextual routes without global-navigation promotion |
-| Route/workflow/business logic preservation | Implemented; validation active | Existing protected route boundary now composes the shared shell; APIs, domain logic, page markup and all 51 route declarations remain unchanged |
-| Increment 3 regression coverage | Implemented; validation active | Navigation contract unit tests plus desktop/mobile shell, focus and overflow browser journeys |
+| Approved global navigation hierarchy | Complete | Operate, Intelligence, Commercial, Analyze, and System groups with capability-controlled Operations |
+| Desktop application shell | Complete | Persistent 240/72 token-driven sidebar, expanded/collapsed states, active routes, tooltips, utility footer and profile menu |
+| Tablet navigation | Complete | 72-wide collapsed rail at the approved tablet breakpoint with temporary overlay expansion, scrim dismissal and route-close behavior |
+| Mobile navigation | Complete | Fixed top context bar, Home/Tasks/Placements/Search/More bottom navigation and full-height More sheet |
+| Shell utilities | Complete | Search and keyboard shortcut, unread Notifications, status-aware profile menu, Certification, Subscription, Settings and sign out |
+| Capability and access behavior | Complete | Restricted access navigation is derived from server-issued capabilities; Operations remains Admin/Support only |
+| Accessibility behavior | Complete | Navigation landmarks, active-page semantics, focus trap/restore, Escape close, body scroll lock, live menu state, tooltips and reduced motion |
+| Contextual route preservation | Complete | Contacts, Sources, Territories and AI Copilot remain valid contextual routes without global-navigation promotion |
+| Route/workflow/business logic preservation | Complete | Existing protected route boundary now composes the shared shell; APIs, domain logic, page markup and all 51 documented pages remain unchanged |
+| Increment 3 regression coverage | Complete | Navigation contract unit tests plus desktop/mobile shell, focus and overflow browser journeys |
 | Home/workspace/page redesign | Not started by design | Explicitly reserved for Increment 4 and later |
+
+### Increment 3 validation results
+
+- `npm run lint`: passed, including the token-only redesign policy.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 23 passed, including 4 application-shell contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- `npm run test:e2e`: 46 passed across desktop Chrome and Pixel 7 profiles.
+- `npm run build`: passed; Vite transformed 84 modules and emitted the production client/server build.
+- Live authenticated and restricted inspection: no console errors; restricted navigation exposed zero operational destinations.
+- Exact 1440 × 900, 1024 × 768, and 390 × 844 captures: no horizontal overflow and no post-auth console/page errors.
+
+### Increment 3 corrective responsive pass
+
+- Founder mobile review superseded the original `scrollWidth`-only claim: a
+  flex action could be visually reduced to a sliver without increasing document
+  width, and shell chrome lacked explicit safe-area viewport coverage.
+- Added shell-scoped mobile width containment and wrapping for page boundaries,
+  panels, metadata rows, and record/section header actions; Home content and
+  markup remain unchanged.
+- Added `viewport-fit=cover`, dynamic viewport sizing, safe-area-aware top and
+  bottom shell padding, and zero-minimum five-column bottom navigation.
+- Strengthened Playwright assertions to check every visible shell/page rectangle
+  against `visualViewport.width`, every bottom-navigation cell, More-sheet
+  scrolling to Sign out, focus restoration, console errors, and exact 390, 375,
+  and 320 CSS-pixel widths.
+- Corrective validation: lint/token policy passed; strict typecheck passed; 23
+  unit tests passed; focused shell suite 5 passed/1 intentional skip; full
+  Playwright suite 47 passed/1 intentional skip; production build passed.
+- Exact viewport capture audit passed at 1440 × 900 expanded, 1440 × 900
+  collapsed, 1024 × 768, 390 × 844, 375 × 812, and 320 × 568 with no clipped
+  visible elements, no horizontal overflow, all five bottom items inside the
+  visual viewport, a scrollable More sheet, and no console/page errors.
 
 ## UI Redesign Increment 2 scope ledger
 

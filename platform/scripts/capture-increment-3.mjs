@@ -34,47 +34,90 @@ await page.reload();
 await page.getByRole("button", { name: "Collapse navigation" }).waitFor();
 
 const results = [];
-async function capture(name, width, height) {
+async function inspect(name, width, height, screenshot = false) {
   const dimensions = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
     scrollWidth: document.documentElement.scrollWidth,
     viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight
+    viewportHeight: window.innerHeight,
+    visualWidth: window.visualViewport?.width ?? window.innerWidth,
+    offenders: [...document.querySelectorAll("#main-content *, .ry-mobile-bottom-nav > *")]
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName,
+          className: String(element.className),
+          text: String(element.textContent ?? "").trim().slice(0, 60),
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height
+        };
+      })
+      .filter((item) => item.width > 0 && item.height > 0)
+      .filter((item) => item.left < -0.5 || item.right > (window.visualViewport?.width ?? window.innerWidth) + 0.5),
+    bottomItems: [...document.querySelectorAll(".ry-mobile-bottom-nav > *")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { label: element.textContent?.trim(), left: rect.left, right: rect.right };
+    })
   }));
   results.push({ name, width, height, ...dimensions });
-  await page.screenshot({
-    path: new URL(`${name}.png`, outputDirectory).pathname,
-    fullPage: false
-  });
+  if (screenshot) {
+    await page.screenshot({
+      path: new URL(`${name}.png`, outputDirectory).pathname,
+      fullPage: false
+    });
+  }
 }
 
-await capture("desktop-expanded-1440x900", 1440, 900);
+await inspect("desktop-expanded-1440x900", 1440, 900, true);
 await page.getByRole("button", { name: "Collapse navigation" }).click();
 await page.waitForTimeout(300);
-await capture("desktop-collapsed-1440x900", 1440, 900);
+await inspect("desktop-collapsed-1440x900", 1440, 900, true);
 
 await page.setViewportSize({ width: 1024, height: 768 });
 await page.getByRole("button", { name: "Expand navigation" }).click();
 await page.locator(".ry-shell-tablet-open").waitFor();
 await page.waitForTimeout(300);
-await capture("tablet-navigation-1024x768", 1024, 768);
+await inspect("tablet-navigation-1024x768", 1024, 768, true);
 
 await page.setViewportSize({ width: 390, height: 844 });
 await page.getByRole("navigation", { name: "Mobile primary" }).waitFor();
 await page.waitForTimeout(300);
-await capture("mobile-navigation-closed-390x844", 390, 844);
+await inspect("mobile-navigation-closed-390x844", 390, 844, true);
 await page.getByRole("button", { name: "More", exact: true }).click();
 await page.getByRole("dialog", { name: "Home" }).waitFor();
 await page.waitForTimeout(300);
-await capture("mobile-navigation-open-390x844", 390, 844);
+await inspect("mobile-navigation-open-390x844", 390, 844, true);
+await page.getByRole("button", { name: "Sign out" }).scrollIntoViewIfNeeded();
+await page.getByRole("button", { name: "Sign out" }).waitFor();
+await page.keyboard.press("Escape");
+
+for (const viewport of [
+  { name: "mobile-375x812", width: 375, height: 812 },
+  { name: "mobile-320x568", width: 320, height: 568 }
+]) {
+  await page.setViewportSize({ width: viewport.width, height: viewport.height });
+  await page.getByRole("navigation", { name: "Mobile primary" }).waitFor();
+  await inspect(viewport.name, viewport.width, viewport.height);
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("dialog", { name: "Home" }).waitFor();
+  await page.getByRole("button", { name: "Sign out" }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "Sign out" }).waitFor();
+  await page.keyboard.press("Escape");
+}
 
 await browser.close();
 
 if (consoleErrors.length) {
   throw new Error(`Console errors during Increment 3 capture:\n${consoleErrors.join("\n")}`);
 }
-if (results.some((result) => result.scrollWidth > result.clientWidth)) {
-  throw new Error(`Horizontal overflow found:\n${JSON.stringify(results, null, 2)}`);
+if (results.some((result) =>
+  result.scrollWidth > result.clientWidth ||
+  result.offenders.length > 0 ||
+  result.bottomItems.some((item) => item.left < 0 || item.right > result.visualWidth)
+)) {
+  throw new Error(`Responsive clipping found:\n${JSON.stringify(results, null, 2)}`);
 }
 
 console.log(JSON.stringify({ screenshots: results, consoleErrors }, null, 2));
