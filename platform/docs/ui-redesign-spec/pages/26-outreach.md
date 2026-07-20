@@ -1,0 +1,22 @@
+# Outreach Center
+
+- **Route:** `/outreach`
+- **Current purpose:** Prepare human-approved messages, log calls, and review communication/activity history.
+- **Audit issues:** Activity, two creation forms, templates/sequences links, provider state, and message register compete on one page.
+- **Pattern:** Communication Workspace.
+- **Proposed layout:** Tabs Activity, Drafts, Templates, Sequences; left conversation/activity list, center selected timeline or preparation editor, right relationship/authority context.
+- **Primary action:** State-dependent Prepare outreach, Review draft, or Log call.
+- **Secondary actions:** Filter, template/sequence navigation, add note/reminder, open Placement/Contact.
+- **Hierarchy/sections:** Selected Buyer/Brand/Placement identity → authority/suppression → history → preparation/exact draft → next action.
+- **Timeline:** Calls, messages, replies, notes, tasks, provider events in one chronology with type filters.
+- **Right rail:** Product fit reason, Brand authority, recipient suppression, evidence-linked claims, next action.
+- **Filters/list:** Conversation list filters channel/status/reply/due; no separate bottom message table.
+- **Dialogs/drawers:** Draft/call prep drawer or center mode, EvidenceDrawer, Contact/Placement preview.
+- **States:** No prepared Placement/Contact, no history, provider unavailable, authority blocked, suppressed/opted out, loading/error/read-only.
+- **Permission/restricted states:** Full access plus shared authority validator governs drafting/external action; read-only/restricted, out-of-scope, conflict, suppression, and missing approval states each expose their exact block.
+- **Mobile:** Conversation list → full timeline/editor; call logging and exact approval sticky; context full-screen.
+- **Accessibility:** Chronology list, channel/status text, recipient/sender labels, authority/suppression announced.
+- **Components:** Communication workspace, ActivityTimeline, FilterBar, ContextRail, AuthorityIndicator, AIRecommendation, ApprovalPanel, Drawer.
+- **Consolidates/removes:** Two simultaneous forms, separate message table, inconsistent header navigation.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Authority validator, suppression, exact human approval, claims/evidence, attachments, provider queueing, response and call audit behavior remain exact; no autonomous send/call.

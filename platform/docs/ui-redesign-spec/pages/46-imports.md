@@ -1,0 +1,22 @@
+# Import and Review
+
+- **Route:** `/imports`
+- **Current purpose:** Map, validate, preview, and explicitly approve CSV ingestion.
+- **Audit issues:** Mapping/raw CSV/approval are one long form; approval appears after preview; errors and evidence requirements are dense.
+- **Pattern:** Consequential Review.
+- **Proposed layout:** Stepper: Select type/data, Map fields, Link provenance, Validate, Review exact preview, Approve commit, Results. Steps preserve state and are not completion claims.
+- **Primary action:** Validate at setup stages; Commit exact preview only in final review.
+- **Secondary actions:** Add mapping, download errors where existing, cancel, open Source.
+- **Hierarchy/sections:** Import identity → current step → errors/unknowns → exact change set → human rationale → commit result.
+- **Timeline:** Import job/validation/approval/commit events in AuditHistory.
+- **Right rail:** Record count, valid/invalid/duplicate, Source, consequence, readiness.
+- **Filters/table:** Preview/error tables with row status; no fake sample data.
+- **Dialogs/drawers:** Source/Evidence drawer; final ConfirmationDialog naming exact preview/version/count.
+- **States:** Empty input, invalid CSV/mapping, duplicate candidates, missing Source, ready, committing, partial failure, success, read-only/provider/storage error.
+- **Permission/restricted states:** Import mapping/approval/commit require the existing capabilities and full access; read-only/restricted users may inspect permitted history only, and wrong-workspace Sources/Documents never appear.
+- **Mobile:** Status/result inspection; mapping and large preview desktop-first with clear limitation.
+- **Accessibility:** Step list alternative, error summary with row/column, preview table semantics, no preselected approval.
+- **Components:** ApprovalPanel, FileUpload/Input, Table, EvidenceDrawer, AuditHistory, ConfirmationDialog, LoadingState.
+- **Consolidates/removes:** Single long form and loosely separated preview/approval.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Same transactional preview, exact approval rationale, evidence provenance, duplicate handling, row limits, non-authoritative consequences, audit and rollback behavior.

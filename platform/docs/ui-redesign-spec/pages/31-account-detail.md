@@ -1,0 +1,22 @@
+# Account Detail
+
+- **Route:** `/accounts/:id`
+- **Current purpose:** Review account status, human health judgment, Orders/Reorders, protection, and history.
+- **Audit issues:** Commercial relationships split into panels; health form competes with history; context links are inconsistent.
+- **Pattern:** Relationship Detail.
+- **Proposed layout:** Brand → Business IdentityHeader; tabs Overview, Activity, Orders, Reorders, Protection, Commissions, History; central timeline; ContextRail.
+- **Primary action:** Current responsible account/reorder action or update human health judgment.
+- **Secondary actions:** Open Order/Reorder/Protection/Commission, add task/note.
+- **Hierarchy/sections:** Relationship identity → health/rationale → commercial continuity → protection → next action.
+- **Timeline:** Orders, fulfillment, calls/messages, reorders, health decisions, protection and commission events.
+- **Right rail:** Health, next reorder window, authority/protection, outstanding commercial issue.
+- **Filters/table:** Related Orders/Reorders/Commissions tables; activity type filter.
+- **Dialogs/drawers:** Health review, task/note, related-record preview.
+- **States:** Active/at risk/inactive/closed/archived; no reorder/protection; loading/error/restricted/read-only.
+- **Permission/restricted states:** Account/commercial fields and actions are workspace/capability scoped; read-only/restricted access preserves permitted history and blocks health/outreach/commercial mutation.
+- **Mobile:** Account health, next action, call/outreach link, reorder and commission review prioritized.
+- **Accessibility:** Health is text+rationale, currency unambiguous, timeline semantics.
+- **Components:** IdentityHeader, Tabs, ActivityTimeline, ContextRail, CurrencyValue, ForecastRange, AuthorityIndicator, Table.
+- **Consolidates/removes:** Panel stack and generic metric summary.
+- **Complexity:** High.
+- **Acceptance criteria:** History remains after protection/Brand relationship ends; health stays human-owned; no rights inferred.

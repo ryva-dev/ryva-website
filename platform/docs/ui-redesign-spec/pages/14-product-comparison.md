@@ -1,0 +1,21 @@
+# Product Comparison
+
+- **Route:** `/products/comparisons/:comparisonId`
+- **Current purpose:** Compare aligned products by readiness, trend, evidence, unknowns, risk, and review freshness without ranking.
+- **Audit issues:** Wide table only; limitations detached below; sparse loading/error context.
+- **Pattern:** Analytical Workspace.
+- **Proposed layout:** Comparison identity/context → sticky Product columns → grouped field rows (Identity, Evidence, Readiness, Risk, Unknowns) → interpretation limits and sources.
+- **Primary action:** Open the Product requiring the next review; no “winner.”
+- **Secondary actions:** Adjust visible groups, open evidence, return to Products.
+- **Hierarchy/sections:** Context/freshness → aligned comparison → missing/contrary evidence → limitations.
+- **Timeline/right rail:** No timeline; optional 300 px definitions/limitations rail on wide screens.
+- **Filters/table:** Comparison table with first column pinned; no ranking sort; 2–4 Product columns.
+- **Dialogs/drawers:** EvidenceDrawer for a cell; Product preview drawer.
+- **States:** Unknown rendered explicitly; stale data labelled; missing Product/permission safe; loading skeleton preserves columns; no-results not converted to zero.
+- **Permission/restricted states:** Only authorized Products/fields appear; restricted evidence is omitted without leaking counts/content, and read-only permits inspection but no related mutation.
+- **Mobile:** Two Products at a time with Product selector; full field groups vertically; no squeezed four-column table.
+- **Accessibility:** Table caption, scoped row/column headers, evidence drawer names cell context, reading order independent of color.
+- **Components:** PageHeader, Table, EvidenceLabel/Drawer, RiskIndicator, StatusLabel, ContextRail, Skeleton.
+- **Consolidates/removes:** Unstructured limitations panel and raw text cells.
+- **Complexity:** High.
+- **Acceptance criteria:** Same facts/unknowns/risks and context; no hidden score/weight/rank; every value traces to current evidence.

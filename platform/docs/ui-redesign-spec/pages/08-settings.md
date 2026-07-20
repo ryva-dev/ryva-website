@@ -1,0 +1,21 @@
+# Settings
+
+- **Route:** `/settings`
+- **Current purpose:** Maintain working preferences, AI controls, sessions, and account closure request.
+- **Audit issues:** Overloaded page; identical Revoke names; security/destructive actions mixed with routine preferences.
+- **Pattern:** Settings and Administration.
+- **Proposed layout:** Account local nav plus section nav: Preferences, AI assistance, Sessions & security, Account closure. One 720 px section at a time.
+- **Primary action:** Save settings in Preferences/AI; section-specific explicit action elsewhere.
+- **Secondary actions:** Revoke named session, sign out current session, request closure.
+- **Hierarchy/sections:** Current section heading → explanation → controls → action; destructive closure separated last.
+- **Timeline:** Session activity uses compact AuditHistory where available.
+- **Right rail/filters/table:** Session list only; no rail/filter.
+- **Dialogs/drawers:** ConfirmationDialog for revoke/closure; unsaved-change dialog.
+- **States:** Loading per section; errors preserve values; locked policy setting explains ownership; read-only/access limits explicit.
+- **Permission/restricted states:** Each section is capability-controlled; locked admin policy remains visible as read-only context, and security/closure actions require the existing identity and access checks.
+- **Mobile:** Section selector, one column, full-width 44 px actions.
+- **Accessibility:** Unique session action names, switch semantics, confirmation focus, help/error association.
+- **Components:** PageHeader, Tabs, Switch, Input, Button, ConfirmationDialog, AuditHistory, Alert, Toast.
+- **Consolidates/removes:** Long stacked Settings page and generic session rows.
+- **Complexity:** Medium.
+- **Acceptance criteria:** AI preference never changes admin kill switch; session/closure security and audits remain exact.

@@ -1,0 +1,21 @@
+# Documents
+
+- **Route:** `/documents`
+- **Current purpose:** Register immutable files and upload originals to quarantine.
+- **Audit issues:** Register and upload form share split panel; scanner/quarantine state uses generic status; documents are detached from relevant records.
+- **Pattern:** Register.
+- **Proposed layout:** Shared document table with header Upload action; selected preview shows immutable identity, hash, scan, relationships, and rights. Contextual uploads reuse the same component.
+- **Primary action:** Upload to quarantine.
+- **Secondary actions:** Filter, open related Agreement/record, inspect/download when permitted.
+- **Hierarchy/sections:** Scanner/provider status → filters → register → selected provenance/relationships.
+- **Timeline/right rail:** Preview shows upload/scan/version/access events.
+- **Filters/table:** Type, scan, owner, related entity, date; immutable hash/ID available.
+- **Dialogs/drawers:** FileUpload drawer; document preview; evidence/relationship drawer.
+- **States:** No documents/no results/uploading/quarantined/clean/infected/scan failed/provider unavailable/loading/error/read-only.
+- **Permission/restricted states:** Upload/preview/download and related-record fields are independently scoped; read-only/restricted users cannot upload, and quarantined/infected artifacts remain inaccessible.
+- **Mobile:** Capture/select upload when policy supports; status/related record first; large preview full-screen.
+- **Accessibility:** File requirements/progress/scan announced; hash copy named; preview alt/text behavior.
+- **Components:** PageHeader, Table, FilterBar, FileUpload, StatusLabel, Drawer, AuditHistory, Alert.
+- **Consolidates/removes:** Split register/upload panels and raw scan pills.
+- **Complexity:** High.
+- **Acceptance criteria:** Original immutability/hash, quarantine, scanner gate, permissions, evidence relationships and audit remain exact.

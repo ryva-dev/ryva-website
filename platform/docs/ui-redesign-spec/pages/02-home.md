@@ -1,0 +1,22 @@
+# Home Command Center
+
+- **Route:** `/`
+- **Current purpose:** Prioritize commitments, changes, pipeline exceptions, commercial continuity, and AI briefing.
+- **Audit issues:** Metric-card repetition, several competing attention surfaces, sparse empty state, AI and analytics summary duplication.
+- **Pattern:** Command Center.
+- **Proposed layout:** 800 px primary column for Today/changes/priorities; 320 px rail for pipeline and commercial exceptions; AI briefing last and visually subordinate.
+- **Primary action:** Highest-priority permitted next action; fallback Review tasks.
+- **Secondary actions:** Open Analytics, acknowledge changes, AI history/generate briefing.
+- **Hierarchy/sections:** Access/freshness → Today → What changed → Priority queue → Pipeline exceptions → currency-separated commercial continuity → AI briefing.
+- **Timeline:** Changes use compact chronological entries, not cards.
+- **Right rail:** Blocked/stalled pipeline and commercial deadlines only; no rail when empty.
+- **Filters/list:** No page filter; ordered TaskItem/priority list with expandable reason.
+- **Dialogs/drawers:** Priority supporting evidence opens EvidenceDrawer; AI item opens AI review drawer/route.
+- **States:** No records explains first Brand/Product/Buyer action without zeros; stable skeleton; analytics/AI errors do not hide deterministic priorities; read-only state changes actions to inspection.
+- **Permission/restricted states:** Capabilities filter records/actions; read-only preserves permitted priorities for inspection, while blocked access routes to Access and never exposes workspace data.
+- **Mobile:** Single column, Today first, sticky top permitted action, expandable reasons.
+- **Accessibility:** Ordered lists, descriptive record links, freshness text, no live announcement on passive refresh.
+- **Components:** PageHeader, TaskItem, ActivityTimeline, Metric, ContextRail, AIRecommendation, EmptyState, Skeleton, Alert.
+- **Consolidates/removes:** Equal metric panels and duplicate task/notification presentation.
+- **Complexity:** High.
+- **Acceptance criteria:** Priority ordering/reasons remain unchanged; currency separation and provider absence stay truthful; all Home acceptance tests pass.

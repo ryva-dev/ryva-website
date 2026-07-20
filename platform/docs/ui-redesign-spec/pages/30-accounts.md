@@ -1,0 +1,21 @@
+# Accounts Register
+
+- **Route:** `/accounts`
+- **Current purpose:** Monitor operational Brand–Business relationships after verified opening orders.
+- **Audit issues:** Commerce local shell duplicates global navigation; title conflates Protected and operational Accounts; sparse list/saved-view pattern.
+- **Pattern:** Register.
+- **Proposed layout:** Accounts workspace with tabs Accounts/Protection; header action as appropriate to existing workflow; shared filters/table.
+- **Primary action:** Open Account requiring next action; no direct Account creation because verified Order creates it.
+- **Secondary actions:** Save view, export, review Protection, open related Order/Reorder.
+- **Hierarchy/sections:** Exceptions/account health → tabs → filters → table.
+- **Timeline/right rail:** Row preview shows Brand–Business identity, latest Order, reorder window, health, protection, next action.
+- **Filters/table:** Brand, Buyer, status, health, protection, reorder due; columns pinned identity and currency-separated values.
+- **Dialogs/drawers:** Account preview, filter sheet, export confirmation as current policy.
+- **States:** No verified Accounts, no results, at risk, inactive/archived, loading/error/read-only.
+- **Permission/restricted states:** Workspace/capability filtering governs Accounts and exports; read-only/restricted modes preserve permitted continuity/history but block health or related mutations.
+- **Mobile:** Structured account rows prioritizing Buyer/Brand, health, next action, reorder.
+- **Accessibility:** Currency labels, health rationale, row actions named.
+- **Components:** Tabs, Table, FilterBar, SavedViewSelector, StatusLabel, CurrencyValue, ContextRail/Drawer.
+- **Consolidates/removes:** `CommerceNav`, ambiguous title, local SaveView.
+- **Complexity:** High.
+- **Acceptance criteria:** Accounts only arise from verified orders; protection remains separate; export/audit/workspace rules remain.

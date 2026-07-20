@@ -1,0 +1,21 @@
+# Analytics and Reports
+
+- **Route:** `/analytics`
+- **Current purpose:** Explain representative, Product, Brand, Buyer, pipeline, commercial, portfolio, reports, definitions, and external readiness.
+- **Audit issues:** Nine button views, generic metric cards/tables, no charts, reports/definitions compete, Home duplicates summaries.
+- **Pattern:** Analytical Workspace.
+- **Proposed layout:** Route/query-synchronized tabs: Overview, Products, Brands, Buyers, Pipeline, Commercial, Portfolio, Reports, Definitions. Filters/freshness remain stable; each view has one primary analysis and drill-down.
+- **Primary action:** Recalculate current view; Save report within Reports.
+- **Secondary actions:** Change date/currency, drill to source records, export current permitted data.
+- **Hierarchy/sections:** View/freshness → filters → topline → primary visualization/table → exceptions/drill-down → definitions/external readiness.
+- **Timeline/right rail:** No relationship timeline; optional definitions/data-scope rail.
+- **Filters/table:** DateRangePicker, currency, view-specific filters; shared Table; charts only for supported actual data.
+- **Dialogs/drawers:** Metric definition/source drawer; report save dialog.
+- **States:** No data vs zero, partial/stale, external Not Connected, loading/error, currency separation, restricted export.
+- **Permission/restricted states:** Metrics/drill-downs/exports are filtered by record and capability policy; read-only/restricted users see only permitted analysis, with unavailable sources labelled rather than inferred.
+- **Mobile:** Summary + one visualization/table; Reports read/save basic; advanced configuration desktop-first.
+- **Accessibility:** Chart table alternative, metric definitions, freshness/scope, semantic view state.
+- **Components:** Tabs, DateRangePicker, FilterBar, Metric, ChartContainer, Table, CurrencyValue, ForecastRange, Drawer.
+- **Consolidates/removes:** Button pseudo-tabs, page-local DataTable/MetricGrid/views, generic card dashboard.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Existing metrics/formulas/definitions, currency separation, provenance, forecasts, report saving, no-data logic and all analytics acceptance tests remain.

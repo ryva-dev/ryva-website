@@ -1,0 +1,21 @@
+# Generic Records Compatibility Register
+
+- **Route:** `/records/:type`
+- **Current purpose:** List/filter/create supported Brand, Product, Business, or Contact records with saved views.
+- **Audit issues:** Duplicates Intelligence; invalid types silently render Brands; independent saved-view/list/card/table behavior.
+- **Pattern:** Register — compatibility.
+- **Proposed layout:** Supported `brand`, `product`, and `business` types render or redirect client-side without URL loss to the canonical register contract; `contact` renders the Businesses & Buyers contact register. Invalid type shows unsupported route.
+- **Primary action:** Same create action as the canonical type.
+- **Secondary actions:** Search, filters, saved view, columns/density.
+- **Hierarchy/sections:** Compatibility notice only when necessary → canonical register anatomy.
+- **Timeline/right rail:** Row preview drawer may show relationship context.
+- **Filters/table:** Shared FilterBar/SavedViewSelector/Table; no separate card default.
+- **Dialogs/drawers:** Record preview; contextual create only if the canonical page uses it.
+- **States:** No records/no results/loading/error/archived match canonical pages; invalid type is not-found; permissions server-driven.
+- **Permission/restricted states:** Canonical record permissions apply before list/search/action rendering; restricted/read-only modes preserve only allowed inspection and unsupported types reveal no data.
+- **Mobile:** Structured rows and filter sheet.
+- **Accessibility:** Route outcome announced; canonical register semantics.
+- **Components:** Register suite, EmptyState, ErrorState.
+- **Consolidates/removes:** `RecordsPage` UI duplication, custom saved views, silent Brand fallback.
+- **Complexity:** High.
+- **Acceptance criteria:** All supported deep links and saved views survive; unsupported types never show another entity; no duplicate behavior remains after migration.

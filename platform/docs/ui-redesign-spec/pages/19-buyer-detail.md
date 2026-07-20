@@ -1,0 +1,22 @@
+# Business / Buyer Detail
+
+- **Route:** `/buyers/:id`
+- **Current purpose:** Review Business profile, fit, contacts, evidence, risk, qualification, matches, and activity.
+- **Audit issues:** Buyer/Business term shifts; Contact verification causes context switching; long equal-weight panels.
+- **Pattern:** Relationship Detail.
+- **Proposed layout:** Organization IdentityHeader; tabs Overview, Activity, Contacts, Product fit, Evidence, Commercial, History; ContextRail.
+- **Primary action:** Current qualification/contact/Placement next action.
+- **Secondary actions:** Edit, add/verify Contact, add evidence/risk, match Product, create task/note.
+- **Hierarchy/sections:** Identity/business type → qualification → verified route → fit/assortment → Placements/outreach → account/orders where present.
+- **Timeline:** Contact verification, evidence, decisions, outreach, Placement, Orders, account/reorder events.
+- **Right rail:** Qualification, contact freshness, authority/suppression, critical risk, next action.
+- **Filters/table:** Contacts, Products, Placements, Orders as tables; timeline filter.
+- **Dialogs/drawers:** Contact verification, evidence, task/note, relationship preview.
+- **States:** Unknown fit, stale Contact, no authority, suppressed recipient, archived/inactive, loading/error/restricted.
+- **Permission/restricted states:** Business, Contact, evidence, and commercial fields are independently policy-scoped; read-only/restricted modes retain only permitted context and block external action.
+- **Mobile:** Buyer lookup, call prep, contact action, notes, and stage/outreach links prioritized.
+- **Accessibility:** Contact action includes route/status; no color-only fit; tabs/timeline semantics.
+- **Components:** IdentityHeader, Tabs, ActivityTimeline, ContextRail, EvidenceDrawer, RiskIndicator, AuthorityIndicator, Table.
+- **Consolidates/removes:** Generic Business detail and separate Contact context switches.
+- **Complexity:** High.
+- **Acceptance criteria:** All evidence, human qualification, Contacts, matches, outreach/commercial history, and workspace isolation remain.

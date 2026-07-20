@@ -1,0 +1,22 @@
+# Contact Detail
+
+- **Route:** `/contacts/:id`
+- **Current purpose:** Verify a professional contact route and freshness.
+- **Audit issues:** Small verification page detached from parent Buyer context; source selection requires context switch; generic Contact detail overlaps.
+- **Pattern:** Relationship Detail.
+- **Proposed layout:** Compact Contact IdentityHeader with parent Business relation; Overview/Activity/Evidence tabs; center communication/verification history; narrow ContextRail.
+- **Primary action:** Verify or refresh professional route with source, observed date, and notes.
+- **Secondary actions:** Log call/note, open parent Business, prepare Outreach when permitted.
+- **Hierarchy/sections:** Identity/role → parent Business → route/status/freshness → verification evidence → communication history.
+- **Timeline:** Verification changes, calls, notes, messages, opt-out/suppression.
+- **Right rail:** Contact freshness, authority/suppression, next action.
+- **Filters/table:** Activity filter; no main table.
+- **Dialogs/drawers:** Verification/evidence drawer; call log drawer; source register opens contextually.
+- **States:** Unverified/verified/stale/disputed/suppressed; loading/error/permission; missing Source.
+- **Permission/restricted states:** Contact fields and routes are workspace/field scoped; restricted/read-only, suppression, and invalid authority each block external action for their own explicit reason.
+- **Mobile:** Call preparation and logging first; sticky permitted contact action; context full-screen.
+- **Accessibility:** Tel/mail actions explicit; route/freshness announced; verification form help associated.
+- **Components:** IdentityHeader, Tabs, ActivityTimeline, ContextRail, EvidenceDrawer, AuthorityIndicator, ApprovalPanel.
+- **Consolidates/removes:** Generic Contact detail and isolated form-panel layout.
+- **Complexity:** Medium.
+- **Acceptance criteria:** Human verification, source/freshness, suppression, authority checks, and outreach controls remain exact.

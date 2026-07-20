@@ -1,0 +1,22 @@
+# Agreement Authority Review
+
+- **Route:** `/agreements/:id`
+- **Current purpose:** Review immutable originals, extracted/material terms, restrictions, conflicts, ambiguity, and human authority approval.
+- **Audit issues:** The longest overloaded page; extraction, editing, legal ambiguity, restrictions, conflicts, and approval have equal weight.
+- **Pattern:** Consequential Review.
+- **Proposed layout:** 960 px review + 320 px readiness rail. Steps: Artifact, Extracted terms, Material terms, Scope/restrictions, Conflicts/ambiguity, Human approval, History. Steps are navigation, not automatic completion.
+- **Primary action:** Human approve and activate exact reviewed authority when Ready.
+- **Secondary actions:** Edit candidate term, flag ambiguity, add written restriction, reject/request clarification, open immutable original.
+- **Hierarchy/sections:** Agreement identity/version/hash → scan status → candidate vs verified terms → scope/rights → conflicts → exact approval consequence.
+- **Timeline:** Extraction edits, human reviews, authority decisions, renewals/termination.
+- **Right rail:** Readiness, missing evidence, legal ambiguity, conflicts, effective/expiry, next action.
+- **Filters/table:** Material terms and restrictions use structured tables; candidates filter by review state.
+- **Dialogs/drawers:** Wide document/evidence drawer; final ConfirmationDialog; no approval inside a drawer.
+- **States:** Quarantined/scan failed/pending review/ambiguous/conflicted/active/expired/suspended/terminated; loading/error/permission/read-only.
+- **Permission/restricted states:** Artifact/term/approval fields follow workspace and role policy; read-only/restricted access never permits extraction review mutation or authority approval, and legal ambiguity remains visible.
+- **Mobile:** Exact authority summary and urgent disposition supported; extraction comparison/document review desktop-first with truthful limitation.
+- **Accessibility:** Step list alternative, document text, candidate/verified distinction, error summary, no preselected approval.
+- **Components:** IdentityHeader, ApprovalPanel, AuthorityIndicator, EvidenceDrawer, Table, AuditHistory, ConfirmationDialog, Alert.
+- **Consolidates/removes:** Stacked generic panels, raw approval-ID control, mixed term/restriction forms.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Immutable original/hash, scan, evidence links, editable candidates, human approval, scope, termination/post-termination, restrictions, conflicts, ambiguity, version and audit tests all pass; AI never approves/interprets.

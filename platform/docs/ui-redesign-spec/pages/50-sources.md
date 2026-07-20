@@ -1,0 +1,21 @@
+# Evidence Sources
+
+- **Route:** `/sources`
+- **Current purpose:** Register evidence provenance, control, reference, and usage rights.
+- **Audit issues:** First-level utility separate from decisions; split register/create form; simple list limits comparison.
+- **Pattern:** Register.
+- **Proposed layout:** Shared Source table with Register source action; contextual EvidenceDrawer links here without losing record context.
+- **Primary action:** Register source.
+- **Secondary actions:** Filter, inspect linked evidence/records, copy reference.
+- **Hierarchy/sections:** Source policy note → filters → table → selected rights/freshness/relationships.
+- **Timeline/right rail:** Preview source creation/use and linked claims.
+- **Filters/table:** Source type, control, rights, freshness, linked entity.
+- **Dialogs/drawers:** Create/edit metadata drawer; linked evidence preview.
+- **States:** No sources/no results/stale/restricted/invalid rights/loading/error/read-only.
+- **Permission/restricted states:** Source/reference/rights fields are workspace and export-right scoped; read-only/restricted users may inspect permitted provenance but cannot register/change it.
+- **Mobile:** Structured rows and contextual registration full-screen.
+- **Accessibility:** Reference/control/rights named; source freshness not color-only.
+- **Components:** Table, FilterBar, Drawer, EvidenceLabel, AuditHistory, EmptyState.
+- **Consolidates/removes:** Split panel and plain-list implementation; global navigation promotion.
+- **Complexity:** Medium.
+- **Acceptance criteria:** Source provenance/rights remain required wherever evidence depends on them; no source fabricates a fact.

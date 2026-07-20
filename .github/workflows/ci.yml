@@ -1,26 +1,40 @@
-name: CI
+name: Ryva Pro CI
 
 on:
   push:
   pull_request:
     branches: [main]
 
+defaults:
+  run:
+    working-directory: platform
+
 jobs:
-  test-and-build:
+  validate:
     runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:16
         env:
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: ryva_test
+          POSTGRES_DB: ryva_pro_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d ryva_test"
+          --health-cmd "pg_isready -U postgres -d ryva_pro_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/ryva_pro_test
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/ryva_pro_test
+      PGSSL: disable
+      SESSION_PEPPER: ci-session-pepper-not-for-production
+      FIELD_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      ALLOW_SYNTHETIC_SEED: "1"
+      RATE_LIMIT_LOGIN_MAX: "100"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,84 +42,53 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: platform/package-lock.json
 
-      - name: Install dependencies
+      - name: Install
         run: npm ci
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Server tests
-        env:
-          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/ryva_test
-          PGSSL: disable
-        run: |
-          DATABASE_URL="$TEST_DATABASE_URL" npm run migrate
-          npm test
+      - name: Static validation
+        run: npm run lint && npm run typecheck
 
-      - name: Type check and build
+      - name: Unit and PostgreSQL integration tests
+        run: npm test
+
+      - name: Browser dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Desktop and mobile browser journeys
+        run: npm run test:e2e
+
+      - name: Production build
         run: npm run build
 
-      - name: Browser journey tests
-        run: |
-          npx playwright install --with-deps chromium
-          npm run test:e2e
+      - name: Backup and restore drill
+        run: npm run drill:backup-restore
 
-      - name: Docker build
-        run: docker build -t ryva:ci .
+      - name: Container build
+        working-directory: .
+        run: docker build -f platform/ops/Dockerfile -t ryva-pro:ci platform
 
-      - name: Container smoke (healthz / readyz)
-        env:
-          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/ryva_test
-          PGSSL: disable
-          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-          ANTHROPIC_API_KEY: "ci-placeholder-key"
-          APP_URL: http://127.0.0.1:8787
-          OBJECT_STORAGE_DRIVER: s3
-          S3_BUCKET: ryva-ci-smoke
-          AWS_REGION: us-east-1
-          METRICS_TOKEN: ci-metrics-token
-          STRIPE_SECRET_KEY: sk_test_ci_placeholder
-          STRIPE_WEBHOOK_SECRET: whsec_ci_placeholder
-          GOOGLE_CLIENT_ID: ci-google-client
-          GOOGLE_CLIENT_SECRET: ci-google-secret
-          SMTP_HOST: smtp.invalid
-          SUPPORT_EMAIL: support@example.com
-          MARA_DISABLE_VIDEO_QA: "1"
-          MIGRATE_ON_BOOT: "1"
-          # LocalStack-free smoke: object puts are not exercised; boot + probes only.
-          # S3 client is constructed lazily on first put/get.
+      - name: Container health and readiness smoke
+        working-directory: .
         run: |
-          docker run -d --name ryva-smoke --network host \
-            -e NODE_ENV=production \
-            -e DATABASE_URL="$TEST_DATABASE_URL" \
+          docker run -d --name ryva-pro-smoke --network host \
+            -e NODE_ENV=test \
+            -e APP_URL=http://127.0.0.1:8787 \
+            -e PORT=8787 \
+            -e DATABASE_URL="$DATABASE_URL" \
             -e PGSSL=disable \
-            -e ENCRYPTION_KEY="$ENCRYPTION_KEY" \
-            -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-            -e APP_URL="$APP_URL" \
-            -e OBJECT_STORAGE_DRIVER=s3 \
-            -e S3_BUCKET="$S3_BUCKET" \
-            -e AWS_REGION="$AWS_REGION" \
-            -e METRICS_TOKEN="$METRICS_TOKEN" \
-            -e STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" \
-            -e STRIPE_WEBHOOK_SECRET="$STRIPE_WEBHOOK_SECRET" \
-            -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
-            -e GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
-            -e SMTP_HOST="$SMTP_HOST" \
-            -e SUPPORT_EMAIL="$SUPPORT_EMAIL" \
-            -e MARA_DISABLE_VIDEO_QA="$MARA_DISABLE_VIDEO_QA" \
-            -e MIGRATE_ON_BOOT=1 \
-            -e MARA_AUTONOMY_INTERVAL_MINUTES=0 \
-            -e AUTONOMY_SCHEDULER_ENABLED=0 \
-            ryva:ci
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8787/healthz >/dev/null; then break; fi
+            -e SESSION_PEPPER="$SESSION_PEPPER" \
+            -e FIELD_ENCRYPTION_KEY="$FIELD_ENCRYPTION_KEY" \
+            ryva-pro:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/readyz >/dev/null; then break; fi
             sleep 2
           done
-          curl -fsS http://127.0.0.1:8787/healthz | tee /tmp/healthz.json
-          curl -fsS http://127.0.0.1:8787/readyz | tee /tmp/readyz.json
-          code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/metrics)
-          test "$code" = "401"
-          curl -fsS -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8787/metrics >/dev/null
-          docker logs ryva-smoke
-          docker rm -f ryva-smoke
+          curl -fsS http://127.0.0.1:8787/healthz
+          curl -fsS http://127.0.0.1:8787/readyz
+          docker logs ryva-pro-smoke
+          docker rm -f ryva-pro-smoke

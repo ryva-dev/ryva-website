@@ -1,0 +1,22 @@
+# Brand Detail
+
+- **Route:** `/brands/:id`
+- **Current purpose:** Review Brand legitimacy, Products, contacts, risk, qualification, representation, and activity.
+- **Audit issues:** Overloaded detail; authority context separated; generic detail duplicate; weak relationship hierarchy.
+- **Pattern:** Relationship Detail.
+- **Proposed layout:** Brand IdentityHeader; tabs Overview, Activity, Products, Evidence, Representation, Documents, History; central timeline or selected tab; ContextRail.
+- **Primary action:** Next human-owned diligence/representation action.
+- **Secondary actions:** Edit, add evidence/risk/contact/Product, open Representation/Agreement.
+- **Hierarchy/sections:** Identity/legitimacy → qualification/evidence → Products/readiness → Contacts → representation/agreements → placements/commercial relationships.
+- **Timeline:** Evidence, communication, qualification, authority, Placement, and commercial events.
+- **Right rail:** Representation authority, renewal/expiry, critical risk, evidence gap, next task.
+- **Filters/table:** Product/contact/relationship tables; activity filter.
+- **Dialogs/drawers:** Evidence, Contact/Product preview, task/note, edit; Agreement remains full route.
+- **States:** Contact-ready/qualified/represented/authorized remain distinct; loading/error/restricted/archived; missing authority visible.
+- **Permission/restricted states:** Field/actions are workspace- and capability-scoped; read-only/restricted modes preserve permitted history but block identity, qualification, and authority mutations.
+- **Mobile:** Identity and authority before tabs; timeline main; full-screen context.
+- **Accessibility:** Relationship links named, authority reason, timeline semantics, exact decision labels.
+- **Components:** IdentityHeader, Tabs, ActivityTimeline, ContextRail, AuthorityIndicator, EvidenceDrawer, RiskIndicator, Table.
+- **Consolidates/removes:** Generic Brand detail and equal panel stack.
+- **Complexity:** High.
+- **Acceptance criteria:** Brand cannot become Authorized/Active without existing required evidence/human approval; all connected Products/Contacts/Agreements/history remain.

@@ -1,0 +1,22 @@
+# Businesses & Buyers Intelligence
+
+- **Route:** `/buyers`
+- **Current purpose:** Research, filter, and create prospective Business Buyers.
+- **Audit issues:** Buyer/Business terminology conflict; Contacts separate; duplicate generic Business list.
+- **Pattern:** Split Intelligence Workspace.
+- **Proposed layout:** Business/Buyer results left, selected organization center, ContextRail for fit, verified Contacts, relationship state, and next action. Local view toggle Organizations/Contacts uses existing records.
+- **Primary action:** Create Business Buyer or selected record’s next qualification action.
+- **Secondary actions:** Save view, add/verify Contact, columns/density, open full detail.
+- **Hierarchy/sections:** Search/filters → organization identity → buyer qualification/fit → Contacts → matched Products/Placements → activity.
+- **Timeline:** Recent research, verification, outreach, and relationship events.
+- **Right rail:** Buyer qualification, contact freshness, authority/fit warning, next action.
+- **Filters/table:** Organization table default; Contacts table is contextual, not a new route.
+- **Dialogs/drawers:** Create Business/Contact, Contact preview/verification, fit evidence.
+- **States:** No Businesses/no results/unverified contacts/stale/archived/loading/error/permission.
+- **Permission/restricted states:** Workspace/capability filters protect Business and Contact results; restricted/read-only states block creation/qualification/outreach and never expose a hidden Contact route.
+- **Mobile:** Buyer lookup optimized; list → full summary; verified call/email route visible but authority/suppression remains.
+- **Accessibility:** Terminology consistently “Businesses & Buyers”; table and selected record semantics.
+- **Components:** Split workspace, Table, FilterBar, SavedViewSelector, IdentityHeader, EvidenceLabel, ContextRail.
+- **Consolidates/removes:** `/records/business` UI duplication and Contacts global nav.
+- **Complexity:** High.
+- **Acceptance criteria:** Business and Contact remain distinct entities; qualification stays human-owned; no business ranking or inferred demand.

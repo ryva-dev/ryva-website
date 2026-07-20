@@ -1,0 +1,21 @@
+# Territories
+
+- **Route:** `/territories`
+- **Current purpose:** Define proposed geography, channel, account-list, or hybrid commercial scope.
+- **Audit issues:** First-level utility; split register/proposal form; proposed scope can visually resemble authority.
+- **Pattern:** Register.
+- **Proposed layout:** Territory table with Propose territory action; selected preview clearly separates proposal from Agreement-authorized scope.
+- **Primary action:** Save territory proposal.
+- **Secondary actions:** Filter, open related Agreement/Representation, inspect scope.
+- **Hierarchy/sections:** “Proposal does not create authority” notice → filters → register → selected scope/relationships.
+- **Timeline/right rail:** Preview history and Agreements using/reviewing the territory; AuthorityIndicator separate.
+- **Filters/table:** Type, status, related Brand/Agreement, effective relevance.
+- **Dialogs/drawers:** Proposal drawer; related Agreement preview.
+- **States:** No territories/no results/proposed/active/inactive/archived, not-authorized, loading/error/read-only.
+- **Permission/restricted states:** Territory proposals/relationships are workspace scoped; read-only/restricted users cannot propose/change scope, and Agreement authority fields follow their own permissions.
+- **Mobile:** Structured rows; one-column proposal; authority distinction first.
+- **Accessibility:** Scope description, type/status/authority text, no map-only representation.
+- **Components:** Table, FilterBar, Drawer, AuthorityIndicator, Alert, AuditHistory.
+- **Consolidates/removes:** Split panel/plain list and global navigation promotion.
+- **Complexity:** Medium.
+- **Acceptance criteria:** Territory remains an explicit proposed boundary; only approved Agreement/human authority creates usable scope; all audits remain.

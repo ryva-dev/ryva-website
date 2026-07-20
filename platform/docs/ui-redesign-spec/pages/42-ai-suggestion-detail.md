@@ -1,0 +1,22 @@
+# AI Suggestion Review
+
+- **Route:** `/copilot/:suggestionId`
+- **Current purpose:** Review/edit/dispose an AI output with statements, classifications, evidence, freshness, limitations, and history.
+- **Audit issues:** Provenance density obscures the human disposition; many status pills; action and exact evidence are separated.
+- **Pattern:** Consequential Review.
+- **Proposed layout:** Suggestion identity → human-review state → editable output → statement/evidence matrix → freshness/limitations → disposition/revision → audit history; readiness rail.
+- **Primary action:** Explicit human disposition: Accept, Accept edited, Reject, or Flag.
+- **Secondary actions:** Edit, request revision, open supporting record/evidence.
+- **Hierarchy/sections:** AI label/purpose → exact output → evidence-supported statements → missing/limitations → human action.
+- **Timeline:** Generation, edits, revisions, dispositions, flags.
+- **Right rail:** Target record, confidence subject, freshness, known limitations, no target-state-change notice.
+- **Filters/table/list:** Statement table by classification/confidence; evidence sources list.
+- **Dialogs/drawers:** EvidenceDrawer; final disposition confirmation only if it changes downstream editable content under existing behavior.
+- **States:** Generated/edited/accepted/rejected/flagged/unavailable/stale; loading/error/permission/read-only.
+- **Permission/restricted states:** Suggestion/supporting records and review actions are workspace/capability scoped; read-only/restricted access permits only authorized history and cannot accept/edit/request revision.
+- **Mobile:** Output/disposition supported; evidence opens full-screen; dense statement comparison grouped vertically.
+- **Accessibility:** AI origin repeated at title/content; labels not color-only; edit/disposition controls explicit; no preselected acceptance.
+- **Components:** ApprovalPanel, AIRecommendation, EvidenceLabel/Drawer, Table, AuditHistory, ContextRail.
+- **Consolidates/removes:** Multi-pill metric panels and detached review actions.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Supporting records, confidence, freshness, limitations, classifications, edits, review history, and human ownership remain; no target action occurs automatically.

@@ -1,0 +1,22 @@
+# Protected Account Review
+
+- **Route:** `/protected-accounts/:id`
+- **Current purpose:** Review written basis, scope, evidence, status, and human protection decision.
+- **Audit issues:** Legal/contractual consequence looks like routine detail; action and documentary basis are separated.
+- **Pattern:** Consequential Review.
+- **Proposed layout:** Account relationship identity → documentary readiness → exact written basis/scope → evidence → human decision → history.
+- **Primary action:** Approve, reject, release, or update status as permitted, with rationale and current issued decision.
+- **Secondary actions:** Open Account/Agreement/document/Commission.
+- **Hierarchy/sections:** Status/consequence → source artifact/version/location → scope/effective dates → conflicts/limits → disposition.
+- **Timeline:** Creation, review, approval/rejection, expiry/release, linked commission effects.
+- **Right rail:** Readiness, Agreement authority, expiry, unresolved conflict, next action.
+- **Filters/table/list:** Evidence/history structured lists.
+- **Dialogs/drawers:** Evidence/document drawer; final ConfirmationDialog.
+- **States:** Missing written basis, ambiguity/conflict, pending/approved/rejected/expired/released; loading/error/permission/read-only.
+- **Permission/restricted states:** Written basis and decision fields are workspace/role scoped; read-only/restricted access cannot approve/release protection, and hidden documents are never inferred.
+- **Mobile:** Urgent disposition supported only with exact basis visible; complex document inspection full-screen.
+- **Accessibility:** Consequence explicit, no preselected approval, source linkage, error summary.
+- **Components:** ApprovalPanel, AuthorityIndicator, EvidenceDrawer, AuditHistory, ConfirmationDialog.
+- **Consolidates/removes:** Routine detail action styling.
+- **Complexity:** High.
+- **Acceptance criteria:** System never creates/invents rights; every change names artifact/version, human actor, rationale, and audit event.

@@ -1,0 +1,21 @@
+# Commissions Register
+
+- **Route:** `/commissions`
+- **Current purpose:** Reconcile expected, verified, approved, payable, and paid commissions.
+- **Audit issues:** Status progression and formula basis are hidden behind row navigation; saved-view/export pattern differs; monetary density lacks common formatting.
+- **Pattern:** Register.
+- **Proposed layout:** Commissions/Disputes tabs; exception summary; shared filter/table with currency-separated totals and reproducibility indicators.
+- **Primary action:** Review the highest-priority Commission requiring human action.
+- **Secondary actions:** Save view, export reconciliation, open Order/Agreement/Dispute.
+- **Hierarchy/sections:** Exceptions → currency-separated summary → tabs/filters → table.
+- **Timeline/right rail:** Row preview shows exact Order revision, Agreement rule, calculation state, evidence, next action.
+- **Filters/table:** Status, Brand, Buyer, currency, due/paid dates, dispute; right-aligned tabular values.
+- **Dialogs/drawers:** Commission preview and formula explanation.
+- **States:** No verified commissions/no results/expected/verified/approved/payable/paid/disputed; loading/error/read-only.
+- **Permission/restricted states:** Commission fields/actions/export are workspace/capability scoped; read-only/restricted users may inspect permitted calculations but cannot approve, mark payable/paid, or dispute.
+- **Mobile:** Status, amount/currency, basis, and next action; full calculation review route.
+- **Accessibility:** Status authored, amounts include currency, formula preview readable.
+- **Components:** Tabs, Table, FilterBar, SavedViewSelector, CurrencyValue, StatusLabel, Drawer.
+- **Consolidates/removes:** CommerceNav, local saved view, raw amount/status cells.
+- **Complexity:** High.
+- **Acceptance criteria:** States never collapse; values reproduce from exact Agreement/Order revision; no autonomous approval/payment.

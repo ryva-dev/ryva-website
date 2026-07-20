@@ -1,0 +1,22 @@
+# Generic Record Detail Compatibility
+
+- **Route:** `/records/:type/:id`
+- **Current purpose:** Show connected evidence, risks, decisions, notes, activities, tasks, documents, and relationships.
+- **Audit issues:** Duplicates dedicated details; action-heavy generic layout; invalid types silently become Brand; inconsistent terminology.
+- **Pattern:** Relationship Detail — compatibility.
+- **Proposed layout:** Resolve supported type/id into its canonical IdentityHeader, tabs, timeline, and ContextRail while retaining the original URL; Contact uses Contact Detail. Invalid type renders unsupported route.
+- **Primary action:** Canonical next action for the resolved record.
+- **Secondary actions:** Note, task, evidence, risk, decision, related-record navigation.
+- **Hierarchy/sections:** Relation trail → identity → canonical tabs → central activity → context.
+- **Timeline:** Unified ActivityTimeline; generic activities do not become a separate competing history.
+- **Right rail:** Next action, evidence/risk, key relation.
+- **Filters/list:** Timeline filters; related-record lists follow canonical detail.
+- **Dialogs/drawers:** Note/task/evidence/history drawers.
+- **States:** Stable identity loading; safe not-found/error; field-level permission redaction; read-only reasons; invalid type unsupported.
+- **Permission/restricted states:** Field and action permissions match the canonical detail; wrong-workspace/unauthorized IDs return the existing safe response, and read-only mode blocks mutation with reason.
+- **Mobile:** Canonical full-screen detail with Back preserving source list.
+- **Accessibility:** Same as canonical details; error retains `h1`.
+- **Components:** IdentityHeader, Tabs, ActivityTimeline, ContextRail, EvidenceDrawer, TaskItem, ErrorState.
+- **Consolidates/removes:** `RecordDetailPage` duplicate panels/forms and invalid fallback.
+- **Complexity:** High.
+- **Acceptance criteria:** Every connected record/action remains available under the same policy; dedicated and generic URLs produce equivalent state and audit behavior.

@@ -1,0 +1,22 @@
+# Order Detail
+
+- **Route:** `/orders/:id`
+- **Current purpose:** Review immutable revisions, lines, verification, payment, and fulfillment and make corrections.
+- **Audit issues:** Revision/status actions and history are vertically fragmented; exact revision basis is difficult to keep visible.
+- **Pattern:** Relationship Detail.
+- **Proposed layout:** Order IdentityHeader; tabs Overview, Lines, Activity, Documents, Commission, History; ContextRail with verification readiness.
+- **Primary action:** State-dependent Verify Order or Record correction/revision.
+- **Secondary actions:** Update independent fulfillment/payment state, open Account/Placement/Commission/evidence.
+- **Hierarchy/sections:** Order/version identity → status dimensions → totals/currency → lines → evidence → revisions → downstream records.
+- **Timeline:** Creation, revisions, verification, payment, fulfillment, Account/Commission effects.
+- **Right rail:** Verification readiness, current revision, evidence, authority/order basis, next action.
+- **Filters/table:** Line and revision tables.
+- **Dialogs/drawers:** Revision drawer, document/evidence drawer; verification ConfirmationDialog.
+- **States:** Draft/review required/verified/corrected/canceled plus payment/fulfillment states; loading/error/restricted/read-only.
+- **Permission/restricted states:** Revision/verification/payment/fulfillment actions are independently capability- and state-gated; read-only/restricted access preserves permitted immutable history only.
+- **Mobile:** Summary, lines, evidence, urgent verification/status actions; complex correction optimized for desktop.
+- **Accessibility:** Revision identifiers, independent statuses, currency/total semantics, consequential confirmation.
+- **Components:** IdentityHeader, Tabs, Table, ActivityTimeline, ContextRail, CurrencyValue, ApprovalPanel, AuditHistory.
+- **Consolidates/removes:** Separate summary/status panels and ad hoc revision timeline.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Original revisions remain immutable; corrections create new revisions; verification/account/commission effects and all audits remain.

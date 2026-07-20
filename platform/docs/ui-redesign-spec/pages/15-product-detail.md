@@ -1,0 +1,22 @@
+# Product Detail
+
+- **Route:** `/products/:id`
+- **Current purpose:** Review/edit/qualify a Product; manage evidence, risks, comparisons, matches, and activity.
+- **Audit issues:** Many equal panels/forms; next decision obscured; duplicated generic detail; evidence and matches compete.
+- **Pattern:** Relationship Detail.
+- **Proposed layout:** Product IdentityHeader; tabs Overview, Activity, Evidence, Buyer fit, Documents, History; central operational view and 320 px ContextRail.
+- **Primary action:** Current human-owned next action: complete evidence, issue/confirm decision, or progress qualification.
+- **Secondary actions:** Edit identity, compare, add evidence/risk, create task/note, open Brand/Buyer/Placement.
+- **Hierarchy/sections:** Identity/readiness → next action → key evidence/unknowns → Brand relationship → suitable Buyers/matches → outcomes.
+- **Timeline:** Product research, evidence changes, decisions, matches, placements, and outcomes in ActivityTimeline.
+- **Right rail:** Qualification, evidence freshness/gaps, critical risk, Brand authority relation.
+- **Filters/table:** Buyer-fit and relationships use tables; timeline filter by event type.
+- **Dialogs/drawers:** Edit/task/note drawers, EvidenceDrawer, risk drawer; qualification uses explicit review panel.
+- **States:** Unknown/stale/conflicting evidence explicit; loading identity skeleton; not-found/permission/restricted safe; archived read-only.
+- **Permission/restricted states:** Workspace, ownership, access mode, and action capability govern every field/action; read-only retains permitted context and explains blocked qualification/editing.
+- **Mobile:** Summary + next action, tabs, full-screen context/evidence; comparison desktop-first.
+- **Accessibility:** Authored evidence labels, tab semantics, decision consequence, timeline list.
+- **Components:** IdentityHeader, Tabs, ActivityTimeline, ContextRail, EvidenceLabel/Drawer, RiskIndicator, ApprovalPanel, Table.
+- **Consolidates/removes:** Generic detail and repeated panel/form blocks.
+- **Complexity:** High.
+- **Acceptance criteria:** All fields, provenance, risks, decisions, comparisons, matches, activity, versioning, and human ownership remain; represented state still requires authority.

@@ -1,0 +1,21 @@
+# Commission Disputes Register
+
+- **Route:** `/commission-disputes`
+- **Current purpose:** Manage evidence-preserving commission cases.
+- **Audit issues:** Separate commerce destination with minimal context; looks like another generic register.
+- **Pattern:** Register.
+- **Proposed layout:** Commissions workspace with Disputes tab active; exception-first table; selected preview shows claim, evidence readiness, chronology, and next decision.
+- **Primary action:** Open dispute requiring review; new dispute remains initiated from Commission context where currently supported.
+- **Secondary actions:** Save view, export case list, open Commission/Order.
+- **Hierarchy/sections:** Open/overdue exceptions → filters → case table.
+- **Timeline/right rail:** Preview chronology and unresolved evidence.
+- **Filters/table:** Status, Brand, currency, amount, opened date, owner/next action.
+- **Dialogs/drawers:** Case preview/evidence drawer.
+- **States:** No cases/no results/open/resolved/withdrawn; loading/error/read-only.
+- **Permission/restricted states:** Case visibility/actions/export follow workspace and capability policy; read-only/restricted modes allow permitted inspection but no case mutation.
+- **Mobile:** Structured case rows and urgent review links.
+- **Accessibility:** Claim/amount/currency and status clearly associated.
+- **Components:** Tabs, Table, FilterBar, SavedViewSelector, CurrencyValue, StatusLabel, Drawer.
+- **Consolidates/removes:** CommerceNav and isolated dispute navigation.
+- **Complexity:** Medium.
+- **Acceptance criteria:** Dispute chronology/evidence preserved; withdrawal never implies Brand correctness; exports and permissions remain.

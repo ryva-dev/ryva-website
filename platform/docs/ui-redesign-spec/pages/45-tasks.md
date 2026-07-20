@@ -1,0 +1,21 @@
+# Tasks
+
+- **Route:** `/tasks`
+- **Current purpose:** Show owned work linked to originating records.
+- **Audit issues:** Sparse list and first-level nav compete with Home priorities; no filters or selected context.
+- **Pattern:** Register.
+- **Proposed layout:** Views Today, Upcoming, Blocked, Completed; compact task table/list with selected task preview and origin context.
+- **Primary action:** Complete or open the highest-priority permitted task.
+- **Secondary actions:** Filter, create task/note where existing, open originating record.
+- **Hierarchy/sections:** Today/overdue summary → view/filter → tasks → selected origin/requirements.
+- **Timeline/right rail:** Preview shows origin, mandatory completion evidence, blockers, related history.
+- **Filters/table:** Due/status/priority/origin/type; accessible list default, table at density.
+- **Dialogs/drawers:** Task detail/create/edit drawer.
+- **States:** No tasks/no results/blocked/overdue/completed/loading/error/read-only.
+- **Permission/restricted states:** Ownership/workspace/capability policy governs task content and completion; read-only/restricted users may inspect permitted tasks but cannot complete/reassign/create.
+- **Mobile:** Bottom-nav destination; Today first; 44 px complete/open actions.
+- **Accessibility:** Task action includes name, due state text, mandatory criteria, completion announcement.
+- **Components:** Tabs, TaskItem, FilterBar, Drawer, StatusLabel, EmptyState.
+- **Consolidates/removes:** Duplicate Home-style rows while preserving Home as prioritizer and Tasks as owner.
+- **Complexity:** Medium.
+- **Acceptance criteria:** Ownership, mandatory gates, evidence and originating record remain; Home and Tasks show consistent truth.

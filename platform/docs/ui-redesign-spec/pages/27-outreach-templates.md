@@ -1,0 +1,22 @@
+# Outreach Templates
+
+- **Route:** `/outreach/templates`
+- **Current purpose:** Maintain versioned reusable communication starting points that never carry approval.
+- **Audit issues:** Card library and creation form split; route uses custom Back link; template status/channel appearance differs from register patterns.
+- **Pattern:** Communication Workspace.
+- **Proposed layout:** Outreach shell with Templates tab active; template register left/full width; selected template preview/version history center; Create action opens drawer.
+- **Primary action:** Create immutable template version 1.
+- **Secondary actions:** Open version history, duplicate/edit to new version, return Activity.
+- **Hierarchy/sections:** Template list → selected identity/purpose/channel/variables → exact subject/body → versions.
+- **Timeline:** Version history uses AuditHistory.
+- **Right rail:** Usage limitations and no-approval statement.
+- **Filters/table/list:** Table/list by channel/purpose/status/version; cards limited to compact preview if useful.
+- **Dialogs/drawers:** Create/new-version drawer; exact body preview.
+- **States:** No templates, no results, invalid variables, loading/error/read-only.
+- **Permission/restricted states:** Template read/write follows workspace and access capability; read-only/restricted users may inspect permitted versions but cannot create a new immutable version.
+- **Mobile:** Structured list → full-screen preview/create; sequence building remains separate.
+- **Accessibility:** Exact body readable; variables named; version/status not color-only.
+- **Components:** Tabs, Table, DataRow, Drawer, AuditHistory, StatusLabel, Input, Alert.
+- **Consolidates/removes:** Custom cards/back link/split form.
+- **Complexity:** Medium.
+- **Acceptance criteria:** Immutable versions, channel, variables, and no inherited approval remain unchanged.

@@ -1,0 +1,22 @@
+# Platform Operations
+
+- **Route:** `/admin`
+- **Current purpose:** Inspect provider safety, AI kill switch, durable jobs, and audit events.
+- **Audit issues:** Four concerns stacked without durable section orientation; repeated generic Refresh actions; dense admin tables use page-local patterns.
+- **Pattern:** Settings and Administration.
+- **Proposed layout:** Operations scope banner + local tabs: System status, AI control, Jobs, Audit. Full-width table for jobs/audit; 720 px control area for AI.
+- **Primary action:** Contextual per tab: Refresh status, change AI control, retry selected dead job, filter audit.
+- **Secondary actions:** Safe export/copy identifiers only if already permitted.
+- **Hierarchy/sections:** Restricted scope → tab identity → status/records → exact action and result.
+- **Timeline:** Audit tab uses AuditHistory/table.
+- **Right rail:** Current permission/support scope and system safety controls only.
+- **Filters/table:** Jobs and Audit use Table, server filters/pagination when available.
+- **Dialogs/drawers:** ConfirmationDialog for AI switch/retry; event detail drawer.
+- **States:** Independent section loading/error; no jobs; provider degraded; insufficient admin/support capability; step-up requirement.
+- **Permission/restricted states:** Admin/support capability, MFA/step-up, ticket/reason, time-boxed scope, and redaction remain mandatory; ordinary representatives receive no Operations content.
+- **Mobile:** Read-only summaries and urgent safe retry if policy permits; large audit investigation desktop-first.
+- **Accessibility:** Unique Refresh labels, table semantics, scope banner, exact change consequence.
+- **Components:** PageHeader, Tabs, Banner, Table, DataRow, StatusLabel, ApprovalPanel, AuditHistory, ContextRail.
+- **Consolidates/removes:** Stacked panels, custom audit list, repeated metric markup.
+- **Complexity:** High.
+- **Acceptance criteria:** Least privilege, MFA/step-up, reason requirements, immutable audit, and no routine content browsing remain unchanged.

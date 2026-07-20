@@ -1,0 +1,21 @@
+# Orders Register
+
+- **Route:** `/orders`
+- **Current purpose:** Record opening Orders and distinguish draft, verification, payment, and fulfillment.
+- **Audit issues:** Seventeen controls plus lines compete with register; statuses and actuals are dense; Commerce shell duplicated.
+- **Pattern:** Register.
+- **Proposed layout:** Shared Orders table; header action opens wide, sectioned Order creation drawer/full route-like surface. Register remains primary.
+- **Primary action:** Record opening Order.
+- **Secondary actions:** Save view, export, open Account/Commission, columns/density.
+- **Hierarchy/sections:** Exceptions → filters → Orders table; creation: basis → parties/Placement → lines → amounts/currency → evidence → review-required save.
+- **Timeline/right rail:** Row preview shows verification/payment/fulfillment separately, Account and Commission links.
+- **Filters/table:** Status dimensions, Brand/Buyer/date/currency/verification; numeric columns right-aligned.
+- **Dialogs/drawers:** Wide creation drawer; document evidence; no final verification during initial save.
+- **States:** No Orders/no results/draft/review-required/verified/canceled; provider not relevant; loading/error/read-only.
+- **Permission/restricted states:** Order records/actions require workspace and commerce capability; read-only/restricted users may inspect permitted records but cannot create, revise, or verify.
+- **Mobile:** Review and urgent status inspection; creation possible one section at a time but line-heavy entry remains desktop-first if necessary.
+- **Accessibility:** Line-item fieldsets, currency labels, independent status headers, error summary.
+- **Components:** Table, FilterBar, SavedViewSelector, CurrencyValue, StatusLabel, Drawer, FileUpload/EvidenceDrawer.
+- **Consolidates/removes:** Inline 17-control form and CommerceNav.
+- **Complexity:** High.
+- **Acceptance criteria:** Only documented human-verified Orders create Accounts/estimated Commissions; original draft and currency/status separation remain.

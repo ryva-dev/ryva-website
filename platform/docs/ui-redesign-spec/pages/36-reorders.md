@@ -1,0 +1,21 @@
+# Reorders and Account Health
+
+- **Route:** `/reorders`
+- **Current purpose:** Monitor reorder windows, projections, Buyer need, and account health.
+- **Audit issues:** Sparse read-only register; projection labels and action context are detached; action occurs on Account/Outreach.
+- **Pattern:** Register.
+- **Proposed layout:** Exceptions-first register with due/overdue/at-risk views; table rows connect Account, Buyer need, authority, service history, forecast range, and next action.
+- **Primary action:** Open the highest-priority Account/reorder review.
+- **Secondary actions:** Save view, export, add task/reminder, open Account/Order.
+- **Hierarchy/sections:** Due exceptions → filters → reorder/account table.
+- **Timeline/right rail:** Row preview shows Order history, human health rationale, authority/permission, proposed next action.
+- **Filters/table:** Due range, Brand, Buyer, health, authority, overdue; ForecastRange never shown as actual.
+- **Dialogs/drawers:** Preview, task/reminder, evidence.
+- **States:** No verified history, no results, upcoming/overdue/unknown, provider independent, loading/error/read-only.
+- **Permission/restricted states:** Workspace/access/authority permissions govern records and follow-up; read-only/restricted users may inspect due context but cannot schedule or initiate external action.
+- **Mobile:** Due reminders and Account review prioritized; structured rows; task/outreach link if permitted.
+- **Accessibility:** Forecast label/range/source, due date, no color-only urgency.
+- **Components:** Table, FilterBar, SavedViewSelector, ForecastRange, AuthorityIndicator, TaskItem, Drawer.
+- **Consolidates/removes:** Generic empty register and CommerceNav.
+- **Complexity:** High.
+- **Acceptance criteria:** Projections remain labelled, never guaranteed; Buyer benefit, authority, service history, protection and human review remain.

@@ -1,0 +1,21 @@
+# Certification Status
+
+- **Route:** `/certification`
+- **Current purpose:** Display trusted credential status, dates, provider reference, refresh, and renewal.
+- **Audit issues:** Separate account-area navigation; oversized card and identifier-heavy presentation.
+- **Pattern:** Settings and Administration.
+- **Proposed layout:** Account local nav + 720 px credential section; status and expiry first, identifiers/details in definition rows, renewal readiness below.
+- **Primary action:** Renew when expiring/eligible; otherwise Refresh verification.
+- **Secondary actions:** Copy credential reference, view Access/Subscription.
+- **Hierarchy/sections:** Credential identity/status → issue/expiry/last verified → grace/renewal → provider reference.
+- **Timeline:** Credential events link to History drawer when existing data permits.
+- **Right rail/filters/table:** None.
+- **Dialogs/drawers:** History drawer; external renewal confirmation only if existing provider requires it.
+- **States:** Loading skeleton; safe provider error; expiring/grace/expired/suspended/revoked authored states; no false licensing claim.
+- **Permission/restricted states:** All authenticated access modes may inspect the credential state allowed by policy; only permitted verification/renewal actions render, and sensitive identifiers stay masked.
+- **Mobile:** Single column with status/action before identifiers.
+- **Accessibility:** Dates fully announced, masked identifier copy named, state not color-only.
+- **Components:** PageHeader, Tabs/local nav, StatusLabel, Button, AuditHistory, Alert, Skeleton.
+- **Consolidates/removes:** Large credential card; account controls move to profile navigation.
+- **Complexity:** Medium.
+- **Acceptance criteria:** Verification/renewal semantics, trusted source, masking, and audit events remain unchanged.

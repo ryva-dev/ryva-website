@@ -1,0 +1,22 @@
+# Secure Exports
+
+- **Route:** `/exports`
+- **Current purpose:** Generate audited, scoped exports of permitted data.
+- **Audit issues:** Twenty-one controls without clear grouping; export capability appears as first-level nav; consequence/status hierarchy weak.
+- **Pattern:** Consequential Review.
+- **Proposed layout:** Data transfer shell; sections Scope, Included datasets, Restrictions, Review, Generate, Export history. Selected scope summary remains visible.
+- **Primary action:** Generate audited export of exact permitted selection.
+- **Secondary actions:** Select/clear groups, inspect exclusions, open generated result when available.
+- **Hierarchy/sections:** Permission/scope → dataset selection → legal/provider exclusions → exact review → generation status/history.
+- **Timeline:** Export requests, completion/expiry/download events in AuditHistory.
+- **Right rail:** Selected counts/types, exclusions, retention/expiry, readiness.
+- **Filters/table/list:** Dataset checkbox groups; export history table.
+- **Dialogs/drawers:** Exclusion explanation drawer; final ConfirmationDialog.
+- **States:** No capability, legal hold, restricted data, generating/succeeded/failed/expired, loading/error/read-only.
+- **Permission/restricted states:** Export capability, record scope, field rights, holds, access mode and step-up policy apply before selection and generation; restricted exclusions are explicit without data leakage.
+- **Mobile:** Request small permitted export and inspect status; complex selection desktop-first.
+- **Accessibility:** Fieldsets/legends, selected summary, status announcements, expired link not actionable.
+- **Components:** ApprovalPanel, Checkbox, Table, StatusLabel, AuditHistory, ConfirmationDialog, Alert.
+- **Consolidates/removes:** Flat checkbox surface and first-level nav.
+- **Complexity:** High.
+- **Acceptance criteria:** Workspace/field restrictions, legal holds, asynchronous job, time-limited access, encryption and audit remain; visibility never grants export.

@@ -1,0 +1,22 @@
+# Brand Intelligence
+
+- **Route:** `/brands`
+- **Current purpose:** Research, filter, and create unqualified Brands.
+- **Audit issues:** Register/create form conflict; duplicate generic Brand list; saved-view/table divergence.
+- **Pattern:** Split Intelligence Workspace.
+- **Proposed layout:** Brand results left, selected Brand diligence summary center, ContextRail for legitimacy, Products, representation readiness, and next action.
+- **Primary action:** Create Brand when unselected; selected Brand’s next human review when selected.
+- **Secondary actions:** Save view, columns/density, open detail/Representation.
+- **Hierarchy/sections:** Header/filters → Brand results → identity/legitimacy → Products/readiness → representation/contact context.
+- **Timeline:** Recent evidence/contact/qualification activity in center.
+- **Right rail:** Identity confidence, evidence freshness, risk, representation status, next action.
+- **Filters/table:** Shared register; table default.
+- **Dialogs/drawers:** Create/edit, evidence, related Product preview.
+- **States:** No Brands/no results/duplicate warning/stale/archived/loading/error/permission distinct.
+- **Permission/restricted states:** Workspace/capability filtering precedes results; restricted/read-only users cannot create, qualify, or initiate representation and receive explicit reasons.
+- **Mobile:** List then full-screen Brand summary; filters sheet.
+- **Accessibility:** Table and selected-pane semantics; duplicate candidate not color-only.
+- **Components:** Split workspace, Table, FilterBar, SavedViewSelector, IdentityHeader, EvidenceLabel, AuthorityIndicator, ContextRail.
+- **Consolidates/removes:** Generic Brand list, page-local view/create panel.
+- **Complexity:** High.
+- **Acceptance criteria:** Identity, duplicate detection, qualification, evidence, and representation prerequisites remain exact.

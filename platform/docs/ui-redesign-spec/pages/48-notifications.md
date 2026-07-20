@@ -1,0 +1,21 @@
+# Notifications
+
+- **Route:** `/notifications`
+- **Current purpose:** Present critical/action-required changes with related record context.
+- **Audit issues:** Repeated “Mark read” names; sparse first-level page; overlaps Home and Tasks.
+- **Pattern:** Register.
+- **Proposed layout:** Views Action required, All, Read; compact notification list with selected record/reason preview. Global panel links here.
+- **Primary action:** Open the required record/action.
+- **Secondary actions:** Mark specific item read, mark permitted set read, filter by severity/type.
+- **Hierarchy/sections:** Unread/action count → view/filter → ordered notifications → selected reason/context.
+- **Timeline/right rail:** Selected notification explains trigger, record, time, and current relevance.
+- **Filters/table/list:** Semantic list, not data table; critical then action then information.
+- **Dialogs/drawers:** Related-record preview; no dialog for mark read.
+- **States:** No notifications/no results/stale resolved notification/loading/error/read-only.
+- **Permission/restricted states:** Notification content/links are filtered by current permission; restricted/read-only users receive only permitted reasons/actions, and revoked record access yields a safe unavailable state.
+- **Mobile:** Available from More/profile and full-screen; 44 px actions.
+- **Accessibility:** Unique Mark read names, reason before time, current/changed state announced politely.
+- **Components:** Tabs, NotificationItem, FilterBar, Drawer, EmptyState, LoadingState.
+- **Consolidates/removes:** Global nav item and generic list row.
+- **Complexity:** Medium.
+- **Acceptance criteria:** Ordering, reasons, related-record links, read state, permissions and audit behavior remain; Notifications report changes while Tasks own work.

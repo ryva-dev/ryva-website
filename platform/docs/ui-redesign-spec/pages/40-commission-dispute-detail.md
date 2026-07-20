@@ -1,0 +1,22 @@
+# Commission Dispute Review
+
+- **Route:** `/commission-disputes/:id`
+- **Current purpose:** Resolve or withdraw a dispute with evidence, amount, issued decision, and rationale.
+- **Audit issues:** High-consequence resolution is presented as ordinary detail; source calculation and Agreement context can be distant.
+- **Pattern:** Consequential Review.
+- **Proposed layout:** Case identity → claim/amount → Agreement/Order/Commission basis → evidence package → chronology → resolution inputs → exact confirmation/history.
+- **Primary action:** Resolve or withdraw with current human decision and rationale.
+- **Secondary actions:** Add evidence/chronology, open Commission/Order/Agreement, request clarification.
+- **Hierarchy/sections:** Disputed issue → source truth → evidence gaps → communications → proposed resolution → consequence.
+- **Timeline:** Immutable chronology of claims, evidence, communication, adjustments, decisions.
+- **Right rail:** Readiness, amount/currency, missing evidence, legal/contractual ambiguity, next action.
+- **Filters/table/list:** Evidence and adjustments tables; chronology filters.
+- **Dialogs/drawers:** Evidence/document drawer; final ConfirmationDialog.
+- **States:** Open/blocked/resolved/withdrawn; incomplete evidence/decision; loading/error/permission/read-only.
+- **Permission/restricted states:** Evidence, amount, decision, resolution, and withdrawal are separately workspace/capability gated; read-only/restricted access never permits disposition.
+- **Mobile:** Read/urgent disposition supported if full evidence can be reviewed; large package desktop-first.
+- **Accessibility:** Error summary, consequence, no preselection, chronology semantics.
+- **Components:** ApprovalPanel, CurrencyValue, EvidenceDrawer, AuditHistory, ContextRail, ConfirmationDialog.
+- **Consolidates/removes:** Routine action styling and detached formula/evidence context.
+- **Complexity:** Very high.
+- **Acceptance criteria:** System never adjudicates; resolution requires exact human decision, amount, rationale, evidence and fresh audit event.

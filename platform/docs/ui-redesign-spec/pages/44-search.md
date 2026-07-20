@@ -1,0 +1,22 @@
+# Global Search
+
+- **Route:** `/search`
+- **Current purpose:** Search authorized workspace records and open connected context.
+- **Audit issues:** Separate first-level nav item; simple results list does not preserve selected context; invalid/archived distinctions are weak.
+- **Pattern:** Split Intelligence Workspace.
+- **Proposed layout:** Full results page entered from command search/mobile nav; grouped result list left, selected preview center, filters right/toolbar.
+- **Primary action:** Open selected result.
+- **Secondary actions:** Filter by record type/status/date/relationship, clear, return to prior context.
+- **Hierarchy/sections:** Query → grouped results/count → selected identity/snippet/relationships → available action.
+- **Timeline:** Selected preview may show last meaningful activity only.
+- **Right rail:** Result type/status/freshness and related records, no arbitrary metadata.
+- **Filters/table/list:** Grouped accessible result list; exact identifiers first; archived hidden by default.
+- **Dialogs/drawers:** Evidence/document preview only when permitted.
+- **States:** Initial, no query, no results, partial/error, restricted snippets, archived toggle, loading.
+- **Permission/restricted states:** Permission is applied before ranking/snippets; read-only/restricted users receive only allowed record types/fields, and unauthorized existence is not revealed.
+- **Mobile:** Primary bottom-nav destination; list then full-screen preview; keyboard/voice input remains browser-native where available.
+- **Accessibility:** Search landmark, result count, grouped headings, active result, safe snippets.
+- **Components:** SearchInput, FilterBar, DataRow, IdentityHeader, ContextRail, EmptyState, LoadingState.
+- **Consolidates/removes:** Global sidebar Search item while preserving route.
+- **Complexity:** High.
+- **Acceptance criteria:** Permission-before-ranking, exact/fuzzy ordering, safe snippets, record coverage, and workspace isolation remain.

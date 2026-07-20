@@ -1,0 +1,22 @@
+# Placement Opportunity Detail
+
+- **Route:** `/placements/:id`
+- **Current purpose:** Review Product–Buyer fit, authority, Relationship Triangle, stage, next action, and history.
+- **Audit issues:** Relationship context split into panels; stage confirmation separated from supporting evidence; Outreach link can feel premature.
+- **Pattern:** Relationship Detail.
+- **Proposed layout:** Product → Buyer relationship IdentityHeader; tabs Overview, Activity, Fit & evidence, Authority, Outreach, Commercial, History; central timeline; ContextRail.
+- **Primary action:** Current permitted next action, usually stage review or prepared Outreach.
+- **Secondary actions:** Open Product/Brand/Buyer/Agreement, add task/note, open Outreach when validator permits.
+- **Hierarchy/sections:** Stage/readiness → three-party value → fit/evidence → authority/conflicts → activity/outreach → outcomes.
+- **Timeline:** Stage events, evidence/decisions, conflicts, messages/calls, Orders/account/commission links.
+- **Right rail:** Next action, authority scope, Relationship Triangle result, critical risk, days in stage.
+- **Filters/table:** Activity filters; linked Products/records in compact table.
+- **Dialogs/drawers:** Stage review, evidence, relationship preview, task/note; Outreach exact artifact remains its route.
+- **States:** Authorized/conditional/blocked, conflict, wrong fit, no decision/task, won/lost/archived; loading/error/restricted.
+- **Permission/restricted states:** Record fields/actions are workspace/capability scoped; read-only/restricted access and authority/conflict/suppression blockers remain distinct and server validated.
+- **Mobile:** Summary, authority, next action; stage change and Outreach approval fully supported.
+- **Accessibility:** Relationship line, ordered stage alternative, blocker reasons, timeline semantics.
+- **Components:** IdentityHeader, Tabs, ActivityTimeline, ContextRail, AuthorityIndicator, RiskIndicator, ApprovalPanel, EvidenceDrawer.
+- **Consolidates/removes:** Separate basis/triangle/stage/history panels.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Shared Phase 4 authority validator governs every transition/outreach; triangle, human decision, next action, and audit remain.

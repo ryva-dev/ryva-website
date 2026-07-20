@@ -1,0 +1,21 @@
+# Placement CRM
+
+- **Route:** `/placements`
+- **Current purpose:** Manage qualitative Product-to-Business opportunities and create a Placement.
+- **Audit issues:** List plus 15-control creation form; no current Kanban; authority and next action are not visually central.
+- **Pattern:** Pipeline.
+- **Proposed layout:** Kanban/Table switch, saved views/filters, stage counts, board/table. Creation opens a prerequisite-aware full drawer.
+- **Primary action:** Create Placement opportunity when prerequisites exist.
+- **Secondary actions:** Save view, filter, change density, open selected Placement.
+- **Hierarchy/sections:** Exceptions/readiness → view controls → pipeline → selected preview.
+- **Timeline/right rail:** Row/card preview shows last activity, next action, authority, Relationship Triangle and risk.
+- **Filters/table:** Owner/stage/Brand/Product/Buyer/risk/next-action; accessible Table fully equivalent.
+- **Dialogs/drawers:** Create Placement drawer; Change stage Consequential Review; record preview.
+- **States:** No qualified inputs, no records/no results, blocked authority/conflict, stale/no next action, loading/error/read-only.
+- **Permission/restricted states:** Workspace/access/action policy filters cards and transitions; read-only/restricted modes preserve permitted pipeline inspection but block create/move/outreach with reason.
+- **Mobile:** Stage-grouped list; no horizontal Kanban; create/change stage full-screen.
+- **Accessibility:** Keyboard stage change, table alternative, card headings and blocker text.
+- **Components:** KanbanBoard, PipelineCard, Table, FilterBar, SavedViewSelector, AuthorityIndicator, RiskIndicator, Drawer.
+- **Consolidates/removes:** Inline creation panel and single list-only pipeline.
+- **Complexity:** Very high.
+- **Acceptance criteria:** No numerical score; same qualitative stage rules, authority/conflict checks, human decision, next action, audit, and workspace isolation.

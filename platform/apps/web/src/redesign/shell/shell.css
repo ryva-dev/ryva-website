@@ -1,0 +1,837 @@
+/*
+ * Ryva Pro application shell — Redesign Increment 3.
+ * Values are intentionally limited to the approved Increment 1 token system.
+ */
+
+.ry-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--width-sidebar-expanded) minmax(var(--size-0), 1fr);
+  color: var(--color-text-default);
+  background: var(--color-surface-canvas);
+  transition: grid-template-columns var(--duration-standard) var(--ease-standard);
+}
+
+.ry-shell-collapsed {
+  grid-template-columns: var(--width-sidebar-collapsed) minmax(var(--size-0), 1fr);
+}
+
+.ry-shell-canvas {
+  min-width: var(--size-0);
+  min-height: 100vh;
+  background: var(--color-surface-canvas);
+}
+
+.ry-shell-canvas > .banner {
+  margin: var(--space-4) var(--layout-page-gutter) var(--space-0);
+}
+
+.ry-sidebar {
+  position: sticky;
+  top: var(--size-0);
+  z-index: var(--z-sticky);
+  grid-column: 1;
+  grid-row: 1;
+  width: var(--width-sidebar-expanded);
+  height: 100vh;
+  min-height: var(--size-0);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  overflow: visible;
+  color: var(--color-text-default);
+  background: var(--color-surface);
+  border-right: var(--border-width-1) solid var(--color-border);
+  transition: width var(--duration-standard) var(--ease-standard);
+}
+
+.ry-shell-collapsed .ry-sidebar {
+  width: var(--width-sidebar-collapsed);
+}
+
+.ry-sidebar > header,
+.ry-mobile-topbar,
+.ry-mobile-menu > header {
+  display: flex;
+  align-items: center;
+}
+
+.ry-sidebar > header {
+  min-height: var(--control-height-touch);
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.ry-shell-brand {
+  min-width: var(--size-0);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-strong);
+  text-decoration: none;
+}
+
+.ry-shell-monogram {
+  width: var(--control-height-default);
+  height: var(--control-height-default);
+  flex: 0 0 var(--control-height-default);
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border-radius: var(--radius-2);
+  font-size: var(--font-size-16);
+  font-weight: var(--font-weight-bold);
+}
+
+.ry-shell-wordmark {
+  min-width: var(--size-0);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.ry-shell-wordmark strong {
+  font-size: var(--font-size-18);
+  line-height: var(--line-height-24);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.ry-shell-wordmark small {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-16);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.ry-shell-icon {
+  width: var(--icon-size-default);
+  height: var(--icon-size-default);
+  flex: 0 0 var(--icon-size-default);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: var(--icon-stroke-width);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ry-shell-icon-button {
+  width: var(--control-height-default);
+  height: var(--control-height-default);
+  flex: 0 0 var(--control-height-default);
+  display: inline-grid;
+  place-items: center;
+  padding: var(--space-0);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: var(--border-width-0);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+}
+
+.ry-shell-icon-button:hover {
+  color: var(--color-text-strong);
+  background: var(--color-surface-hover);
+}
+
+.ry-shell-collapsed .ry-collapse-button .ry-shell-icon {
+  transform: rotate(180deg);
+}
+
+.ry-sidebar-scroll {
+  min-height: var(--size-0);
+  flex: 1;
+  overflow-x: visible;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.ry-shell-navigation,
+.ry-shell-nav-group,
+.ry-shell-nav-group > div,
+.ry-shell-admin {
+  display: grid;
+}
+
+.ry-shell-navigation {
+  gap: var(--space-4);
+}
+
+.ry-shell-nav-group,
+.ry-shell-admin {
+  gap: var(--space-1);
+}
+
+.ry-shell-nav-group > div {
+  gap: var(--space-1);
+}
+
+.ry-shell-nav-group h2,
+.ry-shell-admin h2,
+.ry-mobile-utilities h2 {
+  margin: var(--space-0);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-16);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-shell-link,
+.ry-shell-utility-link,
+.ry-shell-nested > summary,
+.ry-mobile-utilities a {
+  position: relative;
+  min-width: var(--size-0);
+  min-height: var(--control-height-default);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: var(--border-width-0);
+  border-radius: var(--radius-2);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-18);
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
+}
+
+.ry-shell-link:hover,
+.ry-shell-utility-link:hover,
+.ry-shell-nested > summary:hover,
+.ry-mobile-utilities a:hover {
+  color: var(--color-text-strong);
+  background: var(--color-surface-hover);
+}
+
+.ry-shell-link.active {
+  color: var(--color-accent-text);
+  background: var(--color-accent-subtle);
+  box-shadow: inset var(--size-1) var(--size-0) var(--color-accent);
+}
+
+.ry-shell-link-label {
+  min-width: var(--size-0);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-shell-nested {
+  min-width: var(--size-0);
+}
+
+.ry-shell-nested > summary {
+  list-style: none;
+}
+
+.ry-shell-nested > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ry-shell-nested > summary .ry-shell-icon:last-child {
+  width: var(--icon-size-small);
+  height: var(--icon-size-small);
+  flex-basis: var(--icon-size-small);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.ry-shell-nested[open] > summary .ry-shell-icon:last-child {
+  transform: rotate(90deg);
+}
+
+.ry-shell-nested-items {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-0) var(--space-1) var(--space-5);
+}
+
+.ry-shell-admin {
+  margin-top: var(--space-4);
+}
+
+.ry-sidebar-footer {
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-notification-count {
+  min-width: var(--size-6);
+  height: var(--size-6);
+  display: inline-grid;
+  place-items: center;
+  padding: var(--space-0) var(--space-1);
+  color: var(--color-text-on-accent);
+  background: var(--color-danger);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-16);
+}
+
+.ry-profile-menu {
+  position: relative;
+}
+
+.ry-profile-menu > summary {
+  min-height: var(--control-height-touch);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-default);
+  border-radius: var(--radius-2);
+  list-style: none;
+  cursor: pointer;
+}
+
+.ry-profile-menu > summary:hover {
+  background: var(--color-surface-hover);
+}
+
+.ry-profile-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ry-profile-menu > summary > .ry-shell-icon {
+  width: var(--icon-size-small);
+  height: var(--icon-size-small);
+}
+
+.ry-profile-initials {
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
+  flex: 0 0 var(--control-height-compact);
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-accent-text);
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-profile-summary {
+  min-width: var(--size-0);
+  flex: 1;
+  display: grid;
+}
+
+.ry-profile-summary strong,
+.ry-profile-summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-profile-summary strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+}
+
+.ry-profile-summary small,
+.ry-profile-popover small,
+.ry-mobile-menu footer small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  line-height: var(--line-height-16);
+}
+
+.ry-profile-popover {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  bottom: calc(100% + var(--space-2));
+  left: var(--space-0);
+  width: var(--width-context-rail);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-3);
+  box-shadow: var(--elevation-menu);
+}
+
+.ry-profile-popover header {
+  display: grid;
+}
+
+.ry-profile-statuses,
+.ry-profile-popover nav {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ry-profile-statuses > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-profile-popover nav {
+  padding: var(--space-2) var(--space-0);
+  border-block: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-profile-popover nav a {
+  padding: var(--space-2);
+  color: var(--color-text-default);
+  border-radius: var(--radius-1);
+  text-decoration: none;
+}
+
+.ry-profile-popover nav a:hover {
+  background: var(--color-surface-hover);
+}
+
+.ry-shell-collapsed .ry-shell-wordmark,
+.ry-shell-collapsed .ry-shell-link-label,
+.ry-shell-collapsed .ry-shell-nav-group h2,
+.ry-shell-collapsed .ry-shell-admin h2,
+.ry-shell-collapsed .ry-profile-summary,
+.ry-shell-collapsed .ry-profile-menu > summary > .ry-shell-icon,
+.ry-shell-collapsed .ry-notification-count {
+  display: none;
+}
+
+.ry-shell-collapsed .ry-sidebar > header {
+  flex-direction: column;
+}
+
+.ry-shell-collapsed .ry-shell-brand,
+.ry-shell-collapsed .ry-shell-link,
+.ry-shell-collapsed .ry-shell-utility-link,
+.ry-shell-collapsed .ry-shell-nested > summary,
+.ry-shell-collapsed .ry-profile-menu > summary {
+  justify-content: center;
+}
+
+.ry-shell-collapsed .ry-shell-nav-group,
+.ry-shell-collapsed .ry-shell-admin {
+  padding-top: var(--space-2);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-shell-collapsed .ry-shell-navigation > .ry-shell-nav-group:first-child {
+  padding-top: var(--space-0);
+  border-top: var(--border-width-0);
+}
+
+.ry-shell-collapsed .ry-shell-nested {
+  position: relative;
+}
+
+.ry-shell-collapsed .ry-shell-nested-items {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  top: var(--space-0);
+  left: calc(100% + var(--space-2));
+  width: var(--width-context-rail);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  box-shadow: var(--elevation-menu);
+}
+
+.ry-shell-collapsed .ry-profile-popover {
+  bottom: var(--space-0);
+  left: calc(100% + var(--space-2));
+}
+
+.ry-shell-collapsed [data-tooltip]::after {
+  position: absolute;
+  z-index: var(--z-tooltip);
+  top: 50%;
+  left: calc(100% + var(--space-2));
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-on-dark);
+  background: var(--color-text-strong);
+  border-radius: var(--radius-1);
+  box-shadow: var(--elevation-menu);
+  content: attr(data-tooltip);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.ry-shell-collapsed [data-tooltip]:hover::after,
+.ry-shell-collapsed [data-tooltip]:focus-visible::after {
+  opacity: 1;
+}
+
+.ry-mobile-topbar,
+.ry-mobile-bottom-nav,
+.ry-mobile-menu-layer,
+.ry-tablet-scrim {
+  display: none;
+}
+
+@media (min-width: 48rem) and (max-width: 64rem) {
+  .ry-shell,
+  .ry-shell-collapsed {
+    grid-template-columns: var(--width-sidebar-collapsed) minmax(var(--size-0), 1fr);
+  }
+
+  .ry-sidebar {
+    width: var(--width-sidebar-collapsed);
+  }
+
+  .ry-shell-tablet-open .ry-sidebar {
+    position: fixed;
+    z-index: var(--z-drawer);
+    width: var(--width-sidebar-expanded);
+    box-shadow: var(--elevation-dialog);
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-wordmark,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-link-label,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-nav-group h2,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-admin h2,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-profile-summary,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-profile-menu > summary > .ry-shell-icon,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-notification-count {
+    display: none;
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-sidebar > header {
+    flex-direction: column;
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-brand,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-link,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-utility-link,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-nested > summary,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-profile-menu > summary {
+    justify-content: center;
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-nav-group,
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-admin {
+    padding-top: var(--space-2);
+    border-top: var(--border-width-1) solid var(--color-border);
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-navigation > .ry-shell-nav-group:first-child {
+    padding-top: var(--space-0);
+    border-top: var(--border-width-0);
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-nested {
+    position: relative;
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-nested-items {
+    position: absolute;
+    z-index: var(--z-dropdown);
+    top: var(--space-0);
+    left: calc(100% + var(--space-2));
+    width: var(--width-context-rail);
+    padding: var(--space-2);
+    background: var(--color-surface);
+    border: var(--border-width-1) solid var(--color-border);
+    border-radius: var(--radius-2);
+    box-shadow: var(--elevation-menu);
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-profile-popover {
+    bottom: var(--space-0);
+    left: calc(100% + var(--space-2));
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) [data-tooltip]::after {
+    position: absolute;
+    z-index: var(--z-tooltip);
+    top: 50%;
+    left: calc(100% + var(--space-2));
+    padding: var(--space-2) var(--space-3);
+    color: var(--color-text-on-dark);
+    background: var(--color-text-strong);
+    border-radius: var(--radius-1);
+    box-shadow: var(--elevation-menu);
+    content: attr(data-tooltip);
+    font-size: var(--font-size-12);
+    line-height: var(--line-height-16);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%);
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) [data-tooltip]:hover::after,
+  .ry-shell:not(.ry-shell-tablet-open) [data-tooltip]:focus-visible::after {
+    opacity: 1;
+  }
+
+  .ry-tablet-scrim {
+    position: fixed;
+    z-index: var(--z-overlay);
+    inset: var(--size-0);
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: var(--space-0);
+    background: var(--color-overlay-scrim);
+    border: var(--border-width-0);
+  }
+}
+
+@media (max-width: 48rem) {
+  .ry-shell,
+  .ry-shell-collapsed {
+    display: block;
+  }
+
+  .ry-sidebar,
+  .ry-tablet-scrim {
+    display: none;
+  }
+
+  .ry-shell-canvas {
+    padding-top: var(--size-11);
+    padding-bottom: calc(var(--size-11) + env(safe-area-inset-bottom));
+  }
+
+  .ry-shell-canvas > .banner {
+    margin-inline: var(--layout-page-gutter);
+  }
+
+  .ry-mobile-topbar {
+    position: fixed;
+    z-index: var(--z-sticky);
+    top: var(--size-0);
+    right: var(--size-0);
+    left: var(--size-0);
+    height: var(--size-11);
+    display: grid;
+    grid-template-columns: var(--control-height-touch) minmax(var(--size-0), 1fr) var(--control-height-touch);
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--layout-page-gutter);
+    background: var(--color-surface);
+    border-bottom: var(--border-width-1) solid var(--color-border);
+  }
+
+  .ry-mobile-topbar .ry-shell-wordmark {
+    display: none;
+  }
+
+  .ry-mobile-topbar > strong {
+    overflow: hidden;
+    color: var(--color-text-strong);
+    font-size: var(--font-size-14);
+    font-weight: var(--font-weight-semibold);
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ry-mobile-topbar > a:last-child {
+    position: relative;
+    width: var(--control-height-touch);
+    height: var(--control-height-touch);
+    display: inline-grid;
+    place-items: center;
+    justify-self: end;
+    color: var(--color-text-muted);
+    border-radius: var(--radius-2);
+  }
+
+  .ry-mobile-topbar .ry-notification-count {
+    position: absolute;
+    top: var(--space-0);
+    right: var(--space-0);
+  }
+
+  .ry-mobile-bottom-nav {
+    position: fixed;
+    z-index: var(--z-sticky);
+    right: var(--size-0);
+    bottom: var(--size-0);
+    left: var(--size-0);
+    min-height: var(--size-11);
+    display: grid;
+    grid-template-columns: repeat(5, minmax(var(--size-0), 1fr));
+    padding: var(--space-1) var(--space-1) env(safe-area-inset-bottom);
+    background: var(--color-surface);
+    border-top: var(--border-width-1) solid var(--color-border);
+    box-shadow: var(--elevation-menu);
+  }
+
+  .ry-mobile-bottom-nav-restricted {
+    grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
+  }
+
+  .ry-mobile-bottom-nav a,
+  .ry-mobile-bottom-nav button {
+    min-width: var(--size-0);
+    min-height: var(--control-height-touch);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    color: var(--color-text-muted);
+    background: transparent;
+    border: var(--border-width-0);
+    border-radius: var(--radius-2);
+    font-size: var(--font-size-11);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-16);
+    text-decoration: none;
+  }
+
+  .ry-mobile-bottom-nav a.active,
+  .ry-mobile-bottom-nav button.active {
+    color: var(--color-accent-text);
+    background: var(--color-accent-subtle);
+  }
+
+  .ry-mobile-menu-layer {
+    position: fixed;
+    z-index: var(--z-modal);
+    inset: var(--size-0);
+    display: block;
+  }
+
+  .ry-mobile-menu-scrim {
+    position: absolute;
+    inset: var(--size-0);
+    width: 100%;
+    height: 100%;
+    padding: var(--space-0);
+    background: var(--color-overlay-scrim);
+    border: var(--border-width-0);
+  }
+
+  .ry-mobile-menu {
+    position: absolute;
+    inset: var(--size-0);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-surface);
+    animation: ry-mobile-menu-enter var(--duration-standard) var(--ease-standard);
+  }
+
+  .ry-mobile-menu > header {
+    min-height: var(--size-11);
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--layout-page-gutter);
+    border-bottom: var(--border-width-1) solid var(--color-border);
+  }
+
+  .ry-mobile-menu > header p,
+  .ry-mobile-menu > header h2 {
+    margin: var(--space-0);
+  }
+
+  .ry-mobile-menu > header h2 {
+    color: var(--color-text-strong);
+    font-size: var(--font-size-18);
+    line-height: var(--line-height-24);
+  }
+
+  .ry-mobile-menu-scroll {
+    min-height: var(--size-0);
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-5) var(--layout-page-gutter) calc(var(--space-5) + env(safe-area-inset-bottom));
+  }
+
+  .ry-mobile-menu-scroll > .ry-shell-navigation {
+    gap: var(--space-5);
+  }
+
+  .ry-mobile-menu .ry-shell-link,
+  .ry-mobile-menu .ry-shell-nested > summary,
+  .ry-mobile-utilities a {
+    min-height: var(--control-height-touch);
+  }
+
+  .ry-mobile-menu .ry-shell-nested-items {
+    padding-left: var(--space-5);
+  }
+
+  .ry-mobile-utilities {
+    display: grid;
+    gap: var(--space-1);
+    margin-top: var(--space-5);
+    padding-top: var(--space-5);
+    border-top: var(--border-width-1) solid var(--color-border);
+  }
+
+  .ry-mobile-utilities a .status-label {
+    margin-left: auto;
+  }
+
+  .ry-mobile-menu footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+    padding-top: var(--space-5);
+    border-top: var(--border-width-1) solid var(--color-border);
+  }
+
+  .ry-mobile-menu footer > span:nth-child(2) {
+    min-width: var(--size-0);
+    flex: 1;
+    display: grid;
+  }
+}
+
+@keyframes ry-mobile-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-4));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(var(--space-0));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-shell,
+  .ry-sidebar,
+  .ry-shell-icon-button,
+  .ry-shell-link,
+  .ry-shell-utility-link,
+  .ry-shell-nested > summary,
+  .ry-shell-nested > summary .ry-shell-icon:last-child,
+  .ry-mobile-menu {
+    transition-duration: var(--duration-instant);
+    animation-duration: var(--duration-instant);
+  }
+}

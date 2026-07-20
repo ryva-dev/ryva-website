@@ -1,0 +1,21 @@
+# Protected Accounts Register
+
+- **Route:** `/protected-accounts`
+- **Current purpose:** Register and review document-derived account-rights bases.
+- **Audit issues:** Ten-control create form shares list; Protection appears as separate global-like commerce page; rights warning not structurally tied to action.
+- **Pattern:** Register.
+- **Proposed layout:** Accounts shell with Protection tab active; register/table; Create pending rights review opens consequential drawer.
+- **Primary action:** Create pending rights review from written basis.
+- **Secondary actions:** Save view, filter, open Account/Agreement, export if existing permission.
+- **Hierarchy/sections:** Non-creation warning → filters → records → selected written basis preview.
+- **Timeline/right rail:** Preview shows Agreement/version/source location, scope, decision, expiry, next action.
+- **Filters/table:** Brand, Business, status, restriction type, effective/expiry.
+- **Dialogs/drawers:** Creation/review drawer; document/evidence drawer.
+- **States:** No documented basis, pending/approved/rejected/expired/released, loading/error/read-only.
+- **Permission/restricted states:** Protection records/actions require workspace scope and human-review capability; read-only/restricted users may inspect permitted basis but cannot create or approve rights.
+- **Mobile:** Structured rows; creation full-screen with basis first.
+- **Accessibility:** “Ryva does not create rights” associated with action; source and decision explicit.
+- **Components:** Tabs, Table, FilterBar, SavedViewSelector, AuthorityIndicator, EvidenceDrawer, ApprovalPanel.
+- **Consolidates/removes:** Inline form and `CommerceNav`.
+- **Complexity:** High.
+- **Acceptance criteria:** Written source, scope, human decision, and audit remain required; no protection inferred.

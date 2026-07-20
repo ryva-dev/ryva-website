@@ -1,0 +1,22 @@
+# Representation Opportunity Detail
+
+- **Route:** `/representation/:id`
+- **Current purpose:** Advance/reject a representation opportunity with human decision and owned next action.
+- **Audit issues:** Stage metrics and inline transition form dominate; Agreement/document/Brand context fragmented.
+- **Pattern:** Relationship Detail.
+- **Proposed layout:** Brand/Opportunity IdentityHeader; tabs Overview, Activity, Agreements, Products, Documents, History; ContextRail with readiness and next action.
+- **Primary action:** Confirm permitted next stage with selected issued decision, owned task, and rationale.
+- **Secondary actions:** Open Agreement/Brand/Document, add task/note.
+- **Hierarchy/sections:** Current stage → readiness/missing terms → Brand objectives/scope → Agreement status → history.
+- **Timeline:** Stage events, decisions, tasks, documents, agreement changes.
+- **Right rail:** Required next action, missing exit criteria, Agreement authority status, risk.
+- **Filters/table:** Agreements/Products/Documents tables; Activity filter.
+- **Dialogs/drawers:** Stage-change review; task/note; document preview.
+- **States:** Blocked/missing decision/missing task/rejected/expired; loading/error/permission/read-only.
+- **Permission/restricted states:** Stage/decision/document actions require existing capabilities and full access; read-only/restricted users may inspect permitted history but cannot progress authority.
+- **Mobile:** Current stage/readiness first; sticky Change stage; full-screen review.
+- **Accessibility:** Ordered stage alternative, exact blocked reason, no drag-only transition, outcome announcement.
+- **Components:** IdentityHeader, Tabs, ActivityTimeline, ContextRail, AuthorityIndicator, ApprovalPanel, AuditHistory.
+- **Consolidates/removes:** Metric-card stage summary and unstructured timeline rows.
+- **Complexity:** High.
+- **Acceptance criteria:** Stage entry/exit rules, human decision, task ownership, reasons, versions, and audit events remain exact.

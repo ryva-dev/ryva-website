@@ -1,0 +1,22 @@
+# Outreach Sequences
+
+- **Route:** `/outreach/sequences`
+- **Current purpose:** Create human-controlled review-task sequences that never auto-send.
+- **Audit issues:** Card library plus fixed two-step creation form; custom Back link; stop conditions not visually central.
+- **Pattern:** Communication Workspace.
+- **Proposed layout:** Outreach shell with Sequences active; register + selected sequence step list; creation/edit uses wide drawer on desktop.
+- **Primary action:** Create sequence.
+- **Secondary actions:** Review steps/enrollments, pause when current behavior permits, open template.
+- **Hierarchy/sections:** Sequence identity/status → purpose → ordered review steps → active enrollments → automatic stop reasons.
+- **Timeline:** Enrollment activity/history; ordered step visualization per workflow spec.
+- **Right rail:** Human-control policy, stop conditions, template/version, next review.
+- **Filters/table/list:** Sequence table; ordered step list, not freeform canvas.
+- **Dialogs/drawers:** Builder drawer; enrollment preview; confirmation for status changes.
+- **States:** No sequences/templates, active/stopped/completed, authority/suppression/reply stop, loading/error/read-only.
+- **Permission/restricted states:** Sequence actions require full access and workspace ownership; read-only/restricted, invalid authority, reply, conflict, or suppression states prevent continuation without override.
+- **Mobile:** Read/stop/review supported; construction desktop-first and shown honestly.
+- **Accessibility:** Ordered list, current/complete/stopped text, no drag-only ordering.
+- **Components:** Tabs, Table, ActivityTimeline, Drawer, ConfirmationDialog, AuthorityIndicator, Alert.
+- **Consolidates/removes:** Fixed card/form split and custom nav.
+- **Complexity:** High.
+- **Acceptance criteria:** Review-task scheduling and every stop condition remain; no auto-send or authority override.

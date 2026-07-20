@@ -1,0 +1,21 @@
+# Representation Workspace
+
+- **Route:** `/representation`
+- **Current purpose:** Manage representation opportunities and agreements and open authority reviews.
+- **Audit issues:** Opportunities, agreements, and an eight-control creation form share one page; global authority context is weak.
+- **Pattern:** Register.
+- **Proposed layout:** Tabs Opportunities/Agreements/Renewals; shared filters and table; one header action opens a prerequisite-aware creation drawer.
+- **Primary action:** Open Representation opportunity.
+- **Secondary actions:** Review Agreement, filter by stage/status/expiry, save view.
+- **Hierarchy/sections:** Authority summary/renewal exceptions → tabs → filters → register.
+- **Timeline/right rail:** Selected row opens preview with latest event, missing terms, decision/task.
+- **Filters/table:** Table default; columns Brand, stage/status, effective/expiry, territory/channel, next action, risk.
+- **Dialogs/drawers:** Creation drawer; row preview; Agreement stays full review route.
+- **States:** No Contact-ready Brand/prerequisites, no records, no results, expiring/expired/conflict, loading/error/read-only.
+- **Permission/restricted states:** Only authorized workspace records appear; read-only/restricted modes allow permitted history but block opportunity/Agreement changes, and missing capability is server enforced.
+- **Mobile:** Stage-grouped structured rows; create drawer full-screen.
+- **Accessibility:** Table headers, expiry warning text, prerequisite explanation, no authority-by-color.
+- **Components:** PageHeader, Tabs, Table, FilterBar, SavedViewSelector, AuthorityIndicator, RiskIndicator, Drawer.
+- **Consolidates/removes:** Split lists + inline creation form; authority statuses standardized.
+- **Complexity:** High.
+- **Acceptance criteria:** Opportunity/Agreement remain distinct; opening still requires existing Brand/Contact/decision/task prerequisites; no uploaded Agreement implies authority.

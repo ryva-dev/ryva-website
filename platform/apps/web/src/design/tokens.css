@@ -1,0 +1,292 @@
+/*
+ * Ryva Pro design foundations — Redesign Increment 1.
+ *
+ * Canonical values live here. Legacy aliases at the end keep the Phase 1–9
+ * interface stable while later increments migrate components deliberately.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --font-family-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-size-11: 0.6875rem;
+  --font-size-12: 0.75rem;
+  --font-size-13: 0.8125rem;
+  --font-size-14: 0.875rem;
+  --font-size-16: 1rem;
+  --font-size-18: 1.125rem;
+  --font-size-20: 1.25rem;
+  --font-size-24: 1.5rem;
+  --font-size-30: 1.875rem;
+  --font-size-36: 2.25rem;
+  --line-height-16: 1rem;
+  --line-height-18: 1.125rem;
+  --line-height-20: 1.25rem;
+  --line-height-24: 1.5rem;
+  --line-height-26: 1.625rem;
+  --line-height-28: 1.75rem;
+  --line-height-32: 2rem;
+  --line-height-38: 2.375rem;
+  --line-height-44: 2.75rem;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --letter-spacing-tight: -0.01em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.08em;
+
+  /* Spacing */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 2.5rem;
+  --space-8: 3rem;
+  --space-9: 4rem;
+
+  /* General sizing */
+  --size-0: 0;
+  --size-1: 0.125rem;
+  --size-2: 0.25rem;
+  --size-3: 0.5rem;
+  --size-4: 0.75rem;
+  --size-5: 1rem;
+  --size-6: 1.25rem;
+  --size-7: 1.5rem;
+  --size-8: 2rem;
+  --size-9: 2.5rem;
+  --size-10: 3rem;
+  --size-11: 4rem;
+
+  /* Layout widths */
+  --width-sidebar-expanded: 15rem;
+  --width-sidebar-collapsed: 4.5rem;
+  --width-drawer-narrow: 25rem;
+  --width-drawer-standard: 32.5rem;
+  --width-drawer-wide: 42.5rem;
+  --width-context-rail: 20rem;
+  --width-reading: 45rem;
+  --width-consequential: 60rem;
+  --width-workspace-max: 90rem;
+
+  /* Radius */
+  --radius-0: 0;
+  --radius-1: 0.25rem;
+  --radius-2: 0.375rem;
+  --radius-3: 0.5rem;
+  --radius-4: 0.75rem;
+  --radius-pill: 999px;
+
+  /* Neutral palette and surfaces */
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-surface-canvas: #f6f7f5;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f0f3f0;
+  --color-surface-hover: #eaeeeb;
+  --color-surface-selected: #e5efec;
+  --color-surface-disabled: #e7ebe8;
+  --color-text-strong: #17211f;
+  --color-text-default: #2f3a37;
+  --color-text-muted: #5e6b67;
+  --color-text-subtle: #74807c;
+  --color-text-disabled: #56635f;
+  --color-text-on-accent: #ffffff;
+  --color-text-on-dark: #f7faf8;
+  --color-border: #dce2de;
+  --color-border-strong: #c5cec8;
+  --color-overlay-scrim: rgb(23 33 31 / 42%);
+
+  /* Deep Juniper accent */
+  --color-accent: #285b52;
+  --color-accent-hover: #214c45;
+  --color-accent-pressed: #1a403a;
+  --color-accent-subtle: #e4efec;
+  --color-accent-text: #1f5048;
+
+  /* Semantic palette */
+  --color-success: #287652;
+  --color-success-bg: #e8f4ed;
+  --color-warning: #8a6116;
+  --color-warning-bg: #fff4d6;
+  --color-danger: #a83c3c;
+  --color-danger-bg: #fbeaea;
+  --color-info: #365f88;
+  --color-info-bg: #eaf1f8;
+  --color-neutral-state: #56625e;
+  --color-neutral-state-bg: #eef1ef;
+  --color-ai: #53618b;
+  --color-ai-bg: #edf0f8;
+
+  /* Analytical series */
+  --color-chart-accent: var(--color-accent);
+  --color-chart-slate: #5f6d69;
+  --color-chart-blue: #58738d;
+  --color-chart-amber: #9a7440;
+  --color-chart-plum: #76647a;
+  --color-chart-grid: var(--color-border);
+
+  /* Borders and elevation */
+  --border-width-0: 0;
+  --border-width-1: 1px;
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px rgb(23 33 31 / 6%);
+  --elevation-menu: 0 8px 24px rgb(23 33 31 / 10%);
+  --elevation-dialog: 0 16px 48px rgb(23 33 31 / 16%);
+
+  /* Icon and control sizing */
+  --icon-size-small: 0.875rem;
+  --icon-size-default: 1.125rem;
+  --icon-size-large: 1.25rem;
+  --icon-stroke-width: 1.75;
+  --control-height-compact: 2rem;
+  --control-height-default: 2.5rem;
+  --control-height-touch: 2.75rem;
+  --table-header-height: 2.5rem;
+  --table-row-height-compact: 2.5rem;
+  --table-row-height-default: 3rem;
+
+  /* Motion */
+  --duration-instant: 1ms;
+  --duration-fast: 120ms;
+  --duration-standard: 180ms;
+  --duration-slow: 240ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Focus */
+  --focus-color: #3b6e65;
+  --focus-ring-inner: 0 0 0 2px var(--color-surface);
+  --focus-ring-outer: 0 0 0 4px var(--focus-color);
+  --focus-ring: var(--focus-ring-inner), var(--focus-ring-outer);
+
+  /* Z-index strategy */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-dropdown: 300;
+  --z-overlay: 400;
+  --z-drawer: 500;
+  --z-modal: 600;
+  --z-toast: 700;
+  --z-tooltip: 800;
+  --z-skip-link: 900;
+
+  /*
+   * Breakpoint references. Custom properties document the contract; media
+   * queries use the matching literal because CSS variables are invalid there.
+   */
+  --breakpoint-mobile: 48rem;
+  --breakpoint-desktop: 64rem;
+  --breakpoint-wide: 90rem;
+
+  /* Responsive foundation */
+  --layout-page-gutter: var(--space-8);
+  --layout-major-section-gap: var(--space-6);
+  --layout-related-section-gap: var(--space-5);
+  --layout-field-gap: var(--space-4);
+  --layout-header-controls-gap: var(--space-5);
+
+  /* Phase 1–9 compatibility aliases; remove only as callers migrate. */
+  --ink: var(--color-text-strong);
+  --muted: var(--color-text-muted);
+  --paper: var(--color-surface);
+  --line: var(--color-border);
+  --forest: var(--color-accent);
+  --forest-2: var(--color-accent-hover);
+  --sage: var(--color-accent-subtle);
+  --lime: var(--color-accent-subtle);
+  --gold: var(--color-warning);
+  --danger: var(--color-danger);
+  --mist: var(--color-surface-subtle);
+  --shadow: var(--elevation-1);
+}
+
+html {
+  min-width: 320px;
+  color: var(--color-text-default);
+  background: var(--color-surface-canvas);
+  font-family: var(--font-family-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--color-text-default);
+  background: var(--color-surface-canvas);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-20);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(.numeric, [data-numeric], time, output) {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+:focus-visible {
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
+@media (min-width: 90rem) {
+  :root {
+    --layout-page-gutter: var(--space-9);
+    --layout-major-section-gap: var(--space-7);
+  }
+}
+
+@media (min-width: 48rem) and (max-width: 63.999rem) {
+  :root {
+    --layout-page-gutter: var(--space-6);
+    --layout-major-section-gap: var(--space-6);
+    --layout-header-controls-gap: var(--space-5);
+  }
+}
+
+@media (max-width: 47.999rem) {
+  :root {
+    --layout-page-gutter: var(--space-4);
+    --layout-major-section-gap: var(--space-5);
+    --layout-related-section-gap: var(--space-4);
+    --layout-header-controls-gap: var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: var(--duration-instant);
+    --duration-standard: var(--duration-instant);
+    --duration-slow: var(--duration-instant);
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: var(--duration-instant) !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: var(--duration-instant) !important;
+  }
+}

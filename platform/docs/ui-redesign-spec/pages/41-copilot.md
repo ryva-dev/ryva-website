@@ -1,0 +1,21 @@
+# AI Assistance History and Request
+
+- **Route:** `/copilot`
+- **Current purpose:** Request bounded evidence-first assistance and review suggestion history.
+- **Audit issues:** Dedicated “AI Copilot” workspace risks AI prominence; record IDs may be manual; request and history share generic panels.
+- **Pattern:** Register.
+- **Proposed layout:** Page title “AI assistance”; bounded request action plus suggestion history table. Entry is contextual/Home/command rather than global sidebar.
+- **Primary action:** Generate suggestion for one bounded existing use case and selected supporting record.
+- **Secondary actions:** Open suggestion, filter history, review AI preferences.
+- **Hierarchy/sections:** Policy/status → request purpose/record → recent suggestions/dispositions.
+- **Timeline/right rail:** Selected suggestion preview shows evidence count, confidence, freshness, limitations, disposition.
+- **Filters/table:** Use case, target type, status, confidence, date.
+- **Dialogs/drawers:** Request drawer with Combobox; suggestion preview; full review stays route.
+- **States:** AI disabled/provider unavailable/no history/generating/error/read-only/access restricted.
+- **Permission/restricted states:** AI generation requires full entitled access and permitted records; read-only/restricted/disabled/provider-unavailable states preserve permitted history but block generation.
+- **Mobile:** Contextual request and history review; no chat UI.
+- **Accessibility:** AI origin and limitations announced; provider state truthful; suggestion titles/records named.
+- **Components:** PageHeader, Banner, Table, FilterBar, AIRecommendation, Combobox, Drawer, StatusLabel.
+- **Consolidates/removes:** Chat-like “Copilot” prominence, manual ID entry where selectable record exists, card history.
+- **Complexity:** High.
+- **Acceptance criteria:** Only authorized stored evidence is packaged; no autonomous actions, scores, fabricated evidence, or hidden reasoning.

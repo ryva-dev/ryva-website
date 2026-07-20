@@ -1,0 +1,22 @@
+# Commission Detail
+
+- **Route:** `/commissions/:id`
+- **Current purpose:** Explain current/prior calculations and capture human approval, payable, paid, adjustment, or dispute actions.
+- **Audit issues:** Formula/history/actions compete; business consequence resembles routine detail; related Agreement/Order context is not persistent.
+- **Pattern:** Relationship Detail with embedded Consequential Review.
+- **Proposed layout:** Commission IdentityHeader; tabs Overview, Calculation, Activity, Adjustments, Dispute, History; ContextRail with exact basis/readiness.
+- **Primary action:** Current permitted human action (approve, mark payable/paid, or review dispute).
+- **Secondary actions:** Open Agreement/Order/Account, inspect evidence, record adjustment/dispute.
+- **Hierarchy/sections:** Amount/currency/status → exact basis → calculation inputs/formula → history → human disposition.
+- **Timeline:** Calculation versions, adjustments, approvals, payment and dispute events.
+- **Right rail:** Agreement rule, Order revision, evidence/readiness, payment/dispute status, next action.
+- **Filters/table:** Calculation and adjustment tables.
+- **Dialogs/drawers:** Formula/evidence drawer; consequential action panel + confirmation.
+- **States:** Expected/verified/approved/payable/paid/disputed/void with missing basis blockers; loading/error/restricted/read-only.
+- **Permission/restricted states:** Calculation, approval, payment, adjustment, and dispute actions are separately policy-gated; read-only/restricted access preserves permitted explanation/history only.
+- **Mobile:** Explanation and status review fully supported; exact approve/pay action with confirmation.
+- **Accessibility:** Formula plain-language explanation, currency, no preselected approval, outcome announcement.
+- **Components:** IdentityHeader, Tabs, CurrencyValue, ApprovalPanel, ActivityTimeline, ContextRail, AuditHistory, ConfirmationDialog.
+- **Consolidates/removes:** Formula callout and equal metric/panel stack.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Every calculation stays reproducible/versioned; approval/payment/dispute are distinct human actions and audited.

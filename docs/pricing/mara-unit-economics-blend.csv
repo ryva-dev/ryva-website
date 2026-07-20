@@ -1,4 +1,0 @@
-scenario,blended_cts_exp,blended_cts_high,distribution
-current,26.33,40.73,"{""dormant"":0.25,""light"":0.35,""typical"":0.3,""heavy"":0.08,""abuse"":0.02}"
-production,32.06,49.32,"{""dormant"":0.25,""light"":0.35,""typical"":0.3,""heavy"":0.08,""abuse"":0.02}"
-production_optimized,26.15,40.46,"{""dormant"":0.25,""light"":0.35,""typical"":0.3,""heavy"":0.08,""abuse"":0.02}"

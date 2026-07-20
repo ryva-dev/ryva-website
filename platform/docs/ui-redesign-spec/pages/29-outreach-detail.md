@@ -1,0 +1,22 @@
+# Exact Outreach Artifact Review
+
+- **Route:** `/outreach/:id`
+- **Current purpose:** Review recipient, sender, exact content, claims, attachments, approval/send status, and response.
+- **Audit issues:** Consequential approval buried after several panels; claims and attachments separated from exact artifact; parent return unclear.
+- **Pattern:** Consequential Review.
+- **Proposed layout:** 960 px exact artifact with readiness rail. Order: identity/status → authority/suppression/provider readiness → recipient/channel/timing → exact content → claims/evidence → attachments → approval/send → response/history.
+- **Primary action:** Human approve and send exact artifact when Ready; classify response when received.
+- **Secondary actions:** Edit draft (invalidates approval), open evidence/document/Placement/Contact, reject/return.
+- **Hierarchy/sections:** Blockers before artifact; exact immutable review scope before confirmation.
+- **Timeline:** Draft/version, approval, queue/send, provider events, reply/classification, opt-out.
+- **Right rail:** Authority, conflict, suppression, provider, approval state, next action.
+- **Filters/table/list:** Claims/attachments structured lists; no register filters.
+- **Dialogs/drawers:** Evidence/document drawers; final send ConfirmationDialog.
+- **States:** Draft/pending approval/approved/queued/sent/delivered/bounced/replied/opted out/blocked; loading/error/read-only/provider degraded.
+- **Permission/restricted states:** Exact artifact fields/actions are workspace/capability scoped; read-only/restricted access, authority/scope/conflict/suppression, provider and human-approval blocks remain separately enforced.
+- **Mobile:** Exact content, claims, attachments, readiness and approval fully reviewable; sticky final action.
+- **Accessibility:** Recipient/channel/artifact named in approval; content as text; blocker summary; outcome announced.
+- **Components:** ApprovalPanel, AuthorityIndicator, EvidenceDrawer, AuditHistory, ConfirmationDialog, Alert, StatusLabel.
+- **Consolidates/removes:** Equal panels and detached send action.
+- **Complexity:** Very high.
+- **Acceptance criteria:** Any material edit invalidates approval; authority/scope/conflict/suppression/human approval/provider rules and all audit events remain exact.

@@ -12,3 +12,16 @@ data/outbox.log
 /tmp/
 data/private/
 .DS_Store
+
+# macOS
+# Local environment files
+platform/.env
+# Dependencies
+platform/node_modules/
+# Generated build/test artifacts
+platform/dist/
+platform/test-results/
+platform/*.tsbuildinfo
+platform/.data/
+# Local archives
+*.zip

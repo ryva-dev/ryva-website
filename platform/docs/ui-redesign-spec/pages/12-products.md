@@ -1,0 +1,22 @@
+# Product Intelligence
+
+- **Route:** `/products`
+- **Current purpose:** Research, filter, compare, and create unqualified products.
+- **Audit issues:** List/create/filter/saved-view competition; card/table inconsistency; separate generic Product register.
+- **Pattern:** Split Intelligence Workspace.
+- **Proposed layout:** Results left, selected Product summary center, optional right rail for evidence freshness, risk, and next action. Header action creates an unqualified Product. Comparison selection appears only when active.
+- **Primary action:** Create Product when no selection; otherwise perform selected Product’s next human-owned action.
+- **Secondary actions:** Save view, compare 2–4 selected, columns/density, open full detail.
+- **Hierarchy/sections:** Header → saved view/filters → results → selected identity/readiness/evidence → context.
+- **Timeline:** Recent Product activity in center; full history on detail.
+- **Right rail:** Evidence freshness, unknowns/risks, Brand relation, next action.
+- **Filters/table:** Shared register controls; table default, optional structured list; no card default.
+- **Dialogs/drawers:** Filter sheet, create drawer if form remains short, evidence preview; comparison uses route.
+- **States:** No Products, no filter matches, stale evidence, loading, partial/error, read-only, archived all distinct.
+- **Permission/restricted states:** Workspace/capability filters precede results; read-only permits authorized research inspection but blocks create/edit/decision, and archived records expose only permitted actions.
+- **Mobile:** Product list → full-screen summary; compare limited to review initiation, detailed multi-record comparison desktop-first.
+- **Accessibility:** Table semantics, selection count, evidence labels, context pane labelling.
+- **Components:** Split workspace, Table, FilterBar, SavedViewSelector, IdentityHeader, EvidenceLabel, RiskIndicator, ContextRail.
+- **Consolidates/removes:** Current creation panel, independent saved views, generic Product register.
+- **Complexity:** High.
+- **Acceptance criteria:** Existing creation, filters, views, comparison selection, provenance, and human qualification ownership remain; no score appears.
