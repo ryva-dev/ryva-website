@@ -2,9 +2,78 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 3 — Application shell and global navigation
-**Active construction increment:** None — Increment 4 has not started
-**Last updated:** 2026-07-20
+**Completed redesign increment:** UI Redesign Increment 4 — Standard Register (structurally accepted)
+**Active construction increment:** None; Increment 5 has not started
+**Last updated:** 2026-07-21
+
+## UI Redesign Increment 4 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Standard Register composition | Complete | Compact PageHeader, one primary action, saved views, FilterBar, active query/result count, shared Table/DataRow, pagination and contextual preview |
+| Evidence Sources pilot | Complete | `/sources` register, provenance/rights filters, register-source drawer, selected Source context and empty/no-result/loading/error/read-only states |
+| Territories pilot | Complete | `/territories` register, proposal/authority distinction, scope filters, proposal drawer, selected scope context and full state coverage |
+| Documents register | Complete | `/documents` register, scanner/quarantine truth, upload drawer, immutable identity/provenance preview and scoped download behavior |
+| Tasks register | Complete | `/tasks` Today/Upcoming/Blocked/Completed views, owned-work filters, origin context and unchanged completion/evidence behavior |
+| Notifications register | Complete | `/notifications` Action required/All/Read views, ordered reasons, selected context and unchanged mark-read/audit behavior |
+| Responsive register model | Complete | Dense comparable table at desktop/tablet, structured priority rows below 768 px, mobile filter sheet and full-screen drawers without horizontal clipping |
+| Accessibility | Complete | Named datasets, scoped headers/sort state, unique row actions, focus-trapped/restored drawers, result/pagination text, keyboard and 320 px reflow coverage |
+| Functional protection | Complete | Existing endpoints, payloads, capabilities, access modes, workspace isolation, document immutability, audit and shell behavior remain unchanged |
+| Increment 4 validation | Complete | Token policy, lint, strict typecheck, unit/integration, authenticated Playwright, complete browser suite, build, console/overflow inspection and real-app screenshots |
+| Increment 5 relationship detail | Not started by design | Contact and other Relationship Detail routes remain outside this increment |
+
+### Increment 4 action-parity boundary
+
+- Sources retain `GET/POST /api/sources`; registration remains a human-authored
+  provenance record and does not establish evidence truth.
+- Territories retain `GET/POST /api/territories`; every created scope remains
+  `proposed` and does not create Agreement authority.
+- Documents retain the existing create, immutable upload, hash verification,
+  quarantine/scanner and clean-only download path.
+- Tasks retain owner/workspace filtering, optimistic version, mandatory-gate
+  completion evidence and the existing `PATCH /api/tasks/:taskId` contract.
+- Notifications retain current severity ordering, blocking-state constraints,
+  current-user scoping, state update and append-only audit behavior.
+- Saved views use the existing `/api/saved-views` contracts; no schema, route,
+  permission, policy or business-domain change is authorized.
+
+### Increment 4 validation results
+
+- `npm run lint`: passed, including the token-only redesign policy.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 28 passed, including 5 Standard Register contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused register Playwright: 8 passed with 2 intentional duplicate-project
+  skips, covering live mutations, filtering, saved views, recovery, read-only
+  access, drawers, focus restoration, route continuity and exact-width reflow.
+- Complete `npm run test:e2e`: 55 passed with 3 intentional
+  duplicate-project skips across desktop and mobile Chromium.
+- `npm run build`: passed; Vite transformed 88 modules and emitted the
+  production client/server build. The existing bundle-size advisory remains.
+- Authenticated in-app inspection: no console or page errors. Exact 1440 × 900,
+  1024 × 768, 390 × 844, 375 × 812 and 320 × 568 audits reported
+  `scrollWidth <= clientWidth` and zero clipped visible register controls.
+
+No migration, API, route, permission, policy, schema or business-domain change
+was required. No material founder decision was required. Increment 5 has not
+started.
+
+### Increment 4 structural acceptance and visual deferral
+
+- Founder review accepts the Standard Register architecture, functionality,
+  responsiveness, mobile filter drawer, table behavior, state coverage, and
+  accessibility as structurally complete.
+- The current implementation and all Increment 4 automated coverage remain in
+  place; no test or functional behavior was weakened or removed.
+- The present styling is not the final Ryva brand expression. A cohesive
+  whole-product UI/UX pass is intentionally deferred until all documented
+  redesign increments are structurally complete.
+- That deferred pass may refine typography, color, control styling, spacing,
+  surfaces, table polish, drawer presentation, and overall visual cohesion, but
+  must preserve accepted functionality, structure, responsiveness,
+  accessibility, routes, permissions, and domain controls.
+- No additional Increment 4 visual-polish pass is planned at this stage, and
+  Increment 5 has not started.
 
 ## UI Redesign Increment 3 scope ledger
 

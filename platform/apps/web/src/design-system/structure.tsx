@@ -118,7 +118,7 @@ export function SavedViewSelector({
   return (
     <div className={classes("ry-saved-view", "saved-view-inline", className)}>
       {views && onSelect ? (
-        <label>
+        <label className="ry-saved-view-select">
           <span className="sr-only">Saved view</span>
           <Select controlSize="compact" value={selected ?? ""} onChange={(event) => onSelect(event.target.value)}>
             <option value="">Select saved view</option>
@@ -126,7 +126,7 @@ export function SavedViewSelector({
           </Select>
         </label>
       ) : null}
-      <label>
+      <label className="ry-saved-view-name">
         <span className="sr-only">Saved view name</span>
         <Input
           controlSize="compact"
@@ -135,7 +135,7 @@ export function SavedViewSelector({
           onChange={(event) => onNameChange(event.target.value)}
         />
       </label>
-      <button className="secondary-button" type="button" disabled={saving} onClick={onSave}>
+      <button className="secondary-button ry-saved-view-save" type="button" disabled={saving} onClick={onSave}>
         {saving ? "Saving…" : "Save view"}
       </button>
       {status ? <small role="status">{status}</small> : null}

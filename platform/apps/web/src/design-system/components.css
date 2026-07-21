@@ -623,6 +623,56 @@ table td {
   background: var(--color-ai-bg);
 }
 
+.ry-overlay-open { overflow: hidden; }
+
+.ry-drawer-layer {
+  position: fixed;
+  z-index: var(--z-overlay);
+  inset: var(--space-0);
+  display: flex;
+  justify-content: flex-end;
+  background: var(--color-overlay-scrim);
+}
+
+.ry-drawer {
+  z-index: var(--z-drawer);
+  display: grid;
+  grid-template-rows: auto minmax(var(--size-0), 1fr);
+  width: min(100%, var(--width-drawer-standard));
+  height: 100dvh;
+  color: var(--color-text-default);
+  background: var(--color-surface);
+  box-shadow: var(--elevation-menu);
+  outline: none;
+  animation: ry-drawer-enter var(--duration-standard) var(--ease-standard);
+}
+
+.ry-drawer-narrow { width: min(100%, var(--width-drawer-narrow)); }
+.ry-drawer-wide { width: min(100%, var(--width-drawer-wide)); }
+
+.ry-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-drawer-header h2 { margin-block: var(--space-1) var(--space-2); }
+.ry-drawer-header p { margin-bottom: var(--space-0); }
+.ry-drawer-body {
+  min-width: var(--size-0);
+  padding: var(--space-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes ry-drawer-enter {
+  from { transform: translateX(100%); }
+  to { transform: translateX(var(--size-0)); }
+}
+
 @media (max-width: 48rem) {
   .ry-button,
   .primary-button,
@@ -648,6 +698,7 @@ table td {
   .ry-banner,
   .ry-alert { align-items: stretch; flex-direction: column; }
   .ry-identity-actions { justify-content: flex-start; }
+  .ry-drawer { width: 100%; padding-bottom: env(safe-area-inset-bottom); }
 }
 
 @media (prefers-reduced-motion: reduce) {

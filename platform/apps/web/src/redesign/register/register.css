@@ -1,0 +1,239 @@
+/* Ryva Standard Register — UI Redesign Increment 4. */
+
+.ry-register-page { width: min(100%, var(--width-workspace-max)); }
+.ry-register-page .ry-page-header { margin-bottom: var(--space-6); }
+
+.ry-register-policy {
+  margin-bottom: var(--space-5);
+  border-radius: var(--radius-2);
+}
+
+.ry-register-surface {
+  min-width: var(--size-0);
+  border-block: var(--border-width-1) solid var(--color-border-strong);
+  background: var(--color-surface);
+}
+
+.ry-register-commandbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-register-commandbar .ry-saved-view { min-width: var(--size-0); }
+.ry-register-view-read-only input,
+.ry-register-view-read-only button { display: none; }
+
+.ry-register-filter-inline {
+  flex: 1 0 100%;
+  padding: var(--space-4);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+  background: var(--color-surface-subtle);
+}
+
+.ry-register-filter-inline .ry-filter-bar { justify-content: flex-start; }
+.ry-register-filter-inline .ry-field { min-width: var(--width-drawer-narrow); margin: var(--space-0); }
+.ry-register-filter-inline .ry-field:first-child { flex: 1 1 var(--width-reading); }
+.ry-register-filter-trigger { display: none; }
+
+.ry-register-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-register-active-filters > button:not(.ry-button) {
+  min-height: var(--control-height-compact);
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-accent-text);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-subtle);
+  font-size: var(--font-size-12);
+  cursor: pointer;
+}
+
+.ry-register-resultbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--control-height-touch);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-muted);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+  font-size: var(--font-size-12);
+}
+
+.ry-register-options { position: relative; }
+.ry-register-options > summary {
+  min-height: var(--control-height-compact);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-accent-text);
+  cursor: pointer;
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-register-options > div {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  inset-block-start: 100%;
+  inset-inline-end: var(--space-0);
+  width: var(--width-drawer-narrow);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  box-shadow: var(--elevation-menu);
+}
+
+.ry-register-density { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); }
+.ry-register-sort {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height-compact);
+  padding: var(--space-0);
+  color: inherit;
+  border: var(--border-width-0);
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.ry-register-table-button {
+  padding: var(--space-0);
+  color: var(--color-text-strong);
+  border: var(--border-width-0);
+  background: transparent;
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  text-align: start;
+  cursor: pointer;
+}
+
+.ry-register-table-button:hover { color: var(--color-accent-text); }
+.ry-register-cell-meta { color: var(--color-text-muted); }
+.ry-register-cell-actions { text-align: end; white-space: nowrap; }
+.ry-register-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--control-height-touch);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ry-register-pagination p { margin: var(--space-0); color: var(--color-text-muted); font-size: var(--font-size-12); }
+.ry-register-mobile-list { display: none; }
+
+.ry-tabs button.active {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+}
+
+.ry-register-notification-list { display: grid; }
+.ry-register-notification {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 1fr) auto;
+  gap: var(--space-5);
+  padding: var(--space-4);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+.ry-register-notification-unread { box-shadow: inset var(--size-1) var(--size-0) var(--color-accent); }
+.ry-register-notification-content {
+  display: grid;
+  gap: var(--space-2);
+  min-width: var(--size-0);
+  padding: var(--space-0);
+  color: var(--color-text-default);
+  border: var(--border-width-0);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+.ry-register-notification-content > span:first-child { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ry-register-notification-content > span:not(:first-child),
+.ry-register-notification-content time { color: var(--color-text-muted); font-size: var(--font-size-12); }
+.ry-register-notification-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+
+.ry-register-preview {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.ry-register-preview dl { display: grid; gap: var(--space-0); margin: var(--space-0); }
+.ry-register-preview dl > div {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 2fr) minmax(var(--size-0), 3fr);
+  gap: var(--space-4);
+  padding-block: var(--space-3);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+.ry-register-preview dt { color: var(--color-text-muted); font-size: var(--font-size-12); font-weight: var(--font-weight-semibold); }
+.ry-register-preview dd { min-width: var(--size-0); margin: var(--space-0); overflow-wrap: anywhere; }
+.ry-register-preview-section { display: grid; gap: var(--space-3); }
+.ry-register-preview-section h3 { margin: var(--space-0); }
+
+@media (max-width: 64rem) {
+  .ry-register-filter-inline .ry-field { min-width: var(--size-0); flex: 1 1 var(--width-drawer-narrow); }
+}
+
+@media (max-width: 48rem) {
+  .ry-register-page .ry-page-header { margin-bottom: var(--space-5); }
+  .ry-register-page .ry-tabs { display: grid; grid-template-columns: repeat(2, minmax(var(--size-0), 1fr)); overflow: visible; }
+  .ry-register-page .ry-tabs button { width: 100%; }
+  .ry-register-page .page-action .ry-button { width: 100%; }
+  .ry-register-surface { margin-inline: calc(var(--layout-page-gutter) * -1); }
+  .ry-register-commandbar { align-items: stretch; flex-direction: column; }
+  .ry-register-commandbar .ry-saved-view { display: grid; grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-register-commandbar .ry-saved-view label,
+  .ry-register-commandbar .ry-saved-view input,
+  .ry-register-commandbar .ry-saved-view select { width: 100%; }
+  .ry-register-commandbar .ry-saved-view-name,
+  .ry-register-commandbar .ry-saved-view-save { display: none; }
+  .ry-register-filter-trigger { display: inline-flex; width: 100%; }
+  .ry-register-filter-inline { display: none; }
+  .ry-register-filter-drawer .ry-filter-bar { display: grid; grid-template-columns: minmax(var(--size-0), 1fr); align-items: stretch; }
+  .ry-register-filter-drawer .ry-field { min-width: var(--size-0); width: 100%; margin: var(--space-0); }
+  .ry-register-resultbar { align-items: flex-start; flex-direction: column; }
+  .ry-register-options { display: none; }
+  .ry-register-surface .ry-table-wrap { display: none; }
+  .ry-register-notification-list { display: none; }
+  .ry-register-mobile-list { display: grid; }
+  .ry-register-mobile-row {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-bottom: var(--border-width-1) solid var(--color-border);
+  }
+  .ry-register-mobile-identity {
+    display: grid;
+    gap: var(--space-2);
+    min-height: var(--control-height-touch);
+    padding: var(--space-0);
+    color: var(--color-text-default);
+    border: var(--border-width-0);
+    background: transparent;
+    text-align: start;
+    cursor: pointer;
+  }
+  .ry-register-mobile-identity span { color: var(--color-text-muted); font-size: var(--font-size-12); }
+  .ry-register-mobile-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .ry-register-mobile-actions .ry-button { flex: 1 1 auto; }
+  .ry-register-pagination { align-items: stretch; flex-direction: column; }
+  .ry-register-pagination .ry-button-group { display: grid; grid-template-columns: repeat(2, minmax(var(--size-0), 1fr)); }
+  .ry-register-preview dl > div { grid-template-columns: 1fr; gap: var(--space-1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-drawer { animation-duration: var(--duration-instant); }
+}
