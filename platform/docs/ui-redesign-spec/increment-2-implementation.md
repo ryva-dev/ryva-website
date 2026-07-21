@@ -1,6 +1,6 @@
 # Increment 2 Implementation — Shared Component System
 
-Status: implemented  
+Status: implemented
 Scope: reusable component contracts and consolidation only
 
 ## Delivered contracts

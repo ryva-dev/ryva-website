@@ -55,8 +55,9 @@ test("Product detail preserves evidence and observation workflows", async ({ pag
   const suffix = `${testInfo.project.name}-${Date.now()}`;
   await signIn(page);
   await page.goto("/brands");
-  await page.getByLabel("Name", { exact: true }).fill(`Increment8 Brand ${suffix}`);
-  await page.getByRole("button", { name: "Create unqualified record" }).click();
+  const brandCreate = page.getByRole("region", { name: "Create unqualified Brand" });
+  await brandCreate.getByLabel("Name", { exact: true }).fill(`Increment8 Brand ${suffix}`);
+  await brandCreate.getByRole("button", { name: "Create unqualified record" }).click();
   await page.goto("/products");
   const createForm = page.getByRole("region", { name: "Create unqualified Product" });
   await createForm.getByLabel("Name", { exact: true }).fill(`Increment8 Product ${suffix}`);
@@ -91,8 +92,9 @@ test("comparison creation and detail preserve no-score limits", async ({ page },
   const suffix = `${testInfo.project.name}-${Date.now()}`;
   await signIn(page);
   await page.goto("/brands");
-  await page.getByLabel("Name", { exact: true }).fill(`Compare Brand ${suffix}`);
-  await page.getByRole("button", { name: "Create unqualified record" }).click();
+  const brandCreate = page.getByRole("region", { name: "Create unqualified Brand" });
+  await brandCreate.getByLabel("Name", { exact: true }).fill(`Compare Brand ${suffix}`);
+  await brandCreate.getByRole("button", { name: "Create unqualified record" }).click();
   await page.goto("/products");
   const createForm = page.getByRole("region", { name: "Create unqualified Product" });
   for (const label of [`Compare A ${suffix}`, `Compare B ${suffix}`]) {

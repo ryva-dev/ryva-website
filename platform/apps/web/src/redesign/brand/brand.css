@@ -1,0 +1,57 @@
+.ry-brand-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-brand-workspace {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 2fr) minmax(var(--size-0), 1.4fr) minmax(var(--width-context-rail), 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.ry-brand-results { min-width: var(--size-0); }
+.ry-brand-summary {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+  min-width: var(--size-0);
+}
+
+.ry-brand-identity-summary h2 { margin: var(--space-0); font-size: var(--font-size-20); }
+.ry-brand-identity-meta { margin: var(--space-2) var(--space-0) var(--space-4); color: var(--color-text-muted); }
+.ry-brand-summary-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.ry-brand-create { margin-top: var(--space-6); }
+.ry-brand-create-form {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  align-items: end;
+}
+
+.ry-brand-field-form,
+.ry-brand-evidence-form,
+.ry-brand-observation-form,
+.ry-brand-decision-form,
+.ry-brand-contact-form {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.ry-brand-inline-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); margin-left: var(--space-3); }
+
+@media (max-width: 64rem) {
+  .ry-brand-workspace { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-brand-summary,
+  .ry-brand-context-rail-desktop { display: none; }
+}
+
+@media (max-width: 48rem) {
+  .ry-brand-create-form { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-brand-summary-actions .ry-button { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-drawer { animation-duration: var(--duration-instant); }
+}

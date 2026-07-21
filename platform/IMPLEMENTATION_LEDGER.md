@@ -2,9 +2,41 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 8 — Product Intelligence (structurally complete)
-**Active construction increment:** None; Increment 9 has not started
+**Completed redesign increment:** UI Redesign Increment 9 — Brand Intelligence (structurally complete)
+**Active construction increment:** None; Increment 10 has not started
 **Last updated:** 2026-07-21
+
+## UI Redesign Increment 9 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Brand Standard Register / Split workspace | Complete | `/brands`, `/records/brand` via `BrandRegisterPage` |
+| Brand Relationship Detail | Complete | `/brands/:id`, `/records/brand/:id` via `BrandDetailPage` |
+| Generic Brand compatibility | Complete | Records wrappers delegate to canonical Brand module |
+| Product routes unaffected | Complete | Increment 8 Product module retained; Product e2e still pass |
+| Evidence / qualification / authority boundaries | Complete | Explicit unknowns, readiness ≠ Agreement authority |
+| Responsive Brand register and detail | Complete | Desktop density + mobile semantic rows + context drawer |
+| Increment 9 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
+| Increment 10 Businesses/Buyers/Contacts | Not started by design | Remains outside this increment |
+
+### Increment 9 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 48 passed, including 4 Brand Intelligence contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Brand Playwright: 11 passed with 1 intentional duplicate-project skip.
+- Focused Product + access Playwright: 25 passed with 1 intentional skip.
+- Complete `npm run test:e2e` run 1: 104 passed, 0 failed, 14 intentional skips.
+- Complete `npm run test:e2e` run 2: 104 passed, 0 failed, 14 intentional skips.
+- `npm run build`: passed.
+
+Root cause corrected: Brand e2e coverage increased authenticated login volume
+above the prior e2e `RATE_LIMIT_LOGIN_MAX=100` ceiling. E2e-only login limit is
+now `500` in `package.json` and `playwright.config.ts`. Production defaults are
+unchanged. No assertions were removed. Increment 10 has not started. Final
+whole-product visual refinement remains deferred.
 
 ## UI Redesign Increment 8 scope ledger
 
@@ -17,7 +49,7 @@
 | Evidence and no-score boundaries | Complete | `EvidenceLabel`, explicit unknowns, interpretation limits |
 | Responsive comparison | Complete | Desktop matrix + mobile focus/difference panels |
 | Increment 8 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright, build, screenshots |
-| Increment 9 Brand Intelligence | Not started by design | Brand register/detail migration remains outside this increment |
+| Increment 9 Brand Intelligence | Complete in Increment 9 | See Increment 9 scope ledger |
 
 ### Increment 8 validation results
 
@@ -37,8 +69,8 @@ Root cause corrected: post-mutation tab forcing could steal focus after an
 in-flight Product save while tests matched claim text that was already present
 in the Evidence textarea. Product detail now preserves the active tab when the
 user has moved during save/reload, and Product/access e2e waits for durable
-saved-state signals. No assertions were removed. Increment 9 has not started.
-Final whole-product visual refinement remains deferred.
+saved-state signals. No assertions were removed. Brand Intelligence completed
+in Increment 9. Final whole-product visual refinement remains deferred.
 
 ## UI Redesign Increment 7 scope ledger
 
@@ -53,7 +85,7 @@ Final whole-product visual refinement remains deferred.
 | Accessibility | Complete | Ordered lists, descriptive links, expandable reasons, explicit alerts, sticky action label, no passive live refresh |
 | Functional protection | Complete | Existing Home routes, APIs, payloads, priority logic, access modes, and AI boundaries remain unchanged |
 | Increment 7 validation | Complete | Token policy, lint, strict typecheck, unit/integration, focused and complete Playwright, build, and authenticated screenshots |
-| Increment 9 Brand Intelligence | Not started by design | Brand register/detail migration remains outside this increment |
+| Increment 9 Brand Intelligence | Complete in Increment 9 | See Increment 9 scope ledger |
 
 ### Increment 7 action-parity boundary
 

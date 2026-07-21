@@ -1,8 +1,8 @@
 # Ryva Pro UI/UX Redesign Specification
 
-Version: 1.0  
-Status: implementation-ready design specification  
-Prepared: 2026-07-20  
+Version: 1.0
+Status: implementation-ready design specification
+Prepared: 2026-07-20
 Scope: redesign of the existing Phase 1–9 application without changing product behavior
 
 ## Authority and inputs

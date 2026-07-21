@@ -1,6 +1,6 @@
 # Increment 1 Implementation — Visual Foundations
 
-Status: implemented  
+Status: implemented
 Scope: design tokens and global visual foundations only
 
 ## Implemented

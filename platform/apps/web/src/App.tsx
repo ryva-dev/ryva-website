@@ -23,6 +23,7 @@ import {
   ProductDetailPage,
   ProductRegisterPage
 } from "./redesign/product";
+import { BrandDetailPage, BrandRegisterPage } from "./redesign/brand";
 import {
   ContactIntelligencePage,
   IntelligenceDetailPage,
@@ -79,8 +80,8 @@ export function App() {
             <Route path="/products/compare" element={<ProductComparisonCreatePage />} />
             <Route path="/products/comparisons/:comparisonId" element={<ProductComparisonDetailPage />} />
             <Route path="/products/:id" element={<ProductDetailPage />} />
-            <Route path="/brands" element={<IntelligenceListPage kind="brand" />} />
-            <Route path="/brands/:id" element={<IntelligenceDetailPage kind="brand" />} />
+            <Route path="/brands" element={<BrandRegisterPage />} />
+            <Route path="/brands/:id" element={<BrandDetailPage />} />
             <Route path="/buyers" element={<IntelligenceListPage kind="business" />} />
             <Route path="/buyers/:id" element={<IntelligenceDetailPage kind="business" />} />
             <Route path="/contacts/:id" element={<ContactIntelligencePage />} />

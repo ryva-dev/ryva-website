@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorPanel, Field, Loading, PageHeader, StatusPill } from "../components";
+import { BrandDetailPage, BrandRegisterPage } from "../redesign/brand";
 import { ProductDetailPage, ProductRegisterPage } from "../redesign/product";
 
 type RecordType = "brand" | "product" | "business" | "contact";
@@ -66,10 +67,21 @@ export function RecordsPage() {
       />
     );
   }
+  if (type === "brand") {
+    return (
+      <BrandRegisterPage
+        compatibility={{
+          registerPath: "/records/brand",
+          detailPath: (recordId) => `/records/brand/${recordId}`,
+          showCompatibilityNotice: true
+        }}
+      />
+    );
+  }
   return <GenericRecordsPage type={type} />;
 }
 
-function GenericRecordsPage({ type }: { type: Exclude<RecordType, "product"> }) {
+function GenericRecordsPage({ type }: { type: Exclude<RecordType, "product" | "brand"> }) {
   const [records, setRecords] = useState<CoreRecord[]>([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -214,11 +226,9 @@ function GenericRecordsPage({ type }: { type: Exclude<RecordType, "product"> }) 
                 </select>
               </Field>
             ) : null}
-            {type !== "brand" ? (
-              <Field label={type === "business" ? "Business type" : "Role"}>
-                <input required value={extra} onChange={(event) => setExtra(event.target.value)} />
-              </Field>
-            ) : null}
+            <Field label={type === "business" ? "Business type" : "Role"}>
+              <input required value={extra} onChange={(event) => setExtra(event.target.value)} />
+            </Field>
             <button className="primary-button">Create record</button>
           </form>
         </section>
@@ -241,10 +251,21 @@ export function RecordDetailPage() {
       />
     );
   }
+  if (type === "brand") {
+    return (
+      <BrandDetailPage
+        compatibility={{
+          registerPath: "/records/brand",
+          detailPath: (recordId) => `/records/brand/${recordId}`,
+          showCompatibilityNotice: true
+        }}
+      />
+    );
+  }
   return <GenericRecordDetailPage type={type} id={params.id ?? ""} />;
 }
 
-function GenericRecordDetailPage({ type, id }: { type: Exclude<RecordType, "product">; id: string }) {
+function GenericRecordDetailPage({ type, id }: { type: Exclude<RecordType, "product" | "brand">; id: string }) {
   const [context, setContext] = useState<Context | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");

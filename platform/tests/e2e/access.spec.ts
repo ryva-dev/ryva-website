@@ -34,19 +34,23 @@ test("expired grace is visibly read-only on a mobile viewport", async ({ page })
 });
 
 test("representative creates and reviews a Brand Intelligence record", async ({ page }, testInfo) => {
-  const recordName = `Synthetic Browser Brand ${testInfo.project.name}`;
+  const recordName = `Synthetic Browser Brand ${testInfo.project.name}-${Date.now()}`;
   await page.goto("/login");
   await page.getByLabel("Email").fill("active@synthetic.ryva.test");
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await navigateFromShell(page, "Brands");
   await expect(page.getByRole("heading", { name: "Brand Intelligence", exact: true })).toBeVisible();
-  await page.getByLabel("Name", { exact: true }).fill(recordName);
-  await page.getByRole("button", { name: "Create unqualified record" }).click();
+  const brandCreate = page.getByRole("region", { name: "Create unqualified Brand" });
+  await brandCreate.getByLabel("Name", { exact: true }).fill(recordName);
+  await brandCreate.getByRole("button", { name: "Create unqualified record" }).click();
   await expect(page.getByRole("heading", { name: recordName })).toBeVisible();
-  await page.getByLabel("Exact claim or unknown").fill("Wholesale terms have not yet been supplied.");
-  await page.getByRole("button", { name: "Add evidence" }).click();
-  await expect(page.getByText("Wholesale terms have not yet been supplied.")).toBeVisible();
+  await page.getByRole("tab", { name: "Evidence" }).click();
+  const evidencePanel = page.getByRole("tabpanel", { name: /Evidence/ });
+  await evidencePanel.getByLabel("Exact claim or unknown").fill("Wholesale terms have not yet been supplied.");
+  await evidencePanel.getByRole("button", { name: "Add evidence" }).click();
+  await expect(page.getByText("Evidence was recorded.", { exact: true })).toBeVisible();
+  await expect(evidencePanel.getByRole("listitem").filter({ hasText: "Wholesale terms have not yet been supplied." })).toBeVisible();
   await navigateFromShell(page, "Search");
   await page.getByLabel("Search workspace").fill(recordName);
   await page.getByRole("button", { name: "Search", exact: true }).click();
@@ -60,8 +64,9 @@ test("representative completes Product Intelligence research and comparison setu
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await navigateFromShell(page, "Brands");
-  await page.getByLabel("Name", { exact: true }).fill(`Synthetic Product Parent ${suffix}`);
-  await page.getByRole("button", { name: "Create unqualified record" }).click();
+  const brandCreate = page.getByRole("region", { name: "Create unqualified Brand" });
+  await brandCreate.getByLabel("Name", { exact: true }).fill(`Synthetic Product Parent ${suffix}`);
+  await brandCreate.getByRole("button", { name: "Create unqualified record" }).click();
   await expect(page.getByRole("heading", {
     name: `Synthetic Product Parent ${suffix}`
   })).toBeVisible();

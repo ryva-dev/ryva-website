@@ -14,7 +14,7 @@ export default defineConfig({
   webServer: [
     {
       command:
-        "NODE_ENV=test DATABASE_URL=${TEST_DATABASE_URL:-postgres://localhost/ryva_pro_test} PGSSL=disable SESSION_PEPPER=test-session-pepper FIELD_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 APP_URL=http://127.0.0.1:5173 PORT=8787 RATE_LIMIT_LOGIN_MAX=100 npm run dev:api",
+        "NODE_ENV=test DATABASE_URL=${TEST_DATABASE_URL:-postgres://localhost/ryva_pro_test} PGSSL=disable SESSION_PEPPER=test-session-pepper FIELD_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 APP_URL=http://127.0.0.1:5173 PORT=8787 RATE_LIMIT_LOGIN_MAX=500 npm run dev:api",
       url: "http://127.0.0.1:8787/readyz",
       reuseExistingServer: !process.env.CI,
       timeout: 30_000

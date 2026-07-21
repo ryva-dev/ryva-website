@@ -10,6 +10,7 @@ import "./redesign/relationship/relationship.css";
 import "./redesign/consequential/consequential.css";
 import "./redesign/home/home.css";
 import "./redesign/product/product.css";
+import "./redesign/brand/brand.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Ryva Pro root element was not found.");
