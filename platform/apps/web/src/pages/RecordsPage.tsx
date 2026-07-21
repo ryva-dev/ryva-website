@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorPanel, Field, Loading, PageHeader, StatusPill } from "../components";
+import { ProductDetailPage, ProductRegisterPage } from "../redesign/product";
 
 type RecordType = "brand" | "product" | "business" | "contact";
 type CoreRecord = Record<string, unknown> & { id: string; name: string; version: number };
@@ -54,6 +55,21 @@ function display(value: unknown, fallback = "—"): string {
 export function RecordsPage() {
   const params = useParams();
   const type = validType(params.type) ? params.type : "brand";
+  if (type === "product") {
+    return (
+      <ProductRegisterPage
+        compatibility={{
+          registerPath: "/records/product",
+          detailPath: (recordId) => `/records/product/${recordId}`,
+          showCompatibilityNotice: true
+        }}
+      />
+    );
+  }
+  return <GenericRecordsPage type={type} />;
+}
+
+function GenericRecordsPage({ type }: { type: Exclude<RecordType, "product"> }) {
   const [records, setRecords] = useState<CoreRecord[]>([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -93,9 +109,8 @@ export function RecordsPage() {
     setExtra("");
     setParentId("");
     void load();
-    if (type === "product" || type === "contact") {
-      const parentType = type === "product" ? "brand" : "business";
-      void api<{ records: CoreRecord[] }>(`/api/records/${parentType}`)
+    if (type === "contact") {
+      void api<{ records: CoreRecord[] }>("/api/records/business")
         .then((result) => setParents(result.records))
         .catch(() => setParents([]));
     }
@@ -135,7 +150,6 @@ export function RecordsPage() {
     event.preventDefault();
     setError("");
     const body: Record<string, unknown> = { name };
-    if (type === "product") Object.assign(body, { brandId: parentId, category: extra, summary: "" });
     if (type === "business") Object.assign(body, { businessType: extra, category: "General" });
     if (type === "contact") Object.assign(body, { parentType: "business", parentId, role: extra });
     try {
@@ -192,8 +206,8 @@ export function RecordsPage() {
           <p>Potential duplicates are checked before creation. No records are silently merged.</p>
           <form onSubmit={(event) => void create(event)}>
             <Field label="Name"><input required value={name} onChange={(event) => setName(event.target.value)} /></Field>
-            {type === "product" || type === "contact" ? (
-              <Field label={type === "product" ? "Brand" : "Business"}>
+            {type === "contact" ? (
+              <Field label="Business">
                 <select required value={parentId} onChange={(event) => setParentId(event.target.value)}>
                   <option value="">Select…</option>
                   {parents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -201,7 +215,7 @@ export function RecordsPage() {
               </Field>
             ) : null}
             {type !== "brand" ? (
-              <Field label={type === "product" ? "Category" : type === "business" ? "Business type" : "Role"}>
+              <Field label={type === "business" ? "Business type" : "Role"}>
                 <input required value={extra} onChange={(event) => setExtra(event.target.value)} />
               </Field>
             ) : null}
@@ -216,7 +230,21 @@ export function RecordsPage() {
 export function RecordDetailPage() {
   const params = useParams();
   const type = validType(params.type) ? params.type : "brand";
-  const id = params.id ?? "";
+  if (type === "product") {
+    return (
+      <ProductDetailPage
+        compatibility={{
+          registerPath: "/records/product",
+          detailPath: (recordId) => `/records/product/${recordId}`,
+          showCompatibilityNotice: true
+        }}
+      />
+    );
+  }
+  return <GenericRecordDetailPage type={type} id={params.id ?? ""} />;
+}
+
+function GenericRecordDetailPage({ type, id }: { type: Exclude<RecordType, "product">; id: string }) {
   const [context, setContext] = useState<Context | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");

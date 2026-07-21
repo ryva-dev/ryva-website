@@ -2,9 +2,43 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 7 — Home Command Center (structurally complete)
-**Active construction increment:** None; Increment 8 has not started
+**Completed redesign increment:** UI Redesign Increment 8 — Product Intelligence (structurally complete)
+**Active construction increment:** None; Increment 9 has not started
 **Last updated:** 2026-07-21
+
+## UI Redesign Increment 8 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Product Split Intelligence Workspace | Complete | `/products`, `/records/product` via `ProductRegisterPage` |
+| Product Relationship Detail | Complete | `/products/:id`, `/records/product/:id` via `ProductDetailPage` |
+| Comparison create/detail | Complete | `/products/compare`, `/products/comparisons/:comparisonId` |
+| Generic Product compatibility | Complete | Records wrappers delegate to canonical Product module |
+| Evidence and no-score boundaries | Complete | `EvidenceLabel`, explicit unknowns, interpretation limits |
+| Responsive comparison | Complete | Desktop matrix + mobile focus/difference panels |
+| Increment 8 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright, build, screenshots |
+| Increment 9 Brand Intelligence | Not started by design | Brand register/detail migration remains outside this increment |
+
+### Increment 8 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 44 passed, including 6 Product Intelligence contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Product Playwright: 13 passed with 1 intentional duplicate-project skip.
+- Focused access Product journey under parallel workers (`--repeat-each=5
+  --workers=4`): 10 passed.
+- Complete `npm run test:e2e` run 1: 93 passed, 0 failed, 13 intentional skips.
+- Complete `npm run test:e2e` run 2: 93 passed, 0 failed, 13 intentional skips.
+- `npm run build`: passed.
+
+Root cause corrected: post-mutation tab forcing could steal focus after an
+in-flight Product save while tests matched claim text that was already present
+in the Evidence textarea. Product detail now preserves the active tab when the
+user has moved during save/reload, and Product/access e2e waits for durable
+saved-state signals. No assertions were removed. Increment 9 has not started.
+Final whole-product visual refinement remains deferred.
 
 ## UI Redesign Increment 7 scope ledger
 
@@ -19,7 +53,7 @@
 | Accessibility | Complete | Ordered lists, descriptive links, expandable reasons, explicit alerts, sticky action label, no passive live refresh |
 | Functional protection | Complete | Existing Home routes, APIs, payloads, priority logic, access modes, and AI boundaries remain unchanged |
 | Increment 7 validation | Complete | Token policy, lint, strict typecheck, unit/integration, focused and complete Playwright, build, and authenticated screenshots |
-| Increment 8 Product Intelligence | Not started by design | Product register/detail/comparison migration remains outside this increment |
+| Increment 9 Brand Intelligence | Not started by design | Brand register/detail migration remains outside this increment |
 
 ### Increment 7 action-parity boundary
 

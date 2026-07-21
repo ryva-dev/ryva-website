@@ -18,10 +18,15 @@ import { DocumentsPage } from "./pages/DocumentsPage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { TerritoriesPage } from "./pages/TerritoriesPage";
 import {
+  ProductComparisonCreatePage,
+  ProductComparisonDetailPage,
+  ProductDetailPage,
+  ProductRegisterPage
+} from "./redesign/product";
+import {
   ContactIntelligencePage,
   IntelligenceDetailPage,
-  IntelligenceListPage,
-  ProductComparisonPage
+  IntelligenceListPage
 } from "./pages/IntelligencePages";
 import {
   AgreementDetailPage,
@@ -70,10 +75,10 @@ export function App() {
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/records/:type" element={<RecordsPage />} />
             <Route path="/records/:type/:id" element={<RecordDetailPage />} />
-            <Route path="/products" element={<IntelligenceListPage kind="product" />} />
-            <Route path="/products/compare" element={<ProductComparisonPage />} />
-            <Route path="/products/comparisons/:comparisonId" element={<ProductComparisonPage />} />
-            <Route path="/products/:id" element={<IntelligenceDetailPage kind="product" />} />
+            <Route path="/products" element={<ProductRegisterPage />} />
+            <Route path="/products/compare" element={<ProductComparisonCreatePage />} />
+            <Route path="/products/comparisons/:comparisonId" element={<ProductComparisonDetailPage />} />
+            <Route path="/products/:id" element={<ProductDetailPage />} />
             <Route path="/brands" element={<IntelligenceListPage kind="brand" />} />
             <Route path="/brands/:id" element={<IntelligenceDetailPage kind="brand" />} />
             <Route path="/buyers" element={<IntelligenceListPage kind="business" />} />

@@ -22,5 +22,11 @@ export async function navigateFromShell(page: Page, label: string): Promise<void
     await page.locator("summary", { hasText: "Data transfer" }).filter({ visible: true }).click();
   }
 
+  const primary = page.getByRole("navigation", { name: "Primary" });
+  if (await primary.getByRole("link", { name: label, exact: true }).count()) {
+    await primary.getByRole("link", { name: label, exact: true }).click();
+    return;
+  }
+
   await page.getByRole("link", { name: label, exact: true }).filter({ visible: true }).click();
 }
