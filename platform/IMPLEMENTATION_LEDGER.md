@@ -2,9 +2,81 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 4 — Standard Register (structurally accepted)
-**Active construction increment:** None; Increment 5 has not started
+**Completed redesign increment:** UI Redesign Increment 5 — Standard Relationship Detail (structurally complete)
+**Active construction increment:** None; Increment 6 has not started
 **Last updated:** 2026-07-21
+
+## UI Redesign Increment 5 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Standard Relationship Detail composition | Complete | Relationship trail, IdentityHeader, focused Tabs, central operational content/ActivityTimeline, ContextRail, drawers and mobile context |
+| Contact Detail pilot | Complete | `/contacts/:id` is the canonical pilot using existing Contact, Source and connected-record API truth |
+| Identity and relationship context | Complete | Contact identity, role, professional routes, parent Brand/Business, verification status/freshness and one human-owned next action remain visible |
+| Human verification workflow | Complete | Existing versioned `PATCH /api/contacts/:contactId/verification` payload and Source requirement use a focus-managed drawer without policy change |
+| Activity and evidence | Complete | Existing activities, notes, tasks, documents and evidence remain reachable through focused views; no communication or authority history is fabricated |
+| Context and blockers | Complete | Exact permission, freshness, missing Source and read-only reasons remain distinct; Outreach authority is not inferred from a Contact record |
+| Responsive detail model | Complete | Wide detail + 320 px rail, tablet reflow, mobile context drawer and sticky permitted action without clipping at 390, 375 or 320 px |
+| Accessibility | Complete | True relationship navigation, keyboard Tabs, semantic timeline, named drawers, focus trap/restore, explicit route actions and retained page identity in all states |
+| Functional protection | Complete | Existing route, APIs, payloads, optimistic version, workspace isolation, access capabilities, audit and human-owned verification remain unchanged |
+| Increment 5 validation | Complete | Token policy, lint, strict typecheck, unit/integration, focused and complete Playwright, build, browser console/geometry inspection and real-app screenshots |
+| Later Relationship Detail migrations | Not started by design | Product, Brand, Buyer, Representation, Placement, Account, Order and Commission details remain in documented Increments 8–15 |
+| Increment 6 Consequential Review | Not started by design | Approval/readiness/exact-artifact pattern remains outside this increment |
+
+### Increment 5 action-parity boundary
+
+- `/contacts/:id` remains the canonical Contact route and continues to read
+  `GET /api/records/contact/:id` plus `GET /api/sources`.
+- Human route verification retains the exact version, status, Source,
+  observation time and notes payload accepted by
+  `PATCH /api/contacts/:contactId/verification`.
+- Notes and tasks may use their existing connected-record endpoints; no new
+  communication, Outreach, authority or suppression action is invented.
+- Read-only mode derives from the server-issued access decision and capability
+  set. The server remains authoritative for every mutation.
+- Contact permission status is displayed as stored. Representation/Placement
+  authority and channel suppression are not inferred when the Contact response
+  does not establish them.
+- No schema, database migration, API, route, permission, policy or domain change
+  is authorized for the structural pilot.
+
+### Increment 5 validation results
+
+- `npm run lint`: passed, including the token-only redesign policy.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 31 passed, including 3 Standard Relationship Detail
+  contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused relationship Playwright: 6 passed with 2 intentional
+  duplicate-project skips, covering human verification, parent navigation,
+  keyboard Tabs, Activity, notes, focus containment/restoration, mobile context,
+  read-only access, failure recovery, and exact-width geometry.
+- Complete `npm run test:e2e`: 61 passed with 5 intentional
+  duplicate-project skips across desktop and mobile Chromium.
+- `npm run build`: passed; Vite transformed 90 modules and emitted the
+  production client/server build. The existing bundle-size advisory remains.
+- Authenticated in-app inspection: no console or page errors. Exact 1440 × 900,
+  1024 × 768, 390 × 844, 375 × 812, and 320 × 568 audits reported
+  `scrollWidth <= clientWidth` with zero visible viewport offenders. The mobile
+  Context drawer remained bounded to the visual viewport and restored focus.
+
+No migration, schema, API, route, permission, policy, authority, audit, or
+business-domain change was required. No material founder decision was required.
+Increment 6 has not started.
+
+### Increment 5 structural completion and visual deferral
+
+- The Standard Relationship Detail model is structurally complete for the
+  Contact pilot: identity, relationship trail, focused operational views,
+  evidence, human-owned verification, activity, next action, and contextual
+  constraints remain connected without obscuring authority boundaries.
+- Product, Brand, Buyer, Representation, Placement, Account, Order, and
+  Commission detail migrations remain in their documented later increments.
+- Current styling is structural, not the final Ryva brand expression. The
+  cohesive whole-product UI/UX refinement remains intentionally deferred until
+  all documented redesign increments are structurally complete. That pass may
+  refine typography, color, controls, spacing, surfaces, timelines, drawers,
+  and overall cohesion without changing functionality or policy.
 
 ## UI Redesign Increment 4 scope ledger
 

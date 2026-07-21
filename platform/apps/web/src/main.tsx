@@ -6,6 +6,7 @@ import "./styles.css";
 import "./design-system/components.css";
 import "./redesign/shell/shell.css";
 import "./redesign/register/register.css";
+import "./redesign/relationship/relationship.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Ryva Pro root element was not found.");
