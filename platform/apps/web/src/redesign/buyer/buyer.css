@@ -1,0 +1,59 @@
+.ry-buyer-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-buyer-workspace {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 2fr) minmax(var(--size-0), 1.4fr) minmax(var(--width-context-rail), 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.ry-buyer-results { min-width: var(--size-0); }
+.ry-buyer-summary {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+  min-width: var(--size-0);
+}
+
+.ry-buyer-identity-summary h2 { margin: var(--space-0); font-size: var(--font-size-20); }
+.ry-buyer-identity-meta { margin: var(--space-2) var(--space-0) var(--space-4); color: var(--color-text-muted); }
+.ry-buyer-summary-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.ry-buyer-create { margin-top: var(--space-6); }
+.ry-buyer-create-form {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  align-items: end;
+}
+
+.ry-buyer-field-form,
+.ry-buyer-evidence-form,
+.ry-buyer-observation-form,
+.ry-buyer-decision-form,
+.ry-buyer-contact-form,
+.ry-buyer-buyer-form,
+.ry-buyer-match-form {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.ry-buyer-inline-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); margin-left: var(--space-3); }
+
+@media (max-width: 64rem) {
+  .ry-buyer-workspace { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-buyer-summary,
+  .ry-buyer-context-rail-desktop { display: none; }
+}
+
+@media (max-width: 48rem) {
+  .ry-buyer-create-form { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-buyer-summary-actions .ry-button { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-drawer { animation-duration: var(--duration-instant); }
+}

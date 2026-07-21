@@ -1,0 +1,43 @@
+.ry-contact-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-contact-call-prep {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+}
+
+.ry-contact-call-prep dl {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-0);
+}
+
+.ry-contact-call-prep dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-contact-call-prep dd { margin: var(--space-0); }
+
+.ry-contact-create { margin-top: var(--space-6); }
+.ry-contact-create-form {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  align-items: end;
+}
+
+@media (max-width: 64rem) {
+  .ry-contact-call-prep { padding: var(--space-4); }
+}
+
+@media (max-width: 48rem) {
+  .ry-contact-create-form { grid-template-columns: minmax(var(--size-0), 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-drawer { animation-duration: var(--duration-instant); }
+}

@@ -24,11 +24,8 @@ import {
   ProductRegisterPage
 } from "./redesign/product";
 import { BrandDetailPage, BrandRegisterPage } from "./redesign/brand";
-import {
-  ContactIntelligencePage,
-  IntelligenceDetailPage,
-  IntelligenceListPage
-} from "./pages/IntelligencePages";
+import { BuyerDetailPage, BuyerRegisterPage } from "./redesign/buyer";
+import { ContactDetailPage } from "./redesign/contact";
 import {
   AgreementDetailPage,
   RepresentationDetailPage,
@@ -82,9 +79,9 @@ export function App() {
             <Route path="/products/:id" element={<ProductDetailPage />} />
             <Route path="/brands" element={<BrandRegisterPage />} />
             <Route path="/brands/:id" element={<BrandDetailPage />} />
-            <Route path="/buyers" element={<IntelligenceListPage kind="business" />} />
-            <Route path="/buyers/:id" element={<IntelligenceDetailPage kind="business" />} />
-            <Route path="/contacts/:id" element={<ContactIntelligencePage />} />
+            <Route path="/buyers" element={<BuyerRegisterPage />} />
+            <Route path="/buyers/:id" element={<BuyerDetailPage />} />
+            <Route path="/contacts/:id" element={<ContactDetailPage />} />
             <Route path="/representation" element={<RepresentationPage />} />
             <Route path="/representation/:id" element={<RepresentationDetailPage />} />
             <Route path="/agreements/:id" element={<AgreementDetailPage />} />

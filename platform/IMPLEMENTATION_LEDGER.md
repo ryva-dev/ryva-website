@@ -2,9 +2,40 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 9 — Brand Intelligence (structurally complete)
-**Active construction increment:** None; Increment 10 has not started
+**Completed redesign increment:** UI Redesign Increment 10 — Businesses, Buyers, and Contacts (structurally complete)
+**Active construction increment:** None; Increment 11 has not started
 **Last updated:** 2026-07-21
+
+## UI Redesign Increment 10 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Buyer/Business Standard Register | Complete | `/buyers`, `/records/business` via `BuyerRegisterPage` |
+| Buyer/Business Relationship Detail | Complete | `/buyers/:id`, `/records/business/:id` via `BuyerDetailPage` |
+| Contact register compatibility | Complete | `/records/contact` via `ContactRegisterPage` |
+| Contact detail preservation + expansion | Complete | `/contacts/:id`, `/records/contact/:id` via `ContactDetailPage` |
+| Business / Buyer / Contact distinctions | Complete | Explicit policy copy and separate Buyers vs Contacts tabs |
+| Fit / evidence / verification / permission / authority | Complete | Match status, EvidenceLabel, verification, permission, AuthorityIndicator |
+| Mobile call preparation | Complete | Buyer Overview call-prep + Contact call-prep section |
+| Product and Brand routes unaffected | Complete | Increments 8–9 modules retained; regression e2e pass |
+| Increment 10 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
+| Increment 11 Representation/Agreements | Not started by design | Remains outside this increment |
+
+### Increment 10 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 56 passed, including Buyer and Contact contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Buyer Playwright: 13 passed with 1 intentional duplicate-project skip.
+- Focused access Buyer journey: 2 passed after locator scoping for mobile Context Rail.
+- Complete `npm run test:e2e` run 1: 117 passed, 0 failed, 15 intentional skips.
+- Complete `npm run test:e2e` run 2: 117 passed, 0 failed, 15 intentional skips.
+- `npm run build`: passed.
+
+Increment 11 has not started. Final whole-product visual refinement remains
+deferred.
 
 ## UI Redesign Increment 9 scope ledger
 
@@ -17,7 +48,7 @@
 | Evidence / qualification / authority boundaries | Complete | Explicit unknowns, readiness ≠ Agreement authority |
 | Responsive Brand register and detail | Complete | Desktop density + mobile semantic rows + context drawer |
 | Increment 9 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
-| Increment 10 Businesses/Buyers/Contacts | Not started by design | Remains outside this increment |
+| Increment 10 Businesses/Buyers/Contacts | Complete in Increment 10 | See Increment 10 scope ledger |
 
 ### Increment 9 validation results
 
@@ -35,8 +66,9 @@
 Root cause corrected: Brand e2e coverage increased authenticated login volume
 above the prior e2e `RATE_LIMIT_LOGIN_MAX=100` ceiling. E2e-only login limit is
 now `500` in `package.json` and `playwright.config.ts`. Production defaults are
-unchanged. No assertions were removed. Increment 10 has not started. Final
-whole-product visual refinement remains deferred.
+unchanged. No assertions were removed. Businesses, Buyers, and Contacts
+completed in Increment 10. Final whole-product visual refinement remains
+deferred.
 
 ## UI Redesign Increment 8 scope ledger
 
