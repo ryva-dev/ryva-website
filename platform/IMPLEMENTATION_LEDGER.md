@@ -2,9 +2,82 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 5 — Standard Relationship Detail (structurally complete)
-**Active construction increment:** None; Increment 6 has not started
+**Completed redesign increment:** UI Redesign Increment 6 — Consequential Review (structurally complete)
+**Active construction increment:** None; Increment 7 has not started
 **Last updated:** 2026-07-21
+
+## UI Redesign Increment 6 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Consequential Review composition | Complete | Review identity/consequence, readiness and blockers, exact artifact, validation summary, evidence/authority context, human decision, confirmation and immutable outcome |
+| AI Suggestion pilot | Complete | `/copilot/:suggestionId` exposes the exact stored or human-edited artifact, statement/citation support, limitations, provenance, current version and explicit human disposition |
+| Protected Account pilot | Complete | `/protected-accounts/:id` keeps proposed protection distinct from active rights and shows exact documentary scope, authority limits, blockers, approval digest and auditable outcome |
+| Human decision controls | Complete | No preselected approval; only API-supported outcomes; rationale, exact consequence and final confirmation remain explicit |
+| Concurrency and recovery | Complete | Existing suggestion version and protection artifact-digest checks remain authoritative; conflicts are announced and entered review inputs survive recoverable failure |
+| Restricted and completed states | Complete | Server-issued access mode controls all actions; completed decisions remain inspectable and cannot be submitted twice |
+| Responsive review model | Complete | Wide primary review + readiness rail, deliberate tablet reflow, one-column mobile ordering and bounded exact-artifact regions at 390, 375 and 320 px |
+| Accessibility | Complete | One page identity, semantic validation/audit lists, named decisions and consequences, focus-managed confirmation, focusable errors and focus restoration |
+| Functional protection | Complete | Existing routes, APIs, payloads, AI boundaries, protection rules, validators, workspace isolation, audit and access behavior remain unchanged |
+| Increment 6 validation | Complete | Token policy, lint, strict typecheck, unit/integration, focused and complete Playwright, build, browser console/geometry audit and authenticated screenshots |
+| Later consequential workflows | Not started by design | Agreement, Placement, Outreach, Import, Order, broader Protection, Commission and Dispute migrations remain in Increments 11–16 |
+| Increment 7 Home | Not started by design | Command Center migration remains outside this increment |
+
+### Increment 6 action-parity boundary
+
+- AI Suggestion review retains `GET /api/ai/suggestions/:suggestionId`, the
+  exact `POST /api/ai/suggestions/:suggestionId/actions` payload, immutable
+  original content, optimistic version, and child-regeneration endpoint.
+- AI acceptance records review of content only. It never changes the target,
+  sends a communication, grants authority, qualifies a record, changes a
+  stage, or alters commercial state.
+- Protected Account review retains its current GET, approval-request, and
+  approval-decision endpoints. The existing artifact digest, current approval,
+  overlap, clean-document, and server state checks remain authoritative.
+- A pending Protected Account remains a proposal. Only the server-confirmed
+  approved outcome can make it active; relationship or Agreement references
+  displayed in the UI do not independently establish protection or authority.
+- No schema, migration, API, route, permission, capability, validator, audit,
+  AI policy, or commerce-domain change is authorized for these structural
+  pilots.
+
+### Increment 6 validation results
+
+- `npm run lint`: passed, including the token-only redesign policy.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 34 passed, including 3 Consequential Review contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Consequential Review Playwright: 9 passed with 5 intentional
+  duplicate-project skips, covering exact artifacts, human disposition,
+  confirmation focus, validation recovery, optimistic conflict, restricted and
+  completed states, documentary protection, audit outcome, and exact geometry.
+- Complete `npm run test:e2e`: 70 passed with 10 intentional
+  duplicate-project skips across desktop and mobile Chromium.
+- `npm run build`: passed; Vite transformed 92 modules and emitted the
+  production client/server build. The existing bundle-size advisory remains.
+- Authenticated in-app and automated browser inspection found no console or
+  page errors. Exact 1440 × 900, 1024 × 768, 390 × 844, 375 × 812, and
+  320 × 568 checks reported `scrollWidth <= clientWidth` and zero visible
+  viewport offenders for both pilot routes.
+
+No migration, schema, API, route, payload, permission, capability, policy,
+authority, audit, validator, or business-domain change was required. No
+material founder decision was required. Increment 7 has not started.
+
+### Increment 6 structural completion and visual deferral
+
+- The Consequential Review pattern is structurally complete for the AI
+  Suggestion and Protected Account pilots: exact artifact, provenance,
+  readiness, blockers, validation, authority context, explicit human decision,
+  confirmation, concurrency recovery, and audit outcome remain connected.
+- Later Agreement, Placement, Outreach, Import, Order, broader Protection,
+  Commission, and Dispute migrations remain in their documented increments.
+- Current styling is structural, not the final Ryva brand expression. Cohesive
+  whole-product UI/UX refinement remains intentionally deferred until all
+  documented redesign increments are structurally complete. That pass may
+  refine typography, color, controls, spacing, surfaces, review density,
+  drawers, dialogs, and overall cohesion without changing functionality,
+  evidence, authority, accessibility, or policy.
 
 ## UI Redesign Increment 5 scope ledger
 

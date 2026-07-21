@@ -21,7 +21,7 @@
     "lint": "eslint apps packages tests vite.config.ts playwright.config.ts && npm run lint:tokens",
     "lint:tokens": "node scripts/check-design-tokens.mjs",
     "test": "npm run test:unit && npm run test:integration",
-    "test:unit": "TSX_TSCONFIG_PATH=tsconfig.web.json tsx --test tests/unit/*.test.ts apps/web/src/design-system/*.test.tsx apps/web/src/redesign/shell/*.test.ts apps/web/src/redesign/register/*.test.tsx apps/web/src/redesign/relationship/*.test.tsx",
+    "test:unit": "TSX_TSCONFIG_PATH=tsconfig.web.json tsx --test tests/unit/*.test.ts apps/web/src/design-system/*.test.tsx apps/web/src/redesign/shell/*.test.ts apps/web/src/redesign/register/*.test.tsx apps/web/src/redesign/relationship/*.test.tsx apps/web/src/redesign/consequential/*.test.tsx",
     "test:integration": "NODE_ENV=test DATABASE_URL=${TEST_DATABASE_URL:-postgres://localhost/ryva_pro_test} PGSSL=disable SESSION_PEPPER=test-session-pepper FIELD_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 ALLOW_SYNTHETIC_SEED=1 RATE_LIMIT_LOGIN_MAX=100 tsx --test --test-concurrency=1 tests/integration/*.test.ts",
     "test:e2e": "NODE_ENV=test DATABASE_URL=${TEST_DATABASE_URL:-postgres://localhost/ryva_pro_test} PGSSL=disable SESSION_PEPPER=test-session-pepper FIELD_ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000 ALLOW_SYNTHETIC_SEED=1 RATE_LIMIT_LOGIN_MAX=100 playwright test",
     "test:all": "npm run lint && npm run typecheck && npm test && npm run test:e2e && npm run build",

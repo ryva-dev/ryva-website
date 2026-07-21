@@ -1,0 +1,255 @@
+.ry-consequential-page {
+  display: grid;
+  gap: var(--space-0);
+  min-width: var(--size-0);
+  max-width: var(--width-consequential);
+  margin-inline: auto;
+}
+
+.ry-consequential-page .ry-identity-header {
+  padding-block: var(--space-3) var(--space-5);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-consequential-layout {
+  display: grid;
+  grid-template-areas: "main rail";
+  grid-template-columns: minmax(var(--size-0), 1fr) var(--width-context-rail);
+  align-items: start;
+  gap: var(--space-7);
+  min-width: var(--size-0);
+  padding-top: var(--space-6);
+}
+
+.ry-consequential-main {
+  grid-area: main;
+  display: grid;
+  gap: var(--space-6);
+  min-width: var(--size-0);
+}
+
+.ry-consequential-rail {
+  position: sticky;
+  top: var(--space-5);
+  grid-area: rail;
+  display: grid;
+  gap: var(--space-5);
+  min-width: var(--size-0);
+  padding-inline-start: var(--space-5);
+  border-inline-start: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-readiness-summary,
+.ry-validation-summary,
+.ry-exact-artifact,
+.ry-review-section,
+.ry-review-outcome {
+  display: grid;
+  gap: var(--space-4);
+  min-width: var(--size-0);
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-readiness-summary > div,
+.ry-validation-summary header,
+.ry-exact-artifact > header,
+.ry-review-section > header,
+.ry-review-outcome > div {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ry-readiness-summary h2,
+.ry-validation-summary h2,
+.ry-exact-artifact h2,
+.ry-review-section h2,
+.ry-review-outcome h2,
+.ry-readiness-summary p,
+.ry-validation-summary p,
+.ry-exact-artifact p,
+.ry-review-section p,
+.ry-review-outcome p { margin: var(--space-0); }
+
+.ry-readiness-summary ul,
+.ry-validation-summary ul,
+.ry-review-list,
+.ry-review-facts {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-readiness-summary li { padding-inline-start: var(--space-4); }
+.ry-readiness-summary li::marker { color: var(--color-warning); }
+
+.ry-readiness-context {
+  padding-top: var(--space-4);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-validation-summary li {
+  display: grid;
+  grid-template-columns: auto minmax(var(--size-0), 1fr);
+  align-items: start;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-validation-summary li > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ry-validation-summary li span { color: var(--color-text-muted); }
+
+.ry-exact-artifact > header {
+  grid-template-columns: minmax(var(--size-0), 1fr) auto;
+  align-items: start;
+}
+
+.ry-artifact-version {
+  max-width: calc(var(--width-context-rail) / 2);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-12);
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+
+.ry-artifact-content,
+.ry-exact-artifact pre {
+  min-width: var(--size-0);
+  margin: var(--space-0);
+  padding: var(--space-5);
+  overflow-wrap: anywhere;
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+  white-space: pre-wrap;
+}
+
+.ry-exact-artifact pre {
+  max-width: 100%;
+  overflow-x: auto;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-13);
+}
+
+.ry-review-list li,
+.ry-review-facts > div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: var(--size-0);
+  padding-block: var(--space-3);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-review-facts {
+  grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
+}
+
+.ry-review-facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-review-facts dd {
+  min-width: var(--size-0);
+  margin: var(--space-0);
+  overflow-wrap: anywhere;
+}
+
+.ry-review-error {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--color-danger);
+  border: var(--border-width-1) solid var(--color-danger);
+  border-radius: var(--radius-2);
+  background: var(--color-danger-bg);
+}
+
+.ry-review-error p { margin: var(--space-0); }
+.ry-review-error .ry-button { justify-self: start; }
+
+.ry-consequential-page .ry-approval-panel {
+  gap: var(--space-5);
+  padding: var(--space-6);
+  border-color: var(--color-border-strong);
+}
+
+.ry-consequential-page .ry-approval-panel .ry-button-group {
+  padding-top: var(--space-4);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-confirmation-artifact {
+  max-width: 100%;
+  max-height: var(--width-drawer-narrow);
+  margin: var(--space-0);
+  padding: var(--space-3);
+  overflow: auto;
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-12);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ry-consequence-radio-group {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  border: var(--border-width-0);
+}
+
+.ry-consequence-radio-group legend {
+  margin-bottom: var(--space-2);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-review-outcome {
+  padding: var(--space-5);
+  border: var(--border-width-1) solid var(--color-success);
+  border-radius: var(--radius-2);
+  background: var(--color-success-bg);
+}
+
+@media (max-width: 64rem) {
+  .ry-consequential-layout {
+    grid-template-areas: "rail" "main";
+    grid-template-columns: minmax(var(--size-0), 1fr);
+    gap: var(--space-5);
+  }
+
+  .ry-consequential-rail {
+    position: static;
+    padding-inline-start: var(--space-0);
+    border-inline-start: var(--border-width-0);
+  }
+}
+
+@media (max-width: 48rem) {
+  .ry-consequential-page .ry-identity-header { padding-bottom: var(--space-4); }
+  .ry-consequential-page .ry-identity-actions { width: 100%; }
+  .ry-consequential-page .ry-identity-actions > * { flex: 1 1 auto; }
+  .ry-consequential-layout { padding-top: var(--space-4); }
+  .ry-review-facts { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-exact-artifact > header { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-artifact-version { max-width: 100%; text-align: start; }
+  .ry-artifact-version { white-space: normal; overflow-wrap: anywhere; }
+  .ry-consequential-page .ry-approval-panel { padding: var(--space-4); }
+  .ry-consequential-page .ry-approval-panel .ry-button-group { align-items: stretch; flex-direction: column; }
+  .ry-consequential-page .ry-approval-panel .ry-button { width: 100%; min-height: var(--control-height-touch); }
+  .ry-confirmation-dialog { padding: var(--space-5); }
+}

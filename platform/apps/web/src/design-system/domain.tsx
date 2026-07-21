@@ -44,6 +44,43 @@ export interface TimelineEntry {
   status?: ReactNode;
 }
 
+export interface AuditEntry {
+  id: string;
+  action: ReactNode;
+  actor?: ReactNode;
+  outcome?: ReactNode;
+  timestamp: ReactNode;
+  detail?: ReactNode;
+}
+
+export function AuditHistory({
+  entries,
+  empty = "No audited outcome has been recorded.",
+  label = "Audit history",
+  className
+}: {
+  entries: AuditEntry[];
+  empty?: ReactNode;
+  label?: string;
+  className?: string;
+}) {
+  if (!entries.length) return <p className="empty">{empty}</p>;
+  return (
+    <ol className={classes("ry-audit-history", className)} aria-label={label}>
+      {entries.map((entry) => (
+        <li key={entry.id}>
+          <div>
+            <strong>{entry.action}</strong>
+            {entry.detail ? <p>{entry.detail}</p> : null}
+            <small>{entry.timestamp}{entry.actor ? <> · {entry.actor}</> : null}</small>
+          </div>
+          {entry.outcome}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function ActivityTimeline({
   entries,
   empty = "No activity recorded.",

@@ -536,6 +536,24 @@ table td {
 .ry-activity-timeline p { margin-block: var(--space-1); }
 .ry-activity-timeline small { color: var(--color-text-muted); }
 
+.ry-audit-history {
+  display: grid;
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-audit-history li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-block: var(--space-3);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-audit-history p { margin-block: var(--space-1); }
+.ry-audit-history small { color: var(--color-text-muted); }
+
 .ry-domain-indicator,
 .ry-evidence-label {
   display: inline-flex;
@@ -624,6 +642,44 @@ table td {
 }
 
 .ry-overlay-open { overflow: hidden; }
+
+.ry-dialog-layer {
+  position: fixed;
+  z-index: var(--z-modal);
+  inset: var(--space-0);
+  display: grid;
+  place-items: center;
+  min-width: var(--size-0);
+  padding: var(--layout-page-gutter);
+  background: var(--color-overlay-scrim);
+}
+
+.ry-confirmation-dialog {
+  display: grid;
+  gap: var(--space-5);
+  width: min(var(--width-drawer-narrow), 100%);
+  max-height: calc(100dvh - (var(--layout-page-gutter) * 2));
+  padding: var(--space-6);
+  overflow-y: auto;
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-3);
+  background: var(--color-surface);
+  box-shadow: var(--elevation-dialog);
+}
+
+.ry-confirmation-dialog header,
+.ry-confirmation-consequence {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ry-confirmation-dialog h2,
+.ry-confirmation-dialog p { margin: var(--space-0); }
+
+.ry-confirmation-consequence {
+  padding-block: var(--space-4);
+  border-block: var(--border-width-1) solid var(--color-border);
+}
 
 .ry-drawer-layer {
   position: fixed;
