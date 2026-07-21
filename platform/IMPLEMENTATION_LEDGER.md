@@ -2,9 +2,70 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 6 — Consequential Review (structurally complete)
-**Active construction increment:** None; Increment 7 has not started
+**Completed redesign increment:** UI Redesign Increment 7 — Home Command Center (structurally complete)
+**Active construction increment:** None; Increment 8 has not started
 **Last updated:** 2026-07-21
+
+## UI Redesign Increment 7 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Command Center composition | Complete | Freshness, Today, changes, priority queue, pipeline exceptions, currency-separated commercial continuity, subordinate AI briefing |
+| Explainable priorities | Complete | Ordered list, visible reason, expandable explanation, blocking distinction, manual reprioritize when permitted |
+| Currency separation | Complete | Per-currency commercial sections with distinct actual/estimated labels via `CurrencyValue` |
+| AI degradation | Complete | Unavailable briefing remains visible; deterministic priorities stay usable; draft actions disabled when unavailable |
+| Honest empty states | Complete | Workspace-empty and no-queue messages without fabricated metrics or activity |
+| Responsive command model | Complete | Reading-width primary column, exception rail on wide screens, mobile sticky next action, no horizontal overflow at 390/375/320 px |
+| Accessibility | Complete | Ordered lists, descriptive links, expandable reasons, explicit alerts, sticky action label, no passive live refresh |
+| Functional protection | Complete | Existing Home routes, APIs, payloads, priority logic, access modes, and AI boundaries remain unchanged |
+| Increment 7 validation | Complete | Token policy, lint, strict typecheck, unit/integration, focused and complete Playwright, build, and authenticated screenshots |
+| Increment 8 Product Intelligence | Not started by design | Product register/detail/comparison migration remains outside this increment |
+
+### Increment 7 action-parity boundary
+
+- Home retains `GET /api/home-command-center`, `POST /api/home/acknowledge`, and
+  `POST /api/home/priorities/:itemType/:itemId/actions` with the existing
+  payload shapes and blocking rules.
+- Priority ordering, explanations, currency totals, and pipeline counts remain
+  server-calculated through the Phase 8 analytics service.
+- AI briefing retains `GET /api/ai/status` and `POST /api/ai/generate`; degraded
+  or unavailable service never hides deterministic Home content.
+- No schema, migration, API, route, permission, capability, validator, audit,
+  AI policy, or commerce-domain change is authorized for this structural
+  migration.
+
+### Increment 7 validation results
+
+- `npm run lint`: passed, including the token-only redesign policy.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 38 passed, including 4 Command Center contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Home Playwright: 10 passed with 2 intentional duplicate-project
+  skips, covering populated/empty states, expandable reasons, read-only access,
+  API recovery, AI degradation, and mobile geometry.
+- Complete `npm run test:e2e`: 80 passed with 12 intentional duplicate-project
+  skips across desktop and mobile Chromium.
+- `npm run build`: passed; Vite transformed 94 modules and emitted the
+  production client/server build. The existing bundle-size advisory remains.
+- Authenticated in-app inspection found no console or page errors. Exact 1440 ×
+  900, 1024 × 768, 390 × 844, 375 × 812, and 320 × 568 checks reported
+  `scrollWidth <= clientWidth` and zero visible viewport offenders on `/`.
+
+No migration, schema, API, route, payload, permission, capability, policy,
+authority, audit, validator, or business-domain change was required. No material
+founder decision was required. Increment 8 has not started.
+
+### Increment 7 structural completion and visual deferral
+
+- The Home Command Center pattern is structurally complete: attention ordering,
+  explainable reasons, currency separation, pipeline exceptions, commercial
+  continuity, AI degradation, and honest empty/error/read-only states remain
+  connected to existing server truth.
+- Product Intelligence and later domain migrations remain in their documented
+  increments.
+- Current styling is structural, not the final Ryva brand expression. Cohesive
+  whole-product UI/UX refinement remains intentionally deferred until all
+  documented redesign increments are structurally complete.
 
 ## UI Redesign Increment 6 scope ledger
 
