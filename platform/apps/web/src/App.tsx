@@ -29,8 +29,8 @@ import { ContactDetailPage } from "./redesign/contact";
 import {
   AgreementDetailPage,
   RepresentationDetailPage,
-  RepresentationPage
-} from "./pages/RepresentationPages";
+  RepresentationRegisterPage
+} from "./redesign/representation";
 import { PlacementDetailPage, PlacementPage } from "./pages/PlacementPages";
 import {
   OutreachDetailPage,
@@ -82,7 +82,7 @@ export function App() {
             <Route path="/buyers" element={<BuyerRegisterPage />} />
             <Route path="/buyers/:id" element={<BuyerDetailPage />} />
             <Route path="/contacts/:id" element={<ContactDetailPage />} />
-            <Route path="/representation" element={<RepresentationPage />} />
+            <Route path="/representation" element={<RepresentationRegisterPage />} />
             <Route path="/representation/:id" element={<RepresentationDetailPage />} />
             <Route path="/agreements/:id" element={<AgreementDetailPage />} />
             <Route path="/placements" element={<PlacementPage />} />

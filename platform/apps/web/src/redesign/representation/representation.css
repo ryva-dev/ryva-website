@@ -1,0 +1,137 @@
+/* Ryva Representation — UI Redesign Increment 11. */
+
+.ry-representation-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-representation-section-heading {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-4) var(--space-0);
+}
+
+.ry-representation-section-heading h2 { margin: var(--space-0); }
+
+.ry-representation-agreements,
+.ry-representation-create {
+  margin-top: var(--space-6);
+}
+
+.ry-representation-agreement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  gap: var(--space-4);
+  min-width: var(--size-0);
+  max-width: 100%;
+  justify-items: stretch;
+}
+
+.ry-representation-agreement-card {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  width: 100%;
+  max-width: 100%;
+  min-width: var(--size-0);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+  overflow-wrap: anywhere;
+}
+
+.ry-representation-agreement-card h3 {
+  margin: var(--space-0);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.ry-representation-agreement-card .quiet-tag,
+.ry-representation-agreement-card .ry-status-label,
+.ry-representation-agreement-card .status {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ry-representation-create-form {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  align-items: end;
+  padding: var(--space-4);
+}
+
+.ry-representation-create-form > *,
+.ry-representation-create-form .ry-field,
+.ry-representation-product-scope {
+  min-width: var(--size-0);
+  max-width: 100%;
+}
+
+.ry-representation-create-form .ry-select,
+.ry-representation-create-form select,
+.ry-representation-create-form .ry-input,
+.ry-representation-create-form input,
+.ry-representation-create-form textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: var(--size-0);
+}
+
+.ry-representation-product-scope {
+  display: grid;
+  gap: var(--space-2);
+  min-width: var(--size-0);
+  padding: var(--space-0);
+  border: var(--border-width-0);
+}
+
+.ry-representation-product-scope legend { font-weight: var(--font-weight-semibold); }
+
+.ry-representation-create-actions {
+  display: flex;
+  align-items: center;
+  grid-column: 1 / -1;
+}
+
+.ry-representation-stage-form,
+.ry-representation-terms-form,
+.ry-representation-candidate-form,
+.ry-representation-restriction-form {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.ry-representation-upload-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block: var(--space-3);
+}
+
+.ry-consequential-intro {
+  max-width: var(--width-reading);
+  margin: var(--space-0) var(--space-0) var(--space-4);
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 64rem) {
+  .ry-representation-agreement-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 48rem) {
+  .ry-representation-create-form { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-representation-upload-row { flex-direction: column; align-items: stretch; }
+  .ry-representation-upload-row .ry-button { width: 100%; }
+  .ry-representation-page .ry-register-mobile-identity,
+  .ry-representation-page .ry-register-mobile-identity strong,
+  .ry-representation-page .ry-register-mobile-identity span {
+    min-width: var(--size-0);
+    overflow-wrap: anywhere;
+  }
+  .ry-representation-page .ry-register-mobile-actions {
+    min-width: var(--size-0);
+    max-width: 100%;
+  }
+}

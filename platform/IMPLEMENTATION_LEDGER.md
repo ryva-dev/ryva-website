@@ -2,9 +2,38 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 10 — Businesses, Buyers, and Contacts (structurally complete)
-**Active construction increment:** None; Increment 11 has not started
+**Completed redesign increment:** UI Redesign Increment 11 — Representation and Agreement Authority (structurally complete)
+**Active construction increment:** None; Increment 12 has not started
 **Last updated:** 2026-07-21
+
+## UI Redesign Increment 11 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Representation Standard Register | Complete | `/representation` via `RepresentationRegisterPage` |
+| Representation Relationship Detail | Complete | `/representation/:id` via `RepresentationDetailPage` |
+| Agreement Consequential Review | Complete | `/agreements/:id` via `AgreementDetailPage` |
+| Authority / readiness visualization | Complete | ReadinessSummary, ValidationSummary, AuthorityIndicator |
+| Exact-artifact Agreement review | Complete | ExactArtifact + stored digest / version + approval then activate |
+| Scope honesty | Complete | Stored Products, channels, territory, restrictions only |
+| Product/Brand/Buyer/Contact unaffected | Complete | Increments 8–10 modules retained; generic route regression e2e |
+| Increment 11 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
+| Increment 12 Placement CRM | Not started by design | Remains outside this increment |
+
+### Increment 11 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 61 passed, including 5 Representation contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Representation Playwright: 15 passed with 3 intentional duplicate-project skips.
+- Complete `npm run test:e2e` run 1: 132 passed, 0 failed, 18 intentional skips.
+- Complete `npm run test:e2e` run 2: 132 passed, 0 failed, 18 intentional skips.
+- `npm run build`: passed.
+
+Increment 12 has not started. Final whole-product visual refinement remains
+deferred.
 
 ## UI Redesign Increment 10 scope ledger
 
@@ -19,7 +48,7 @@
 | Mobile call preparation | Complete | Buyer Overview call-prep + Contact call-prep section |
 | Product and Brand routes unaffected | Complete | Increments 8–9 modules retained; regression e2e pass |
 | Increment 10 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
-| Increment 11 Representation/Agreements | Not started by design | Remains outside this increment |
+| Increment 11 Representation/Agreements | Complete in Increment 11 | See Increment 11 scope ledger |
 
 ### Increment 10 validation results
 
@@ -34,8 +63,8 @@
 - Complete `npm run test:e2e` run 2: 117 passed, 0 failed, 15 intentional skips.
 - `npm run build`: passed.
 
-Increment 11 has not started. Final whole-product visual refinement remains
-deferred.
+Representation and Agreement authority completed in Increment 11. Final
+whole-product visual refinement remains deferred.
 
 ## UI Redesign Increment 9 scope ledger
 
