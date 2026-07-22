@@ -265,7 +265,7 @@ export function OrderDetailPage() {
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="commission" active={activeTab === "commission"}>
-          <RelationshipSection title="Commission context" description="Increment 15 owns commission ledgers, calculations, payouts, and disputes. Value is not commission owed. Commission rules, verification, approval, and payment remain in the existing commission workflow.">
+          <RelationshipSection title="Commission context" description="Commission ledgers, calculations, payouts, and disputes live in the Commission workflow. Value is not commission owed. Expected, approved, payable, and paid remain distinct.">
             {commissions.length ? <ul className="ry-relationship-evidence-list">{commissions.map((item) => <li key={item.id}><strong>{currency(item.expectedAmount, item.currency)}</strong><small>{shown(item.calculationExplanation)}</small><Link to={`/commissions/${item.id}`}>Explain</Link></li>)}</ul> : <EmptyState compact description="Commission appears only after verification and a documented rule." />}
             <Link className="ry-button ry-button-secondary" to="/commissions">Open commissions</Link>
           </RelationshipSection>

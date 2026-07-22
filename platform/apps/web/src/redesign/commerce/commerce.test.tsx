@@ -23,7 +23,7 @@ void describe("Ryva Commerce", () => {
     assert.match(source, /not guaranteed revenue/i);
     assert.match(source, /ConsequentialReviewLayout/);
     assert.match(source, /ConfirmationDialog/);
-    assert.match(source, /Increment 15/);
+    assert.match(source, /Commission calculation|commission calculation|Open Commissions/i);
     assert.match(source, /Placement is not an Account|Placement does not become an Account|Placement.*not.*Account/i);
   });
 
@@ -85,6 +85,49 @@ void describe("Ryva Commerce", () => {
     assert.match(source, /OrderDetailPage/);
     assert.match(source, /ProtectedAccountRegisterPage/);
     assert.match(source, /ReorderRegisterPage/);
+    assert.match(source, /CommissionRegisterPage/);
+    assert.match(source, /CommissionDetailPage/);
+    assert.match(source, /DisputeRegisterPage/);
+    assert.match(source, /DisputeDetailPage/);
+  });
+
+  void it("commission register preserves currency separation and state honesty", () => {
+    const source = readFileSync(new URL("./CommissionRegister.tsx", import.meta.url), "utf8");
+    assert.match(source, /title="Commissions"/);
+    assert.match(source, /Expected, verified, approved, payable, and paid values remain distinct/i);
+    assert.match(source, /Commission status/);
+    assert.match(source, /CurrencyValue/);
+    assert.match(source, /\/api\/commissions/);
+    assert.match(source, /\/api\/commercial-export\/commission/);
+    assert.match(source, /RegisterMobileList/);
+    assert.match(source, /Order value is not commission owed/);
+  });
+
+  void it("commission detail preserves consequential transitions and calculation transparency", () => {
+    const source = readFileSync(new URL("./CommissionDetail.tsx", import.meta.url), "utf8");
+    assert.match(source, /Confirm consequential state/);
+    assert.match(source, /ConsequentialReviewLayout/);
+    assert.match(source, /ExactArtifact/);
+    assert.match(source, /\/api\/commissions\/\$\{id\}\/status/);
+    assert.match(source, /\/api\/commissions\/\$\{id\}\/disputes/);
+    assert.match(source, /caught instanceof ApiProblem/);
+    assert.match(source, /Calculated is not payable/);
+    assert.match(source, /Approved is not paid/);
+    assert.match(source, /Visible calculation/);
+  });
+
+  void it("dispute register and detail preserve allegation versus proof boundaries", () => {
+    const register = readFileSync(new URL("./DisputeRegister.tsx", import.meta.url), "utf8");
+    const detail = readFileSync(new URL("./DisputeDetail.tsx", import.meta.url), "utf8");
+    assert.match(register, /title="Commission Disputes"/);
+    assert.match(register, /does not adjudicate contractual rights/i);
+    assert.match(register, /Dispute status/);
+    assert.match(register, /Open one from a Commission variance/i);
+    assert.match(detail, /Record final human decision/);
+    assert.match(detail, /ConsequentialReviewLayout/);
+    assert.match(detail, /Allegation is not proven|allegation is not proven|Allegation, not proven/i);
+    assert.match(detail, /\/api\/commission-disputes\/\$\{id\}\/resolve/);
+    assert.match(detail, /Withdrawal does not imply Brand correctness/);
   });
 
   void it("domain boundaries remain explicit across commerce surfaces", () => {

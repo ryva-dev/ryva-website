@@ -449,7 +449,7 @@ export function AccountDetailPage() {
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="commissions" active={activeTab === "commissions"}>
-          <RelationshipSection title="Commission reconciliation" description="Increment 15 owns commission calculation, approval, disputes, and payment reconciliation. Account status and Order value do not establish commission owed.">
+          <RelationshipSection title="Commission reconciliation" description="Commission calculation, approval, disputes, and payment reconciliation live in the Commission workflow. Account status and Order value do not establish commission owed.">
             <p>Review commission records in the dedicated register. This Account view does not calculate or restate commission amounts.</p>
             <p className="ry-commerce-boundary">Projected reorders and Estimated Commissions are not guaranteed revenue.</p>
             <Link className="ry-button ry-button-secondary" to="/commissions">Open Commissions</Link>

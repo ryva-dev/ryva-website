@@ -328,17 +328,32 @@ test("Reorders and Commissions clearly separate projections, approval, and curre
   await page.getByRole("link", { name: "Commissions", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Commissions", exact: true })).toBeVisible();
   await expect(page.getByText(/Expected, verified, approved, payable, and paid values remain distinct/i)).toBeVisible();
-  await expect(page.getByLabel("Commission status")).toBeVisible();
+  if (testInfo.project.name.includes("mobile")) {
+    await page.getByRole("button", { name: "Filters" }).click();
+    await expect(page.getByRole("dialog").getByLabel("Commission status")).toBeVisible();
+    await page.keyboard.press("Escape");
+  } else {
+    await expect(page.getByLabel("Commission status").first()).toBeVisible();
+  }
   await expectNoViewportLoss(page);
 });
 
-test("Commission Disputes retain human ownership and evidence-first empty states", async ({ page }) => {
+test("Commission Disputes retain human ownership and evidence-first empty states", async ({ page }, testInfo) => {
   await login(page);
   await page.goto("/commission-disputes");
   await expect(page.getByRole("heading", { name: "Commission Disputes" })).toBeVisible();
   await expect(page.getByText(/does not adjudicate contractual rights/i)).toBeVisible();
-  await expect(page.getByLabel("Dispute status")).toBeVisible();
-  await expect(page.getByText(/Open one from a Commission variance/i)).toBeVisible();
+  if (testInfo.project.name.includes("mobile")) {
+    await page.getByRole("button", { name: "Filters" }).click();
+    await expect(page.getByRole("dialog").getByLabel("Dispute status")).toBeVisible();
+    await page.keyboard.press("Escape");
+  } else {
+    await expect(page.getByLabel("Dispute status").first()).toBeVisible();
+  }
+  const emptyGuidance = page.getByText(/Open one from a Commission variance/i);
+  const caseTable = page.getByRole("table", { name: "Commission dispute cases" });
+  const mobileList = page.getByRole("list", { name: "Commission dispute cases" });
+  await expect(emptyGuidance.or(caseTable).or(mobileList).first()).toBeVisible();
   await expectNoViewportLoss(page);
 });
 

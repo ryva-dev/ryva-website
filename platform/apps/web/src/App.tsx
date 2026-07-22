@@ -41,16 +41,16 @@ import {
 import {
   AccountDetailPage,
   AccountRegisterPage,
+  CommissionDetailPage,
+  CommissionRegisterPage,
+  DisputeDetailPage,
+  DisputeRegisterPage,
   OrderDetailPage,
   OrderRegisterPage,
   ProtectedAccountRegisterPage,
   ReorderRegisterPage
 } from "./redesign/commerce";
 import {
-  CommissionDetailPage,
-  CommissionDisputeDetailPage,
-  CommissionDisputesPage,
-  CommissionsPage,
   ProtectedAccountDetailPage
 } from "./pages/CommercePages";
 import { AiCopilotPage, AiSuggestionPage } from "./pages/AiPages";
@@ -100,10 +100,10 @@ export function App() {
             <Route path="/orders" element={<OrderRegisterPage />} />
             <Route path="/orders/:id" element={<OrderDetailPage />} />
             <Route path="/reorders" element={<ReorderRegisterPage />} />
-            <Route path="/commissions" element={<CommissionsPage />} />
+            <Route path="/commissions" element={<CommissionRegisterPage />} />
             <Route path="/commissions/:id" element={<CommissionDetailPage />} />
-            <Route path="/commission-disputes" element={<CommissionDisputesPage />} />
-            <Route path="/commission-disputes/:id" element={<CommissionDisputeDetailPage />} />
+            <Route path="/commission-disputes" element={<DisputeRegisterPage />} />
+            <Route path="/commission-disputes/:id" element={<DisputeDetailPage />} />
             <Route path="/copilot" element={<AiCopilotPage />} />
             <Route path="/copilot/:suggestionId" element={<AiSuggestionPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />

@@ -5,3 +5,7 @@ export { ProtectedAccountRegisterPage } from "./ProtectedAccountRegister";
 export { OrderRegisterPage } from "./OrderRegister";
 export { OrderDetailPage } from "./OrderDetail";
 export { ReorderRegisterPage } from "./ReorderRegister";
+export { CommissionRegisterPage } from "./CommissionRegister";
+export { CommissionDetailPage } from "./CommissionDetail";
+export { DisputeRegisterPage } from "./DisputeRegister";
+export { DisputeDetailPage } from "./DisputeDetail";

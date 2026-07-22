@@ -2,9 +2,45 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 14 — Accounts, Orders, Reorders, and Protection (structurally complete)
-**Active construction increment:** None; Increment 15 has not started
+**Completed redesign increment:** UI Redesign Increment 15 — Commissions and Disputes (structurally complete)
+**Active construction increment:** None; Increment 16 has not started
 **Last updated:** 2026-07-22
+
+## UI Redesign Increment 15 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Commission Standard Register | Complete | `/commissions` via `CommissionRegisterPage` |
+| Commission Relationship Detail | Complete | `/commissions/:id` via `CommissionDetailPage` |
+| Calculation transparency | Complete | Server formula/inputs; no client recomputation |
+| Consequential status transitions | Complete | ExactArtifact + ConfirmationDialog + version concurrency |
+| Dispute open from Commission | Complete | Existing `/disputes` POST preserved |
+| Dispute Standard Register | Complete | `/commission-disputes` via `DisputeRegisterPage` |
+| Dispute Consequential Review | Complete | `/commission-disputes/:id` via `DisputeDetailPage` |
+| Payable/paid/clawback honesty | Complete | Due ≠ receipt; approved ≠ paid; calculated ≠ payable |
+| Allegation versus proof | Complete | Explicit allegation/evidence/verification labels |
+| Analytics/operations boundary | Complete | Links/regression only; Inc 16 not started |
+| Prior commercial routes unaffected | Complete | Accounts/Orders/Placement/Outreach/Representation e2e |
+| Increment 15 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
+| Increment 16 Analytics/Operations | Not started by design | Remains outside this increment |
+
+### Increment 15 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 83 passed, including 12 Commerce/Commission contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused commission Playwright: 12 passed with 2 intentional desktop-only skips.
+- Focused commission/commerce/Placement/Outreach/Representation/Buyer regression: 93 passed, 13 intentional skips.
+- Complete `npm run test:e2e` run 1: 183 passed, 0 failed, 27 intentional skips.
+- Complete `npm run test:e2e` run 2: 183 passed, 0 failed, 27 intentional skips.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Markdown trailing-whitespace check for Increment 15 docs and ledger: passed.
+
+Increment 16 has not started. Final whole-product visual refinement remains
+deferred.
 
 ## UI Redesign Increment 14 scope ledger
 

@@ -77,3 +77,30 @@ export const protectionStatuses = ["pending", "active", "expiring", "expired", "
 export const orderStatuses = ["draft", "submitted", "confirmed", "fulfilled", "partially_returned", "returned", "canceled"] as const;
 export const reorderStatuses = ["projected", "due", "contacted", "ordered", "deferred", "not_expected", "closed"] as const;
 export const orderPlacementStages = ["terms_order_discussion", "opening_order"] as const;
+export const commissionStatuses = [
+  "estimated",
+  "pending_verification",
+  "approved",
+  "payable",
+  "paid",
+  "disputed",
+  "canceled",
+  "clawed_back"
+] as const;
+export const commissionTransitionStatuses = [
+  "pending_verification",
+  "approved",
+  "payable",
+  "paid",
+  "canceled",
+  "clawed_back"
+] as const;
+export const disputeStatuses = [
+  "opened",
+  "evidence_needed",
+  "submitted",
+  "under_review",
+  "resolved",
+  "rejected",
+  "withdrawn"
+] as const;

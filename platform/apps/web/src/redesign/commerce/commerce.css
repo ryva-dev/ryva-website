@@ -55,14 +55,18 @@
   padding: var(--space-0) var(--space-2);
 }
 
-.ry-commerce-formula {
-  margin: var(--space-0);
-  padding: var(--space-4);
-  border: var(--border-width-1) solid var(--color-border);
-  border-radius: var(--radius-2);
-  background: var(--color-surface-subtle);
-  overflow-wrap: anywhere;
+.ry-commerce-currency-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  gap: var(--space-4);
+  margin: var(--space-0) var(--space-0) var(--space-5);
 }
+
+.ry-commerce-numeric {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
 
 .ry-commerce-actions {
   display: flex;
