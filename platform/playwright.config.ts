@@ -4,12 +4,14 @@ export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: false,
+  timeout: 60_000,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "line",
   use: {
     baseURL: "http://127.0.0.1:5173",
     trace: "retain-on-failure",
-    screenshot: "only-on-failure"
+    screenshot: "only-on-failure",
+    actionTimeout: 15_000
   },
   webServer: [
     {

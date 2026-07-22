@@ -34,10 +34,10 @@ import {
 import { PlacementDetailPage, PlacementRegisterPage } from "./redesign/placement";
 import {
   OutreachDetailPage,
-  OutreachPage,
   OutreachSequencesPage,
-  OutreachTemplatesPage
-} from "./pages/OutreachPages";
+  OutreachTemplatesPage,
+  OutreachWorkspacePage
+} from "./redesign/outreach";
 import {
   AccountDetailPage,
   AccountsPage,
@@ -87,7 +87,7 @@ export function App() {
             <Route path="/agreements/:id" element={<AgreementDetailPage />} />
             <Route path="/placements" element={<PlacementRegisterPage />} />
             <Route path="/placements/:id" element={<PlacementDetailPage />} />
-            <Route path="/outreach" element={<OutreachPage />} />
+            <Route path="/outreach" element={<OutreachWorkspacePage />} />
             <Route path="/outreach/templates" element={<OutreachTemplatesPage />} />
             <Route path="/outreach/sequences" element={<OutreachSequencesPage />} />
             <Route path="/outreach/:id" element={<OutreachDetailPage />} />

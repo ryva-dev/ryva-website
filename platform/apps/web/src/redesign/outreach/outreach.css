@@ -1,0 +1,176 @@
+/* Ryva Outreach Center — UI Redesign Increment 13. */
+
+.ry-outreach-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-outreach-section-heading {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-4) var(--space-0);
+}
+
+.ry-outreach-section-heading h2 { margin: var(--space-0); }
+
+.ry-outreach-summary {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+}
+
+.ry-outreach-summary p { margin: var(--space-0); }
+.ry-outreach-summary-note { color: var(--color-text-muted); font-size: var(--font-size-12); }
+
+.ry-outreach-workspace {
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: minmax(var(--size-0), 1.2fr) minmax(var(--size-0), 1fr);
+  align-items: start;
+}
+
+.ry-outreach-history-list {
+  display: grid;
+  gap: var(--space-0);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-outreach-history-item,
+.record-list .task-row {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-outreach-history-item strong,
+.ry-outreach-history-item small { display: block; overflow-wrap: anywhere; }
+
+.ry-outreach-prepare-form,
+.ry-outreach-call-form,
+.ry-outreach-template-form,
+.ry-outreach-sequence-form {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  align-items: start;
+  padding: var(--space-4);
+}
+
+.ry-outreach-prepare-form > *,
+.ry-outreach-call-form > *,
+.ry-outreach-template-form > *,
+.ry-outreach-sequence-form > *,
+.ry-outreach-prepare-form .ry-field,
+.ry-outreach-call-form .ry-field,
+.ry-outreach-template-form .ry-field,
+.ry-outreach-sequence-form .ry-field {
+  min-width: var(--size-0);
+  max-width: 100%;
+}
+
+.ry-outreach-prepare-form .ry-select,
+.ry-outreach-prepare-form select,
+.ry-outreach-prepare-form .ry-input,
+.ry-outreach-prepare-form input,
+.ry-outreach-prepare-form textarea,
+.ry-outreach-call-form .ry-select,
+.ry-outreach-call-form select,
+.ry-outreach-call-form .ry-input,
+.ry-outreach-call-form input,
+.ry-outreach-call-form textarea,
+.ry-outreach-template-form .ry-select,
+.ry-outreach-template-form select,
+.ry-outreach-template-form .ry-input,
+.ry-outreach-template-form input,
+.ry-outreach-template-form textarea,
+.ry-outreach-sequence-form .ry-select,
+.ry-outreach-sequence-form select,
+.ry-outreach-sequence-form .ry-input,
+.ry-outreach-sequence-form input {
+  width: 100%;
+  max-width: 100%;
+  min-width: var(--size-0);
+}
+
+.ry-outreach-message-preview {
+  max-width: 100%;
+  min-width: var(--size-0);
+  margin: var(--space-0);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.ry-outreach-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.ry-outreach-library-card {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  min-width: var(--size-0);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+  overflow-wrap: anywhere;
+}
+
+.ry-outreach-library-card h3 { margin: var(--space-0); }
+.ry-outreach-library-card .quiet-tag,
+.ry-outreach-library-card .ry-status-label {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ry-outreach-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.ry-outreach-boundary {
+  margin: var(--space-0) var(--space-4) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+@media (max-width: 64rem) {
+  .ry-outreach-workspace { grid-template-columns: minmax(var(--size-0), 1fr); }
+}
+
+@media (max-width: 48rem) {
+  .ry-outreach-prepare-form,
+  .ry-outreach-call-form,
+  .ry-outreach-template-form,
+  .ry-outreach-sequence-form {
+    grid-template-columns: minmax(var(--size-0), 1fr);
+  }
+  .ry-outreach-page .ry-register-mobile-identity,
+  .ry-outreach-page .ry-register-mobile-identity strong,
+  .ry-outreach-page .ry-register-mobile-identity span {
+    min-width: var(--size-0);
+    overflow-wrap: anywhere;
+  }
+  .ry-outreach-header-actions { width: 100%; }
+  .ry-outreach-header-actions .ry-button { flex: 1 1 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-outreach-library-card { transition: none; }
+}

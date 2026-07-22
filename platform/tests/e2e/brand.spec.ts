@@ -75,7 +75,10 @@ test("Brand detail preserves evidence, products, and representation readiness bo
   await page.getByRole("tab", { name: "Evidence" }).click();
   const evidencePanel = page.getByRole("tabpanel", { name: /Evidence/ });
   await evidencePanel.getByLabel("Exact claim or unknown").fill("Wholesale terms have not yet been supplied.");
-  await evidencePanel.getByRole("button", { name: "Add evidence" }).click();
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes("/evidence") && response.request().method() === "POST"),
+    evidencePanel.getByRole("button", { name: "Add evidence" }).click()
+  ]);
   await expect(page.getByText("Evidence was recorded.", { exact: true })).toBeVisible();
   await expect(evidencePanel.getByRole("listitem").filter({ hasText: "Wholesale terms have not yet been supplied." })).toBeVisible();
   await captureIncrement9(page, isMobile ? "brand-detail-evidence-mobile-390x844.png" : "brand-detail-evidence-desktop-1440x900.png", true);

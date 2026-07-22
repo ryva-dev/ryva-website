@@ -499,8 +499,8 @@ export function PlacementDetailPage() {
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="outreach" active={activeTab === "outreach"}>
-          <RelationshipSection title="Outreach context" description="Increment 13 owns the Outreach Center. This Placement only exposes the existing linked entry point. Placement readiness does not authorize Outreach.">
-            <p>Open the existing Outreach workspace with this Placement preselected. Templates, sequences, and exact-artifact send review remain unchanged.</p>
+          <RelationshipSection title="Outreach context" description="Increment 13 owns the Outreach Center. Placement readiness does not authorize Outreach.">
+            <p>Open the Outreach workspace with this Placement preselected. Exact-artifact approval, permission, suppression, and channel rules remain separately enforced.</p>
             <Link className="ry-button ry-button-secondary" to={`/outreach?placementId=${id}`}>Open Outreach</Link>
           </RelationshipSection>
         </RelationshipTabPanel>

@@ -15,6 +15,7 @@ import "./redesign/buyer/buyer.css";
 import "./redesign/contact/contact.css";
 import "./redesign/representation/representation.css";
 import "./redesign/placement/placement.css";
+import "./redesign/outreach/outreach.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Ryva Pro root element was not found.");

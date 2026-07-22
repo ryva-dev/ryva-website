@@ -2,9 +2,40 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 12 — Placement CRM and Detail (structurally complete)
-**Active construction increment:** None; Increment 13 has not started
-**Last updated:** 2026-07-21
+**Completed redesign increment:** UI Redesign Increment 13 — Outreach Center (structurally complete)
+**Active construction increment:** None; Increment 14 has not started
+**Last updated:** 2026-07-22
+
+## UI Redesign Increment 13 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Outreach communication workspace | Complete | `/outreach` via `OutreachWorkspacePage` |
+| Message register + mobile semantic rows | Complete | Standard Register table + RegisterMobileList |
+| Placement query context | Complete | `?placementId=` preselects Prepared Placement |
+| Outreach Relationship Detail | Complete | `/outreach/:id` via `OutreachDetailPage` |
+| Exact-artifact Consequential Review | Complete | ExactArtifact + ApprovalPanel + ConfirmationDialog |
+| Permission / verification / suppression honesty | Complete | Distinct labels; Placement readiness ≠ Outreach approval |
+| Templates and Sequences | Complete | `/outreach/templates`, `/outreach/sequences` |
+| Commercial boundary | Complete | Links/regression only; no Inc 14 redesign |
+| Prior domain routes unaffected | Complete | Placement/Contact/Buyer/Representation/Product/Brand e2e |
+| Increment 13 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
+| Increment 14 Accounts/Orders | Not started by design | Remains outside this increment |
+
+### Increment 13 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 71 passed, including 6 Outreach contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Outreach Playwright: 19 passed with 3 intentional duplicate-project skips.
+- Complete `npm run test:e2e` run 1: 158 passed, 0 failed, 24 intentional skips.
+- Complete `npm run test:e2e` run 2: 158 passed, 0 failed, 24 intentional skips.
+- `npm run build`: passed.
+
+Increment 14 has not started. Final whole-product visual refinement remains
+deferred.
 
 ## UI Redesign Increment 12 scope ledger
 
@@ -16,10 +47,10 @@
 | Placement Relationship Detail | Complete | `/placements/:id` via `PlacementDetailPage` |
 | Consequential stage review | Complete | Stage tab ExactArtifact + ConfirmationDialog |
 | Authority / Agreement truthfulness | Complete | Authority evaluate + AuthorityIndicator |
-| Outreach / commercial boundaries | Complete | Links only; no Inc 13/14 redesign |
+| Outreach / commercial boundaries | Complete | Links only; Outreach migrated in Increment 13 |
 | Prior domain routes unaffected | Complete | Representation and Product/Brand/Buyer/Contact e2e |
 | Increment 12 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
-| Increment 13 Outreach Center | Not started by design | Remains outside this increment |
+| Increment 13 Outreach Center | Complete in Increment 13 | See Increment 13 scope ledger |
 
 ### Increment 12 validation results
 
@@ -33,8 +64,8 @@
 - Complete `npm run test:e2e` run 2: 145 passed, 0 failed, 21 intentional skips.
 - `npm run build`: passed.
 
-Increment 13 has not started. Final whole-product visual refinement remains
-deferred.
+Outreach Center completed in Increment 13. Final whole-product visual refinement
+remains deferred.
 
 ## UI Redesign Increment 11 scope ledger
 
