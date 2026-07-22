@@ -1,0 +1,220 @@
+/* Ryva Placement CRM — UI Redesign Increment 12. */
+
+.ry-placement-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-placement-section-heading {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-4) var(--space-0);
+}
+
+.ry-placement-section-heading h2 { margin: var(--space-0); }
+
+.ry-placement-summary {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+}
+
+.ry-placement-summary p { margin: var(--space-0); }
+.ry-placement-summary-note { color: var(--color-text-muted); font-size: var(--font-size-12); }
+
+.ry-placement-view-switch { display: flex; align-items: center; }
+
+.ry-placement-view-hidden { display: none; }
+
+.ry-placement-kanban-note {
+  margin: var(--space-0) var(--space-0) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-placement-kanban-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(var(--width-drawer-narrow), var(--width-drawer-narrow));
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  overflow-x: auto;
+}
+
+.ry-placement-kanban-column {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: var(--size-0);
+  padding: var(--space-3);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+}
+
+.ry-placement-kanban-column header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.ry-placement-kanban-column h2 {
+  margin: var(--space-0);
+  font-size: var(--font-size-14);
+}
+
+.ry-placement-kanban-column ul {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-placement-kanban-card {
+  display: grid;
+  gap: var(--space-2);
+  min-width: var(--size-0);
+  padding: var(--space-3);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+  overflow-wrap: anywhere;
+}
+
+.ry-placement-kanban-card a {
+  display: grid;
+  gap: var(--space-2);
+  color: inherit;
+  text-decoration: none;
+}
+
+.ry-placement-kanban-card .quiet-tag,
+.ry-placement-kanban-card .ry-status-label {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.ry-placement-kanban-move { display: grid; gap: var(--space-1); min-width: var(--size-0); }
+.ry-placement-kanban-move .ry-select,
+.ry-placement-kanban-move select {
+  width: 100%;
+  max-width: 100%;
+  min-width: var(--size-0);
+}
+
+.ry-placement-mobile-groups { display: none; }
+
+.ry-placement-mobile-group {
+  margin-top: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+}
+
+.ry-placement-mobile-group header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-placement-mobile-group h2 {
+  margin: var(--space-0);
+  font-size: var(--font-size-14);
+}
+
+.ry-placement-create-inline { margin-top: var(--space-6); }
+.ry-placement-create-lead {
+  margin: var(--space-0) var(--space-4) var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.ry-placement-create-form {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  align-items: start;
+  padding: var(--space-4);
+}
+
+.ry-placement-create-form > *,
+.ry-placement-create-form .ry-field {
+  min-width: var(--size-0);
+  max-width: 100%;
+}
+
+.ry-placement-create-form .ry-select,
+.ry-placement-create-form select,
+.ry-placement-create-form .ry-input,
+.ry-placement-create-form input,
+.ry-placement-create-form textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: var(--size-0);
+}
+
+.ry-placement-progression {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-placement-progression li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-0);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-placement-stage-form {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.ry-placement-commercial-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.ry-placement-stage-review { min-width: var(--size-0); }
+
+@media (max-width: 64rem) {
+  .ry-placement-kanban-board {
+    grid-auto-flow: row;
+    grid-auto-columns: unset;
+    grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
+    overflow-x: visible;
+  }
+}
+
+@media (max-width: 48rem) {
+  .ry-placement-view-switch { display: none; }
+  .ry-placement-table-view,
+  .ry-placement-kanban { display: none; }
+  .ry-placement-mobile-groups { display: grid; gap: var(--space-4); }
+  .ry-placement-create-form { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-placement-create-inline-form { display: none; }
+  .ry-placement-page .ry-register-mobile-identity,
+  .ry-placement-page .ry-register-mobile-identity strong,
+  .ry-placement-page .ry-register-mobile-identity span {
+    min-width: var(--size-0);
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-placement-kanban-card { transition: none; }
+}

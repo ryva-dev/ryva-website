@@ -22,13 +22,20 @@ test("representative can reach the server-backed Representation authority worksp
   await expect(page.getByLabel("Contact Ready Brand")).toBeVisible();
 });
 
-test("representative sees Placement authority and Relationship Triangle gates", async ({ page }) => {
+test("representative sees Placement authority and Relationship Triangle gates", async ({ page }, testInfo) => {
   await login(page);
   await page.goto("/placements");
   await expect(page.getByRole("heading", { name: "Placement Opportunities" })).toBeVisible();
-  await expect(page.getByText(/three-party value/i)).toBeVisible();
+  await expect(page.getByText(/three-party value/i).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Create a Placement Opportunity" })).toBeVisible();
-  await expect(page.getByLabel("Active Agreement")).toBeVisible();
-  await expect(page.getByLabel("Concrete Buyer value")).toBeVisible();
-  await expect(page.getByText(/Brand, Business Buyer, and Representative/i)).toBeVisible();
+  if (testInfo.project.name.includes("mobile")) {
+    await page.getByRole("button", { name: "Create Placement" }).click();
+    await expect(page.getByRole("dialog").getByLabel("Active Agreement")).toBeVisible();
+    await expect(page.getByRole("dialog").getByLabel("Concrete Buyer value")).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(/Brand, Business Buyer, and Representative/i)).toBeVisible();
+  } else {
+    await expect(page.getByLabel("Active Agreement")).toBeVisible();
+    await expect(page.getByLabel("Concrete Buyer value")).toBeVisible();
+    await expect(page.getByText(/Brand, Business Buyer, and Representative/i)).toBeVisible();
+  }
 });

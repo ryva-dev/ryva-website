@@ -2,9 +2,39 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 11 — Representation and Agreement Authority (structurally complete)
-**Active construction increment:** None; Increment 12 has not started
+**Completed redesign increment:** UI Redesign Increment 12 — Placement CRM and Detail (structurally complete)
+**Active construction increment:** None; Increment 13 has not started
 **Last updated:** 2026-07-21
+
+## UI Redesign Increment 12 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Placement Pipeline / Standard Register | Complete | `/placements` via `PlacementRegisterPage` |
+| Table and Kanban views | Complete | View switch; Kanban drag opens stage review |
+| Mobile stage-grouped list | Complete | Stage-grouped RegisterMobileList; no horizontal Kanban |
+| Placement Relationship Detail | Complete | `/placements/:id` via `PlacementDetailPage` |
+| Consequential stage review | Complete | Stage tab ExactArtifact + ConfirmationDialog |
+| Authority / Agreement truthfulness | Complete | Authority evaluate + AuthorityIndicator |
+| Outreach / commercial boundaries | Complete | Links only; no Inc 13/14 redesign |
+| Prior domain routes unaffected | Complete | Representation and Product/Brand/Buyer/Contact e2e |
+| Increment 12 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
+| Increment 13 Outreach Center | Not started by design | Remains outside this increment |
+
+### Increment 12 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 65 passed, including 4 Placement contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Placement + phase4 Playwright: 17 passed with 3 intentional duplicate-project skips.
+- Complete `npm run test:e2e` run 1: 145 passed, 0 failed, 21 intentional skips.
+- Complete `npm run test:e2e` run 2: 145 passed, 0 failed, 21 intentional skips.
+- `npm run build`: passed.
+
+Increment 13 has not started. Final whole-product visual refinement remains
+deferred.
 
 ## UI Redesign Increment 11 scope ledger
 
@@ -18,7 +48,7 @@
 | Scope honesty | Complete | Stored Products, channels, territory, restrictions only |
 | Product/Brand/Buyer/Contact unaffected | Complete | Increments 8–10 modules retained; generic route regression e2e |
 | Increment 11 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
-| Increment 12 Placement CRM | Not started by design | Remains outside this increment |
+| Increment 12 Placement CRM | Complete in Increment 12 | See Increment 12 scope ledger |
 
 ### Increment 11 validation results
 
@@ -32,8 +62,8 @@
 - Complete `npm run test:e2e` run 2: 132 passed, 0 failed, 18 intentional skips.
 - `npm run build`: passed.
 
-Increment 12 has not started. Final whole-product visual refinement remains
-deferred.
+Placement CRM completed in Increment 12. Final whole-product visual refinement
+remains deferred.
 
 ## UI Redesign Increment 10 scope ledger
 

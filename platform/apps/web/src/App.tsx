@@ -31,7 +31,7 @@ import {
   RepresentationDetailPage,
   RepresentationRegisterPage
 } from "./redesign/representation";
-import { PlacementDetailPage, PlacementPage } from "./pages/PlacementPages";
+import { PlacementDetailPage, PlacementRegisterPage } from "./redesign/placement";
 import {
   OutreachDetailPage,
   OutreachPage,
@@ -85,7 +85,7 @@ export function App() {
             <Route path="/representation" element={<RepresentationRegisterPage />} />
             <Route path="/representation/:id" element={<RepresentationDetailPage />} />
             <Route path="/agreements/:id" element={<AgreementDetailPage />} />
-            <Route path="/placements" element={<PlacementPage />} />
+            <Route path="/placements" element={<PlacementRegisterPage />} />
             <Route path="/placements/:id" element={<PlacementDetailPage />} />
             <Route path="/outreach" element={<OutreachPage />} />
             <Route path="/outreach/templates" element={<OutreachTemplatesPage />} />
