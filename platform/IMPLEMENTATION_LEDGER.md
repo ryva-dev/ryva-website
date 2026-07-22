@@ -2,9 +2,43 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 16 — Analytics, Transfer, Settings, and Operations (structurally complete)
-**Active construction increment:** None; Increment 17 has not started
+**Completed redesign increment:** UI Redesign Increment 17 — Whole-Product Responsive, Accessibility, and Consistency Consolidation (structurally complete)
+**Active construction increment:** None; structural redesign increments are complete. Final Claude-led visual/brand refinement remains separate.
 **Last updated:** 2026-07-22
+
+## UI Redesign Increment 17 scope ledger
+
+| Requirement | Status | Implementation evidence |
+|---|---|---|
+| Route inventory | Complete | `docs/ui-redesign-spec/final-route-inventory.md` |
+| Canonical wiring | Complete | `/protected-accounts/:id` → `redesign/commerce/ProtectedAccountDetail.tsx`; all other migrated routes remain on redesign modules |
+| Document titles | Complete | `shellDocumentTitle` in shell + Login |
+| Mobile bottom nav metadata | Complete | Shared `mobileBottomNavigation` source |
+| Structural QA checklist | Complete | `docs/ui-redesign-spec/final-structural-qa.md` |
+| Cross-product e2e | Complete | `tests/e2e/increment-17.spec.ts` |
+| Legacy retention | Complete | Unwired CommercePages legacy exports retained; Copilot/Login intentionally not brand-polished |
+| No final brand beautification | Complete | Structural/usability only |
+| No post-redesign roadmap work | Complete | No Railway, Stripe, certification, live providers, marketing, or Closing Program |
+| Screenshots | Complete | `docs/ui-redesign-spec/screenshots/increment-17/` |
+| Validation | Complete | See validation results below |
+
+### Increment 17 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 102 passed.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Increment 17 Playwright (desktop): 7 passed.
+- Focused Increment 17 Playwright (both projects): 9 passed, 5 intentional skips.
+- Complete `npm run test:e2e` run 1: 207 passed, 0 failed, 33 intentional skips.
+- Complete `npm run test:e2e` run 2: 207 passed, 0 failed, 33 intentional skips.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Markdown trailing-whitespace check for Increment 17 docs and ledger: passed.
+
+Final Claude-led visual and brand refinement remains deferred. Nothing was
+committed or pushed by this increment work.
 
 ## UI Redesign Increment 16 scope ledger
 

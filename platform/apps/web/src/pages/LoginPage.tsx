@@ -1,8 +1,9 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { ApiProblem } from "../api";
 import { useAuth } from "../auth";
 import { Field } from "../components";
+import { shellDocumentTitle } from "../redesign/shell/navigation";
 
 export function LoginPage() {
   const auth = useAuth();
@@ -14,6 +15,11 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
+
+  useEffect(() => {
+    document.title = shellDocumentTitle("/login");
+  }, []);
+
   if (!auth.loading && auth.session && !submitting && !redirecting) return <Navigate to="/" replace />;
 
   async function submit(event: FormEvent) {

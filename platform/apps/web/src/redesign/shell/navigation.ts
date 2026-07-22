@@ -118,10 +118,38 @@ const routeLabels: Array<[string, string]> = [
   ["/sources", "Sources"],
   ["/copilot", "AI Copilot"],
   ["/admin", "Operations"],
-  ["/access", "Access"]
+  ["/access", "Access"],
+  ["/login", "Sign in"]
+];
+
+export type MobileBottomNavItem = {
+  label: string;
+  to: string;
+  icon: ShellIconName;
+  exact?: boolean;
+};
+
+/** Primary mobile bottom destinations for full-access sessions. */
+export const mobileBottomNavigation: MobileBottomNavItem[] = [
+  { label: "Home", to: "/", icon: "home", exact: true },
+  { label: "Tasks", to: "/tasks", icon: "tasks" },
+  { label: "Placements", to: "/placements", icon: "placement" },
+  { label: "Search", to: "/search", icon: "search" }
 ];
 
 export function shellRouteLabel(pathname: string): string {
   if (pathname === "/") return "Home";
   return routeLabels.find(([prefix]) => pathname.startsWith(prefix))?.[1] ?? "Ryva Pro";
+}
+
+export function shellDocumentTitle(pathname: string, search = ""): string {
+  const params = new URLSearchParams(search);
+  if (pathname === "/analytics" && params.get("view") === "reports") {
+    return "Reports · Ryva Pro";
+  }
+  if (pathname === "/analytics" && params.get("view") === "definitions") {
+    return "Metric Definitions · Ryva Pro";
+  }
+  const label = shellRouteLabel(pathname);
+  return label === "Ryva Pro" ? "Ryva Pro" : `${label} · Ryva Pro`;
 }

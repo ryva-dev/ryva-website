@@ -9,7 +9,7 @@ import { api } from "../../api";
 import { useAuth } from "../../auth";
 import { Banner, LoadingState, StatusLabel } from "../../design-system";
 import { designTokens } from "../../design/tokens";
-import { buildShellNavigation, shellRouteLabel, type ShellNavGroup, type ShellNavItem } from "./navigation";
+import { buildShellNavigation, mobileBottomNavigation, shellDocumentTitle, shellRouteLabel, type ShellNavGroup, type ShellNavItem } from "./navigation";
 import { ShellIcon, type ShellIconName } from "./ShellIcon";
 
 type ViewportMode = "mobile" | "tablet" | "desktop";
@@ -531,6 +531,10 @@ export function ApplicationShell() {
   }, [location.pathname, location.search]);
 
   useEffect(() => {
+    document.title = shellDocumentTitle(location.pathname, location.search);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
     if (viewport !== "tablet") setTabletOpen(false);
     if (viewport !== "mobile") setMobileOpen(false);
   }, [viewport]);
@@ -662,10 +666,16 @@ export function ApplicationShell() {
 
       {canOperate ? (
         <nav className="ry-mobile-bottom-nav" aria-label="Mobile primary">
-          <BottomNavLink to="/" label="Home" icon="home" currentPath={location.pathname} exact />
-          <BottomNavLink to="/tasks" label="Tasks" icon="tasks" currentPath={location.pathname} />
-          <BottomNavLink to="/placements" label="Placements" icon="placement" currentPath={location.pathname} />
-          <BottomNavLink to="/search" label="Search" icon="search" currentPath={location.pathname} />
+          {mobileBottomNavigation.map((item) => (
+            <BottomNavLink
+              key={item.to}
+              to={item.to}
+              label={item.label}
+              icon={item.icon}
+              currentPath={location.pathname}
+              {...(item.exact ? { exact: true } : {})}
+            />
+          ))}
           <button
             type="button"
             className={mobileOpen ? "active" : ""}

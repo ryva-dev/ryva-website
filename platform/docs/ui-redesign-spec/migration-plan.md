@@ -112,6 +112,8 @@ Migrate Analytics/Reports, Imports, Exports, Profile/Certification/Subscription/
 
 Run all routes with populated, empty, loading, error, read-only, blocked, provider-degraded and role states. Remove unused legacy components only after caller proof.
 
+**Status:** Structurally complete in Increment 17. Route inventory, document titles, Protected Account detail canonical ownership, cross-product e2e, and structural QA checklist are recorded under `docs/ui-redesign-spec/`. Final Claude-led brand beautification remains a separate post-redesign pass.
+
 **Exit:** full Phase 1–9 suite, WCAG gate, visual snapshots, performance targets, terminology and token audit pass.
 
 ## Preservation rules

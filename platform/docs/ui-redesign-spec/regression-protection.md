@@ -113,3 +113,11 @@ A redesign increment may ship only when:
 - no product code outside the authorized increment changed;
 - founder decisions required for that increment are resolved or recommended defaults are explicitly active.
 
+## Increment 17 cross-product consolidation
+
+Increment 17 adds whole-product route inventory, document-title coherence,
+Protected Account detail canonical ownership, and
+`tests/e2e/increment-17.spec.ts` continuity coverage. Final Claude-led brand
+beautification remains outside this regression gate and must not weaken the
+boundaries above.
+

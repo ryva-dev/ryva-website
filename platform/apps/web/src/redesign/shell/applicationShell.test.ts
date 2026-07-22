@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import type { Session } from "../../api";
-import { buildShellNavigation, shellRouteLabel } from "./navigation";
+import { buildShellNavigation, mobileBottomNavigation, shellDocumentTitle, shellRouteLabel } from "./navigation";
 
 function session(capabilities: string[], role = "representative"): Session {
   return {
@@ -74,6 +74,13 @@ void describe("Ryva application shell", () => {
     assert.equal(shellRouteLabel("/copilot"), "AI Copilot");
     assert.equal(shellRouteLabel("/territories"), "Territories");
     assert.equal(shellRouteLabel("/records/contact"), "Contacts");
+  });
+
+  void it("derives document titles and mobile bottom destinations from shared metadata", () => {
+    assert.equal(shellDocumentTitle("/"), "Home · Ryva Pro");
+    assert.equal(shellDocumentTitle("/analytics", "?view=reports"), "Reports · Ryva Pro");
+    assert.equal(shellDocumentTitle("/login"), "Sign in · Ryva Pro");
+    assert.deepEqual(mobileBottomNavigation.map((item) => item.to), ["/", "/tasks", "/placements", "/search"]);
   });
 
   void it("uses only the approved token system in shell styling", () => {

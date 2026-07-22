@@ -50,12 +50,10 @@ import {
   DisputeRegisterPage,
   OrderDetailPage,
   OrderRegisterPage,
+  ProtectedAccountDetailPage,
   ProtectedAccountRegisterPage,
   ReorderRegisterPage
 } from "./redesign/commerce";
-import {
-  ProtectedAccountDetailPage
-} from "./pages/CommercePages";
 import { AiCopilotPage, AiSuggestionPage } from "./pages/AiPages";
 
 export function App() {

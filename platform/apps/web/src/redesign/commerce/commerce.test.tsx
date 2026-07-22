@@ -70,6 +70,16 @@ void describe("Ryva Commerce", () => {
     assert.match(source, /Review status/);
   });
 
+  void it("protected account detail preserves exact-scope consequential review", () => {
+    const source = readFileSync(new URL("./ProtectedAccountDetail.tsx", import.meta.url), "utf8");
+    assert.match(source, /Confirm documentary protection decision/);
+    assert.match(source, /Confirm exact-scope approval/);
+    assert.match(source, /ConsequentialReviewLayout/);
+    assert.match(source, /ExactArtifact/);
+    assert.match(source, /\/api\/protected-accounts\/\$\{id\}\/approval/);
+    assert.match(source, /Ryva created no independent contractual right|creates no independent rights/i);
+  });
+
   void it("commerce css uses token breakpoints without overflow-hiding", () => {
     const css = readFileSync(new URL("./commerce.css", import.meta.url), "utf8");
     assert.match(css, /64rem/);
@@ -84,6 +94,7 @@ void describe("Ryva Commerce", () => {
     assert.match(source, /OrderRegisterPage/);
     assert.match(source, /OrderDetailPage/);
     assert.match(source, /ProtectedAccountRegisterPage/);
+    assert.match(source, /ProtectedAccountDetailPage/);
     assert.match(source, /ReorderRegisterPage/);
     assert.match(source, /CommissionRegisterPage/);
     assert.match(source, /CommissionDetailPage/);
