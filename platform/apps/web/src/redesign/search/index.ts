@@ -1,0 +1,1 @@
+export { SearchWorkspacePage } from "./SearchWorkspace";

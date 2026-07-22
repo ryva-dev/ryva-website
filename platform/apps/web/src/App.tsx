@@ -1,22 +1,25 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth";
 import { ProtectedLayout } from "./components";
-import { AccessPage } from "./pages/AccessPage";
-import { AdminPage } from "./pages/AdminPage";
-import { CertificationPage } from "./pages/CertificationPage";
 import { HomePage } from "./pages/HomePage";
 import { LoginPage } from "./pages/LoginPage";
-import { ProfilePage } from "./pages/ProfilePage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { SubscriptionPage } from "./pages/SubscriptionPage";
-import { ImportPage } from "./pages/ImportPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { RecordDetailPage, RecordsPage } from "./pages/RecordsPage";
-import { SearchPage } from "./pages/SearchPage";
 import { TasksPage } from "./pages/TasksPage";
 import { DocumentsPage } from "./pages/DocumentsPage";
 import { SourcesPage } from "./pages/SourcesPage";
 import { TerritoriesPage } from "./pages/TerritoriesPage";
+import { AnalyticsWorkspacePage } from "./redesign/analytics";
+import { OperationsWorkspacePage } from "./redesign/admin";
+import { SearchWorkspacePage } from "./redesign/search";
+import {
+  AccessWorkspacePage,
+  CertificationWorkspacePage,
+  ProfileWorkspacePage,
+  SettingsWorkspacePage,
+  SubscriptionWorkspacePage
+} from "./redesign/settings";
+import { ExportReviewPage, ImportReviewPage } from "./redesign/transfer";
 import {
   ProductComparisonCreatePage,
   ProductComparisonDetailPage,
@@ -54,8 +57,6 @@ import {
   ProtectedAccountDetailPage
 } from "./pages/CommercePages";
 import { AiCopilotPage, AiSuggestionPage } from "./pages/AiPages";
-import { AnalyticsPage } from "./pages/AnalyticsPage";
-import { ExportsPage } from "./pages/ExportsPage";
 
 export function App() {
   return (
@@ -66,13 +67,13 @@ export function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route element={<ProtectedLayout />}>
             <Route index element={<HomePage />} />
-            <Route path="/access" element={<AccessPage />} />
-            <Route path="/certification" element={<CertificationPage />} />
-            <Route path="/subscription" element={<SubscriptionPage />} />
-            <Route path="/subscription/activate" element={<SubscriptionPage activation />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/access" element={<AccessWorkspacePage />} />
+            <Route path="/certification" element={<CertificationWorkspacePage />} />
+            <Route path="/subscription" element={<SubscriptionWorkspacePage />} />
+            <Route path="/subscription/activate" element={<SubscriptionWorkspacePage activation />} />
+            <Route path="/profile" element={<ProfileWorkspacePage />} />
+            <Route path="/settings" element={<SettingsWorkspacePage />} />
+            <Route path="/admin" element={<OperationsWorkspacePage />} />
             <Route path="/records/:type" element={<RecordsPage />} />
             <Route path="/records/:type/:id" element={<RecordDetailPage />} />
             <Route path="/products" element={<ProductRegisterPage />} />
@@ -106,11 +107,11 @@ export function App() {
             <Route path="/commission-disputes/:id" element={<DisputeDetailPage />} />
             <Route path="/copilot" element={<AiCopilotPage />} />
             <Route path="/copilot/:suggestionId" element={<AiSuggestionPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/search" element={<SearchPage />} />
+            <Route path="/analytics" element={<AnalyticsWorkspacePage />} />
+            <Route path="/search" element={<SearchWorkspacePage />} />
             <Route path="/tasks" element={<TasksPage />} />
-            <Route path="/imports" element={<ImportPage />} />
-            <Route path="/exports" element={<ExportsPage />} />
+            <Route path="/imports" element={<ImportReviewPage />} />
+            <Route path="/exports" element={<ExportReviewPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/documents" element={<DocumentsPage />} />
             <Route path="/sources" element={<SourcesPage />} />

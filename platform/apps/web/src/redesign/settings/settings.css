@@ -1,0 +1,24 @@
+/* Ryva settings suite — UI Redesign Increment 16. */
+.ry-settings-page { width: min(100%, var(--width-workspace-max)); }
+.ry-settings-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-5); }
+.ry-settings-tabs button { border: var(--border-width-1) solid var(--color-border); border-radius: var(--radius-2); padding: var(--space-2) var(--space-3); background: var(--color-surface-default); color: var(--color-text-default); font: inherit; }
+.ry-settings-tabs button.active { border-color: var(--color-accent); background: var(--color-surface-subtle); font-weight: var(--font-weight-semibold); }
+.ry-settings-panel { display: grid; gap: var(--space-4); padding: var(--space-4); }
+.ry-settings-section-heading { display: grid; gap: var(--space-1); }
+.ry-settings-section-heading h2, .ry-settings-section-heading p, .ry-settings-record-heading h2 { margin: var(--space-0); }
+.ry-settings-form-grid, .ry-settings-card-grid, .ry-settings-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr)); gap: var(--space-4); }
+.ry-settings-form-grid > *, .ry-settings-card-grid > *, .ry-settings-facts > * { min-width: var(--size-0); }
+.ry-settings-choice-group { display: grid; align-content: start; gap: var(--space-2); }
+.ry-settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.ry-settings-session-list { display: grid; gap: var(--space-3); }
+.ry-settings-session-list article { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3); border: var(--border-width-1) solid var(--color-border); border-radius: var(--radius-2); background: var(--color-surface-subtle); }
+.ry-settings-session-list article > div { display: grid; gap: var(--space-1); min-width: var(--size-0); overflow-wrap: anywhere; }
+.ry-settings-record-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: var(--space-3); }
+.ry-settings-facts { margin: var(--space-0); }
+.ry-settings-facts div { display: grid; gap: var(--space-1); padding: var(--space-3); border: var(--border-width-1) solid var(--color-border); border-radius: var(--radius-2); background: var(--color-surface-subtle); }
+.ry-settings-facts dt { color: var(--color-text-muted); font-size: var(--font-size-12); }
+.ry-settings-facts dd { margin: var(--space-0); overflow-wrap: anywhere; }
+.ry-settings-fine-print { margin: var(--space-0); color: var(--color-text-muted); font-size: var(--font-size-13); }
+@media (max-width: 64rem) { .ry-settings-form-grid, .ry-settings-card-grid { grid-template-columns: minmax(var(--size-0), 1fr); } }
+@media (max-width: 48rem) { .ry-settings-tabs { display: grid; grid-template-columns: repeat(2, minmax(var(--size-0), 1fr)); } .ry-settings-tabs button, .ry-settings-actions .ry-button { width: 100%; } .ry-settings-session-list article { align-items: stretch; } .ry-settings-session-list .ry-button { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .ry-settings-tabs button { transition: none; } }

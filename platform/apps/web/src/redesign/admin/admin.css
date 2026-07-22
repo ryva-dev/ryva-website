@@ -1,0 +1,106 @@
+/* Ryva Platform Operations — UI Redesign Increment 16. */
+
+.ry-admin-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.ry-admin-tabs button {
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+  color: var(--color-text-default);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ry-admin-tabs button[aria-current="page"] {
+  border-color: var(--color-action-primary);
+  background: var(--color-surface-subtle);
+  color: var(--color-action-primary);
+}
+
+.ry-admin-panel {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.ry-admin-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ry-admin-section-header h2,
+.ry-admin-section-header p,
+.ry-admin-boundary { margin: var(--space-0); }
+
+.ry-admin-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(var(--size-0), 1fr));
+  gap: var(--space-3);
+}
+
+.ry-admin-metrics > div {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+}
+
+.ry-admin-metrics span,
+.ry-admin-safe-error,
+.ry-admin-audit-list small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-admin-metrics strong { font-size: var(--font-size-20); }
+.ry-admin-safe-error { display: block; margin-top: var(--space-1); overflow-wrap: anywhere; }
+
+.ry-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.ry-admin-audit-list {
+  display: grid;
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-admin-audit-list article {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 1fr) auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-0);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-admin-audit-list strong,
+.ry-admin-audit-list small { display: block; }
+.ry-admin-audit-list time { color: var(--color-text-muted); font-size: var(--font-size-13); }
+
+@media (max-width: 64rem) {
+  .ry-admin-metrics { grid-template-columns: repeat(2, minmax(var(--size-0), 1fr)); }
+}
+
+@media (max-width: 48rem) {
+  .ry-admin-panel { padding: var(--space-3); }
+  .ry-admin-section-header { align-items: stretch; }
+  .ry-admin-section-header .ry-button { width: 100%; }
+  .ry-admin-metrics { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-admin-audit-list article { grid-template-columns: minmax(var(--size-0), 1fr) auto; }
+  .ry-admin-audit-list time { grid-column: 1 / -1; }
+}

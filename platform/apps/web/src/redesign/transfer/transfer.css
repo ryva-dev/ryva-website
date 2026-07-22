@@ -1,0 +1,74 @@
+.ry-transfer-page {
+  display: grid;
+  gap: var(--space-6);
+  min-width: var(--size-0);
+  max-width: var(--width-consequential);
+  margin-inline: auto;
+}
+
+.ry-transfer-page > .ry-review-section,
+.ry-transfer-page > .ry-consequential-layout {
+  min-width: var(--size-0);
+}
+
+.ry-transfer-form,
+.ry-transfer-form .ry-field {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ry-transfer-grid,
+.ry-transfer-scope-grid,
+.ry-transfer-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
+  gap: var(--space-4);
+  min-width: var(--size-0);
+}
+
+.ry-transfer-scope-grid {
+  grid-template-columns: repeat(3, minmax(var(--size-0), 1fr));
+}
+
+.ry-transfer-metrics {
+  grid-template-columns: repeat(3, minmax(var(--size-0), 1fr));
+}
+
+.ry-transfer-review-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
+  gap: var(--space-3);
+  margin: var(--space-0);
+}
+
+.ry-transfer-review-facts > div {
+  display: grid;
+  gap: var(--space-1);
+  padding-block: var(--space-3);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-transfer-review-facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-transfer-review-facts dd {
+  min-width: var(--size-0);
+  margin: var(--space-0);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 64rem) {
+  .ry-transfer-scope-grid { grid-template-columns: repeat(2, minmax(var(--size-0), 1fr)); }
+}
+
+@media (max-width: 48rem) {
+  .ry-transfer-grid,
+  .ry-transfer-scope-grid,
+  .ry-transfer-metrics,
+  .ry-transfer-review-facts { grid-template-columns: minmax(var(--size-0), 1fr); }
+}

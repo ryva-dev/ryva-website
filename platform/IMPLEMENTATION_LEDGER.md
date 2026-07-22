@@ -2,9 +2,49 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 15 — Commissions and Disputes (structurally complete)
-**Active construction increment:** None; Increment 16 has not started
+**Completed redesign increment:** UI Redesign Increment 16 — Analytics, Transfer, Settings, and Operations (structurally complete)
+**Active construction increment:** None; Increment 17 has not started
 **Last updated:** 2026-07-22
+
+## UI Redesign Increment 16 scope ledger
+
+| Requirement | Status | Implementation evidence |
+|---|---|---|
+| Existing-route-only migration | Complete | `/analytics`, `/imports`, `/exports`, `/settings`, `/admin`, `/access`, `/certification`, `/subscription`, `/subscription/activate`, `/profile`, and `/search` |
+| Analytics workspace | Complete | Analytical Workspace uses Tabs, FilterBar, DateRangePicker, metrics, tables, and Reports/Definitions views |
+| Metric honesty | Complete | Currency separation; partial-data label; unavailable distinct from zero; user-entered `ForecastRange`; external `Not Connected` |
+| In-page Reports | Complete | Saved reports via `GET`/`POST /api/analytics/reports`; CSV via `/api/analytics/export`; no fabricated generation queue |
+| Import review | Complete | `ImportReviewPage` staged preview, Consequential Review, ConfirmationDialog, and digest approval |
+| Export review | Complete | `ExportReviewPage` Consequential Review and ConfirmationDialog; queued, ready, and download states |
+| Transfer-job boundary | Complete | No separate transfer-job register; jobs live in Admin Operations |
+| Settings and account routes | Complete | Settings Tabs: Preferences/AI/Sessions/Closure; Profile/Access/Certification/Subscription remain separate |
+| Membership/roles boundary | Complete | No dedicated membership UI; Access shows session mode/reason; capabilities gate writes |
+| Integration boundary | Complete | Admin shows provider status only; no live provider connection |
+| Retention and destructive actions | Complete | Session revoke, account closure, AI kill switch, and job retry use ConfirmationDialog |
+| Operations and audit | Complete | System status/AI/Jobs/Audit tabs; `lastErrorSafe` only; Recent audit events list |
+| Shared standards | Complete | Design-system + consequential components; `64rem`/`48rem`; no `overflow-x: hidden`; landmarks, captions, exact dialogs, and table alternatives |
+| Inc 16 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
+| Screenshots | Complete | `docs/ui-redesign-spec/screenshots/increment-16/` |
+| Known limitations | Complete | No report detail route, membership admin, new import mapping, live providers, or fabricated metrics |
+| Increment 17 consolidation | Not started by design | Whole-product responsive/a11y/visual consistency consolidation and final brand refinement are deferred |
+
+### Increment 16 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 100 passed, including Analytics, Transfer, Settings, Admin, and Search contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused Increment 16 / Analytics / Operations Playwright (desktop): 12 passed, 0 failed.
+- Focused Increment 16 Playwright (mobile): 7 passed, 1 intentional skip (admin MFA desktop-only).
+- Complete `npm run test:e2e` run 1: 198 passed, 0 failed, 28 intentional skips.
+- Complete `npm run test:e2e` run 2: 198 passed, 0 failed, 28 intentional skips.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Markdown trailing-whitespace check for Increment 16 docs and ledger: passed.
+
+Increment 17 has not started. Final whole-product visual refinement remains
+deferred. Nothing was committed or pushed by this increment work.
 
 ## UI Redesign Increment 15 scope ledger
 

@@ -27,6 +27,7 @@ test("controlled import requires preview and exact human approval",async({page},
     "I reviewed this synthetic row, its mapping, duplicate result, and authority boundaries."
   );
   await page.getByRole("button",{name:"Approve exact preview and commit"}).click();
+  await page.getByRole("alertdialog").getByRole("button",{name:"Approve exact preview and commit"}).click();
   await expect(page.getByText("Import committed.")).toBeVisible();
   await navigateFromShell(page, "Search");
   await page.getByLabel("Search workspace").fill(name);
@@ -41,6 +42,7 @@ test("workspace export is queued for durable generation",async({page})=>{
   await page.getByText("brands",{exact:true}).click();
   await page.getByText("evidence",{exact:true}).click();
   await page.getByRole("button",{name:"Generate audited export"}).click();
+  await page.getByRole("alertdialog").getByRole("button",{name:"Generate audited export"}).click();
   await expect(page.getByRole("heading",{name:"Export queued"})).toBeVisible();
   await expect(page.getByText(/durable worker will generate/i)).toBeVisible();
 });

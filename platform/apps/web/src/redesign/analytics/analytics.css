@@ -1,0 +1,167 @@
+/* Ryva Analytics Command Center — UI Redesign Increment 16. */
+
+.ry-analytics-page {
+  width: min(100%, var(--width-workspace-max));
+}
+
+.ry-analytics-tabs {
+  margin-bottom: var(--space-5);
+}
+
+.ry-analytics-tabs .ry-button {
+  white-space: nowrap;
+}
+
+.ry-analytics-filters {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 1fr) minmax(var(--size-0), 1fr);
+  gap: var(--space-4);
+  align-items: end;
+  margin-bottom: var(--space-5);
+}
+
+.ry-analytics-filters .ry-date-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
+  gap: var(--space-3);
+  min-width: var(--size-0);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  border: var(--border-width-0);
+}
+
+.ry-analytics-filters .ry-date-range legend {
+  grid-column: 1 / -1;
+  padding: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-analytics-filters .ry-input,
+.ry-analytics-filters input {
+  width: 100%;
+}
+
+.ry-analytics-freshness,
+.ry-analytics-section-heading,
+.ry-analytics-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.ry-analytics-freshness {
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-analytics-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.ry-analytics-panel {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+}
+
+.ry-analytics-panel h2,
+.ry-analytics-panel p {
+  margin: var(--space-0);
+}
+
+.ry-analytics-section-heading {
+  justify-content: space-between;
+  align-items: start;
+}
+
+.ry-analytics-section-heading .eyebrow {
+  margin: var(--space-0) var(--space-0) var(--space-1);
+}
+
+.ry-analytics-currency-note {
+  margin: calc(var(--space-4) * -1) var(--space-0) var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-analytics-forecasts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  gap: var(--space-4);
+}
+
+.ry-analytics-forecasts article {
+  display: grid;
+  gap: var(--space-2);
+  min-width: var(--size-0);
+  padding: var(--space-3);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+}
+
+.ry-analytics-definitions {
+  display: grid;
+  gap: var(--space-0);
+}
+
+.ry-analytics-definitions dl {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 1fr);
+  gap: var(--space-3);
+  margin: var(--space-0);
+}
+
+.ry-analytics-definitions dl div {
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-analytics-definitions dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-analytics-definitions dd {
+  margin: var(--space-0);
+  overflow-wrap: anywhere;
+}
+
+.ry-analytics-report-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.ry-analytics-report-form .ry-field {
+  flex: 1 1 var(--width-drawer-narrow);
+}
+
+.ry-analytics-external small {
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 64rem) {
+  .ry-analytics-filters { grid-template-columns: minmax(var(--size-0), 1fr); }
+}
+
+@media (max-width: 48rem) {
+  .ry-analytics-filters .ry-date-range { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-analytics-filters .ry-date-range legend { grid-column: auto; }
+  .ry-analytics-report-form { display: grid; }
+  .ry-analytics-report-form .ry-field { min-width: var(--size-0); }
+}
