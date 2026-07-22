@@ -40,16 +40,18 @@ import {
 } from "./redesign/outreach";
 import {
   AccountDetailPage,
-  AccountsPage,
+  AccountRegisterPage,
+  OrderDetailPage,
+  OrderRegisterPage,
+  ProtectedAccountRegisterPage,
+  ReorderRegisterPage
+} from "./redesign/commerce";
+import {
   CommissionDetailPage,
   CommissionDisputeDetailPage,
   CommissionDisputesPage,
   CommissionsPage,
-  OrderDetailPage,
-  OrdersPage,
-  ProtectedAccountDetailPage,
-  ProtectedAccountsPage,
-  ReordersPage
+  ProtectedAccountDetailPage
 } from "./pages/CommercePages";
 import { AiCopilotPage, AiSuggestionPage } from "./pages/AiPages";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
@@ -91,13 +93,13 @@ export function App() {
             <Route path="/outreach/templates" element={<OutreachTemplatesPage />} />
             <Route path="/outreach/sequences" element={<OutreachSequencesPage />} />
             <Route path="/outreach/:id" element={<OutreachDetailPage />} />
-            <Route path="/accounts" element={<AccountsPage />} />
+            <Route path="/accounts" element={<AccountRegisterPage />} />
             <Route path="/accounts/:id" element={<AccountDetailPage />} />
-            <Route path="/protected-accounts" element={<ProtectedAccountsPage />} />
+            <Route path="/protected-accounts" element={<ProtectedAccountRegisterPage />} />
             <Route path="/protected-accounts/:id" element={<ProtectedAccountDetailPage />} />
-            <Route path="/orders" element={<OrdersPage />} />
+            <Route path="/orders" element={<OrderRegisterPage />} />
             <Route path="/orders/:id" element={<OrderDetailPage />} />
-            <Route path="/reorders" element={<ReordersPage />} />
+            <Route path="/reorders" element={<ReorderRegisterPage />} />
             <Route path="/commissions" element={<CommissionsPage />} />
             <Route path="/commissions/:id" element={<CommissionDetailPage />} />
             <Route path="/commission-disputes" element={<CommissionDisputesPage />} />

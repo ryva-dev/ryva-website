@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Link, NavLink, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiProblem } from "../api";
 import { useAuth } from "../auth";
 import { ErrorPanel, Field, Loading, PageHeader, StatusPill } from "../components";
@@ -19,7 +19,6 @@ import {
   Radio,
   SavedViewSelector,
   StatusLabel,
-  Tabs,
   TextArea
 } from "../design-system";
 import { useLoad } from "../hooks";
@@ -70,19 +69,10 @@ function ids(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-function CommerceNav() {
-  return <Tabs label="Commercial operations">
-    <NavLink to="/accounts">Accounts</NavLink>
-    <NavLink to="/protected-accounts">Protection</NavLink>
-    <NavLink to="/orders">Orders</NavLink>
-    <NavLink to="/reorders">Reorders</NavLink>
-    <NavLink to="/commissions">Commissions</NavLink>
-    <NavLink to="/commission-disputes">Disputes</NavLink>
-  </Tabs>;
-}
+import { CommercialSubnav } from "../redesign/commerce/CommercialSubnav";
 
 function Shell({ children }: { children: ReactNode }) {
-  return <div className="page"><CommerceNav />{children}</div>;
+  return <div className="page ry-commerce-page"><CommercialSubnav />{children}</div>;
 }
 
 function Empty({ children }: { children: ReactNode }) {

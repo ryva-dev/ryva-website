@@ -507,10 +507,12 @@ export function PlacementDetailPage() {
 
         <RelationshipTabPanel id={tabBaseId} tabId="commercial" active={activeTab === "commercial"}>
           <RelationshipSection title="Commercial context" description="Increment 14 owns Accounts, Orders, Reorders, and Protection. Placement stage does not invent revenue or order outcomes.">
-            <p>Opening Order and later commercial stages advance only through Order or Account workflows. Use existing commercial routes when those records exist.</p>
+            <p>Opening Order and later commercial stages advance only through Order or Account workflows. Use commercial routes when those records exist.</p>
             <div className="ry-placement-commercial-links">
               <Link to="/orders">Orders</Link>
               <Link to="/accounts">Accounts</Link>
+              <Link to="/reorders">Reorders</Link>
+              <Link to="/protected-accounts">Protection</Link>
             </div>
           </RelationshipSection>
         </RelationshipTabPanel>

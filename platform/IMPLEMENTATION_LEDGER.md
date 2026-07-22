@@ -2,9 +2,46 @@
 
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
-**Completed redesign increment:** UI Redesign Increment 13 — Outreach Center (structurally complete)
-**Active construction increment:** None; Increment 14 has not started
+**Completed redesign increment:** UI Redesign Increment 14 — Accounts, Orders, Reorders, and Protection (structurally complete)
+**Active construction increment:** None; Increment 15 has not started
 **Last updated:** 2026-07-22
+
+## UI Redesign Increment 14 scope ledger
+
+| Requirement | Status | Planned implementation evidence |
+|---|---|---|
+| Account Standard Register | Complete | `/accounts` via `AccountRegisterPage` |
+| Account Relationship Detail | Complete | `/accounts/:id` via `AccountDetailPage` |
+| Account health Consequential Review | Complete | ExactArtifact + ConfirmationDialog + version concurrency |
+| Protected Account register | Complete | `/protected-accounts` via `ProtectedAccountRegisterPage` |
+| Protected Account Consequential Review | Complete | `/protected-accounts/:id` Inc 6 surface retained |
+| Order Standard Register + create | Complete | `/orders` via `OrderRegisterPage` |
+| Order Relationship Detail | Complete | `/orders/:id` via `OrderDetailPage` |
+| Order confirmation Consequential Review | Complete | Exact lines/totals, version, duplicate-guard |
+| Reorder register + inline review | Complete | `/reorders` via `ReorderRegisterPage`; no invented detail route |
+| Domain boundary honesty | Complete | Placement≠Account; Order≠protection; value≠commission; unknown≠eligible |
+| Commission boundary | Complete | Links/summary only; Inc 15 not started |
+| Placement/Outreach unaffected | Complete | Regression links and prior e2e suites |
+| Increment 14 validation | Complete | Token policy, lint, typecheck, unit/integration, focused and full Playwright twice, build, screenshots |
+| Increment 15 Commissions/Disputes | Not started by design | Remains outside this increment |
+
+### Increment 14 validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 80 passed, including 9 Commerce contracts.
+- `npm run test:integration`: 62 passed against PostgreSQL.
+- Focused commerce Playwright: 21 passed with 1 intentional mobile-only skip.
+- Focused Placement/Outreach/Representation/Buyer regression plus commerce: 81 passed, 11 intentional skips.
+- Complete `npm run test:e2e` run 1: 171 passed, 0 failed, 25 intentional skips.
+- Complete `npm run test:e2e` run 2: 171 passed, 0 failed, 25 intentional skips.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- Markdown trailing-whitespace check for Increment 14 docs and ledger: passed.
+
+Increment 15 has not started. Final whole-product visual refinement remains
+deferred.
 
 ## UI Redesign Increment 13 scope ledger
 

@@ -1,0 +1,132 @@
+/* Ryva commercial continuity — UI Redesign Increment 14. */
+
+.ry-commerce-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-commerce-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.ry-commerce-section-heading {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-4) var(--space-0);
+}
+
+.ry-commerce-section-heading h2 { margin: var(--space-0); }
+
+.ry-commerce-boundary {
+  margin: var(--space-0) var(--space-4) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-commerce-create-form,
+.ry-commerce-line-grid,
+.ry-commerce-review-form {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  align-items: start;
+  padding: var(--space-4);
+}
+
+.ry-commerce-create-form > *,
+.ry-commerce-review-form > *,
+.ry-commerce-line-grid > * {
+  min-width: var(--size-0);
+  max-width: 100%;
+}
+
+.ry-commerce-line-item {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+}
+
+.ry-commerce-line-item legend {
+  font-weight: var(--font-weight-semibold);
+  padding: var(--space-0) var(--space-2);
+}
+
+.ry-commerce-formula {
+  margin: var(--space-0);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+  overflow-wrap: anywhere;
+}
+
+.ry-commerce-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.ry-commerce-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: var(--size-0);
+}
+
+.ry-commerce-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  gap: var(--space-4);
+}
+
+.ry-commerce-card {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  min-width: var(--size-0);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-default);
+  overflow-wrap: anywhere;
+}
+
+.ry-commerce-card h3 { margin: var(--space-0); }
+
+.ry-commerce-card-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
+  align-items: start;
+  width: 100%;
+}
+
+@media (max-width: 64rem) {
+  .ry-commerce-create-form,
+  .ry-commerce-review-form {
+    grid-template-columns: minmax(var(--size-0), 1fr);
+  }
+}
+
+@media (max-width: 48rem) {
+  .ry-commerce-line-item {
+    grid-template-columns: minmax(var(--size-0), 1fr);
+  }
+  .ry-commerce-page .ry-register-mobile-identity,
+  .ry-commerce-page .ry-register-mobile-identity strong,
+  .ry-commerce-page .ry-register-mobile-identity span {
+    min-width: var(--size-0);
+    overflow-wrap: anywhere;
+  }
+  .ry-commerce-actions { width: 100%; }
+  .ry-commerce-actions .ry-button { flex: 1 1 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ry-commerce-card { transition: none; }
+}
