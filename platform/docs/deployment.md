@@ -9,7 +9,8 @@
 - managed secret storage;
 - private S3-compatible object storage with server-side encryption;
 - a malware scanner that signs result callbacks;
-- Stripe and certification-provider webhooks routed to the API.
+- Stripe webhooks routed to the API. The legacy certification webhook is optional
+  and retained only for historical credential reconciliation.
 - a transactional email provider with idempotent send support and signed
   delivery, reply, complaint, bounce, and opt-out callbacks.
 
@@ -27,6 +28,11 @@
 
 Migrations are forward-only. Application changes must remain compatible with the prior schema during rolling deployment. A release rollback returns the prior application image; schema correction uses a new migration, never an edited applied migration.
 
+The API process never runs migrations at startup. Every environment must run
+`npm run migrate` explicitly before starting a release that requires new schema.
+This prevents concurrent API replicas from racing migration execution and keeps
+database changes inside the operator-controlled release step.
+
 ## Required production checks
 
 - `NODE_ENV=production`
@@ -34,11 +40,17 @@ Migrations are forward-only. Application changes must remain compatible with the
 - verified PostgreSQL TLS (`PGSSL=verify-full` preferred)
 - synthetic seeding disabled
 - high-entropy session and encryption keys
-- signed certification and Stripe webhook secrets
+- signed Stripe webhook secret; certification-provider configuration is optional
+  and does not control representative product access
 - `STORAGE_DRIVER=s3`, bucket/region configuration, and a signed malware-scanner webhook secret
-- configured Stripe price
+- configured Stripe one-time Program price (`STRIPE_PROGRAM_PRICE_ID`) and
+  recurring Ryva Pro price (`STRIPE_PRICE_ID`)
 - configured and verified email sender, provider token, signed callback secret,
   `OUTREACH_SEND_ENABLED=1`, and a running durable worker
+- a separately configured transactional identity-email provider and verified
+  sender for password recovery
+- bundled Terms and Privacy pages with immutable document version identifiers;
+  optional external overrides must use HTTPS
 - monitored support email
 - backup schedule and restore target
 - staff MFA enrollment

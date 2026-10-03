@@ -152,7 +152,7 @@ export function SettingsPage() {
             </div>
           </div>
           <div className="locked-setting">
-            <div><strong>Evidence-first AI assistance</strong><p>Suggestions retain sources, classifications, limitations, model metadata, and human review history. Manual workflows remain available.</p></div>
+            <div><strong>Evidence-first AI assistance</strong><p>Suggestions retain sources, classifications, limitations, model metadata, and review history. Manual workflows remain available.</p></div>
             <label><input type="checkbox" checked={form.aiEnabled}
               onChange={(event) => setForm({ ...form, aiEnabled: event.target.checked })} />
               Enable reviewable suggestions

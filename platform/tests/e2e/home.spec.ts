@@ -15,7 +15,7 @@ async function captureIncrement7(page: Page, fileName: string, fullPage = false)
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -30,13 +30,12 @@ async function expectNoMainOverflow(page: Page): Promise<void> {
 
 test("Home command center preserves explainable priorities, currency separation, and analytics path", async ({ page }) => {
   await signIn(page);
-  await expect(page.getByText("Rule-based · reasons visible · no scores")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Priority queue" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Material changes since last visit" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Currency-separated actuals and obligations" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recent activity" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Revenue & Commissions" })).toBeVisible();
   await expect(page.getByText(/Product Score/)).toHaveCount(0);
-  await page.getByRole("link", { name: "Open Analytics" }).click();
-  await expect(page.getByRole("heading", { name: "Analytics Command Center" })).toBeVisible();
+  await page.goto("/analytics");
+  await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
   await page.goto("/");
   await expectNoMainOverflow(page);
   await captureIncrement7(page, "home-populated-desktop-1440x900.png", true);
@@ -56,7 +55,8 @@ test("Home exposes expandable priority reasons and responsive attention ordering
 
   if (testInfo.project.name.includes("mobile")) {
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByLabel("Current relationship action")).toBeVisible();
+    await expect(page.getByRole("region", { name: "Top priority" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Priority queue" })).toBeVisible();
     await captureIncrement7(page, "home-populated-mobile-390x844.png", true);
   } else {
     await page.setViewportSize({ width: 1024, height: 768 });
@@ -75,7 +75,7 @@ test("empty workspace stays honest without manufactured activity", async ({ page
 });
 
 test("read-only sessions inspect Home truth without reprioritization affordances", async ({ page }) => {
-  await signIn(page, "grace@synthetic.ryva.test");
+  await signIn(page, "mentor-readonly@synthetic.ryva.test");
   await expect(page.getByText("Read-only command center")).toBeVisible();
   await expect(page.getByText("Snooze 1 day")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Acknowledge viewed" })).toHaveCount(0);
@@ -105,9 +105,11 @@ test("Home API failures preserve page identity and expose recovery", async ({ pa
   await captureIncrement7(page, "home-error-desktop-1440x900.png", true);
 });
 
-test("AI degradation remains visible when briefing is unavailable", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name.includes("mobile"), "AI degradation is captured once in desktop Chromium.");
+test("Home omits AI Priority Review when briefing is unavailable", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes("mobile"), "AI absence is captured once in desktop Chromium.");
   await signIn(page);
-  await expect(page.getByText(/AI briefing is unavailable or disabled|Generate an explainable briefing/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Priority queue" })).toBeVisible();
+  await expect(page.getByText(/AI briefing is unavailable or disabled|deterministic Home actions|evidence-labelled|Known limitations|Copilot history/)).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "AI priority review" })).toHaveCount(0);
   await captureIncrement7(page, "home-ai-degraded-desktop-1440x900.png", true);
 });

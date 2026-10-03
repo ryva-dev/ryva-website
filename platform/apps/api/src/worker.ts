@@ -13,12 +13,14 @@ import {
   processCommercialJob,
   processWorkspaceExport,
   processOutreachSend,
+  processTransactionalIdentityEmail,
   processSequenceStep,
   recordAudit
 } from "../../../packages/domain/src/index.js";
 import {
   ConfiguredAiProvider,
   ConfiguredEmailProvider,
+  ConfiguredTransactionalIdentityEmailProvider,
   ConfiguredObjectStorage
 } from "./providers.js";
 import { loadDocumentAiAttachment } from "./phase7Routes.js";
@@ -27,6 +29,7 @@ const configuration = config();
 const logger = createLogger(configuration);
 const database = createDatabase(configuration);
 const emailProvider = new ConfiguredEmailProvider(configuration);
+const transactionalEmailProvider = new ConfiguredTransactionalIdentityEmailProvider(configuration);
 const aiProvider = new ConfiguredAiProvider(configuration);
 const objectStorage = new ConfiguredObjectStorage(configuration);
 const owner = `worker:${randomUUID()}`;
@@ -70,6 +73,14 @@ async function processJob(job: Awaited<ReturnType<typeof claimJobs>>[number]): P
         enrollmentId: payloadString(job.payload.enrollmentId),
         actorUserId: payloadString(job.payload.actorUserId)
       });
+      await completeJob(database, job.id, owner, result);
+    } else if (job.kind === "identity.transactional_email") {
+      const result = await processTransactionalIdentityEmail(
+        database,
+        configuration,
+        transactionalEmailProvider,
+        payloadString(job.payload.outboxId)
+      );
       await completeJob(database, job.id, owner, result);
     } else if (job.kind === "ai.document_extraction") {
       if (!job.workspaceId) throw new Error("AI document extraction requires a workspace.");

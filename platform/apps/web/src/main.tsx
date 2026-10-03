@@ -21,7 +21,7 @@ import "./redesign/analytics/analytics.css";
 import "./redesign/transfer/transfer.css";
 import "./redesign/settings/settings.css";
 import "./redesign/admin/admin.css";
-import "./redesign/search/search.css";
+import "./design/theme.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Ryva Pro root element was not found.");

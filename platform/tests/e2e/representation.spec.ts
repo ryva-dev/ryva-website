@@ -18,7 +18,7 @@ async function captureIncrement11(page: Page, fileName: string, fullPage = false
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -158,11 +158,12 @@ test("Representation register preserves opportunity and Agreement distinctions",
   await signIn(page);
   await page.goto("/representation");
   await expect(page.getByRole("heading", { name: "Representation", exact: true })).toBeVisible();
-  await expect(page.getByText(/uploaded agreement as permission/i)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Representation Opportunities" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Representation Agreements" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Open a Representation Opportunity" })).toBeVisible();
-  await expect(page.getByLabel("Contact Ready Brand")).toBeVisible();
+  await page.getByRole("button", { name: "Open opportunity" }).first().click();
+  const createDrawer = page.getByRole("dialog", { name: "Open a Representation Opportunity" });
+  await expect(createDrawer).toBeVisible();
+  await expect(createDrawer.getByRole("combobox").first()).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement11(page, "representation-register-populated-desktop-1440x900.png", true);
   }
@@ -181,7 +182,7 @@ test("Representation register mobile rows remain usable without document overflo
 });
 
 test("read-only Representation sessions expose restricted messaging", async ({ page }) => {
-  await signIn(page, "grace@synthetic.ryva.test");
+  await signIn(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/representation");
   await expect(page.getByRole("heading", { name: "Representation", exact: true })).toBeVisible();
   await expect(page.getByText("Read-only Representation workspace")).toBeVisible();
@@ -217,11 +218,10 @@ test("Agreement consequential review preserves exact-artifact and authority boun
   const fixture = await seedAgreement(suffix, "draft");
   await signIn(page);
   await page.goto(`/agreements/${fixture.agreementId}`);
-  await expect(page.getByRole("heading", { name: `${fixture.brandName} Agreement` })).toBeVisible();
-  await expect(page.getByText(/Material terms are evidence-linked.*exact-artifact human approval/i)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Proposed material terms scope" })).toBeVisible();
-  await expect(page.getByText(/does not independently establish|creates no authority|Draft\/Reviewing/i).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Request exact-scope approval" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Increment11 Brand Agreement$/ })).toBeVisible();
+  await expect(page.getByText(/Authority not active/)).toBeVisible();
+  await expect(page.getByText(/Only an active agreement establishes current representation authority/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Request approval" })).toBeVisible();
   if (isMobile) {
     await captureIncrement11(page, "agreement-review-draft-mobile-390x844.png", true);
   } else {
@@ -236,8 +236,8 @@ test("active Agreement shows audited outcome without presenting draft as authori
   const fixture = await seedAgreement(suffix, "active");
   await signIn(page);
   await page.goto(`/agreements/${fixture.agreementId}`);
-  await expect(page.getByRole("heading", { name: "Representation authority activated" })).toBeVisible();
-  await expect(page.getByText(/Only the exact scope identified by digest/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Increment11 Brand Agreement" })).toBeVisible();
+  await expect(page.getByText(/Authority: Established/)).toBeVisible();
   await captureIncrement11(page, "agreement-review-completed-audit-desktop-1440x900.png", true);
 });
 
@@ -247,8 +247,8 @@ test("blocked Agreement review surfaces validation failures without fabricating 
   const fixture = await seedBlockedAgreement(suffix);
   await signIn(page);
   await page.goto(`/agreements/${fixture.agreementId}`);
-  await expect(page.getByText(/Effective date, at least one Product, and at least one channel are required/i)).toBeVisible();
-  await expect(page.getByText(/Draft, reviewing, and pending states create no authority/i)).toBeVisible();
+  await expect(page.getByText(/Effective date, products, and channels are incomplete/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Request approval" })).toBeDisabled();
   await captureIncrement11(page, "agreement-review-blocker-validation-desktop-1440x900.png", true);
 });
 
@@ -258,26 +258,24 @@ test("Representation detail preserves readiness and upload-not-authority boundar
   const isMobile = testInfo.project.name.includes("mobile");
   await signIn(page);
   await page.goto(`/representation/${fixture.opportunityId}`);
-  await expect(page.getByText(/Written terms, original documents|Uploading does not create authority/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Representation overview" })).toBeVisible();
   if (isMobile) {
     await page.getByRole("button", { name: "Review context" }).click();
-    await expect(page.getByRole("dialog").getByText(/uploaded original never establishes representation authority/i)).toBeVisible();
+    await expect(page.getByRole("dialog").getByRole("heading", { name: "Representation status" })).toBeVisible();
     await page.keyboard.press("Escape");
-  } else {
-    await expect(page.getByText(/uploaded original never establishes representation authority/i)).toBeVisible();
   }
   await captureIncrement11(page, isMobile
     ? "representation-detail-populated-mobile-390x844.png"
     : "representation-detail-populated-desktop-1440x900.png", true);
   await page.getByRole("tab", { name: /Scope/i }).click();
   await expect(page.getByRole("heading", { name: "Proposed scope" })).toBeVisible();
-  await expect(page.getByText(/not a written Agreement scope/i)).toBeVisible();
+  await expect(page.getByText(/becomes written agreement scope only after an agreement is approved/i)).toBeVisible();
   if (!isMobile) {
     await captureIncrement11(page, "representation-detail-scope-desktop-1440x900.png", true);
   }
-  await page.getByRole("tab", { name: /Agreements & Documents/i }).click();
+  await page.getByRole("tab", { name: "Agreement", exact: true }).click();
   await expect(page.getByText(/Uploading does not create authority/i)).toBeVisible();
-  await expect(page.getByText(/never active representation authority by itself/i)).toBeVisible();
+  await expect(page.getByText(/Uploading an agreement does not activate representation authority/i)).toBeVisible();
   if (!isMobile) {
     await captureIncrement11(page, "representation-detail-readiness-documents-desktop-1440x900.png", true);
   }

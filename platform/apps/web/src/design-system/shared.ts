@@ -8,12 +8,39 @@ export function classes(...values: Array<string | false | null | undefined>): st
   return values.filter(Boolean).join(" ");
 }
 
+/** Strip internal/fixture phrasing from user-visible copy. */
+export function platformCopy(value: unknown, fallback = ""): string {
+  let text = typeof value === "string"
+    ? value
+    : typeof value === "number" || typeof value === "boolean"
+      ? String(value)
+      : "";
+  text = text.replace(/\s+/g, " ").trim();
+  if (!text) return fallback;
+  text = text
+    .replace(/\bhuman[- ](?:owned|controlled|confirmed|approved|placed|assisted|edited|reviewer)\b/gi, "")
+    .replace(/\bhuman\b/gi, "")
+    .replace(/\b(?:synthetic|fixture|seed)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;:!])/g, "$1")
+    .trim();
+  if (!text) return fallback;
+  return text.replace(/^[a-z]/, (letter) => letter.toUpperCase());
+}
+
 export function humanize(value: string): string {
   return value
     .replaceAll("_", " ")
     .replaceAll("-", " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Sentence-case status copy for softer UI (Paid, None — not PAID / NONE). */
+export function statusLabelText(value: string): string {
+  const spaced = humanize(value).toLowerCase();
+  if (!spaced) return spaced;
+  return spaced.replace(/^\p{L}/u, (letter) => letter.toUpperCase());
 }
 
 export function toneForStatus(value: string): SemanticTone {

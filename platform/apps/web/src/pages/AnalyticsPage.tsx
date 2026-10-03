@@ -102,8 +102,8 @@ export function AnalyticsPage(){
         <DataTable rows={data.products} linkBase="/products" empty="No Product records match these filters. No external value is inferred."/></section>:null}
       {view==="brands"?<section className="panel"><h2>Brand performance</h2>
         <DataTable rows={data.brands} linkBase="/brands" empty="No Brand records match these filters."/></section>:null}
-      {view==="buyers"?<section className="panel"><h2>Buyer and Business performance</h2>
-        <DataTable rows={data.buyers} linkBase="/buyers" empty="No Business records match these filters."/></section>:null}
+      {view==="buyers"?<section className="panel"><h2>Buyer performance</h2>
+        <DataTable rows={data.buyers} linkBase="/buyers" empty="No Buyer records match these filters."/></section>:null}
       {view==="pipeline"?<PipelineView data={data}/>:null}
       {view==="commercial"?<CommercialView data={data}/>:null}
       {view==="portfolio"?<PortfolioView data={data}/>:null}
@@ -145,7 +145,7 @@ function PortfolioView({data}:{data:AnalyticsData}){
 
 function ForecastPanel({forecasts}:{forecasts:Row[]}){
   return <section className="panel"><div className="record-heading"><div><p className="eyebrow">Transparent projections</p><h2>User-entered ranges</h2></div><span className="quiet-tag">Weighted pipeline disabled</span></div>
-    <p>Low/base/high values and qualitative likelihood are human inputs linked to stored evidence. They are not guaranteed income or system probabilities.</p>
+    <p>Low/base/high values and qualitative likelihood are manual inputs linked to stored evidence. They are not guaranteed income or system probabilities.</p>
     <DataTable rows={forecasts} empty="No user-entered forecast ranges. Ryva will not fabricate one."/></section>;
 }
 

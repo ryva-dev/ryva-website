@@ -42,7 +42,7 @@ launch declaration.
 - blocked_external — malware scanner;
 - blocked_external — email delivery/webhooks and verified sender;
 - blocked_external — Stripe and approved price;
-- blocked_external — certification provider API/webhooks;
+- optional_legacy — certification provider API/webhooks retained for historical/admin records only;
 - blocked_external — AI provider and approved terms;
 - blocked_external — external intelligence provider;
 - specialist_review_required — privacy, terms, refund, retention and outreach

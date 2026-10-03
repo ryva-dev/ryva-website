@@ -1,42 +1,54 @@
 import { Link } from "react-router-dom";
-import { api } from "../../api";
+import { appPath } from "../../appBase";
 import { useAuth } from "../../auth";
-import { Alert, Button, ErrorState, LoadingState, PageHeader, StatusLabel } from "../../design-system";
-import { useLoad } from "../../hooks";
-
-type CredentialResponse = { credential: { credentialType: string; credentialNumberMasked: string; status: string; issuedAt: string | null; expiresAt: string | null; verifiedAt: string; renewalUrl: string | null } | null };
+import { Alert, PageHeader, StatusLabel } from "../../design-system";
 
 const explanations: Record<string, string> = {
-  credential_missing: "Link and verify an eligible Ryva credential before entering the operating system.",
-  credential_expired_grace: "Your credential has expired. Your records remain available read-only during the renewal grace period.",
-  credential_expired: "The renewal grace period has ended. Operational records are restricted until certification is renewed.",
-  credential_suspended: "Operational action is paused while your credential is suspended. Contact certification support for next steps.",
-  credential_revoked: "Ryva Pro access is blocked because the credential authority reports this credential as revoked.",
-  credential_surrendered: "Operational access ended when the credential was surrendered.",
-  subscription_missing: "Your credential is eligible. Activate a subscription to enter Ryva Pro.",
-  subscription_read_only: "Billing access is read-only. Resolve billing to restore operational action.",
-  eligible: "Your credential and subscription are eligible.",
-  staff: "Your staff access is governed by least-privilege operational controls."
+  account_only: "Your Ryva account is active, but The Ryva Program has not been granted to this account.",
+  program_incomplete: "Your Program access is active. Complete The Ryva Program before entering the operating platform.",
+  pro_trial_active: "Program completion started your complimentary Ryva Pro access period.",
+  pro_subscription_active: "Your Program completion and Ryva Pro subscription currently unlock the operating platform.",
+  pro_subscription_paid_through: "Your Ryva Pro cancellation is recorded and operating access remains available through the paid-through date.",
+  pro_inactive: "Your Program remains available, but the completion-based Ryva Pro period has ended and no valid Pro subscription is active.",
+  operating_access: "Your current Program and Ryva Pro entitlements unlock the operating platform.",
+  staff: "Your staff access is governed independently by least-privilege controls.",
+  account_blocked: "This account or workspace is not currently active."
 };
 
 export function AccessWorkspacePage() {
   const { session } = useAuth();
-  const credential = useLoad(() => api<CredentialResponse>("/api/certification"), []);
   if (!session) return null;
+  const access = session.access;
   return <div className="page ry-settings-page">
-    <PageHeader eyebrow="Access review" title="Your Ryva Pro access" description="Certification and subscription are evaluated independently on every secure request." />
+    <PageHeader
+      eyebrow="Access review"
+      title="Your Ryva access"
+      description="Program completion, the completion-based Ryva Pro period, and subscription access are evaluated by the server on every secure request."
+    />
     <div className="ry-settings-card-grid">
       <section className="panel ry-settings-panel emphasis-panel">
-        <p className="eyebrow">Current access</p><StatusLabel value={session.access.mode} /><h2>{session.access.reason.replaceAll("_", " ")}</h2>
-        <p>{explanations[session.access.reason] ?? "Review the details below before continuing."}</p>
-        {session.access.graceEndsAt ? <Alert tone="warning" title="Review date">{new Date(session.access.graceEndsAt).toLocaleDateString()}</Alert> : null}
-        <div className="ry-settings-actions">{session.access.mode === "subscription_required" ? <Link className="ry-button ry-button-primary" to="/subscription/activate">Activate subscription</Link> : null}<Link className="ry-button ry-button-secondary" to="/certification">Review certification</Link></div>
+        <p className="eyebrow">Current access</p>
+        <StatusLabel value={access.mode} />
+        <h2>{access.reason.replaceAll("_", " ")}</h2>
+        <p>{explanations[access.reason] ?? "Review the entitlement details below."}</p>
+        {access.isProTrialActive && access.proTrialEndsAt ? (
+          <Alert tone="info" title="Ryva Pro access period">
+            Operating access is available through {new Date(access.proTrialEndsAt).toLocaleDateString()}.
+          </Alert>
+        ) : null}
+        <div className="ry-settings-actions">
+          {access.canAccessProgram ? <Link className="ry-button ry-button-primary" to={appPath("/program")}>Open Program area</Link> : null}
+          {access.isProgramCompleted && !access.canAccessOperatingPlatform ? <Link className="ry-button ry-button-secondary" to={appPath("/subscription/activate")}>Review Ryva Pro</Link> : null}
+        </div>
       </section>
       <section className="panel ry-settings-panel">
-        <p className="eyebrow">Credential on record</p>
-        {credential.loading ? <LoadingState label="Loading credential" /> : null}
-        {credential.error ? <ErrorState message={credential.error} action={<Button variant="secondary" onClick={() => void credential.reload()}>Try again</Button>} /> : null}
-        {credential.data?.credential ? <dl className="ry-settings-facts"><div><dt>Credential</dt><dd>{credential.data.credential.credentialType}</dd></div><div><dt>Identifier</dt><dd>{credential.data.credential.credentialNumberMasked}</dd></div><div><dt>Status</dt><dd><StatusLabel value={credential.data.credential.status} /></dd></div><div><dt>Last verified</dt><dd>{new Date(credential.data.credential.verifiedAt).toLocaleString()}</dd></div></dl> : !credential.loading && !credential.error ? <Alert tone="info" title="No credential linked">Credential linking requires a trusted certification-authority record.</Alert> : null}
+        <p className="eyebrow">Product entitlements</p>
+        <dl className="ry-settings-facts">
+          <div><dt>Program access</dt><dd>{access.canAccessProgram ? "Active" : "Not active"}</dd></div>
+          <div><dt>Program completion</dt><dd>{access.programCompletedAt ? new Date(access.programCompletedAt).toLocaleString() : "Not completed"}</dd></div>
+          <div><dt>Ryva Pro state</dt><dd>{access.proAccessState.replaceAll("_", " ")}</dd></div>
+          <div><dt>Operating platform</dt><dd>{access.canAccessOperatingPlatform ? "Available" : "Locked"}</dd></div>
+        </dl>
       </section>
     </div>
   </div>;

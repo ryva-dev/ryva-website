@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import React, { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { classes, type ComponentSize } from "./shared";
 
 export type ButtonVariant = "primary" | "secondary" | "tertiary" | "destructive";

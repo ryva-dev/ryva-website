@@ -51,7 +51,7 @@ export function Field({
     <label className={classes("ry-field", "field", error && "ry-field-error", className)} htmlFor={controlId}>
       <span className="ry-field-label">
         {label}
-        {required ? <span className="ry-required"> Required</span> : null}
+        {required ? <span className="ry-required" aria-hidden="true">*</span> : null}
       </span>
       {control}
       {hint ? <small id={hintId}>{hint}</small> : null}

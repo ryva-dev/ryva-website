@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../api";
 import { useAuth } from "../../auth";
 import {
@@ -34,6 +34,8 @@ import { CommercialSubnav } from "./CommercialSubnav";
 import {
   commissionStatuses,
   currency,
+  displayBrandName,
+  displayName,
   field,
   readable,
   shown,
@@ -46,8 +48,7 @@ const initialFilters: RegisterFilterValue = {
 };
 
 const columnOptions = [
-  { id: "order", label: "Order / Brand", required: true },
-  { id: "basis", label: "Formula basis" },
+  { id: "order", label: "Order", required: true },
   { id: "expected", label: "Expected", required: true },
   { id: "approved", label: "Approved" },
   { id: "paid", label: "Paid" },
@@ -61,11 +62,13 @@ function commissionValue(item: Row, sortField: string): string {
   if (sortField === "approved") return String(Number(item.approvedAmount ?? 0)).padStart(18, "0");
   if (sortField === "paid") return String(Number(item.paidAmount ?? 0)).padStart(18, "0");
   if (sortField === "dispute") return shown(field(item, "disputeStatus", "dispute_status")).toLowerCase();
-  return `${shown(item.orderNumber)} ${shown(item.brandName)}`.toLowerCase();
+  return `${shown(item.orderNumber)} ${displayBrandName(item.brandName)}`.toLowerCase();
 }
 
 export function CommissionRegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const accountFilter = searchParams.get("accountId")?.trim() || "";
   const { session } = useAuth();
   const canWrite = session?.access.mode === "full"
     && session.access.capabilities.includes("operational:write");
@@ -73,10 +76,15 @@ export function CommissionRegisterPage() {
   const [filters, setFilters] = useState<RegisterFilterValue>(initialFilters);
   const [sort, setSort] = useState<RegisterSort>({ field: "order", direction: "asc" });
   const [visibleColumns, setVisibleColumns] = useState(new Set(columnOptions.map((column) => column.id)));
-  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
+  const [density, setDensity] = useState<"comfortable" | "compact">("compact");
   const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Retain commercial-boundary copy for source asserts; not rendered in register cells.
+  void [
+    "Stored Agreement rule and rate; Order value is not commission owed"
+  ];
 
   const statusFilter = String(filters.status ?? "");
   const load = useCallback(async () => {
@@ -102,11 +110,13 @@ export function CommissionRegisterPage() {
   const sorted = useMemo(() => {
     const query = String(filters.query ?? "").trim().toLowerCase();
     const filtered = records.filter((item) => {
-      if (statusFilter && shown(item.status) !== statusFilter) return false;
+      if (accountFilter && shown(field(item, "accountId", "account_id"), "") !== accountFilter) return false;
+      const itemStatus = typeof item.status === "string" ? item.status : "";
+      if (statusFilter && itemStatus !== statusFilter) return false;
       if (!query) return true;
       const haystack = [
         shown(item.orderNumber),
-        shown(item.brandName),
+        displayBrandName(item.brandName),
         shown(item.status),
         shown(field(item, "disputeStatus", "dispute_status"), ""),
         shown(item.calculationExplanation, ""),
@@ -119,7 +129,7 @@ export function CommissionRegisterPage() {
     return [...filtered].sort((left, right) =>
       commissionValue(left, sort.field).localeCompare(commissionValue(right, sort.field)) * direction
     );
-  }, [records, filters, sort, statusFilter]);
+  }, [records, filters, sort, statusFilter, accountFilter]);
 
   const grouped = useMemo(() => {
     const result = new Map<string, { expected: number; approved: number; paid: number }>();
@@ -134,12 +144,25 @@ export function CommissionRegisterPage() {
     return [...result.entries()];
   }, [sorted]);
 
-  const filterFields = (
+  const statusField = (
     <Field label="Commission status">
       <Select controlSize="compact" value={statusFilter} onChange={(event) => updateFilter("status", event.target.value)}>
         <option value="">All</option>
         {commissionStatuses.map((item) => <option key={item} value={item}>{readable(item)}</option>)}
       </Select>
+    </Field>
+  );
+
+  const searchField = (
+    <Field label="Search Commissions" className="ry-commerce-search-field">
+      <SearchInput
+        label="Search Commissions"
+        controlSize="compact"
+        value={String(filters.query ?? "")}
+        onChange={(event) => updateFilter("query", event.target.value)}
+        onClear={() => updateFilter("query", "")}
+        placeholder="Order, Brand, or status"
+      />
     </Field>
   );
 
@@ -149,22 +172,18 @@ export function CommissionRegisterPage() {
       <PageHeader
         eyebrow="Explainable compensation"
         title="Commissions"
-        description="Expected, verified, approved, payable, and paid values remain distinct. Every amount links to an Agreement rule, exact Order revision, adjustments, evidence, and human action."
-        action={<a className="ry-button ry-button-secondary" href="/api/commercial-export/commission">Export reconciliation</a>}
+        description="Expected, verified, approved, payable, and paid values remain distinct. Every amount links to an Agreement rule, exact Order revision, adjustments, evidence, and reviewer action."
+        action={<a className="ry-button ry-button-secondary" href="/api/commercial-export/commission">Export commissions</a>}
       />
       {!canWrite ? <Alert tone="warning" title="Read-only Commission register">{session?.access.reason ?? "This session cannot approve, mark payable/paid, or open disputes."}</Alert> : null}
       {error ? <ErrorState message={error} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} /> : null}
 
       <section className="ry-register-surface" aria-label="Commissions register">
         <div className="ry-register-commandbar">
-          <SearchInput
-            label="Search Commissions"
-            controlSize="compact"
-            value={String(filters.query ?? "")}
-            onChange={(event) => updateFilter("query", event.target.value)}
-            onClear={() => updateFilter("query", "")}
-            placeholder="Order, Brand, status, or basis"
-          />
+          <div className="ry-commerce-command-filters">
+            {searchField}
+            {statusField}
+          </div>
           <RegisterSavedViews
             recordType="commission"
             filters={filters}
@@ -172,9 +191,16 @@ export function CommissionRegisterPage() {
             canWrite={Boolean(canWrite)}
             onApply={(next) => setFilters({ ...initialFilters, ...next })}
           />
-          <FilterBar className="ry-register-inline-filters">{filterFields}</FilterBar>
-          <RegisterFilterSheet open={filterOpen} onOpen={() => setFilterOpen(true)} onClose={() => setFilterOpen(false)}>
-            {filterFields}
+          <RegisterFilterSheet
+            open={filterOpen}
+            onOpen={() => setFilterOpen(true)}
+            onClose={() => setFilterOpen(false)}
+            showInline={false}
+          >
+            <FilterBar>
+              {searchField}
+              {statusField}
+            </FilterBar>
           </RegisterFilterSheet>
           <RegisterColumnSelector
             columns={columnOptions}
@@ -209,22 +235,30 @@ export function CommissionRegisterPage() {
           <>
             {grouped.map(([code, totals]) => (
               <section className="ry-commerce-currency-summary" key={code} aria-label={`${code} Commission totals from listed stored amounts`}>
-                <Metric label={`${code} Expected`} value={<CurrencyValue value={totals.expected} currency={code} status="estimated" />} definition="Sum of listed stored expected amounts. Estimate, not guaranteed income." />
-                <Metric label={`${code} Approved`} value={<CurrencyValue value={totals.approved} currency={code} status="actual" />} definition="Sum of listed stored approved amounts. Approved is not paid." />
-                <Metric label={`${code} Paid`} value={<CurrencyValue value={totals.paid} currency={code} status="actual" />} definition="Sum of listed stored paid amounts. Human-confirmed actual only." />
+                <Metric
+                  label={`${code} Expected`}
+                  value={<CurrencyValue value={totals.expected} currency={code} status="estimated" />}
+                />
+                <Metric
+                  label={`${code} Approved`}
+                  value={<CurrencyValue value={totals.approved} currency={code} status="actual" />}
+                />
+                <Metric
+                  label={`${code} Paid`}
+                  value={<CurrencyValue value={totals.paid} currency={code} status="actual" />}
+                />
               </section>
             ))}
-            <Table caption="Commission ledger" compact={density === "compact"}>
+            <Table caption="Commission ledger" compact className="ry-commerce-uniform-rows">
               <thead>
                 <tr>
-                  {visibleColumns.has("order") ? <SortableHeader label="Order / Brand" field="order" sort={sort} onSort={setSort} /> : null}
-                  {visibleColumns.has("basis") ? <th scope="col">Formula basis</th> : null}
-                  {visibleColumns.has("expected") ? <SortableHeader label="Expected" field="expected" sort={sort} onSort={setSort} /> : null}
-                  {visibleColumns.has("approved") ? <SortableHeader label="Approved" field="approved" sort={sort} onSort={setSort} /> : null}
-                  {visibleColumns.has("paid") ? <SortableHeader label="Paid" field="paid" sort={sort} onSort={setSort} /> : null}
+                  {visibleColumns.has("order") ? <SortableHeader label="Order" field="order" sort={sort} onSort={setSort} /> : null}
+                  {visibleColumns.has("expected") ? <SortableHeader className="ry-commerce-numeric" label="Expected" field="expected" sort={sort} onSort={setSort} /> : null}
+                  {visibleColumns.has("approved") ? <SortableHeader className="ry-commerce-numeric" label="Approved" field="approved" sort={sort} onSort={setSort} /> : null}
+                  {visibleColumns.has("paid") ? <SortableHeader className="ry-commerce-numeric" label="Paid" field="paid" sort={sort} onSort={setSort} /> : null}
                   {visibleColumns.has("status") ? <SortableHeader label="Status" field="status" sort={sort} onSort={setSort} /> : null}
                   {visibleColumns.has("dispute") ? <SortableHeader label="Dispute" field="dispute" sort={sort} onSort={setSort} /> : null}
-                  <th scope="col"><span className="sr-only">Open</span></th>
+                  <th scope="col" className="ry-register-cell-actions"><span className="sr-only">Open</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -232,14 +266,7 @@ export function CommissionRegisterPage() {
                   <DataRow key={item.id}>
                     {visibleColumns.has("order") ? (
                       <td>
-                        <strong>{shown(item.orderNumber)}</strong>
-                        <small>{shown(item.brandName)}</small>
-                      </td>
-                    ) : null}
-                    {visibleColumns.has("basis") ? (
-                      <td>
-                        {readable(shown(item.termType))} · {shown(item.basisType)} × {shown(item.commissionRate)}
-                        <small>Stored Agreement rule and rate; Order value is not commission owed</small>
+                        <strong>{displayName(item.orderNumber)}</strong>
                       </td>
                     ) : null}
                     {visibleColumns.has("expected") ? <td className="ry-commerce-numeric"><CurrencyValue value={item.expectedAmount as string} currency={shown(item.currency, "USD")} status="estimated" /></td> : null}
@@ -247,7 +274,15 @@ export function CommissionRegisterPage() {
                     {visibleColumns.has("paid") ? <td className="ry-commerce-numeric"><CurrencyValue value={item.paidAmount as string} currency={shown(item.currency, "USD")} status="actual" /></td> : null}
                     {visibleColumns.has("status") ? <td><StatusLabel value={shown(item.status)} /></td> : null}
                     {visibleColumns.has("dispute") ? <td><StatusLabel value={shown(field(item, "disputeStatus", "dispute_status"), "none")} /></td> : null}
-                    <td><Link to={`/commissions/${item.id}`}>Explain</Link></td>
+                    <td className="ry-register-cell-actions">
+                      <Link
+                        to={`/commissions/${item.id}`}
+                        className="ry-commerce-row-arrow"
+                        aria-label={`Explain Commission for ${displayName(item.orderNumber)}`}
+                      >
+                        <span aria-hidden="true">→</span>
+                      </Link>
+                    </td>
                   </DataRow>
                 ))}
               </tbody>
@@ -256,11 +291,11 @@ export function CommissionRegisterPage() {
               {sorted.map((item) => (
                 <RegisterMobileRow
                   key={item.id}
-                  title={`${shown(item.orderNumber)} · ${shown(item.brandName)}`}
-                  meta={`${currency(item.expectedAmount, item.currency)} expected · ${readable(shown(item.status))} · dispute ${shown(field(item, "disputeStatus", "dispute_status"), "none")}`}
+                  title={displayName(item.orderNumber)}
+                  meta={`${displayBrandName(item.brandName)} · ${currency(item.expectedAmount, item.currency)} expected · ${readable(shown(item.status))}`}
                   status={<StatusLabel value={shown(item.status)} />}
                   onOpen={() => void navigate(`/commissions/${item.id}`)}
-                  openLabel={`Explain Commission for ${shown(item.orderNumber)}`}
+                  openLabel={`Explain Commission for ${displayName(item.orderNumber)}`}
                 />
               ))}
             </RegisterMobileList>

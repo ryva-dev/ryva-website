@@ -3,7 +3,9 @@ import type {
   AiProvider,
   AiProviderOutput,
   AiUseCase,
-  AiContextItem
+  AiContextItem,
+  TransactionalIdentityEmailProvider,
+  TransactionalIdentityMessage
 } from "../../../packages/domain/src/index.js";
 import { AppError } from "../../../packages/shared/src/index.js";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -216,6 +218,70 @@ export class ConfiguredEmailProvider implements EmailProvider {
       throw new AppError(502, "email_provider_invalid", "The email provider returned an invalid response.");
     }
     return parsed.data;
+  }
+}
+
+export class ConfiguredTransactionalIdentityEmailProvider
+implements TransactionalIdentityEmailProvider {
+  constructor(private readonly configuration: AppConfig) {}
+
+  async send(
+    input: TransactionalIdentityMessage & { idempotencyKey: string }
+  ): Promise<{ providerMessageId?: string }> {
+    if (
+      !this.configuration.TRANSACTIONAL_EMAIL_PROVIDER_URL ||
+      !this.configuration.TRANSACTIONAL_EMAIL_PROVIDER_TOKEN ||
+      !this.configuration.TRANSACTIONAL_EMAIL_FROM_ADDRESS
+    ) {
+      throw new AppError(
+        503,
+        "transactional_email_unavailable",
+        "Transactional email delivery is not configured. The message remains safe to retry."
+      );
+    }
+    const response = await fetch(
+      new URL("/messages", this.configuration.TRANSACTIONAL_EMAIL_PROVIDER_URL),
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.configuration.TRANSACTIONAL_EMAIL_PROVIDER_TOKEN}`,
+          "content-type": "application/json",
+          "idempotency-key": input.idempotencyKey
+        },
+        body: JSON.stringify({
+          messageType: input.kind,
+          from: this.configuration.TRANSACTIONAL_EMAIL_FROM_ADDRESS,
+          to: input.to,
+          subject: input.subject,
+          text: input.text
+        }),
+        signal: AbortSignal.timeout(15_000)
+      }
+    );
+    if (!response.ok) {
+      throw new AppError(
+        response.status >= 500 ? 503 : 422,
+        response.status >= 500
+          ? "transactional_email_unavailable"
+          : "transactional_email_rejected",
+        response.status >= 500
+          ? "Transactional email delivery is temporarily unavailable. The message remains safe to retry."
+          : "Transactional email delivery was rejected."
+      );
+    }
+    const payload = z.object({
+      providerMessageId: z.string().trim().min(1).max(500).optional()
+    }).safeParse(await response.json().catch(() => ({})));
+    if (!payload.success) {
+      throw new AppError(
+        502,
+        "transactional_email_invalid",
+        "The transactional email provider returned an invalid response."
+      );
+    }
+    return payload.data.providerMessageId
+      ? { providerMessageId: payload.data.providerMessageId }
+      : {};
   }
 }
 

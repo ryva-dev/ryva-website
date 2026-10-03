@@ -127,7 +127,7 @@ describe("Phase 9 controlled data operations",()=>{
     assert.equal(alias.body.canonicalId,records.rows[0].id);
     const reversed=await agent.post(`/api/duplicate-merges/${confirmed.body.id}/reverse`)
       .set("x-csrf-token",csrf).send({
-        reason:"The duplicate determination was incorrect after additional human review.",
+        reason:"The duplicate determination was incorrect after additional review.",
         confirmation:"REVERSE MERGE"
       });
     assert.equal(reversed.status,200,reversed.text);

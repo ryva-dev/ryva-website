@@ -36,11 +36,16 @@ npm run test:e2e
 npm run build
 npm run drill:backup-restore
 npm run release:preflight
+npm run migrate
 npm run start
 npm run start:worker
 ```
 
 `npm run test:all` runs static analysis, unit/integration tests, browser tests, and the production build.
+
+Migrations are an explicit lifecycle step. `npm run start` and
+`npm run start:worker` never apply schema changes; run `npm run migrate` before
+starting a release that includes unapplied migrations.
 
 ## Provider setup
 

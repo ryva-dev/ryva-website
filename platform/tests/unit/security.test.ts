@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { loadConfig } from "../../packages/config/src/index.js";
 import {
@@ -40,5 +41,21 @@ describe("security primitives", () => {
         }),
       /Invalid Ryva Pro configuration/
     );
+  });
+});
+
+describe("release lifecycle", () => {
+  it("keeps production migrations in the explicit release task", () => {
+    const apiEntrypoint = readFileSync(new URL("../../apps/api/src/index.ts", import.meta.url), "utf8");
+    const deploymentGuide = readFileSync(new URL("../../docs/deployment.md", import.meta.url), "utf8");
+    assert.doesNotMatch(apiEntrypoint, /\bmigrate\s*\(/);
+    assert.match(deploymentGuide, /API process never runs migrations at startup/);
+    assert.match(deploymentGuide, /npm run migrate/);
+  });
+
+  it("marks the root Mara environment template as legacy", () => {
+    const rootTemplate = readFileSync(new URL("../../../.env.example", import.meta.url), "utf8");
+    assert.match(rootTemplate, /^# LEGACY MARA ENVIRONMENT TEMPLATE/);
+    assert.match(rootTemplate, /platform\/\.env\.example/);
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../api";
 import { useAuth } from "../../auth";
 import {
@@ -23,6 +23,7 @@ import {
   RegisterFilterSheet,
   RegisterMobileList,
   RegisterMobileRow,
+  RegisterPagination,
   RegisterSavedViews,
   SortableHeader,
   type RegisterFilterValue,
@@ -31,10 +32,14 @@ import {
 import { CommercialSubnav } from "./CommercialSubnav";
 import {
   accountHealthValues,
+  accountProtectionLabel,
   accountStatuses,
   dateShown,
+  displayBrandName,
+  displayName,
   field,
   readable,
+  relationshipDisplay,
   shown,
   type Row
 } from "./utils";
@@ -46,29 +51,34 @@ const initialFilters: RegisterFilterValue = {
 };
 
 const columnOptions = [
-  { id: "relationship", label: "Relationship", required: true },
+  { id: "relationship", label: "Account", required: true },
   { id: "status", label: "Status", required: true },
   { id: "health", label: "Health" },
   { id: "protection", label: "Protection" },
   { id: "lastOrder", label: "Last Order" }
 ];
 
+const pageSize = 20;
+
 function accountValue(account: Row, sortField: string): string {
   if (sortField === "status") return shown(account.status).toLowerCase();
   if (sortField === "health") return shown(account.health).toLowerCase();
   if (sortField === "protection") return shown(field(account, "protectionStatus", "protection_status")).toLowerCase();
   if (sortField === "lastOrder") return shown(field(account, "lastOrderDate", "last_order_date"), "").toLowerCase();
-  return `${shown(account.brandName)} ${shown(account.businessName)}`.toLowerCase();
+  return `${displayBrandName(account.brandName)} ${displayName(account.businessName)}`.toLowerCase();
 }
 
 export function AccountRegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const placementFilter = searchParams.get("placementId")?.trim() || "";
   const { session } = useAuth();
   const canWrite = session?.access.mode === "full"
     && session.access.capabilities.includes("operational:write");
   const [accounts, setAccounts] = useState<Row[]>([]);
   const [filters, setFilters] = useState<RegisterFilterValue>(initialFilters);
   const [sort, setSort] = useState<RegisterSort>({ field: "relationship", direction: "asc" });
+  const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState(new Set(columnOptions.map((column) => column.id)));
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -94,18 +104,22 @@ export function AccountRegisterPage() {
 
   function updateFilter(id: string, value: string) {
     setFilters((current) => ({ ...current, [id]: value }));
+    setPage(1);
   }
 
   const sortedAccounts = useMemo(() => {
     const query = String(filters.query ?? "").trim().toLowerCase();
     const health = String(filters.health ?? "");
     const filtered = accounts.filter((account) => {
-      if (statusFilter && shown(account.status) !== statusFilter) return false;
-      if (health && shown(account.health) !== health) return false;
+      if (placementFilter && shown(field(account, "placementOpportunityId", "placement_opportunity_id"), "") !== placementFilter) return false;
+      const itemStatus = typeof account.status === "string" ? account.status : "";
+      if (statusFilter && itemStatus !== statusFilter) return false;
+      const itemHealth = typeof account.health === "string" ? account.health : "";
+      if (health && itemHealth !== health) return false;
       if (!query) return true;
       const haystack = [
-        shown(account.brandName),
-        shown(account.businessName),
+        displayBrandName(account.brandName, ""),
+        displayName(account.businessName, ""),
         shown(account.status),
         shown(account.health),
         shown(field(account, "healthRationale", "health_rationale"), ""),
@@ -117,7 +131,23 @@ export function AccountRegisterPage() {
     return [...filtered].sort((left, right) =>
       accountValue(left, sort.field).localeCompare(accountValue(right, sort.field)) * direction
     );
-  }, [accounts, filters, sort, statusFilter]);
+  }, [accounts, filters, placementFilter, sort, statusFilter]);
+
+  const total = sortedAccounts.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pagedAccounts = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedAccounts.slice(start, start + pageSize);
+  }, [currentPage, sortedAccounts]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [sort.field, sort.direction]);
 
   const activeFilters = Object.entries(filters)
     .filter(([, value]) => Boolean(value))
@@ -131,7 +161,7 @@ export function AccountRegisterPage() {
       <CommercialSubnav />
       <PageHeader
         eyebrow="Commercial continuity"
-        title="Protected Accounts and operational Accounts"
+        title="Accounts"
         description="Manage real Brand–Business relationships after verified opening Orders. Account records preserve history; they do not create contractual rights."
         action={<a className="ry-button ry-button-secondary" href="/api/commercial-export/account">Export CSV</a>}
       />
@@ -154,6 +184,7 @@ export function AccountRegisterPage() {
               onApply={(nextFilters, nextSort) => {
                 setFilters({ ...initialFilters, ...nextFilters });
                 setSort(nextSort);
+                setPage(1);
               }}
             />
             <RegisterFilterSheet
@@ -197,10 +228,13 @@ export function AccountRegisterPage() {
           <ActiveFilters
             filters={activeFilters}
             onClear={(id) => updateFilter(id, "")}
-            onClearAll={() => setFilters(initialFilters)}
+            onClearAll={() => {
+              setFilters(initialFilters);
+              setPage(1);
+            }}
           />
           <div className="ry-register-resultbar">
-            <span>{sortedAccounts.length} Account{sortedAccounts.length === 1 ? "" : "s"}</span>
+            <span>{total} Account{total === 1 ? "" : "s"}</span>
             <RegisterColumnSelector
               columns={columnOptions}
               visible={visibleColumns}
@@ -214,22 +248,22 @@ export function AccountRegisterPage() {
               onDensityChange={setDensity}
             />
           </div>
-          {sortedAccounts.length === 0 ? (
+          {total === 0 ? (
             <EmptyState
               title={activeFilters.length ? "No Accounts match these filters" : undefined}
               description={activeFilters.length
                 ? "Clear one or more filters to return to the Account register."
                 : "No Accounts yet. Confirm a documented opening Order to create the first operational Account."}
               action={activeFilters.length
-                ? <Button variant="secondary" onClick={() => setFilters(initialFilters)}>Clear filters</Button>
+                ? <Button variant="secondary" onClick={() => { setFilters(initialFilters); setPage(1); }}>Clear filters</Button>
                 : undefined}
             />
           ) : (
             <>
-              <Table caption="Protected Accounts and operational Accounts" compact={density === "compact"}>
+              <Table caption="Accounts" compact={density === "compact"}>
                 <thead>
                   <tr>
-                    {visibleColumns.has("relationship") ? <SortableHeader field="relationship" label="Relationship" sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("relationship") ? <SortableHeader field="relationship" label="Account" sort={sort} onSort={setSort} /> : null}
                     {visibleColumns.has("status") ? <SortableHeader field="status" label="Status" sort={sort} onSort={setSort} /> : null}
                     {visibleColumns.has("health") ? <SortableHeader field="health" label="Health" sort={sort} onSort={setSort} /> : null}
                     {visibleColumns.has("protection") ? <SortableHeader field="protection" label="Protection" sort={sort} onSort={setSort} /> : null}
@@ -238,34 +272,77 @@ export function AccountRegisterPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedAccounts.map((account) => {
+                  {pagedAccounts.map((account) => {
                     const protectionStatus = shown(field(account, "protectionStatus", "protection_status"), "unverified");
                     const protectionEndsOn = field(account, "protectionEndsOn", "protection_ends_on");
+                    const relationship = relationshipDisplay(account);
+                    const lastOrderNumber = shown(field(account, "lastOrderNumber", "last_order_number"), "");
+                    const lastOrderDate = field(account, "lastOrderDate", "last_order_date");
                     return (
                       <DataRow key={account.id}>
-                        {visibleColumns.has("relationship") ? <td><strong>{shown(account.brandName)}</strong><small>{shown(account.businessName)}</small></td> : null}
+                        {visibleColumns.has("relationship") ? (
+                          <td>
+                            <strong>{relationship.title}</strong>
+                            {relationship.subtitle ? <small>{relationship.subtitle}</small> : null}
+                          </td>
+                        ) : null}
                         {visibleColumns.has("status") ? <td><StatusLabel value={shown(account.status)} /></td> : null}
-                        {visibleColumns.has("health") ? <td><StatusLabel value={shown(account.health)} /><small>{shown(field(account, "healthRationale", "health_rationale"))}</small></td> : null}
-                        {visibleColumns.has("protection") ? <td><StatusLabel value={protectionStatus} /><small>{protectionEndsOn ? `Ends ${dateShown(protectionEndsOn)}` : "No asserted protection"}</small></td> : null}
-                        {visibleColumns.has("lastOrder") ? <td>{shown(field(account, "lastOrderNumber", "last_order_number"))}<small>{dateShown(field(account, "lastOrderDate", "last_order_date"))}</small></td> : null}
-                        <td className="ry-register-cell-actions"><Link to={`/accounts/${account.id}`}>Review</Link></td>
+                        {visibleColumns.has("health") ? (
+                          <td>
+                            <StatusLabel value={shown(account.health)} />
+                          </td>
+                        ) : null}
+                        {visibleColumns.has("protection") ? (
+                          <td>
+                            <span>{accountProtectionLabel(protectionStatus)}</span>
+                            {protectionEndsOn ? <small>{`Ends ${dateShown(protectionEndsOn)}`}</small> : null}
+                          </td>
+                        ) : null}
+                        {visibleColumns.has("lastOrder") ? (
+                          <td>
+                            {lastOrderNumber || "—"}
+                            {lastOrderDate ? <small>{dateShown(lastOrderDate)}</small> : null}
+                          </td>
+                        ) : null}
+                        <td className="ry-register-cell-actions">
+                          <Link
+                            to={`/accounts/${account.id}`}
+                            className="ry-commerce-row-arrow"
+                            aria-label={`Review ${relationship.title}`}
+                          >
+                            <span aria-hidden="true">→</span>
+                          </Link>
+                        </td>
                       </DataRow>
                     );
                   })}
                 </tbody>
               </Table>
               <RegisterMobileList label="Accounts">
-                {sortedAccounts.map((account) => (
-                  <RegisterMobileRow
-                    key={account.id}
-                    title={`${shown(account.brandName)} → ${shown(account.businessName)}`}
-                    meta={`${readable(shown(account.health))} · Last Order ${shown(field(account, "lastOrderNumber", "last_order_number"), "not recorded")}`}
-                    status={<StatusLabel value={shown(account.status)} />}
-                    onOpen={() => void navigate(`/accounts/${account.id}`)}
-                    openLabel={`Review ${shown(account.brandName)} and ${shown(account.businessName)} Account`}
-                  />
-                ))}
+                {pagedAccounts.map((account) => {
+                  const relationship = relationshipDisplay(account);
+                  const mobileTitle = relationship.subtitle
+                    ? `${relationship.title} → ${relationship.subtitle}`
+                    : relationship.title;
+                  return (
+                    <RegisterMobileRow
+                      key={account.id}
+                      title={mobileTitle}
+                      meta={`${readable(shown(account.health))} · Last Order ${shown(field(account, "lastOrderNumber", "last_order_number"), "not recorded")}`}
+                      status={<StatusLabel value={shown(account.status)} />}
+                      onOpen={() => void navigate(`/accounts/${account.id}`)}
+                      openLabel={`Review ${relationship.title}${relationship.subtitle ? ` and ${relationship.subtitle}` : ""} Account`}
+                    />
+                  );
+                })}
               </RegisterMobileList>
+              <RegisterPagination
+                page={currentPage}
+                pageCount={pageCount}
+                total={total}
+                pageSize={pageSize}
+                onPage={setPage}
+              />
             </>
           )}
         </section>

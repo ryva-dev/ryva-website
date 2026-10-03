@@ -1,4 +1,6 @@
 export * from "./access.js";
+export * from "./productAccess.js";
+export * from "./programLearning.js";
 export * from "./account.js";
 export * from "./ai.js";
 export * from "./analytics.js";
@@ -6,6 +8,7 @@ export * from "./audit.js";
 export * from "./crypto.js";
 export * from "./jobs.js";
 export * from "./intelligence.js";
+export * from "./identity.js";
 export * from "./logger.js";
 export * from "./outreach.js";
 export * from "./commerce.js";

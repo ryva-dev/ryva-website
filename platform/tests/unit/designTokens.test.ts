@@ -45,7 +45,8 @@ describe("Ryva design foundations", () => {
       ["muted text on surface", "--color-text-muted", "--color-surface"],
       ["disabled text on disabled surface", "--color-text-disabled", "--color-surface-disabled"],
       ["white text on accent", "--color-text-on-accent", "--color-accent"],
-      ["accent text on subtle accent", "--color-accent-text", "--color-accent-subtle"],
+      ["accent text on secondary subtle", "--color-accent-text", "--color-secondary-subtle"],
+      ["secondary text on secondary subtle", "--color-secondary-text", "--color-secondary-subtle"],
       ["success text", "--color-success", "--color-success-bg"],
       ["warning text", "--color-warning", "--color-warning-bg"],
       ["danger text", "--color-danger", "--color-danger-bg"],
@@ -91,15 +92,16 @@ describe("Ryva design foundations", () => {
     assert.equal(token("--breakpoint-mobile"), "48rem");
     assert.equal(token("--breakpoint-desktop"), "64rem");
     assert.equal(token("--breakpoint-wide"), "90rem");
-    assert.match(typedTokens, /accent:\s*"#285b52"/);
+    assert.match(typedTokens, /accent:\s*"#6b2435"/);
     assert.match(typedTokens, /mobile:\s*768/);
     assert.match(typedTokens, /desktop:\s*1024/);
     assert.match(typedTokens, /wide:\s*1440/);
-    assert.match(typedTokens, /focusRing:\s*"0 0 0 2px #ffffff, 0 0 0 4px #3b6e65"/);
+    assert.match(typedTokens, /focusRing:\s*"0 0 0 2px #ffffff, 0 0 0 4px #8a2d44"/);
   });
 
-  it("contains no gradients, glass effects, or ornamental heavy elevation", () => {
-    assert.doesNotMatch(css, /gradient\s*\(/i);
+  it("centralizes approved gradients and contains no glass effects or ornamental heavy elevation", () => {
+    assert.match(css, /--gradient-catalog-tile:\s*linear-gradient\s*\(/i);
+    assert.match(css, /--gradient-select-chevron:\s*linear-gradient\s*\(/i);
     assert.doesNotMatch(css, /backdrop-filter/i);
     assert.equal(token("--radius-4"), "0.75rem");
     assert.equal(token("--duration-slow"), "240ms");

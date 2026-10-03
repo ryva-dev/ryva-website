@@ -1,32 +1,236 @@
 .ry-brand-page { width: min(100%, var(--width-workspace-max)); }
 
+.ry-brand-page.ry-relationship-page,
+.ry-brand-page.ry-relationship-page h1,
+.ry-brand-page.ry-relationship-page h2,
+.ry-brand-page.ry-relationship-page h3,
+.ry-brand-page.ry-relationship-page p,
+.ry-brand-page.ry-relationship-page label,
+.ry-brand-page.ry-relationship-page input,
+.ry-brand-page.ry-relationship-page select,
+.ry-brand-page.ry-relationship-page textarea,
+.ry-brand-page.ry-relationship-page button {
+  font-family: var(--font-family-sans);
+}
+
+/* Modern intelligence workspace (Increment 18): compact filter toolbar
+   instead of the stacked full-width filter block, and a width-balanced
+   workspace where the selected-record context lives in one panel instead of
+   two separate columns. Scoped to the Brand register until approved
+   elsewhere. */
+.ry-brand-page .ry-register-filter-inline { display: none; }
+.ry-brand-page .ry-register-filter-trigger { display: inline-flex; }
+.ry-brand-page .ry-register-commandbar-search { flex: 1 1 var(--width-reading); max-width: var(--width-reading); }
+
 .ry-brand-workspace {
   display: grid;
-  grid-template-columns: minmax(var(--size-0), 2fr) minmax(var(--size-0), 1.4fr) minmax(var(--width-context-rail), 1fr);
-  gap: var(--space-4);
+  grid-template-columns: minmax(var(--size-0), 1fr);
+  gap: var(--space-5);
   align-items: start;
 }
 
-.ry-brand-results { min-width: var(--size-0); }
-.ry-brand-summary {
-  display: grid;
-  gap: var(--space-4);
-  padding: var(--space-5);
-  border: var(--border-width-1) solid var(--color-border);
-  border-radius: var(--radius-2);
-  background: var(--color-surface-default);
-  min-width: var(--size-0);
+.ry-brand-workspace-active {
+  grid-template-columns: minmax(var(--size-0), 1fr) minmax(var(--width-context-rail), var(--width-record-panel));
 }
 
-.ry-brand-identity-summary h2 { margin: var(--space-0); font-size: var(--font-size-20); }
-.ry-brand-identity-meta { margin: var(--space-2) var(--space-0) var(--space-4); color: var(--color-text-muted); }
-.ry-brand-summary-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
-.ry-brand-create { margin-top: var(--space-6); }
+.ry-brand-record-panel { display: none; }
+
+.ry-brand-workspace-active .ry-brand-record-panel {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  position: sticky;
+  top: var(--space-5);
+  min-width: var(--size-0);
+  padding: var(--space-5);
+  border-radius: var(--radius-4);
+  background: var(--color-surface);
+  box-shadow: var(--elevation-1);
+}
+
+.ry-brand-results { min-width: var(--size-0); }
+
+.ry-brand-record-header { display: grid; gap: var(--space-1); }
+.ry-brand-record-eyebrow {
+  margin: var(--space-0);
+  color: var(--color-info);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+.ry-brand-record-header h2 { margin: var(--space-0); font-size: var(--font-size-18); }
+.ry-brand-record-header h2 a { color: var(--color-text-strong); text-decoration: none; }
+.ry-brand-record-header h2 a:hover { color: var(--color-accent-text); text-decoration: underline; }
+
+.ry-brand-page .ry-register-table-button {
+  color: var(--color-text-strong);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ry-brand-page .ry-register-table-button:hover,
+.ry-brand-page .ry-register-table-button:focus-visible {
+  color: var(--color-chart-blue);
+  text-decoration: underline;
+  text-underline-offset: var(--length-0-12em);
+}
+
+.ry-brand-record-section {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+.ry-brand-record-section h3 {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.ry-brand-create-drawer .ry-drawer-header {
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.ry-brand-create-drawer .ry-drawer-header h2 {
+  margin-block: var(--space-0) var(--space-1);
+  font-size: var(--font-size-18);
+}
+
+.ry-brand-create-drawer .ry-drawer-body {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
 .ry-brand-create-form {
   display: grid;
+  gap: var(--space-3);
+}
+
+.ry-brand-create-form .ry-field,
+.ry-brand-create-form .field {
+  gap: var(--length-0-2rem);
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.ry-brand-create-form .ry-field-label {
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+}
+
+.ry-brand-create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.ry-brand-page .ry-relationship-layout {
   gap: var(--space-4);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
-  align-items: end;
+  padding-top: var(--space-3);
+  grid-template-columns: minmax(0, 1fr) var(--width-context-rail);
+}
+
+.ry-brand-page .ry-relationship-main,
+.ry-brand-page .ry-relationship-tab-panel,
+.ry-brand-page .ry-relationship-section {
+  width: 100%;
+  max-width: none;
+}
+
+.ry-brand-page .ry-relationship-main,
+.ry-brand-page .ry-relationship-tab-panel {
+  gap: var(--space-3);
+}
+
+.ry-brand-page .ry-relationship-section {
+  gap: var(--space-2);
+  padding-block: var(--space-1) var(--space-3);
+  border-bottom-color: var(--color-chart-olive);
+}
+
+.ry-brand-page .ry-relationship-section > header {
+  gap: var(--space-2);
+}
+
+.ry-brand-page .ry-relationship-section h2 {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-16);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.35;
+  letter-spacing: var(--letter-spacing-normal);
+}
+
+.ry-brand-page .ry-relationship-section header p {
+  margin: var(--space-0);
+  margin-block-start: var(--length-0-15rem);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
+
+.ry-brand-page .ry-context-rail {
+  top: var(--space-3);
+  gap: var(--space-3);
+  padding-inline-start: var(--space-3);
+  border-inline-start: var(--border-width-1) solid var(--color-chart-olive);
+}
+
+.ry-brand-page .ry-context-rail-content {
+  gap: var(--space-2);
+}
+
+.ry-brand-page .ry-context-item {
+  gap: var(--length-0-15rem);
+  padding-bottom: var(--space-2);
+  border-bottom-color: var(--color-chart-olive);
+}
+
+.ry-brand-page .ry-context-item strong {
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-11, var(--length-0-6875rem));
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--length-0-02em);
+  text-transform: uppercase;
+}
+
+.ry-brand-page .ry-context-item p,
+.ry-brand-page .ry-context-item span,
+.ry-brand-page .ry-context-item a,
+.ry-brand-page .ry-context-item small {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-brand-page .ry-context-item a {
+  color: var(--color-chart-blue);
+}
+
+.ry-brand-review,
+.ry-brand-workspace-form,
+.ry-brand-field-form,
+.ry-brand-evidence-form,
+.ry-brand-observation-form,
+.ry-brand-decision-form,
+.ry-brand-contact-form,
+.ry-brand-form-grid {
+  width: 100%;
+  max-width: none;
+}
+
+.ry-brand-review {
+  display: grid;
+  gap: var(--space-3);
 }
 
 .ry-brand-field-form,
@@ -35,21 +239,308 @@
 .ry-brand-decision-form,
 .ry-brand-contact-form {
   display: grid;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
-.ry-brand-inline-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); margin-left: var(--space-3); }
+.ry-brand-form-compact {
+  gap: var(--space-2);
+}
+
+.ry-brand-form-compact .ry-field,
+.ry-brand-form-compact .field {
+  gap: var(--length-0-15rem);
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.ry-brand-form-compact .ry-field-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+}
+
+.ry-brand-page .ry-brand-form-compact .ry-input,
+.ry-brand-page .ry-brand-form-compact .ry-select,
+.ry-brand-page .ry-brand-form-compact input.ry-input,
+.ry-brand-page .ry-brand-form-compact select.ry-select,
+.ry-brand-page .ry-brand-form-compact textarea,
+.ry-brand-page .ry-brand-form-compact .ry-textarea {
+  width: 100%;
+  max-width: none;
+  min-height: var(--control-height-compact);
+  padding: var(--length-0-3rem) 0;
+  border: 0;
+  border-bottom: var(--border-width-1) solid var(--color-chart-olive);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-strong);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+  box-shadow: none;
+}
+
+.ry-brand-page .ry-brand-form-compact .ry-input:hover,
+.ry-brand-page .ry-brand-form-compact .ry-select:hover,
+.ry-brand-page .ry-brand-form-compact input.ry-input:hover,
+.ry-brand-page .ry-brand-form-compact select.ry-select:hover,
+.ry-brand-page .ry-brand-form-compact textarea:hover,
+.ry-brand-page .ry-brand-form-compact .ry-textarea:hover {
+  border-color: var(--color-text-strong);
+  background: transparent;
+}
+
+.ry-brand-page .ry-brand-form-compact .ry-input:focus,
+.ry-brand-page .ry-brand-form-compact .ry-select:focus,
+.ry-brand-page .ry-brand-form-compact input.ry-input:focus,
+.ry-brand-page .ry-brand-form-compact select.ry-select:focus,
+.ry-brand-page .ry-brand-form-compact textarea:focus,
+.ry-brand-page .ry-brand-form-compact .ry-textarea:focus {
+  outline: none;
+  border-bottom-color: var(--color-oxblood, var(--color-accent));
+  box-shadow: none;
+  background: transparent;
+}
+
+.ry-brand-page .ry-brand-form-compact .ry-button {
+  justify-self: start;
+  min-height: var(--control-height-compact);
+  height: var(--control-height-compact);
+  margin-top: var(--space-1);
+  padding-block: var(--space-0);
+  padding-inline: var(--space-3);
+  font-size: var(--font-size-12);
+}
+
+.ry-brand-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  align-items: start;
+}
+
+.ry-brand-form-span {
+  grid-column: 1 / -1;
+}
+
+.ry-brand-advanced {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border: 0;
+  border-top: var(--border-width-1) solid var(--color-chart-olive);
+  border-radius: 0;
+  background: transparent;
+}
+
+.ry-brand-advanced > summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
+}
+
+.ry-brand-advanced[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.ry-brand-status-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.ry-brand-status-chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--length-0-35rem);
+}
+
+.ry-brand-status-chip strong {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.ry-brand-register-dimension {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
+}
+
+.ry-brand-register-meta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-brand-status-sep {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-brand-page .ry-brand-identity-status,
+.ry-brand-page .ry-brand-status-meta .ry-status-label {
+  flex: 0 0 auto;
+  align-self: baseline;
+  min-height: 0;
+  padding: var(--space-0);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
+  letter-spacing: normal;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.ry-brand-page .ry-brand-identity-status.is-attention {
+  color: var(--color-chart-blue);
+}
+
+.ry-brand-page .ry-brand-identity-status.is-complete {
+  color: var(--color-chart-olive);
+}
+
+.ry-brand-identity-meta {
+  display: inline;
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-14);
+  line-height: 1.4;
+}
+
+.ry-brand-identity-meta a {
+  color: var(--color-chart-blue);
+}
+
+.ry-brand-readonly-note {
+  margin: var(--space-0) var(--space-0) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-brand-status-item {
+  gap: var(--space-1);
+}
+
+.ry-brand-status-item strong {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--length-0-02em);
+  text-transform: uppercase;
+}
+
+.ry-brand-status-item > span,
+.ry-brand-status-item > p,
+.ry-brand-status-item > a,
+.ry-brand-status-item > small {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-brand-status-item > small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-brand-review-status {
+  margin: var(--space-0) var(--space-0) var(--space-2);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
+
+.ry-brand-empty-note {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
+
+.ry-brand-page .ry-relationship-facts {
+  gap: var(--space-2) var(--space-4);
+}
+
+.ry-brand-page .ry-relationship-facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.ry-brand-page .ry-relationship-facts dd {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  line-height: 1.4;
+}
+
+.ry-brand-page .ry-relationship-evidence-list {
+  gap: var(--space-2);
+}
+
+.ry-brand-page .ry-relationship-evidence-list li {
+  gap: var(--space-1);
+  padding-block: var(--space-2);
+}
+
+.ry-brand-page .ry-relationship-evidence-list a,
+.ry-brand-page .ry-relationship-evidence-list a strong {
+  color: var(--color-chart-blue);
+  text-decoration: none;
+}
+
+.ry-brand-page .ry-relationship-evidence-list a:hover,
+.ry-brand-page .ry-relationship-evidence-list a:hover strong {
+  color: color-mix(in srgb, var(--color-chart-blue) 78%, var(--color-text-strong));
+  text-decoration: underline;
+  text-underline-offset: var(--length-0-12em);
+}
+
+.ry-brand-inline-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
 
 @media (max-width: 64rem) {
-  .ry-brand-workspace { grid-template-columns: minmax(var(--size-0), 1fr); }
-  .ry-brand-summary,
-  .ry-brand-context-rail-desktop { display: none; }
+  .ry-brand-workspace-active { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-brand-workspace-active .ry-brand-record-panel { position: static; }
+  .ry-brand-page .ry-relationship-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ry-brand-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 48rem) {
-  .ry-brand-create-form { grid-template-columns: minmax(var(--size-0), 1fr); }
-  .ry-brand-summary-actions .ry-button { width: 100%; }
+  .ry-brand-create-actions {
+    justify-content: stretch;
+  }
+
+  .ry-brand-create-actions .ry-button {
+    flex: 1 1 auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

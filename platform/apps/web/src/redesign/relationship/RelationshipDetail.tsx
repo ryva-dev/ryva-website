@@ -80,7 +80,9 @@ export function RelationshipTabs({
           onKeyDown={(event) => onKeyDown(event, index)}
         >
           <span>{tab.label}</span>
-          {tab.count === undefined ? null : <span className="ry-tab-count">{tab.count}</span>}
+          {typeof tab.count === "number" && tab.count > 0 ? (
+            <span className="ry-tab-count" aria-label={`${tab.count} items`}>{tab.count}</span>
+          ) : null}
         </button>
       ))}
     </div>
@@ -120,7 +122,8 @@ export function ContextRail({
   open,
   onOpen,
   onClose,
-  className
+  className,
+  triggerLabel = "Review context"
 }: {
   title: string;
   children: ReactNode;
@@ -128,6 +131,7 @@ export function ContextRail({
   onOpen: () => void;
   onClose: () => void;
   className?: string;
+  triggerLabel?: string;
 }) {
   const titleId = useId();
   return (
@@ -137,12 +141,12 @@ export function ContextRail({
         <div className="ry-context-rail-content">{children}</div>
       </aside>
       <Button className="ry-context-trigger" variant="secondary" onClick={onOpen} aria-haspopup="dialog">
-        Review context
+        {triggerLabel}
       </Button>
       <Drawer
         open={open}
         title={title}
-        description="Current relationship context, blockers, and next action."
+        description="Current status, blockers, and next action."
         onClose={onClose}
         size="standard"
         className="ry-context-drawer"

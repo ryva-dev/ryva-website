@@ -5,9 +5,9 @@ const password = "Synthetic!Passphrase2026";
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Your Ryva Pro access/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Your Ryva access/ })).toBeVisible();
 }
 
 test("approved shell navigation remains complete and capability-aware", async ({ page }, testInfo) => {
@@ -114,7 +114,7 @@ test("authenticated shell fits true narrow CSS viewports", async ({ page }, test
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
     expect(geometry.offenders).toEqual([]);
     expect(geometry.bottomItems.map((item: { label: string }) => item.label)).toEqual([
-      "Home", "Tasks", "Placements", "Search", "More"
+      "Home", "Tasks", "Placements", "More"
     ]);
     expect(geometry.bottomItems.every((item: { left: number; right: number }) =>
       item.left >= 0 && item.right <= geometry.viewportWidth

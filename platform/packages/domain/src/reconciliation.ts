@@ -99,13 +99,8 @@ export async function reconcileCredentialEvent(
         event.renewalUrl ?? null
       ]
     );
-    if (event.status === "revoked") {
-      await transaction.query(
-        `UPDATE sessions SET revoked_at=now(), revoked_reason='credential_revoked'
-          WHERE user_id=$1 AND revoked_at IS NULL`,
-        [event.userId]
-      );
-    }
+    // Credentials are retained for historical/admin use. Their status no longer
+    // changes representative product access or invalidates account sessions.
     await recordAudit(transaction, {
       workspaceId: user.workspace_id,
       actorType: "provider",

@@ -8,9 +8,9 @@ const password = "Synthetic!Passphrase2026";
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Your Ryva Pro access/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Your Ryva access/ })).toBeVisible();
 }
 
 async function seedContact(
@@ -65,7 +65,7 @@ async function seedContact(
         verified ? sourceId : null,
         verified ? new Date() : null,
         verified ? new Date(Date.now() - 86_400_000) : null,
-        verified ? "Human-confirmed synthetic professional route for interface verification only." : "",
+        verified ? "Confirmed synthetic professional route for interface verification only." : "",
         owner.userId
       ]
     );
@@ -81,7 +81,7 @@ async function seedContact(
   }
 }
 
-test("Contact pilot preserves human verification, history, focus, and connected context", async ({ page }, testInfo) => {
+test("Contact pilot preserves verification, history, focus, and connected context", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error" && !message.text().includes("401 (Unauthorized)")) errors.push(message.text()); });
   page.on("pageerror", (error) => errors.push(error.message));
@@ -104,10 +104,10 @@ test("Contact pilot preserves human verification, history, focus, and connected 
   await verifyButton.click();
   const verificationDrawer = page.getByRole("dialog", { name: "Verify professional route" });
   await verificationDrawer.getByLabel("Verification Source").selectOption({ label: fixture.sourceReference });
-  await verificationDrawer.getByLabel("Human verification notes").fill("Human confirmed the professional route against the synthetic Source; Buyer authority remains unverified.");
-  await verificationDrawer.getByRole("button", { name: "Record human verification" }).click();
+  await verificationDrawer.getByLabel("Verification notes").fill("Confirmed the professional route against the synthetic Source; Buyer authority remains unverified.");
+  await verificationDrawer.getByRole("button", { name: "Record verification" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Professional route verification was recorded." })).toBeVisible();
-  await expect(page.getByText("verified", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/Verified · Last verified/).first()).toBeVisible();
 
   const overviewTab = page.getByRole("tab", { name: "Overview" });
   const activityTab = page.getByRole("tab", { name: /Activity/ });
@@ -153,8 +153,8 @@ test("Contact detail retains identity and recovery when connected data fails", a
 });
 
 test("read-only Contact context exposes truth without mutation affordances", async ({ page }, testInfo) => {
-  const fixture = await seedContact("grace@synthetic.ryva.test", `restricted-${testInfo.project.name}-${Date.now()}`);
-  await signIn(page, "grace@synthetic.ryva.test");
+  const fixture = await seedContact("mentor-readonly@synthetic.ryva.test", `restricted-${testInfo.project.name}-${Date.now()}`);
+  await signIn(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto(`/contacts/${fixture.contactId}`);
   await expect(page.getByRole("heading", { name: /Synthetic Relationship Contact/, level: 1 })).toBeVisible();
   await expect(page.getByText("Read-only relationship context")).toBeVisible();

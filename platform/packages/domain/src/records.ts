@@ -19,7 +19,8 @@ const definitions: Record<CoreRecordType, Definition> = {
     statusColumn: "status",
     select:
       `id, workspace_id AS "workspaceId", public_name AS name, legal_name AS "legalName",
-       website, identity_status AS "identityStatus", status, owner_user_id AS "ownerUserId",
+       website, identity_status AS "identityStatus", status,
+       pipeline_stage AS "pipelineStage", owner_user_id AS "ownerUserId",
        custom_fields AS "customFields", version, created_at AS "createdAt", updated_at AS "updatedAt"`
   },
   product: {
@@ -496,6 +497,9 @@ export async function searchWorkspace(
         JOIN brands b ON b.workspace_id=p.workspace_id AND b.id=p.brand_id
         JOIN businesses bu ON bu.workspace_id=p.workspace_id AND bu.id=p.business_id
        WHERE p.workspace_id=$1 AND p.archived_at IS NULL
+      UNION ALL
+      SELECT 'task',t.id,t.title,t.subject_type,t.status,t.updated_at
+        FROM tasks t WHERE t.workspace_id=$1
     )
     SELECT candidates.type,
            coalesce(alias.canonical_id,candidates.id) AS id,

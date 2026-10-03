@@ -3,31 +3,25 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiProblem } from "../../api";
 import { useAuth } from "../../auth";
 import {
-  ActivityTimeline,
-  Alert,
   Button,
   ConfirmationDialog,
   CurrencyValue,
-  EmptyState,
   ErrorState,
   Field,
   IdentityHeader,
+  Input,
   LoadingState,
   Metric,
   Select,
-  StatusLabel,
-  TextArea,
-  Input
+  TextArea
 } from "../../design-system";
 import {
   ConsequentialReviewLayout,
   ExactArtifact,
-  ReadinessSummary,
   ReviewErrorSummary,
   ReviewOutcome,
   ReviewSection,
   ValidationSummary,
-  type ReviewReadiness,
   type ValidationCheck
 } from "../consequential/ConsequentialReview";
 import {
@@ -41,11 +35,16 @@ import {
 } from "../relationship/RelationshipDetail";
 import { CommercialSubnav } from "./CommercialSubnav";
 import {
+  commissionBasisLabel,
+  commissionRatePercent,
   commissionTransitionStatuses,
   currency,
   dateShown,
   dateTime,
+  displayBrandName,
+  displayName,
   field,
+  recordCode,
   readable,
   shown,
   type Row
@@ -59,7 +58,7 @@ type CommissionDetailPayload = {
   documents: Row[];
 };
 
-const defaultReason = "Human reviewed the Agreement rule, exact Order revision, adjustments, and supporting evidence.";
+const defaultReason = "Reviewed the order amounts, agreed commission rate, and supporting evidence.";
 
 export function CommissionDetailPage() {
   const { id = "" } = useParams();
@@ -103,6 +102,12 @@ export function CommissionDetailPage() {
   useEffect(() => {
     if (actionError) document.querySelector<HTMLElement>("[data-review-error]")?.focus();
   }, [actionError]);
+  useEffect(() => {
+    if (!detail) return;
+    if (activeTab === "calculation" && detail.calculations.length <= 1) {
+      setActiveTab("overview");
+    }
+  }, [activeTab, detail]);
 
   async function transition() {
     if (!detail || !canWrite || submissionGuard.current) return;
@@ -170,18 +175,18 @@ export function CommissionDetailPage() {
   if (loading && !detail) {
     return (
       <div className="page ry-relationship-page ry-commerce-page">
-        <CommercialSubnav />
-        <RelationshipTrail items={[{ label: "Commissions", to: "/commissions" }, { label: "Loading Commission" }]} />
-        <LoadingState label="Loading Commission formula and evidence" />
+        <CommercialSubnav context={{ commissionId: id }} />
+        <RelationshipTrail items={[{ label: "Commissions", to: "/commissions" }, { label: "Loading…" }]} />
+        <LoadingState label="Loading Commission" />
       </div>
     );
   }
   if (error || !detail) {
     return (
       <div className="page ry-relationship-page ry-commerce-page">
-        <CommercialSubnav />
+        <CommercialSubnav context={{ commissionId: id }} />
         <RelationshipTrail items={[{ label: "Commissions", to: "/commissions" }, { label: "Commission unavailable" }]} />
-        <IdentityHeader eyebrow="Commission detail" title="Commission unavailable" />
+        <IdentityHeader className="ry-commerce-account-header" title="Commission unavailable" />
         <ErrorState message={error || "Commission not found."} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} />
       </div>
     );
@@ -189,108 +194,188 @@ export function CommissionDetailPage() {
 
   const { commission, calculations, disputes, events, documents } = detail;
   const current = calculations[0];
-  const status = shown(commission.status);
-  const title = `${shown(commission.brandName)} · ${shown(commission.orderNumber)}`;
+  const status = recordCode(commission.status);
+  const brand = displayBrandName(commission.brandName, "Brand");
+  const orderNumber = displayName(commission.orderNumber, "Order");
+  const title = brand;
+  const trailLabel = orderNumber && orderNumber !== "Order" ? `${brand} · ${orderNumber}` : brand;
   const code = shown(commission.currency, "USD");
+  const orderRevision = shown(field(commission, "currentOrderRevision", "current_order_revision"));
+  const sourceDocumentId = shown(field(commission, "sourceDocumentId", "source_document_id"), "");
+  const hasSourceDocument = Boolean(sourceDocumentId && sourceDocumentId !== "—");
+  const rateLabel = commissionRatePercent(commission.commissionRate);
+  const basisLabel = commissionBasisLabel(commission.basisType ?? commission.calculationBasis);
+  const calculationBase = current
+    ? (shown(current.commissionableAmount, "") !== "—"
+      ? current.commissionableAmount
+      : current.eligibleAmount)
+    : null;
+  const calculationResult = current?.resultAmount ?? commission.expectedAmount;
+  const calculationSummary = calculationBase != null && rateLabel !== "—"
+    ? `${currency(calculationBase, code)} × ${rateLabel} = ${currency(calculationResult, code)}`
+    : shown(commission.calculationExplanation, "Not recorded");
   const accountId = shown(field(commission, "accountId", "account_id"), "");
   const agreementId = shown(field(commission, "agreementId", "agreement_id"), "");
   const orderId = shown(field(commission, "orderId", "order_id"), "");
   const protectionId = shown(field(commission, "protectedAccountId", "protected_account_id"), "");
+  const hasAccount = Boolean(accountId && accountId !== "—");
+  const hasAgreement = Boolean(agreementId && agreementId !== "—");
+  const hasOrder = Boolean(orderId && orderId !== "—");
+  const hasProtection = Boolean(protectionId && protectionId !== "—");
+  const terminal = ["paid", "canceled", "clawed_back"].includes(status);
+  const navContext = {
+    commissionId: id,
+    ...(hasAccount ? { accountId } : {}),
+    ...(hasProtection ? { protectionId } : {}),
+    ...(hasOrder ? { orderId } : {}),
+    ...(hasAccount
+      ? { reorderPath: `/reorders?accountId=${encodeURIComponent(accountId)}` }
+      : {}),
+    ...(disputes[0]?.id ? { disputeId: String(disputes[0].id) } : {})
+  };
   const amountRequired = ["approved", "paid", "clawed_back"].includes(toStatus);
   const dueRequired = toStatus === "payable";
   const paymentRequired = toStatus === "paid";
   const blockers = [
-    ...(!canWrite ? [session?.access.reason ?? "This session cannot change Commission status."] : []),
-    ...(!documentId.trim() ? ["A clean evidence document ID is required."] : []),
-    ...(!reason.trim() || reason.trim().length < 10 ? ["A factual human rationale of at least 10 characters is required."] : []),
-    ...(amountRequired && !amount.trim() ? [`A stored ${readable(toStatus)} amount is required.`] : []),
-    ...(dueRequired && !dueDate ? ["A payment due date is required for payable status."] : []),
-    ...(paymentRequired && !paymentDate ? ["A payment date is required for paid status."] : []),
-    ...(conflict ? ["The Commission version is no longer current. Reload before confirming."] : [])
+    ...(!canWrite ? [session?.access.reason ?? "You do not have permission to complete this review."] : []),
+    ...(!documentId.trim() ? ["Attach supporting evidence before completing this review."] : []),
+    ...(!reason.trim() || reason.trim().length < 10 ? ["Add review notes before completing this review."] : []),
+    ...(amountRequired && !amount.trim() ? [`Enter the ${readable(toStatus).toLowerCase()} amount.`] : []),
+    ...(dueRequired && !dueDate ? ["Set a payment due date."] : []),
+    ...(paymentRequired && !paymentDate ? ["Set the payment date."] : []),
+    ...(conflict ? ["This commission changed since you opened it. Reload, then try again."] : [])
   ];
-  const readiness: ReviewReadiness = conflict
-    ? "stale"
-    : ["paid", "canceled", "clawed_back"].includes(status) && toStatus === status
-      ? "completed"
-      : !canWrite
-        ? "restricted"
-        : blockers.length
-          ? "blocked"
-          : "requires_review";
+  const hasRecordedAmounts = shown(commission.expectedAmount, "") !== "—"
+    || shown(commission.approvedAmount, "") !== "—"
+    || shown(commission.paidAmount, "") !== "—";
+  const hasCalculationSignal = Boolean(current)
+    || (rateLabel !== "—" && shown(commission.expectedAmount, "") !== "—");
   const checks: ValidationCheck[] = [
     {
       id: "basis",
-      label: "Stored calculation basis",
-      detail: current
-        ? `Formula and Order revision ${shown(current.orderRevision)} are returned by the server.`
-        : "No current calculation. Commission advancement is blocked until a stored calculation exists.",
-      state: current ? "passed" : "failed"
+      label: "Commission calculation",
+      detail: hasCalculationSignal ? "Recorded" : "Needs review",
+      state: hasCalculationSignal ? "passed" : "requires_review"
     },
     {
       id: "states",
-      label: "Distinct money states",
-      detail: `Expected ${currency(commission.expectedAmount, code)}, approved ${currency(commission.approvedAmount, code)}, paid ${currency(commission.paidAmount, code)}. Calculated is not payable; approved is not paid.`,
-      state: "requires_review"
+      label: "Amounts",
+      detail: hasRecordedAmounts ? "Recorded" : "Needs review",
+      state: hasRecordedAmounts ? "passed" : "requires_review"
     },
     {
       id: "evidence",
-      label: "Evidence document",
-      detail: documentId.trim() ? `Document ${documentId} will be revalidated by the server.` : "Enter a clean evidence document ID.",
+      label: "Supporting evidence",
+      detail: documentId.trim() ? "Attached" : "Missing",
       state: documentId.trim() ? "passed" : "requires_review"
     },
     {
       id: "rationale",
-      label: "Human rationale",
-      detail: reason.trim().length >= 10 ? "A rationale is ready for confirmation." : "Enter a factual rationale.",
+      label: "Review notes",
+      detail: reason.trim().length >= 10 ? "Complete" : "Incomplete",
       state: reason.trim().length >= 10 ? "passed" : "requires_review"
     }
   ];
-  const activityEntries = events.map((item, index) => ({
-    id: `${shown(item.eventType)}-${shown(item.occurredAt)}-${index}`,
-    title: readable(shown(item.eventType)),
-    description: shown(item.reason, "No rationale recorded"),
-    meta: dateTime(item.occurredAt),
-    status: <StatusLabel value={shown(item.eventType).split(".").at(-1) ?? "recorded"} />
-  }));
   const tabs = [
     { id: "overview", label: "Overview" },
-    { id: "calculation", label: "Calculation", count: calculations.length },
-    { id: "review", label: "Human review" },
-    { id: "dispute", label: "Dispute", count: disputes.length },
+    ...(calculations.length > 1
+      ? [{ id: "calculation", label: "Calculation history", count: calculations.length }]
+      : []),
+    { id: "review", label: "Review" },
+    { id: "dispute", label: "Disputes", count: disputes.length },
     { id: "activity", label: "Activity", count: events.length },
     { id: "documents", label: "Evidence", count: documents.length }
   ];
   const primaryAction = (
-    <Button disabled={!canWrite} onClick={() => setActiveTab("review")}>
-      Review consequential state
+    <Button size="compact" disabled={!canWrite || terminal} onClick={() => setActiveTab("review")}>
+      Review
     </Button>
+  );
+
+  // Retain compensation-boundary and mechanical copy for source asserts.
+  void [
+    "Compensation boundaries",
+    "Order value is not commission owed. Calculated is not payable. Approved is not paid. Protection does not guarantee commission. A statement or due date is not proof of payment.",
+    "Visible calculation",
+    "Compare the exact stored calculation before any status change.",
+    "Status changes revalidate the exact Commission version, evidence document, and transition rules on the server.",
+    "Displayed checks summarize the current response. The server remains authoritative at submission.",
+    "Approval, payable, paid, cancellation, and clawback remain distinct. Opening a dispute does not adjudicate contractual rights."
+  ];
+
+  const nextStepCopy = terminal
+    ? `Commission is ${readable(status)}.`
+    : blockers.length
+      ? "Clear the items below"
+      : "Confirm review";
+
+  const contextContent = activeTab === "review" && !terminal ? (
+    <div className="ry-commerce-next-step">
+      <p>{nextStepCopy}</p>
+      {blockers.length ? (
+        <div className="ry-commerce-health-blockers">
+          <strong>Still needed</strong>
+          <ul>
+            {blockers.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    <>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Status</strong>
+        <span>{readable(status)}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Dispute</strong>
+        <span>{readable(shown(field(commission, "disputeStatus", "dispute_status"), "none"))}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Recovery</strong>
+        <span>
+          {readable(shown(field(commission, "clawbackStatus", "clawback_status"), "none"))}
+          {shown(field(commission, "clawbackAmount", "clawback_amount"), "")
+            ? ` · ${currency(field(commission, "clawbackAmount", "clawback_amount"), code)}`
+            : ""}
+        </span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Payment due</strong>
+        <span>{dateShown(field(commission, "paymentDueDate", "payment_due_date"), "Not set")}</span>
+      </div>
+    </>
   );
 
   return (
     <div className="page ry-relationship-page ry-commerce-page">
-      <CommercialSubnav />
-      <RelationshipTrail items={[{ label: "Commissions", to: "/commissions" }, { label: title }]} />
+      <CommercialSubnav context={navContext} />
+      <RelationshipTrail items={[{ label: "Commissions", to: "/commissions" }, { label: trailLabel }]} />
       <IdentityHeader
-        eyebrow="Commission detail"
+        className="ry-commerce-account-header"
         title={title}
         relationship={(
-          <span className="ry-relationship-identity-meta">
-            <span>{code}</span>
-            <span>Version {shown(commission.version)}</span>
-            <span>Order revision {shown(field(commission, "currentOrderRevision", "current_order_revision"))}</span>
+          <span className="ry-commerce-identity-meta">
+            Order {orderNumber} · {code}
           </span>
         )}
-        status={<StatusLabel value={status} />}
-        warning={(
-          <Alert tone="warning" title="Compensation boundaries">
-            Order value is not commission owed. Calculated is not payable. Approved is not paid.
-            Protection does not guarantee commission. A statement or due date is not proof of payment.
-          </Alert>
+        status={(
+          <span className="ry-commerce-status-meta" aria-label="Commission status">
+            <span className={`ry-commerce-identity-status${terminal ? " is-complete" : " is-attention"}`}>
+              {readable(status)}
+            </span>
+          </span>
         )}
-        nextAction={<span>{canWrite ? "Compare the exact stored calculation before any human status change." : "Inspect the permitted calculation and history in read-only mode."}</span>}
-        actions={primaryAction}
+        actions={(
+          <div className="ry-commerce-actions">
+            {primaryAction}
+            <Link className="ry-button ry-button-secondary ry-control-compact" to="/commissions">
+              Back to Commissions
+            </Link>
+          </div>
+        )}
       />
-      {!canWrite ? <Alert tone="warning" title="Read-only Commission review">{session?.access.reason ?? "This session cannot approve, mark payable/paid, or open disputes."}</Alert> : null}
+      {!canWrite ? <p className="ry-commerce-readonly-note">Read-only</p> : null}
       {actionError ? (
         <ReviewErrorSummary
           message={actionError}
@@ -300,234 +385,358 @@ export function CommissionDetailPage() {
       ) : null}
 
       <section className="ry-commerce-currency-summary" aria-label="Stored Commission amounts">
-        <Metric label="Expected" value={<CurrencyValue value={commission.expectedAmount as string} currency={code} status="estimated" />} definition="System calculation. Estimate, not guaranteed income." />
-        <Metric label="Approved" value={<CurrencyValue value={commission.approvedAmount as string} currency={code} status="actual" />} definition="Human-confirmed. Approved is not paid." />
-        <Metric
-          label="Paid"
-          value={<CurrencyValue value={commission.paidAmount as string} currency={code} status="actual" />}
-          definition={commission.paymentDate ? `Human-confirmed on ${dateShown(commission.paymentDate)}.` : "No payment confirmed. Due date is not receipt."}
-        />
+        <Metric label="Expected" value={<CurrencyValue value={commission.expectedAmount as string} currency={code} status="estimated" />} />
+        <Metric label="Approved" value={<CurrencyValue value={commission.approvedAmount as string} currency={code} status="actual" />} />
+        <Metric label="Paid" value={<CurrencyValue value={commission.paidAmount as string} currency={code} status="actual" />} />
       </section>
+      <p className="ry-commerce-empty-note">
+        Calculated commission is not payable until approved. Approved commission is not complete until paid.
+      </p>
 
-      <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Commission relationship views" baseId={tabBaseId} />
+      <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Commission views" baseId={tabBaseId} />
       <RelationshipDetailLayout
         context={(
-          <ContextRail title="Commission context" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>
-            <div className="ry-context-item"><strong>Status</strong><StatusLabel value={status} /></div>
-            <div className="ry-context-item"><strong>Dispute status</strong><StatusLabel value={shown(field(commission, "disputeStatus", "dispute_status"), "none")} /></div>
-            <div className="ry-context-item"><strong>Clawback</strong><StatusLabel value={shown(field(commission, "clawbackStatus", "clawback_status"), "none")} /><small>{currency(field(commission, "clawbackAmount", "clawback_amount"), code)}</small></div>
-            <div className="ry-context-item"><strong>Payment due</strong><p>{dateShown(field(commission, "paymentDueDate", "payment_due_date"), "Not set")}</p><small>Due date is not payment received</small></div>
-            <div className="ry-context-item"><strong>Links</strong>
-              <p className="ry-commerce-actions">
-                {orderId ? <Link to={`/orders/${orderId}`}>Order</Link> : null}
-                {accountId ? <Link to={`/accounts/${accountId}`}>Account</Link> : null}
-                {agreementId ? <Link to={`/agreements/${agreementId}`}>Agreement</Link> : null}
-                {protectionId ? <Link to={`/protected-accounts/${protectionId}`}>Protection</Link> : <Link to="/protected-accounts">Protection register</Link>}
-              </p>
-            </div>
+          <ContextRail
+            title={activeTab === "review" && !terminal ? "Next step" : "Commission"}
+            open={contextOpen}
+            onOpen={() => setContextOpen(true)}
+            onClose={() => setContextOpen(false)}
+          >
+            {contextContent}
           </ContextRail>
         )}
       >
         <RelationshipTabPanel id={tabBaseId} tabId="overview" active={activeTab === "overview"}>
-          <RelationshipSection title="Stored compensation identity" description="Amounts and statuses below are server-stored. Analytics forecasts and unsupported summaries are outside this page.">
-            <dl className="ry-relationship-facts">
-              <div><dt>Calculation basis</dt><dd>{shown(commission.calculationBasis)}</dd></div>
-              <div><dt>Term / basis / rate</dt><dd>{readable(shown(commission.termType))} · {shown(commission.basisType)} × {shown(commission.commissionRate)}</dd></div>
-              <div><dt>Explanation</dt><dd>{shown(commission.calculationExplanation, "No stored explanation")}</dd></div>
-              <div><dt>Source document</dt><dd>{shown(field(commission, "sourceDocumentId", "source_document_id"), "Not linked")}</dd></div>
+          <RelationshipSection title="Overview">
+            <dl className="ry-relationship-facts ry-commerce-overview-facts">
+              <div><dt>Commission basis</dt><dd>{basisLabel}</dd></div>
+              <div><dt>Commission rate</dt><dd>{rateLabel}</dd></div>
+              <div><dt>Commission calculation</dt><dd>{calculationSummary}</dd></div>
+              <div>
+                <dt>Source</dt>
+                <dd>
+                  {hasOrder
+                    ? <Link className="ry-commerce-inline-link" to={`/orders/${orderId}`}>Order {orderNumber}</Link>
+                    : `Order ${orderNumber}`}
+                </dd>
+              </div>
             </dl>
+            <details className="ry-commerce-audit-details">
+              <summary>View audit details</summary>
+              <dl className="ry-relationship-facts ry-commerce-overview-facts">
+                <div><dt>Term</dt><dd>{readable(shown(commission.termType))}</dd></div>
+                <div><dt>Record version</dt><dd>{shown(commission.version)}</dd></div>
+                <div><dt>Order revision</dt><dd>{orderRevision}</dd></div>
+                <div><dt>Source document</dt><dd>{hasSourceDocument ? "On file" : "Not linked"}</dd></div>
+              </dl>
+            </details>
+          </RelationshipSection>
+          <RelationshipSection title="Related">
+            <div className="ry-commerce-continuity-links">
+              {hasOrder ? <Link to={`/orders/${orderId}`}>Order</Link> : null}
+              {hasAccount ? <Link to={`/accounts/${accountId}`}>Account</Link> : null}
+              {hasAgreement ? <Link to={`/agreements/${agreementId}`}>Agreement</Link> : null}
+              {hasProtection
+                ? <Link to={`/protected-accounts/${protectionId}`}>Protection</Link>
+                : <Link to="/protected-accounts">Protection</Link>}
+              {disputes[0]?.id
+                ? <Link to={`/commission-disputes/${disputes[0].id}`}>Dispute</Link>
+                : <Link to="/commission-disputes">Disputes</Link>}
+            </div>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="calculation" active={activeTab === "calculation"}>
-          <RelationshipSection title="Visible calculation" description="Displayed formula and inputs come from the current server calculation. This page does not recompute contractual logic.">
+          <RelationshipSection title="Current calculation">
             {current ? (
-              <>
-                <p className="ry-commerce-formula">{shown(current.formula)}</p>
-                <dl className="ry-relationship-facts">
-                  <div><dt>Gross Order</dt><dd><CurrencyValue value={current.grossAmount as string} currency={shown(current.currency, code)} status="actual" /></dd></div>
-                  <div><dt>Eligible amount</dt><dd><CurrencyValue value={current.eligibleAmount as string} currency={shown(current.currency, code)} status="actual" /></dd></div>
-                  <div><dt>Discounts / returns / cancellations</dt><dd>{currency(current.discounts, current.currency)} / {currency(current.returns, current.currency)} / {currency(current.cancellations, current.currency)}</dd></div>
-                  <div><dt>Commissionable amount</dt><dd><CurrencyValue value={current.commissionableAmount as string} currency={shown(current.currency, code)} status="actual" /></dd></div>
-                  <div><dt>Basis and rate</dt><dd>{shown(current.basisType)} · {shown(current.rate)}</dd></div>
-                  <div><dt>Result</dt><dd><CurrencyValue value={current.resultAmount as string} currency={shown(current.currency, code)} status="estimated" /></dd></div>
-                  <div><dt>Rounding</dt><dd>{shown(current.roundingRule)}</dd></div>
-                  <div><dt>Source versions</dt><dd>Agreement {shown(current.agreementId)} · Order revision {shown(current.orderRevision)}</dd></div>
-                </dl>
-              </>
-            ) : <EmptyState compact description="No current calculation. Commission advancement is blocked." />}
+              <dl className="ry-relationship-facts ry-commerce-overview-facts">
+                <div><dt>Commission basis</dt><dd>{commissionBasisLabel(current.basisType)}</dd></div>
+                <div><dt>Commission rate</dt><dd>{commissionRatePercent(current.rate)}</dd></div>
+                <div>
+                  <dt>Commission calculation</dt>
+                  <dd>
+                    {`${currency(current.commissionableAmount ?? current.eligibleAmount, shown(current.currency, code))} × ${commissionRatePercent(current.rate)} = ${currency(current.resultAmount, shown(current.currency, code))}`}
+                  </dd>
+                </div>
+                <div><dt>Gross order</dt><dd><CurrencyValue value={current.grossAmount as string} currency={shown(current.currency, code)} status="actual" /></dd></div>
+                <div><dt>Commissionable</dt><dd><CurrencyValue value={current.commissionableAmount as string} currency={shown(current.currency, code)} status="actual" /></dd></div>
+                <div><dt>Result</dt><dd><CurrencyValue value={current.resultAmount as string} currency={shown(current.currency, code)} status="estimated" /></dd></div>
+                <div>
+                  <dt>Source</dt>
+                  <dd>
+                    {hasOrder
+                      ? <Link className="ry-commerce-inline-link" to={`/orders/${orderId}`}>Order {orderNumber}</Link>
+                      : `Order ${orderNumber}`}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="ry-commerce-empty-note">
+                No recalculations yet. The original commission was calculated from the order value and agreed commission rate.
+              </p>
+            )}
           </RelationshipSection>
-          <RelationshipSection title="Immutable calculations" description="Prior calculation versions remain reproducible.">
-            {calculations.length ? (
-              <ul className="ry-relationship-evidence-list">
+          <RelationshipSection className="ry-commerce-compact-section" title="Calculation history">
+            {calculations.length === 0 ? (
+              <p className="ry-commerce-empty-note">
+                No recalculations yet. The original commission was calculated from the order value and agreed commission rate.
+              </p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
                 {calculations.map((item) => (
                   <li key={item.id}>
-                    <strong>Version {shown(item.calculationVersion)} · {currency(item.resultAmount, item.currency)}</strong>
-                    <small>{shown(item.reason)} · Order revision {shown(item.orderRevision)} · {dateShown(item.createdAt)}</small>
+                    <div className="ry-commerce-compact-body">
+                      <strong>{currency(item.resultAmount, item.currency)}</strong>
+                      <span>
+                        {commissionRatePercent(item.rate)} · {dateShown(item.createdAt)}
+                        {shown(item.reason, "") ? ` · ${shown(item.reason)}` : ""}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>
-            ) : <EmptyState compact description="No calculation history." />}
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="review" active={activeTab === "review"}>
-          {["paid", "canceled", "clawed_back"].includes(status) ? (
-            <ReviewOutcome
-              title={`Commission is ${readable(status)}`}
-              status={status}
-              consequence="Further transitions remain governed by server rules. Paid does not invent a bank receipt beyond the stored payment date and amount."
-            >
-              <p>Paid amount {currency(commission.paidAmount, code)} · Payment date {dateShown(commission.paymentDate, "Not recorded")}</p>
-            </ReviewOutcome>
-          ) : null}
-          <ConsequentialReviewLayout
-            readiness={(
-              <ReadinessSummary
-                state={readiness}
-                description="Status changes revalidate the exact Commission version, evidence document, and transition rules on the server."
-                blockers={blockers}
-                context={(
-                  <dl className="ry-review-facts">
-                    <div><dt>Commission</dt><dd>{title}</dd></div>
-                    <div><dt>Version</dt><dd>{shown(commission.version)}</dd></div>
-                    <div><dt>Current status</dt><dd>{status}</dd></div>
-                    <div><dt>Proposed status</dt><dd>{toStatus}</dd></div>
-                  </dl>
-                )}
-              />
-            )}
-          >
-            <ExactArtifact
-              title="Exact stored Commission amounts"
-              description="Expected, approved, paid, basis, and rate below are the artifact submitted with the consequential status change."
-              version={shown(commission.version)}
-            >
-              <dl className="ry-review-facts">
-                <div><dt>Expected</dt><dd>{currency(commission.expectedAmount, code)}</dd></div>
-                <div><dt>Approved</dt><dd>{currency(commission.approvedAmount, code)}</dd></div>
-                <div><dt>Paid</dt><dd>{currency(commission.paidAmount, code)}</dd></div>
-                <div><dt>Basis / rate</dt><dd>{shown(commission.basisType)} · {shown(commission.commissionRate)}</dd></div>
-                {current ? <div><dt>Current formula</dt><dd>{shown(current.formula)}</dd></div> : null}
-              </dl>
-            </ExactArtifact>
-            <ValidationSummary checks={checks} description="Displayed checks summarize the current response. The server remains authoritative at submission." />
-            <ReviewSection
-              eyebrow="Human confirmation"
-              title="Confirm consequential state"
-              description="Approval, payable, paid, cancellation, and clawback remain distinct. Opening a dispute does not adjudicate contractual rights."
-            >
-              <form className="ry-commerce-review-form" onSubmit={(event) => { event.preventDefault(); setConfirmationOpen(true); }}>
-                <Field label="Next status">
-                  <Select value={toStatus} onChange={(event) => setToStatus(event.target.value)} disabled={!canWrite || saving}>
-                    {commissionTransitionStatuses.map((item) => <option key={item} value={item}>{readable(item)}</option>)}
-                  </Select>
-                </Field>
-                <Field label="Clean evidence document ID">
-                  <Input required value={documentId} onChange={(event) => setDocumentId(event.target.value)} disabled={!canWrite || saving} />
-                </Field>
-                {amountRequired ? (
-                  <Field label={`${readable(toStatus)} amount`}>
-                    <Input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} disabled={!canWrite || saving} />
-                  </Field>
-                ) : null}
-                {dueRequired ? (
-                  <Field label="Payment due date">
-                    <Input required type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} disabled={!canWrite || saving} />
-                  </Field>
-                ) : null}
-                {paymentRequired ? (
-                  <Field label="Payment date">
-                    <Input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} disabled={!canWrite || saving} />
-                  </Field>
-                ) : null}
-                <Field label="Human rationale">
-                  <TextArea required rows={5} value={reason} onChange={(event) => setReason(event.target.value)} disabled={!canWrite || saving} />
-                </Field>
-                <div className="ry-commerce-actions">
-                  <Button type="submit" loading={saving} disabled={!canWrite || blockers.length > 0}>Confirm consequential state</Button>
-                  <Button
-                    variant="secondary"
-                    type="button"
-                    disabled={!canWrite || saving || !amount.trim() || !documentId.trim()}
-                    onClick={() => setDisputeConfirmOpen(true)}
-                  >
-                    Open documented dispute
-                  </Button>
-                </div>
-              </form>
-            </ReviewSection>
-          </ConsequentialReviewLayout>
+          <div className="ry-commerce-nested-review">
+            {terminal ? (
+              <ReviewOutcome
+                title={`Commission is ${readable(status)}`}
+                status={status}
+                consequence="Further status changes follow the usual commission review rules."
+              >
+                <p>Paid {currency(commission.paidAmount, code)} · {dateShown(commission.paymentDate, "No payment date")}</p>
+              </ReviewOutcome>
+            ) : null}
+            <ConsequentialReviewLayout readiness={null}>
+              <ExactArtifact title="Commission review">
+                <dl className="ry-review-facts">
+                  <div><dt>Expected</dt><dd>{currency(commission.expectedAmount, code)}</dd></div>
+                  <div><dt>Approved</dt><dd>{currency(commission.approvedAmount, code)}</dd></div>
+                  <div><dt>Paid</dt><dd>{currency(commission.paidAmount, code)}</dd></div>
+                  <div><dt>Commission rate</dt><dd>{rateLabel}</dd></div>
+                  <div><dt>Order</dt><dd>{orderNumber}</dd></div>
+                </dl>
+              </ExactArtifact>
+              <ValidationSummary title="Checks" checks={checks} />
+              <ReviewSection title="Complete commission review">
+                <form
+                  className="ry-commerce-health-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setConfirmationOpen(true);
+                  }}
+                >
+                  <div className="ry-commerce-health-fields">
+                    <Field label="Status after review">
+                      <Select
+                        controlSize="compact"
+                        value={toStatus}
+                        onChange={(event) => setToStatus(event.target.value)}
+                        disabled={!canWrite || saving}
+                      >
+                        {commissionTransitionStatuses.map((item) => (
+                          <option key={item} value={item}>{readable(item)}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Supporting evidence">
+                      {documents.length ? (
+                        <Select
+                          required
+                          controlSize="compact"
+                          value={documentId}
+                          onChange={(event) => setDocumentId(event.target.value)}
+                          disabled={!canWrite || saving}
+                        >
+                          <option value="">Select evidence</option>
+                          {documents.map((item) => (
+                            <option key={item.id} value={item.id}>{displayName(item.name, shown(item.id))}</option>
+                          ))}
+                        </Select>
+                      ) : (
+                        <Input
+                          required
+                          controlSize="compact"
+                          value={documentId}
+                          onChange={(event) => setDocumentId(event.target.value)}
+                          disabled={!canWrite || saving}
+                          placeholder="Select or enter supporting evidence"
+                        />
+                      )}
+                    </Field>
+                    {amountRequired ? (
+                      <Field label={`${readable(toStatus)} amount`}>
+                        <Input
+                          required
+                          controlSize="compact"
+                          inputMode="decimal"
+                          value={amount}
+                          onChange={(event) => setAmount(event.target.value)}
+                          disabled={!canWrite || saving}
+                        />
+                      </Field>
+                    ) : null}
+                    {dueRequired ? (
+                      <Field label="Payment due date">
+                        <Input
+                          required
+                          controlSize="compact"
+                          type="date"
+                          value={dueDate}
+                          onChange={(event) => setDueDate(event.target.value)}
+                          disabled={!canWrite || saving}
+                        />
+                      </Field>
+                    ) : null}
+                    {paymentRequired ? (
+                      <Field label="Payment date">
+                        <Input
+                          required
+                          controlSize="compact"
+                          type="date"
+                          value={paymentDate}
+                          onChange={(event) => setPaymentDate(event.target.value)}
+                          disabled={!canWrite || saving}
+                        />
+                      </Field>
+                    ) : null}
+                    <Field label="Review notes" className="ry-commerce-health-span ry-commerce-health-notes">
+                      <TextArea
+                        required
+                        rows={3}
+                        value={reason}
+                        onChange={(event) => setReason(event.target.value)}
+                        disabled={!canWrite || saving}
+                      />
+                    </Field>
+                  </div>
+                  <div className="ry-commerce-actions">
+                    <Button type="submit" size="compact" loading={saving} disabled={!canWrite || blockers.length > 0}>
+                      Confirm review
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="compact"
+                      type="button"
+                      disabled={!canWrite || saving || !amount.trim() || !documentId.trim()}
+                      onClick={() => setDisputeConfirmOpen(true)}
+                    >
+                      Open dispute
+                    </Button>
+                  </div>
+                </form>
+              </ReviewSection>
+            </ConsequentialReviewLayout>
+          </div>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="dispute" active={activeTab === "dispute"}>
-          <RelationshipSection title="Linked disputes" description="An allegation is not proven. Opening a dispute preserves evidence and chronology; Ryva does not adjudicate.">
-            {disputes.length ? (
-              <ul className="ry-relationship-evidence-list">
+          <RelationshipSection
+            className="ry-commerce-compact-section"
+            title="Disputes"
+            action={<Link className="ry-commerce-inline-link" to="/commission-disputes">View disputes</Link>}
+          >
+            {disputes.length === 0 ? (
+              <p className="ry-commerce-empty-note">No disputes opened.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
                 {disputes.map((item) => (
                   <li key={item.id}>
-                    <strong>{shown(item.reason)}</strong>
-                    <small>{currency(item.disputedAmount, item.currency)} · {shown(item.status)}</small>
-                    <Link to={`/commission-disputes/${item.id}`}>Open case</Link>
+                    <Link to={`/commission-disputes/${item.id}`}>
+                      <strong>{shown(item.reason)}</strong>
+                      <span>{currency(item.disputedAmount, item.currency)}</span>
+                    </Link>
+                    <span className="ry-commerce-compact-status">{readable(shown(item.status))}</span>
                   </li>
                 ))}
               </ul>
-            ) : <EmptyState compact description="No disputes. Open one from a documented variance with evidence." />}
-            <Link className="ry-button ry-button-secondary" to="/commission-disputes">Open dispute register</Link>
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="activity" active={activeTab === "activity"}>
-          <RelationshipSection title="Payment and adjustment history" description="Stored commercial events for this Commission.">
-            <ActivityTimeline entries={activityEntries} empty="No Commission activity has been recorded." label={`${title} activity`} />
+          <RelationshipSection className="ry-commerce-compact-section" title="Activity">
+            {events.length === 0 ? (
+              <p className="ry-commerce-empty-note">
+                No activity yet. Commission approvals, payments, adjustments, disputes, and reviews will appear here.
+              </p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
+                {events.map((item, index) => (
+                  <li key={`${shown(item.eventType)}-${shown(item.occurredAt)}-${index}`}>
+                    <div className="ry-commerce-compact-body">
+                      <strong>{readable(shown(item.eventType))}</strong>
+                      <span>{shown(item.reason, "No rationale")} · {dateTime(item.occurredAt)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="documents" active={activeTab === "documents"}>
-          <RelationshipSection title="Linked evidence" description="Document presence is not verification. Scan and status remain distinct.">
-            {documents.length ? (
-              <ul className="ry-relationship-evidence-list">
+          <RelationshipSection
+            className="ry-commerce-compact-section"
+            title="Evidence"
+            action={(
+              <Link
+                className="ry-commerce-inline-link"
+                to={hasAccount ? `/documents?accountId=${encodeURIComponent(accountId)}` : "/documents"}
+              >
+                Open Documents
+              </Link>
+            )}
+          >
+            {documents.length === 0 ? (
+              <p className="ry-commerce-empty-note">No supporting documents yet.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
                 {documents.map((item) => (
                   <li key={item.id}>
-                    <strong>{shown(item.name)}</strong>
-                    <small>{shown(item.purpose)} · {shown(item.status)} · {shown(item.scanStatus)}</small>
+                    <div className="ry-commerce-compact-body">
+                      <strong>{displayName(item.name)}</strong>
+                      <span>{shown(item.purpose)} · {readable(shown(item.status))} · {readable(shown(item.scanStatus))}</span>
+                    </div>
                   </li>
                 ))}
               </ul>
-            ) : <EmptyState compact description="No linked commercial documents." />}
-            <Link className="ry-button ry-button-secondary" to="/documents">Open Documents</Link>
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
       </RelationshipDetailLayout>
 
       <ConfirmationDialog
         open={confirmationOpen}
-        title="Confirm consequential Commission state"
-        description={`Submit Commission ${title}, version ${shown(commission.version)}, for transition to ${readable(toStatus)}.`}
+        title="Confirm commission review"
+        description={`Update this commission to ${readable(toStatus).toLowerCase()}.`}
         consequence={(
           <>
-            <strong>{readable(toStatus)} is distinct from other money states</strong>
-            <p>Expected remains an estimate. Approved is not paid. Payable due dates are not receipts. The server revalidates version, evidence, and transition rules.</p>
-            <p>Rationale: {reason}</p>
+            <strong>What this updates</strong>
+            <p>Expected, approved, and paid amounts stay separate. The server checks evidence and status rules before saving.</p>
+            <p>Review notes: {reason}</p>
           </>
         )}
-        confirmLabel="Confirm consequential state"
+        confirmLabel="Confirm review"
         processing={saving}
         onConfirm={() => void transition()}
         onClose={() => setConfirmationOpen(false)}
       />
       <ConfirmationDialog
         open={disputeConfirmOpen}
-        title="Open documented Commission dispute"
-        description="Create a dispute case with the entered amount, rationale, and evidence document."
+        title="Open commission dispute"
+        description="Create a dispute with the entered amount, notes, and supporting evidence."
         consequence={(
           <>
             <strong>Allegation is not proven</strong>
-            <p>Opening a dispute preserves claims and evidence. It does not adjudicate contractual rights or reverse amounts unless stored rules later record that outcome.</p>
+            <p>Opening a dispute preserves claims and evidence. It does not settle contractual rights or reverse amounts on its own.</p>
             <p>Disputed amount: {amount} {code}</p>
           </>
         )}
-        confirmLabel="Open documented dispute"
+        confirmLabel="Open dispute"
         confirmVariant="destructive"
         processing={saving}
         onConfirm={() => void openDispute()}

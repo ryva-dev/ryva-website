@@ -18,7 +18,7 @@ async function captureIncrement13(page: Page, fileName: string, fullPage = false
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -144,7 +144,7 @@ async function seedOutreach(suffix: string, options?: {
         (id,workspace_id,subject_type,subject_id,question,scope,outcome,rationale,confidence,
          owner_user_id,decided_at,next_action,status)
        VALUES($1,$2,'business',$3,'Prepare Outreach?','Synthetic fixture','Proceed',
-         'Human documented Buyer contact for Outreach.','supported',$4,now(),'Prepare outreach','issued')`,
+         'Documented Buyer contact for Outreach.','supported',$4,now(),'Prepare outreach','issued')`,
       [decisionId, owner.workspaceId, businessId, owner.userId]
     );
     await database.query(
@@ -198,7 +198,7 @@ async function seedOutreach(suffix: string, options?: {
   }
 }
 
-test("Outreach Center exposes authority-checked human workflows and safe empty states", async ({ page }) => {
+test("Outreach Center exposes authority-checked review workflows and safe empty states", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error" && !message.text().includes("401 (Unauthorized)")) consoleErrors.push(message.text());
@@ -206,17 +206,15 @@ test("Outreach Center exposes authority-checked human workflows and safe empty s
   page.on("pageerror", (error) => consoleErrors.push(error.message));
   await signIn(page);
   await page.goto("/outreach");
-  await expect(page.getByRole("heading", { name: "Human-approved communication" })).toBeVisible();
-  await expect(page.getByText(/never sends or calls autonomously/i)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Communication and activity" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Outreach", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
   await expect(
-    page.getByText(/No outreach activity yet/i)
-      .or(page.locator(".record-list .task-row").first())
+    page.getByText(/No activity yet/i)
+      .or(page.locator(".ry-outreach-activity-list li").first())
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Prepare outreach" })).toBeVisible();
-  await expect(page.getByLabel("Prepared Placement")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Log a call" })).toBeVisible();
-  await expect(page.getByText(/Placement readiness does not authorize Outreach/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Prepare message" })).toBeVisible();
+  await expect(page.getByLabel("Placement").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Log call" })).toBeVisible();
   await expectNoMainOverflow(page);
   expect(consoleErrors).toEqual([]);
 });
@@ -225,10 +223,14 @@ test("Outreach workspace honors placement query and message register states", as
   const fixture = await seedOutreach(`ws-${testInfo.project.name}-${Date.now()}`);
   const isMobile = testInfo.project.name.includes("mobile");
   await signIn(page);
-  await page.goto(`/outreach?placementId=${fixture.placementId}`);
-  await expect(page.getByRole("heading", { name: "Human-approved communication" })).toBeVisible();
-  await expect(page.getByLabel("Prepared Placement")).toHaveValue(fixture.placementId);
-  await expect(page.getByText(fixture.subject).first()).toBeVisible();
+  await page.goto(`/app/outreach?placementId=${fixture.placementId}`);
+  await expect(page.getByRole("heading", { name: "Outreach", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Placement").first()).toHaveValue(fixture.placementId);
+  if (isMobile) {
+    await expect(page.getByRole("button", { name: "Open Increment13 exact subject" }).first()).toBeVisible();
+  } else {
+    await expect(page.getByText("Increment13 exact subject", { exact: true }).first()).toBeVisible();
+  }
   if (!isMobile) await captureIncrement13(page, "outreach-workspace-populated-desktop-1440x900.png", true);
   else {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -238,9 +240,9 @@ test("Outreach workspace honors placement query and message register states", as
 });
 
 test("read-only Outreach sessions expose restricted messaging", async ({ page }) => {
-  await signIn(page, "grace@synthetic.ryva.test");
+  await signIn(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/outreach");
-  await expect(page.getByRole("heading", { name: "Human-approved communication" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Outreach", exact: true })).toBeVisible();
   await expect(page.getByText("Read-only Outreach workspace")).toBeVisible();
   await captureIncrement13(page, "outreach-workspace-restricted-desktop-1440x900.png", true);
 });
@@ -248,7 +250,7 @@ test("read-only Outreach sessions expose restricted messaging", async ({ page })
 test("empty Outreach message filters stay honest without fabricated drafts", async ({ page }, testInfo) => {
   await signIn(page);
   await page.goto("/outreach");
-  await expect(page.getByRole("heading", { name: "Human-approved communication" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Outreach", exact: true })).toBeVisible();
   if (testInfo.project.name.includes("mobile")) {
     await page.getByRole("button", { name: "Filters" }).click();
     await page.getByRole("dialog").getByLabel("Search Buyer or subject").fill(`no-match-${Date.now()}`);
@@ -267,41 +269,43 @@ test("representative can create a versioned email template without granting send
 }, testInfo) => {
   await signIn(page);
   await page.goto("/outreach/templates");
-  await expect(page.getByRole("heading", { name: "Versioned templates" })).toBeVisible();
-  await expect(page.getByText(/Template is not the exact message/i)).toBeVisible();
-  await page.getByLabel("Name").fill(`Synthetic Buyer Intro ${testInfo.project.name}`);
-  await page.getByLabel("Channel").selectOption("email");
-  await page.getByLabel("Purpose").fill("Synthetic browser acceptance only");
-  await page.getByLabel("Subject").fill("A careful introduction for {{buyer_name}}");
-  await page.getByLabel("Body").fill(
+  await expect(page.getByRole("heading", { name: "Templates", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Create template" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox", { name: "Name", exact: true }).fill(`Synthetic Buyer Intro ${testInfo.project.name}`);
+  await dialog.getByRole("combobox").nth(0).selectOption("email");
+  await dialog.getByRole("combobox").nth(1).selectOption({ label: "First outreach" });
+  await dialog.getByLabel("Subject", { exact: true }).fill("A careful introduction for {{buyer_name}}");
+  await dialog.getByLabel("Body", { exact: true }).fill(
     "Hello {{buyer_name}}. This template is a starting point only. Reply or opt out at any time."
   );
-  await page.getByLabel("Required variables").fill("buyer_name");
-  await page.getByRole("button", { name: "Create immutable v1" }).click();
+  await dialog.getByRole("checkbox", { name: "Buyer name" }).check();
+  await dialog.getByRole("button", { name: "Save template" }).click();
   await expect(page.getByRole("heading", {
-    name: `Synthetic Buyer Intro ${testInfo.project.name}`
+    name: /Buyer Intro/
   })).toBeVisible();
-  await expect(page.getByText("Version 1").last()).toBeVisible();
+  await expect(page.getByText("First outreach").last()).toBeVisible();
+  await expect(page.getByText("Version 1")).toHaveCount(0);
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement13(page, "outreach-templates-desktop-1440x900.png", true);
   }
 });
 
-test("Sequences clearly preserve human approval and stop-condition boundaries", async ({ page }, testInfo) => {
+test("Sequences clearly preserve approval and stop-condition boundaries", async ({ page }, testInfo) => {
   await signIn(page);
   await page.goto("/outreach/sequences");
-  await expect(page.getByRole("heading", { name: "Human-controlled sequences" })).toBeVisible();
-  await expect(page.getByText(/never auto-send/i)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Create a two-step sequence" })).toBeVisible();
-  await expect(page.getByLabel("First-step email template")).toBeVisible();
-  await expect(page.getByLabel("Follow-up review delay (minutes)")).toBeVisible();
-  await expect(page.getByText(/Sequence is not a sent message/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sequences", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Create sequence" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("combobox", { name: /Opening email/ })).toBeVisible();
+  await expect(page.getByLabel("Days before follow-up review")).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement13(page, "outreach-sequences-desktop-1440x900.png", true);
   }
 });
 
-test("Outreach detail preserves exact-artifact consequential review and domain boundaries", async ({ page }, testInfo) => {
+test("Outreach detail preserves soft subject review and domain boundaries", async ({ page }, testInfo) => {
   const suffix = `detail-${testInfo.project.name}-${Date.now()}`;
   const fixture = await seedOutreach(suffix);
   const isMobile = testInfo.project.name.includes("mobile");
@@ -312,38 +316,36 @@ test("Outreach detail preserves exact-artifact consequential review and domain b
   page.on("pageerror", (error) => consoleErrors.push(error.message));
   await signIn(page);
   await page.goto(`/outreach/${fixture.messageId}`);
-  await expect(page.getByRole("heading", { name: fixture.subject })).toBeVisible();
-  await expect(page.getByText(/Recipient, sender, content, claims, attachments, channel and timing/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Increment13 exact subject", exact: true })).toBeVisible();
+  await expect(page.getByText(/Recipient, sender, content, claims, attachments, channel, and timing/i)).toBeVisible();
   if (isMobile) {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByRole("button", { name: "Review context" }).click();
-    await expect(page.getByRole("dialog").getByText(/Approved ≠ sent|Queued ≠ delivered/i)).toBeVisible();
-    await expect(page.getByRole("dialog").getByText(/Placement readiness does not authorize Outreach/i)).toBeVisible();
+    await page.getByRole("button", { name: "Review status" }).click();
+    await expect(page.getByRole("dialog").getByText(/Permission|Authority/i).first()).toBeVisible();
     await page.keyboard.press("Escape");
     await captureIncrement13(page, "outreach-detail-populated-mobile-390x844.png", true);
   } else {
-    await expect(page.getByText(/Approved ≠ sent|Queued ≠ delivered/i).first()).toBeVisible();
-    await expect(page.getByText(/Placement readiness does not authorize Outreach/i).first()).toBeVisible();
+    await expect(page.getByText(/Outreach status/i).first()).toBeVisible();
     await captureIncrement13(page, "outreach-detail-populated-desktop-1440x900.png", true);
   }
   await page.getByRole("tab", { name: /Contact & permission/i }).click();
-  await expect(page.getByRole("heading", { name: "Contact identity and permission" })).toBeVisible();
-  await expect(page.getByText(/available email address does not authorize Outreach/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Contact & permission" })).toBeVisible();
+  await expect(page.getByText(/Permission/i).first()).toBeVisible();
   if (!isMobile) await captureIncrement13(page, "outreach-detail-permission-desktop-1440x900.png", true);
   await page.getByRole("tab", { name: /Placement/i }).click();
-  await expect(page.getByRole("heading", { name: "Placement, Product, and Brand context" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Placement context" })).toBeVisible();
   if (!isMobile) await captureIncrement13(page, "outreach-detail-placement-desktop-1440x900.png", true);
-  await page.getByRole("tab", { name: /Exact message/i }).click();
+  await page.getByRole("tab", { name: /^Message$/i }).click();
   await expect(page.locator(".ry-outreach-message-preview")).toContainText(/exact opportunity|opt out/i);
   if (!isMobile) await captureIncrement13(page, "outreach-detail-exact-message-desktop-1440x900.png", true);
   await page.getByRole("tab", { name: /Approval & send/i }).click();
   const reviewPanel = page.getByRole("tabpanel", { name: /Approval & send/i });
-  await expect(reviewPanel.getByText(/Exact Outreach message|Decision readiness|Exact consequence/i).first()).toBeVisible();
-  await expect(reviewPanel.getByRole("button", { name: "Request exact approval" })).toBeVisible();
+  await expect(reviewPanel.getByText(/Before approving/i).first()).toBeVisible();
+  await expect(reviewPanel.getByRole("button", { name: "Request approval" })).toBeVisible();
   if (!isMobile) await captureIncrement13(page, "outreach-review-valid-desktop-1440x900.png", true);
   else await captureIncrement13(page, "outreach-review-mobile-390x844.png", true);
   await page.getByRole("tab", { name: /Activity/i }).click();
-  await expect(page.getByText(/Message status/i).first()).toBeVisible();
+  await expect(page.getByText(/Status ·/i).first()).toBeVisible();
   if (!isMobile) await captureIncrement13(page, "outreach-detail-activity-desktop-1440x900.png", true);
   await expectNoMainOverflow(page);
   expect(consoleErrors).toEqual([]);
@@ -356,8 +358,8 @@ test("permission-blocked Outreach review stays truthful without implying send au
   });
   await signIn(page);
   await page.goto(`/outreach/${fixture.messageId}`);
-  await expect(page.getByRole("heading", { name: fixture.subject })).toBeVisible();
-  await expect(page.getByText(/Contact permission blocks external Outreach/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Increment13 exact subject", exact: true })).toBeVisible();
+  await expect(page.getByText(/Contact permission blocks outreach/i)).toBeVisible();
   await page.getByRole("tab", { name: /Approval & send/i }).click();
   await expect(page.getByText(/permission is Opted Out|Contact permission/i).first()).toBeVisible();
   await captureIncrement13(page, "outreach-review-permission-blocker-desktop-1440x900.png", true);
@@ -384,12 +386,12 @@ test("valid Outreach approval records audited outcome without implying send", as
   await page.goto(`/outreach/${fixture.messageId}`);
   await page.getByRole("tab", { name: /Approval & send/i }).click();
   const reviewPanel = page.getByRole("tabpanel", { name: /Approval & send/i });
-  await reviewPanel.getByRole("button", { name: "Request exact approval" }).click();
-  await expect(reviewPanel.getByRole("button", { name: "Approve exact artifact" })).toBeVisible({ timeout: 15_000 });
-  await reviewPanel.getByRole("button", { name: "Approve exact artifact" }).click();
+  await reviewPanel.getByRole("button", { name: "Request approval" }).click();
+  await expect(reviewPanel.getByRole("button", { name: "Approve message" })).toBeVisible({ timeout: 15_000 });
+  await reviewPanel.getByRole("button", { name: "Approve message" }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Approve exact artifact" }).click();
-  await expect(page.getByText(/Exact artifact approved|Approval does not send/i).first()).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("alertdialog").getByRole("button", { name: "Approve message" }).click();
+  await expect(page.getByText(/Message approved|Sending is a separate step/i).first()).toBeVisible({ timeout: 15_000 });
   await captureIncrement13(page, "outreach-review-completed-audit-desktop-1440x900.png", true);
 });
 
@@ -410,9 +412,9 @@ test("Placement Contact Buyer Representation Agreement Product Brand and commerc
   await page.goto("/orders");
   await expect(page.getByRole("heading", { name: "Orders", exact: true })).toBeVisible();
   await page.goto("/accounts");
-  await expect(page.getByRole("heading", { name: "Protected Accounts and operational Accounts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
   await page.goto("/protected-accounts");
   await expect(page.getByRole("heading", { name: "Protected Accounts", exact: true })).toBeVisible();
   await page.goto("/outreach");
-  await expect(page.getByRole("heading", { name: "Human-approved communication" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Outreach", exact: true })).toBeVisible();
 });

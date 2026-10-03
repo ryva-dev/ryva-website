@@ -81,7 +81,7 @@ async function decision(agent: Agent, csrf: string, type: string, id: string, ou
     question: `Should this ${type} proceed?`,
     scope: "Current synthetic evidence only",
     outcome,
-    rationale: "Human-owned synthetic acceptance decision.",
+    rationale: "Synthetic acceptance decision.",
     confidence: "supported",
     nextAction: "Perform the next documented review.",
     status: "issued"
@@ -227,7 +227,7 @@ describe("Phase 3 Product, Brand, and Buyer Intelligence", () => {
     });
     const verified = await agent.patch(`/api/contacts/${contact.body.record.id}/verification`).set("x-csrf-token", csrf).send({
       version: 1, status: "verified", sourceId, observedAt: "2026-07-01T12:00:00.000Z",
-      notes: "Human reviewer confirmed the professional route in the synthetic source."
+      notes: "Reviewer confirmed the professional route in the synthetic source."
     });
     assert.equal(verified.status, 200, verified.text);
     const readyDecision = await decision(agent, csrf, "brand", brand.body.record.id, "Proceed to Contact Ready");
@@ -275,7 +275,7 @@ describe("Phase 3 Product, Brand, and Buyer Intelligence", () => {
     });
     const verifiedContact = await agent.patch(`/api/contacts/${contact.body.record.id}/verification`).set("x-csrf-token", csrf).send({
       version: 1, status: "verified", sourceId, observedAt: "2026-07-01T12:00:00.000Z",
-      notes: "Human reviewer confirmed the professional contact route."
+      notes: "Reviewer confirmed the professional contact route."
     });
     assert.equal(verifiedContact.status, 200, verifiedContact.text);
     const buyer = await agent.post(`/api/businesses/${business.body.record.id}/buyers`).set("x-csrf-token", csrf).send({

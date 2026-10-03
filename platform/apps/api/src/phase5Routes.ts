@@ -11,6 +11,8 @@ import {
   correctSuppression,
   createOutreachMessage,
   createOutreachTemplate,
+  createOutreachTemplateVersion,
+  archiveOutreachTemplate,
   createSequence,
   decideOutreachApproval,
   enrollSequence,
@@ -247,6 +249,38 @@ export function registerPhase5Routes({
       template: await createOutreachTemplate(database, {
         ...input, workspaceId: request.identity!.workspaceId,
         actorUserId: request.identity!.userId, requestId: request.requestId
+      })
+    });
+  }));
+
+  app.post("/api/outreach/templates/:templateId/versions", authenticated, csrf, write, asyncRoute(async (request, response) => {
+    const input = z.object({
+      name: z.string().trim().min(1).max(200),
+      channel: z.enum(["email", "social", "call", "voicemail", "objection", "follow_up"]),
+      purpose: z.string().trim().min(1).max(2000),
+      subject: z.string().trim().max(998).default(""),
+      body: z.string().trim().min(1).max(100_000),
+      requiredVariables: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
+      requiredComplianceBlocks: z.array(z.string().trim().min(1).max(100)).max(50).default([])
+    }).parse(request.body);
+    response.status(201).json({
+      template: await createOutreachTemplateVersion(database, {
+        ...input,
+        templateId: uuidSchema.parse(request.params.templateId),
+        workspaceId: request.identity!.workspaceId,
+        actorUserId: request.identity!.userId,
+        requestId: request.requestId
+      })
+    });
+  }));
+
+  app.delete("/api/outreach/templates/:templateId", authenticated, csrf, write, asyncRoute(async (request, response) => {
+    response.json({
+      template: await archiveOutreachTemplate(database, {
+        templateId: uuidSchema.parse(request.params.templateId),
+        workspaceId: request.identity!.workspaceId,
+        actorUserId: request.identity!.userId,
+        requestId: request.requestId
       })
     });
   }));

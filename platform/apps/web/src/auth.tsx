@@ -14,7 +14,10 @@ type AuthState = {
   session: Session | null;
   loading: boolean;
   refresh(): Promise<Session | null>;
-  login(email: string, password: string, mfaCode?: string): Promise<{ mfaRequired?: boolean }>;
+  login(email: string, password: string, mfaCode?: string): Promise<{
+    mfaRequired?: boolean;
+    mfaSetupRequired?: boolean;
+  }>;
   logout(): Promise<void>;
 };
 
@@ -47,11 +50,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       refresh,
       async login(email, password, mfaCode) {
-        const result = await api<Session & { mfaRequired?: boolean }>("/api/auth/login", {
+        const result = await api<Session & { mfaRequired?: boolean; mfaSetupRequired?: boolean }>("/api/auth/login", {
           method: "POST",
           body: { email, password, ...(mfaCode ? { mfaCode } : {}) }
         });
         if (result.mfaRequired) return { mfaRequired: true };
+        if (result.mfaSetupRequired) return { mfaSetupRequired: true };
         setSession(result);
         return {};
       },

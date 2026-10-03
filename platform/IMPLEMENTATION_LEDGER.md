@@ -3,8 +3,61 @@
 **Construction model:** One complete production product built in the documented order. Increments are durable parts of the final system, not separate launches or disposable experiments.
 **Completed increment:** Phase 9 — Data portability, administration, operational hardening, and launch readiness
 **Completed redesign increment:** UI Redesign Increment 17 — Whole-Product Responsive, Accessibility, and Consistency Consolidation (structurally complete)
-**Active construction increment:** None; structural redesign increments are complete. Final Claude-led visual/brand refinement remains separate.
+**Active construction increment:** UI Redesign Increment 18 — Full Visual Redesign (in progress; foundation pass complete, domain-by-domain application pending)
 **Last updated:** 2026-07-22
+
+## UI Redesign Increment 18 scope ledger (in progress)
+
+Full visual (not structural) redesign per `docs/ui-redesign-spec/visual-audit.md` and
+`docs/ui-redesign-spec/final-visual-direction-comparison.md`. Founder decision this
+session: `founder-decisions.md` FD-UI-001/002 (Deep Juniper accent, Inter, light-only)
+was explicitly reopened, so the three coded directions were free to vary accent color,
+typeface, and theme. **Quiet Authority** was selected — dark forest-navy instrument-panel
+shell, warm gold/copper accent (`#b98a3d`), Fraunces serif page/section titles, warm ivory
+workspace canvas, no-pill left-border status treatment. Full rationale and the losing
+Editorial Ledger / Field Instrument concepts are documented in
+`final-visual-direction-comparison.md`; all 18 concept-comparison screenshots are under
+`docs/ui-redesign-spec/screenshots/final-visual-concepts/`.
+
+| Requirement | Status | Implementation evidence |
+|---|---|---|
+| Visual audit written before implementation | Complete | `docs/ui-redesign-spec/visual-audit.md` |
+| Three coded directions on 6 surfaces each | Complete | `docs/ui-redesign-spec/screenshots/final-visual-concepts/` (18 images) |
+| Direction evaluated and selected | Complete | `docs/ui-redesign-spec/final-visual-direction-comparison.md`; Quiet Authority |
+| Token foundation rebuilt on selected direction | Complete | `apps/web/src/design/tokens.css`, `tokens.ts` — accent, surfaces, text, shell, focus, elevation |
+| Shared component system (status labels, page/section titles) | Complete | `apps/web/src/design-system/components.css` — status labels de-pilled to left-border tags; serif titles via `apps/web/src/styles.css` global `h1, h2` rule |
+| Application shell (sidebar, mobile top bar, mobile menu) | Complete | `apps/web/src/redesign/shell/shell.css` — dark instrument-panel material distinct from light workspace canvas |
+| Login | Complete | `apps/web/src/styles.css` `.auth-context`/`.brand-mark` — dark panel and monogram now match shell tokens instead of hardcoded Deep Juniper hex |
+| Registers / Relationship Details / Consequential Reviews / Home | Verified via spot-check | Inherit new tokens automatically; not yet individually polished for card-reduction/structured-section goals per domain |
+| Copilot | Not started | Still legacy-styled; flagged in the audit as highest-remaining-debt surface |
+| Domain-by-domain passes (Product/Brand, Buyer/Contact, Representation/Agreements, Placements, Outreach, Accounts/Orders/Reorders/Protection, Commissions/Disputes, Analytics, Imports/Exports/Settings/Admin/Search) | Not started | Each currently inherits the new token foundation but has not had a dedicated pass for card-reduction, structured sections, or domain-specific composition |
+| Responsive verification at all 10 required viewports | Not started | Foundation spot-checked at 1440x900 and 390x844 only |
+| Motion / reduced-motion regression | Not started | No motion timing changes made in this pass |
+| Full a11y regression | Not started | Contrast re-verified for changed token pairs only (`tests/unit/designTokens.test.ts`); full manual a11y pass not run |
+| `npm run test:e2e` full suite (run twice) | Not started | |
+| Before/after screenshots vs. Increment 17 baseline | Not started | |
+| Final documentation (`final-visual-redesign.md`) | Not started | |
+
+### Increment 18 foundation-pass validation results
+
+- `npm run lint:tokens`: passed.
+- `npm run lint`: passed.
+- `npm run typecheck`: passed for strict server and web projects.
+- `npm run test:unit`: 102 passed (2 design-token contrast/contract assertions
+  updated to match the intentionally new Quiet Authority values, not weakened —
+  see `tests/unit/designTokens.test.ts`).
+- `npm run test:integration`, full `npm run test:e2e` (x2), and `npm run build`:
+  not yet run for this increment.
+- Spot-checked live: Home, Products/Brands registers, Brand relationship detail,
+  Commission Dispute consequential review, Login, and mobile Home (390x844) —
+  screenshots under `docs/ui-redesign-spec/screenshots/increment-18-foundation/`.
+
+CSP note: introducing the Fraunces webfont required adding
+`https://fonts.googleapis.com` to `style-src` and pinning `font-src` to
+`'self' https://fonts.gstatic.com data:` in `apps/api/src/app.ts` (previously
+implicit via helmet's default `https:` allowance). No other route, API,
+schema, permission, or business-logic change was made in this pass. Nothing
+was committed or pushed.
 
 ## UI Redesign Increment 17 scope ledger
 

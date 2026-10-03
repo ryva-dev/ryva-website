@@ -192,12 +192,12 @@ export function NotificationsPage() {
               </button>
               <div className="ry-register-notification-actions">
                 <Link to={relatedPath(item)}>Open record</Link>
-                {item.status === "unread" ? <Button variant="tertiary" size="compact" loading={updatingId === item.id} disabled={!canWrite} onClick={() => void markRead(item)}>Mark {item.title} read</Button> : <StatusLabel value={item.status} />}
+                {item.status === "unread" ? <Button variant="tertiary" size="compact" loading={updatingId === item.id} disabled={!canWrite} onClick={() => void markRead(item)} aria-label={`Mark “${item.title}” as read`}>Mark read</Button> : <StatusLabel value={item.status} />}
               </div>
             </article>)}
           </div>
           <RegisterMobileList label={`${(filters.view ?? "action_required").replaceAll("_", " ")} Notifications`}>{visibleItems.map((item) => <RegisterMobileRow key={item.id} title={item.title} meta={`${item.reason} · ${new Date(item.lastOccurredAt).toLocaleString()}`} status={<><StatusLabel value={item.severity} />{item.blocking ? <StatusLabel value="blocking" /> : null}</>} actions={item.status === "unread" ? <Button variant="tertiary" loading={updatingId === item.id} disabled={!canWrite} onClick={() => void markRead(item)}>Mark read</Button> : <StatusLabel value={item.status} />} onOpen={() => setSelected(item)} openLabel={`Review Notification ${item.title}`} />)}</RegisterMobileList>
-          <RegisterPagination page={currentPage} pageCount={pageCount} total={filtered.length} onPage={setPage} />
+          <RegisterPagination page={currentPage} pageCount={pageCount} total={filtered.length} pageSize={pageSize} onPage={setPage} />
         </>}
       </section>
 
@@ -214,7 +214,7 @@ export function NotificationsPage() {
             <div><dt>Current relevance</dt><dd>{selected.status === "read" ? "Read; confirm the related record for current truth" : "Unread and still presented for attention"}</dd></div>
           </dl>
           <Link className="secondary-button" to={relatedPath(selected)}>Open related record</Link>
-          {selected.status === "unread" ? <Button loading={updatingId === selected.id} disabled={!canWrite} onClick={() => void markRead(selected)}>Mark notification read</Button> : null}
+          {selected.status === "unread" ? <Button loading={updatingId === selected.id} disabled={!canWrite} onClick={() => void markRead(selected)}>Mark read</Button> : null}
         </div> : null}
       </Drawer>
     </div>

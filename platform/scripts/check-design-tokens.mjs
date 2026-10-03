@@ -32,7 +32,7 @@ for (const file of guardedDirectories.flatMap((directory) => collect(directory))
     for (const match of content.matchAll(rule.pattern)) {
       if (
         rule.name === "raw pixel/rem/em value" &&
-        ["48rem", "64rem", "90rem"].includes(match[0])
+        ["22rem", "36rem", "40rem", "48rem", "56rem", "63.999rem", "64rem", "90rem", "640px"].includes(match[0])
       ) continue;
       const before = content.slice(0, match.index);
       const line = before.split("\n").length;

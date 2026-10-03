@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   ConsequentialReviewLayout,
@@ -12,11 +13,12 @@ import {
 void describe("Ryva Consequential Review", () => {
   void it("places readiness before the exact artifact in semantic order", () => {
     const html = renderToStaticMarkup(
-      <ConsequentialReviewLayout readiness={<ReadinessSummary state="blocked" description="A human decision is unavailable." blockers={["Authority is missing."]} />}>
+      <ConsequentialReviewLayout readiness={<ReadinessSummary state="blocked" description="A decision is unavailable." blockers={["Authority is missing."]} />}>
         <ExactArtifact title="Stored artifact" description="Exact content" version="4">Artifact body</ExactArtifact>
       </ConsequentialReviewLayout>
     );
-    assert.ok(html.indexOf("Decision readiness") < html.indexOf("Exact item under review"));
+    assert.ok(html.indexOf("ry-readiness-summary") < html.indexOf("ry-exact-artifact"));
+    assert.match(html, /Stored artifact/);
     assert.match(html, /Authority is missing/);
     assert.match(html, /Version 4/);
   });
@@ -24,12 +26,18 @@ void describe("Ryva Consequential Review", () => {
   void it("gives every validation result authored text", () => {
     const html = renderToStaticMarkup(<ValidationSummary checks={[
       { id: "pass", label: "Exact artifact", detail: "Stored version is visible.", state: "passed" },
-      { id: "review", label: "Authority", detail: "Human review required.", state: "requires_review" },
+      { id: "review", label: "Authority", detail: "Review required.", state: "requires_review" },
       { id: "fail", label: "Conflict", detail: "A blocker remains.", state: "failed" }
     ]} />);
-    assert.match(html, />passed</);
-    assert.match(html, />requires review</);
-    assert.match(html, />failed</);
+    assert.match(html, /data-state="complete"/);
+    assert.match(html, /data-state="incomplete"/);
+    assert.match(html, /Exact artifact/);
+    assert.match(html, /Stored version is visible/);
+    assert.match(html, /Review required/);
+    assert.match(html, /A blocker remains/);
+    assert.match(html, />Complete</);
+    assert.match(html, />Requires review</);
+    assert.match(html, />Failed</);
   });
 
   void it("keeps the consequential stylesheet token-only", () => {

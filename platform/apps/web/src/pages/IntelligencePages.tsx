@@ -15,6 +15,7 @@ import {
   IdentityHeader,
   Input,
   LoadingState,
+  SavedViewSelector,
   Select,
   StatusLabel,
   TextArea
@@ -61,7 +62,7 @@ type SavedView = {
 const configs = {
   product: {
     title: "Product Intelligence",
-    description: "Evidence-led Product discovery, diligence, comparison, and human-owned qualification.",
+    description: "Evidence-led Product discovery, diligence, comparison, and explicit qualification.",
     endpoint: "/api/intelligence/products",
     collection: "products",
     detail: "/products",
@@ -124,6 +125,8 @@ export function IntelligenceListPage({ kind }: { kind: Kind }) {
   const [brands, setBrands] = useState<Row[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [viewName, setViewName] = useState("");
+  const [selectedSavedView, setSelectedSavedView] = useState("");
+  const [viewStatus, setViewStatus] = useState("");
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
 
   const load = useCallback(async (values?: { query?: string; view?: string; risk?: string; geography?: string }) => {
@@ -181,7 +184,10 @@ export function IntelligenceListPage({ kind }: { kind: Kind }) {
   }
 
   async function saveView() {
-    if (!viewName.trim()) return;
+    if (!viewName.trim()) {
+      setViewStatus("Enter a view name before saving.");
+      return;
+    }
     try {
       await api("/api/saved-views", {
         method: "POST",
@@ -203,13 +209,15 @@ export function IntelligenceListPage({ kind }: { kind: Kind }) {
       });
       const result = await api<{ views: SavedView[] }>("/api/saved-views");
       setSavedViews(result.views.filter((item) => item.recordType === kind));
+      setViewStatus(`Saved ${viewName.trim()}.`);
       setViewName("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Saved view could not be created.");
+      setViewStatus(caught instanceof Error ? caught.message : "Saved view could not be created.");
     }
   }
 
   function applySaved(id: string) {
+    setSelectedSavedView(id);
     const item = savedViews.find((candidate) => candidate.id === id);
     if (!item) return;
     const lookup = (field: string) => item.definition.filters.find((filter) => filter.field === field)?.value;
@@ -218,13 +226,14 @@ export function IntelligenceListPage({ kind }: { kind: Kind }) {
     const nextRisk = shown(lookup("risk"), "");
     const nextGeography = shown(lookup("geography"), "");
     setQuery(nextQuery); setView(nextView); setRisk(nextRisk); setGeography(nextGeography);
+    setViewStatus(`Applied ${item.name}.`);
     void load({ query: nextQuery, view: nextView, risk: nextRisk, geography: nextGeography });
   }
 
   return (
     <div className="page intelligence-page">
       <PageHeader
-        eyebrow="Phase 3 · Human decision required"
+        eyebrow="Phase 3 · Decision required"
         title={config.title}
         description={config.description}
         action={kind === "product" && selected.length >= 2
@@ -243,15 +252,19 @@ export function IntelligenceListPage({ kind }: { kind: Kind }) {
           {kind !== "business" ? <Field label="Risk"><select value={risk} onChange={(event) => setRisk(event.target.value)}><option value="">All</option><option>low</option><option>medium</option><option>high</option><option>critical</option></select></Field> : null}
           {kind === "business" ? <Field label="Geography"><input value={geography} onChange={(event) => setGeography(event.target.value)} /></Field> : null}
           <button className="secondary-button" type="button" onClick={() => void load()}>Apply filters</button>
-        </div>
-        <div className="view-controls saved-view-row">
-          <Field label="Saved view"><select defaultValue="" onChange={(event) => applySaved(event.target.value)}><option value="">Select…</option>{savedViews.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-          <Field label="New view name"><input value={viewName} onChange={(event) => setViewName(event.target.value)} /></Field>
-          <button className="text-button" type="button" disabled={!viewName.trim()} onClick={() => void saveView()}>Save current filters</button>
+          <SavedViewSelector
+            views={savedViews}
+            selected={selectedSavedView}
+            onSelect={applySaved}
+            newName={viewName}
+            onNameChange={setViewName}
+            onSave={() => void saveView()}
+            {...(viewStatus ? { status: viewStatus } : {})}
+          />
         </div>
         <div className="section-heading"><h2>Working records</h2><span>{total} total</span></div>
         {loading ? <Loading label={`Loading ${config.title}`} /> : null}
-        {!loading && rows.length === 0 ? <div className="empty-state"><h3>No records match this view</h3><p>Adjust the filters or create a record. Qualification remains a human action after evidence review.</p></div> : null}
+        {!loading && rows.length === 0 ? <div className="empty-state"><h3>No records match this view</h3><p>Adjust the filters or create a record. Qualification remains a reviewer action after evidence review.</p></div> : null}
         {!loading && rows.length > 0 ? (
           <div className="table-wrap">
             <table>
@@ -409,7 +422,7 @@ export function IntelligenceDetailPage({ kind }: { kind: Kind }) {
           sourceId: evidenceClass === "unknown" ? null : sourceId,
           unknownReason: evidenceClass === "unknown" ? "Observation is not yet available." : null,
           observedAt: evidenceClass === "unknown" ? null : new Date().toISOString(),
-          acquisitionContext: "Human-entered Phase 3 research", limitations: "",
+          acquisitionContext: "Entered Phase 3 research", limitations: "",
           origin: "user_entered"
         }
       });
@@ -436,7 +449,7 @@ export function IntelligenceDetailPage({ kind }: { kind: Kind }) {
       if (nextStatus !== "rejected") {
         const task = await api<{ task: { id: string } }>(`/api/records/${kind}/${id}/tasks`, {
           method: "POST",
-          body: { title: nextAction, priority: "medium", createdReason: "Human qualification decision", mandatoryGate: true }
+          body: { title: nextAction, priority: "medium", createdReason: "Qualification decision", mandatoryGate: true }
         });
         taskId = task.task.id;
       }
@@ -451,7 +464,7 @@ export function IntelligenceDetailPage({ kind }: { kind: Kind }) {
         }
       });
       setDecisionRationale(""); setNextAction(""); await load();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Human decision could not be applied."); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Decision could not be applied."); }
     finally { setBusy(false); }
   }
 
@@ -527,7 +540,7 @@ export function IntelligenceDetailPage({ kind }: { kind: Kind }) {
         body: {
           version: buyer.version, buyerRole: "decision_maker",
           decisionContext: shown(buyer.decisionContext, "Current category purchasing decision"),
-          authorityEvidence: "Human reviewer linked the current Evidence Record to the stated decision context.",
+          authorityEvidence: "Reviewer linked the current Evidence Record to the stated decision context.",
           authorityEvidenceId: evidenceId, statedNeeds: shown(buyer.statedNeeds, ""),
           buyingWindow: shown(buyer.buyingWindow, ""), decisionProcess: shown(buyer.decisionProcess, ""),
           verificationStatus: "verified"
@@ -614,12 +627,12 @@ export function IntelligenceDetailPage({ kind }: { kind: Kind }) {
       <PageHeader
         eyebrow={`${kind} intelligence · ${shown(record.brand_name ?? record.business_type ?? record.identity_status)}`}
         title={shown(record.name ?? record.public_name)}
-        description="Material fields remain evidence-linked. AI may organize or suggest future inputs, but qualification and authority are human-owned."
+        description="Material fields remain evidence-linked. AI may organize or suggest future inputs, but qualification and authority remain explicit."
         action={<StatusPill value={status} />}
       />
       {error ? <ErrorPanel message={error} /> : null}
       <div className="metric-row">
-        <div className="metric"><span>Current state</span><strong>{status.replaceAll("_", " ")}</strong><small>Human decision required to change</small>{kind === "brand" && record.identity_status === "unverified" ? <button disabled={busy} className="text-button" type="button" onClick={() => void markBrandIdentityReviewing()}>Start identity review</button> : null}</div>
+        <div className="metric"><span>Current state</span><strong>{status.replaceAll("_", " ")}</strong><small>Decision required to change</small>{kind === "brand" && record.identity_status === "unverified" ? <button disabled={busy} className="text-button" type="button" onClick={() => void markBrandIdentityReviewing()}>Start identity review</button> : null}</div>
         <div className="metric"><span>Evidence</span><strong>{detail.evidence.length}</strong><small>{detail.unknowns.length} explicit unknowns</small></div>
         <div className="metric"><span>Open risk</span><strong>{detail.risks.length}</strong><small>{detail.decisions.length} recorded decisions</small></div>
       </div>
@@ -662,7 +675,7 @@ export function IntelligenceDetailPage({ kind }: { kind: Kind }) {
           </form>
         </section>
         <section className="panel">
-          <h2>Human decision gate</h2>
+          <h2>Decision gate</h2>
           <p>The server rechecks evidence, risks, next action, and applicable authority before changing state.</p>
           <form onSubmit={(event) => void decide(event)}>
             <Field label="Decision outcome"><input required value={decisionOutcome} onChange={(event) => setDecisionOutcome(event.target.value)} /></Field>
@@ -671,7 +684,7 @@ export function IntelligenceDetailPage({ kind }: { kind: Kind }) {
             </select></Field>
             <Field label="Rationale"><textarea required rows={4} value={decisionRationale} onChange={(event) => setDecisionRationale(event.target.value)} /></Field>
             {nextStatus !== "rejected" ? <Field label="Required next action"><input required value={nextAction} onChange={(event) => setNextAction(event.target.value)} /></Field> : null}
-            <button disabled={busy} className="primary-button">Record and apply human decision</button>
+            <button disabled={busy} className="primary-button">Record and apply decision</button>
           </form>
         </section>
       </div>
@@ -708,7 +721,7 @@ export function IntelligenceDetailPage({ kind }: { kind: Kind }) {
         </div>
       ) : null}
       {kind === "business" ? <section className="panel"><h2>Business Buyers and authority</h2>{buyers.length ? <ul className="plain-list">{buyers.map((item) => <li key={item.id}><span><strong>{shown(item.name)}</strong><small>{shown(item.buyerRole)} · {shown(item.decisionContext)}</small>{item.verificationStatus !== "verified" ? <button disabled={busy} className="text-button" type="button" onClick={() => void verifyBuyer(item)}>Verify as decision maker with current evidence</button> : null}</span><StatusPill value={shown(item.verificationStatus)} /></li>)}</ul> : <p className="empty-state">No Buyer context has been recorded.</p>}<form onSubmit={(event) => void createBuyer(event)}><Field label="Verified professional Contact"><select required value={buyerContactId} onChange={(event) => setBuyerContactId(event.target.value)}><option value="">Select…</option>{contacts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label="Decision context"><textarea required rows={3} value={buyerContext} onChange={(event) => setBuyerContext(event.target.value)} /></Field><button disabled={busy} className="secondary-button">Add unverified evaluator context</button></form></section> : null}
-      {kind === "product" ? <section className="panel"><h2>Buyer-category and Business match review</h2>{recommendations.length === 0 && matches.length === 0 ? <p className="empty-state">No recommendations or context-specific matches have been recorded.</p> : null}<ul className="plain-list">{recommendations.map((item) => <li key={item.id}><span><strong>{shown(item.buyerCategory)}</strong><small>{shown(item.rationale)}</small>{item.status === "proposed" ? <span className="button-row"><button disabled={busy} className="text-button" type="button" onClick={() => void decideRecommendation(item, "confirmed")}>Confirm</button><button disabled={busy} className="text-button danger-text" type="button" onClick={() => void decideRecommendation(item, "rejected")}>Reject</button></span> : null}</span><StatusPill value={shown(item.status)} /></li>)}{matches.map((item) => <li key={item.id}><span><strong>{shown(item.businessName)}</strong><small>{shown(item.rationale)}</small></span><StatusPill value={shown(item.status)} /></li>)}</ul><form onSubmit={(event) => void createRecommendation(event)}><Field label="Buyer category"><input required value={recommendationCategory} onChange={(event) => setRecommendationCategory(event.target.value)} /></Field><Field label="Evidence-based rationale"><textarea required rows={3} value={recommendationRationale} onChange={(event) => setRecommendationRationale(event.target.value)} /></Field><button disabled={busy} className="secondary-button">Propose category for human review</button></form></section> : null}
+      {kind === "product" ? <section className="panel"><h2>Buyer-category and Business match review</h2>{recommendations.length === 0 && matches.length === 0 ? <p className="empty-state">No recommendations or context-specific matches have been recorded.</p> : null}<ul className="plain-list">{recommendations.map((item) => <li key={item.id}><span><strong>{shown(item.buyerCategory)}</strong><small>{shown(item.rationale)}</small>{item.status === "proposed" ? <span className="button-row"><button disabled={busy} className="text-button" type="button" onClick={() => void decideRecommendation(item, "confirmed")}>Confirm</button><button disabled={busy} className="text-button danger-text" type="button" onClick={() => void decideRecommendation(item, "rejected")}>Reject</button></span> : null}</span><StatusPill value={shown(item.status)} /></li>)}{matches.map((item) => <li key={item.id}><span><strong>{shown(item.businessName)}</strong><small>{shown(item.rationale)}</small></span><StatusPill value={shown(item.status)} /></li>)}</ul><form onSubmit={(event) => void createRecommendation(event)}><Field label="Buyer category"><input required value={recommendationCategory} onChange={(event) => setRecommendationCategory(event.target.value)} /></Field><Field label="Evidence-based rationale"><textarea required rows={3} value={recommendationRationale} onChange={(event) => setRecommendationRationale(event.target.value)} /></Field><button disabled={busy} className="secondary-button">Propose category for review</button></form></section> : null}
     </div>
   );
 }
@@ -847,7 +860,7 @@ export function ContactIntelligencePage() {
     ...(record.lastVerifiedAt ? [{
       id: "current-verification",
       title: "Current professional route verification",
-      description: shown(record.verificationNotes, "Human verification is recorded without additional notes."),
+      description: shown(record.verificationNotes, "Verification is recorded without additional notes."),
       meta: `${dateTime(record.lastVerifiedAt)} · ${selectedSource?.reference ?? "Source reference unavailable"}`,
       status: <StatusLabel value={verificationStatus} />
     }] : []),
@@ -873,13 +886,13 @@ export function ContactIntelligencePage() {
     <>
       <div className="ry-context-item">
         <strong>Next action</strong>
-        <p>{!canWrite ? "Verification changes are unavailable in this session." : !hasProfessionalRoute ? "Record a professional route before verification." : activeSources.length === 0 ? "Register an active Source before verification." : verificationStatus === "verified" ? "Refresh the route when its source becomes stale." : "Complete human verification with an active Source."}</p>
+        <p>{!canWrite ? "Verification changes are unavailable in this session." : !hasProfessionalRoute ? "Record a professional route before verification." : activeSources.length === 0 ? "Register an active Source before verification." : verificationStatus === "verified" ? "Refresh the route when its source becomes stale." : "Complete verification with an active Source."}</p>
         {activeSources.length === 0 && canWrite ? <Link to="/sources">Open Sources</Link> : null}
       </div>
       <div className="ry-context-item">
         <strong>Verification freshness</strong>
         <StatusLabel value={verificationStatus} />
-        <small>{record.lastVerifiedAt ? `Last verified ${dateTime(record.lastVerifiedAt)}` : "No completed human verification"}</small>
+        <small>{record.lastVerifiedAt ? `Last verified ${dateTime(record.lastVerifiedAt)}` : "No completed verification"}</small>
       </div>
       <div className="ry-context-item">
         <strong>Permission and suppression</strong>
@@ -907,12 +920,12 @@ export function ContactIntelligencePage() {
         { label: record.name }
       ]} />
       <IdentityHeader
-        eyebrow="Buyer Intelligence · Human verification"
+        eyebrow="Buyer Intelligence · Verification"
         title={record.name}
         relationship={<span className="ry-relationship-identity-meta"><span>{shown(record.role, "Role not recorded")}</span>{parent && parentPath ? <Link to={parentPath}>{parent.name}</Link> : <span>Parent relationship unavailable</span>}<span>{professionalRoute || "Professional route missing"}</span></span>}
         status={<StatusLabel value={verificationStatus} />}
         warning={!hasProfessionalRoute ? <Alert tone="warning" title="Professional route missing">Verification requires an email, phone number, or professional handle.</Alert> : externallyBlocked ? <Alert tone="danger" title="External contact blocked">The stored permission status blocks external contact. Verification does not override suppression.</Alert> : undefined}
-        nextAction={<span>{canVerify ? (verificationStatus === "verified" ? "Refresh this route when its evidence changes." : "Complete human verification against an active Source.") : !canWrite ? session?.access.reason : activeSources.length === 0 ? "Register an active Source before verification." : "Record a professional route before verification."}</span>}
+        nextAction={<span>{canVerify ? (verificationStatus === "verified" ? "Refresh this route when its evidence changes." : "Complete verification against an active Source.") : !canWrite ? session?.access.reason : activeSources.length === 0 ? "Register an active Source before verification." : "Record a professional route before verification."}</span>}
         actions={<>{primaryAction}<Button variant="secondary" disabled={!canWrite} onClick={() => { setActionError(""); setNoteOpen(true); }}>Add note</Button></>}
       />
       {statusMessage ? <p className="ry-relationship-status" role="status">{statusMessage}</p> : null}
@@ -930,7 +943,7 @@ export function ContactIntelligencePage() {
               <div><dt>Owner</dt><dd>{record.ownerUserId === session?.user.id ? "You" : "Workspace member"}</dd></div>
             </dl>
           </RelationshipSection>
-          <RelationshipSection title="Verification record" description="A human-owned freshness check linked to one active Source.">
+          <RelationshipSection title="Verification record" description="A freshness check linked to one active Source.">
             <dl className="ry-relationship-facts">
               <div><dt>Status</dt><dd><StatusLabel value={verificationStatus} /></dd></div>
               <div><dt>Source</dt><dd>{selectedSource?.reference ?? (record.sourceId ? "Source reference unavailable" : "No Source linked")}</dd></div>
@@ -944,7 +957,7 @@ export function ContactIntelligencePage() {
           <RelationshipSection title="Relationship activity" description="Recorded Contact activity in newest-first order.">
             <ActivityTimeline entries={activityEntries} empty="No Contact activity has been recorded." label={`${record.name} activity timeline`} />
           </RelationshipSection>
-          <RelationshipSection title="Notes" description="Human-authored context remains separate from evidence and verification.">
+          <RelationshipSection title="Notes" description="Reviewer-authored context remains separate from evidence and verification.">
             {context.notes.length ? <ul className="ry-relationship-evidence-list">{context.notes.map((item) => <li key={item.id}><strong>{shown(item.body)}</strong><small>{typeof item.createdAt === "string" ? new Date(item.createdAt).toLocaleString() : "Time not recorded"}</small></li>)}</ul> : <EmptyState compact description="No Contact notes have been recorded." action={canWrite ? <Button variant="secondary" onClick={() => setNoteOpen(true)}>Add note</Button> : undefined} />}
           </RelationshipSection>
         </RelationshipTabPanel>
@@ -959,14 +972,14 @@ export function ContactIntelligencePage() {
         <StickyMobileAction>{primaryAction}</StickyMobileAction>
       </RelationshipDetailLayout>
 
-      <Drawer open={verificationOpen} title={verificationStatus === "verified" ? "Refresh professional route" : "Verify professional route"} description="Human verification must name an active Source, observation time, and exact notes." onClose={() => setVerificationOpen(false)}>
+      <Drawer open={verificationOpen} title={verificationStatus === "verified" ? "Refresh professional route" : "Verify professional route"} description="Verification must name an active Source, observation time, and exact notes." onClose={() => setVerificationOpen(false)}>
         <form onSubmit={(event) => void verify(event)}>
           <Alert title="Verification boundary">This action verifies the professional route and freshness only. It does not approve Buyer authority or external Outreach.</Alert>
           {actionError ? <ErrorState message={actionError} /> : null}
           <Field label="Verification Source" required><Select required value={sourceId} onChange={(event) => setSourceId(event.target.value)}><option value="">Select an active Source</option>{activeSources.map((item) => <option key={item.id} value={item.id}>{item.reference}</option>)}</Select></Field>
           <Field label="Source observed at" required><Input type="datetime-local" required value={observedAt} onChange={(event) => setObservedAt(event.target.value)} /></Field>
-          <Field label="Human verification notes" required hint="Record what you checked and what this Source does not establish."><TextArea required rows={5} value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
-          <Button type="submit" loading={saving}>Record human verification</Button>
+          <Field label="Verification notes" required hint="Record what you checked and what this Source does not establish."><TextArea required rows={5} value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
+          <Button type="submit" loading={saving}>Record verification</Button>
         </form>
       </Drawer>
 

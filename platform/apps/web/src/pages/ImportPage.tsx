@@ -136,7 +136,7 @@ export function ImportPage() {
           <div className="metric"><span>Duplicate candidates</span><strong>{preview.summary.duplicates}</strong></div>
         </div>
         <p><strong>Import status:</strong> awaiting explicit approval; {preview.summary.provenance.origin}, {preview.summary.provenance.verificationStatus}. {preview.summary.prospectiveCreates} prospective creates; {preview.summary.duplicateReviewRequired} require duplicate review.</p>
-        {preview.summary.reviewOnly?<p className="callout"><strong>Review-only type:</strong> Valid rows will be staged for human adoption and will not create operational authority.</p>:null}
+        {preview.summary.reviewOnly?<p className="callout"><strong>Review-only type:</strong> Valid rows will be staged for adoption and will not create operational authority.</p>:null}
         <div className="locked-setting"><div><strong>Authority boundaries</strong><ul>{preview.summary.authorityImplications.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
         <div className="table-wrap"><table><thead><tr><th>Row</th><th>Name</th><th>Errors</th><th>Duplicates</th></tr></thead><tbody>
           {preview.rows.map((row) => <tr key={row.rowNumber}><td>{row.rowNumber}</td><td>{row.normalized.name}</td><td>{row.errors.join(", ") || "None"}</td><td>{row.duplicateCandidates.length}</td></tr>)}

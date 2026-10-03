@@ -1,29 +1,248 @@
-/* Ryva Command Center — UI Redesign Increment 7. */
+/* Ryva Command Center — screenshot visual direction (real data only). */
 
 .ry-command-center-page {
   width: min(100%, var(--width-workspace-max));
   min-width: var(--size-0);
+  margin-inline: auto;
+  padding-block: var(--space-2) var(--space-8);
+  font-family: var(--font-family-sans);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-default);
+  --color-border: color-mix(in srgb, var(--color-border-base) 75%, transparent);
+  --color-border-strong: color-mix(in srgb, var(--color-border-strong-base) 75%, transparent);
+  --ry-command-nav-link: var(--color-chart-blue);
+  --ry-command-nav-link-hover: color-mix(in srgb, var(--color-chart-blue) 78%, var(--color-text-strong));
+}
+
+/* Shared Home “View … →” navigation link treatment */
+.ry-command-center-page .ry-command-focal-alllink,
+.ry-command-center-page .ry-command-preview-footer,
+.ry-command-center-page .ry-command-section-head a,
+.ry-command-center-page .ry-command-glance-head a,
+.ry-command-center-page .ry-command-glance-all,
+.ry-command-center-page .ry-command-pipeline-controls a {
+  color: var(--ry-command-nav-link);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-16);
+  opacity: 1;
+  text-decoration: none;
+}
+
+.ry-command-center-page .ry-command-focal-alllink:hover,
+.ry-command-center-page .ry-command-focal-alllink:focus-visible,
+.ry-command-center-page .ry-command-preview-footer:hover,
+.ry-command-center-page .ry-command-preview-footer:focus-visible,
+.ry-command-center-page .ry-command-section-head a:hover,
+.ry-command-center-page .ry-command-section-head a:focus-visible,
+.ry-command-center-page .ry-command-glance-head a:hover,
+.ry-command-center-page .ry-command-glance-head a:focus-visible,
+.ry-command-center-page .ry-command-glance-all:hover,
+.ry-command-center-page .ry-command-glance-all:focus-visible,
+.ry-command-center-page .ry-command-pipeline-controls a:hover,
+.ry-command-center-page .ry-command-pipeline-controls a:focus-visible {
+  color: var(--ry-command-nav-link-hover);
+  opacity: 1;
+  text-decoration: none;
+}
+
+.ry-command-center-page .ry-button,
+.ry-command-center-page .ry-field-label,
+.ry-command-center-page label,
+.ry-command-center-page .ry-command-section-head h2 {
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-command-center-page .tabular-nums,
+.ry-command-center-page .ry-command-focal-lede h2,
+.ry-command-center-page .ry-command-glance-item > strong,
+.ry-command-center-page .ry-command-health-center strong,
+.ry-command-center-page .ry-command-pipeline-total strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-command-center-page .ry-command-glance-label {
+  font-weight: var(--font-weight-bold);
 }
 
 .ry-command-center-page .ry-page-header {
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-2);
+  align-items: baseline;
 }
 
-.ry-command-freshness {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-4);
-  margin-bottom: var(--space-5);
+/* Hide the eyebrow on Home — the serif greeting is the hero, matching the screenshot. */
+.ry-command-center-page .ry-page-header .eyebrow {
+  position: absolute;
+  width: var(--length-1px);
+  height: var(--length-1px);
+  padding: 0;
+  margin: var(--length-neg-1px);
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ry-command-center-page .ry-page-header h1 {
+  font-family: var(--font-family-serif);
+  font-size: clamp(var(--length-1-75rem), 3.25vw, var(--length-2-75rem));
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.05;
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--color-text-strong);
+  margin-block: var(--space-0) var(--space-1);
+}
+
+.ry-command-hero-name { color: var(--color-accent); }
+
+.ry-command-center-page .ry-page-header p:not(.eyebrow) {
+  max-width: var(--width-reading);
   color: var(--color-text-muted);
-  font-size: var(--font-size-12);
+  font-size: var(--font-size-16);
 }
 
+.ry-plain-status {
+  color: var(--color-text-default);
+  font-size: inherit;
+  font-weight: var(--font-weight-medium);
+  text-transform: capitalize;
+}
+
+.ry-command-focal-meta .ry-plain-status {
+  font-size: var(--font-size-14);
+  color: var(--color-accent);
+}
+
+/* Top priority — integrated hero, not a boxed alert. */
+.ry-command-focal {
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) var(--space-0) var(--space-5);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-command-focal-eyebrow {
+  margin: var(--space-0) var(--space-0) var(--space-3);
+  color: var(--color-accent);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-command-focal-body {
+  display: grid;
+  grid-template-columns: minmax(var(--length-14rem), var(--length-22rem)) minmax(0, 1fr) max-content;
+  align-items: start;
+  column-gap: var(--space-6);
+  row-gap: var(--space-4);
+  width: 100%;
+}
+
+.ry-command-focal-case {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+  min-width: var(--size-0);
+}
+
+.ry-command-focal-medallion {
+  display: inline-grid;
+  place-items: center;
+  width: var(--size-10);
+  height: var(--size-10);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-pill);
+}
+
+.ry-command-focal-lede { min-width: var(--size-0); }
+
+.ry-command-focal-lede h2 {
+  margin: var(--space-0);
+  font-size: var(--font-size-20);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-command-focal-lede h2 a { color: var(--color-text-strong); text-decoration: none; }
+.ry-command-focal-lede h2 a:hover,
+.ry-command-focal-lede h2 a:focus-visible { color: var(--color-accent-text); text-decoration: underline; }
+
+.ry-command-focal-reason {
+  margin: var(--space-1) var(--space-0) var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-regular);
+}
+
+.ry-command-focal-cluster {
+  display: contents;
+}
+
+.ry-command-focal-meta {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-0);
+  min-width: var(--size-0);
+  width: 100%;
+}
+
+.ry-command-focal-meta > div { display: grid; gap: var(--space-1); align-content: start; }
+
+.ry-command-focal-meta .ry-command-focal-next {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.ry-command-focal-meta dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-command-focal-meta dd {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-command-focal-next dd {
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-20);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ry-command-focal-actions {
+  display: grid;
+  justify-items: end;
+  justify-self: end;
+  align-content: start;
+  gap: var(--space-2);
+  width: max-content;
+  max-width: 100%;
+}
+
+.ry-command-focal-alllink {
+  text-decoration: none;
+}
+
+.ry-command-focal-alllink:hover,
+.ry-command-focal-alllink:focus-visible {
+  text-decoration: none;
+}
+
+/* Composed main + quiet overview rail */
 .ry-command-layout {
   display: grid;
-  grid-template-columns: minmax(var(--size-0), var(--width-reading)) minmax(var(--size-0), 1fr);
+  grid-template-columns: minmax(var(--size-0), 1fr) minmax(var(--size-0), var(--width-context-rail));
   align-items: start;
-  gap: var(--space-6);
+  gap: var(--space-7);
   min-width: var(--size-0);
 }
 
@@ -33,207 +252,994 @@
   min-width: var(--size-0);
 }
 
-.ry-command-layout .ry-context-rail {
-  position: sticky;
-  top: var(--space-5);
-}
-
-.ry-command-layout .ry-context-trigger,
-.ry-command-layout .ry-context-drawer {
-  display: none;
-}
-
-.ry-command-priority-list,
-.ry-command-today-list {
+.ry-command-split {
   display: grid;
+  grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
+  gap: var(--space-6);
+  align-items: stretch;
+  --ry-command-preview-row-height: var(--length-4-5rem);
+}
+
+.ry-command-preview-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: var(--size-0);
+  min-height: 100%;
+}
+
+.ry-command-preview-head {
+  justify-content: flex-start;
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-0);
+  border-bottom: none;
+}
+
+.ry-command-preview-footer {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  text-decoration: none;
+}
+
+.ry-command-preview-footer:hover,
+.ry-command-preview-footer:focus-visible {
+  text-decoration: none;
+}
+
+.ry-command-section { min-width: var(--size-0); }
+
+.ry-command-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-command-section-head h2,
+.ry-command-pipeline .ry-command-section-head h2 {
+  margin: var(--space-0);
+  color: var(--color-accent);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-command-section-head a,
+.ry-command-glance-head a {
+  text-decoration: none;
+}
+
+.ry-command-section-head a:hover,
+.ry-command-glance-head a:hover { text-decoration: none; }
+
+/* Placement pipeline — sequential stage area chart */
+.ry-command-pipeline { min-width: var(--size-0); }
+
+.ry-command-pipeline-head {
+  align-items: flex-end;
   gap: var(--space-4);
+}
+
+.ry-command-pipeline-head > div:first-child {
+  flex: 1 1 auto;
+  min-width: max-content;
+}
+
+.ry-command-pipeline-total {
+  display: inline-flex;
+  align-items: flex-end;
+  flex-wrap: nowrap;
+  gap: var(--space-3);
+  margin: var(--space-4) var(--space-0) var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-18);
+  white-space: nowrap;
+}
+
+.ry-command-pipeline-total strong {
+  color: var(--color-text-strong);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-30);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: 1;
+}
+
+.ry-command-pipeline-total > span {
+  flex: 0 0 auto;
+  transform: translateY(var(--length-neg-0-28em));
+  white-space: nowrap;
+}
+
+.ry-command-pipeline-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--space-5) var(--space-6);
+}
+
+.ry-command-pipeline-period {
+  position: relative;
+  display: inline-grid;
+  align-items: center;
+}
+
+.ry-command-pipeline-period select {
+  appearance: none;
+  width: auto;
+  min-width: var(--length-7-25rem);
+  min-height: var(--control-height-compact);
+  padding: var(--space-1) var(--space-5) var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: var(--color-surface);
+  box-shadow: none;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-18);
+  cursor: pointer;
+}
+
+.ry-command-pipeline-period::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  width: var(--length-0-45rem);
+  height: var(--length-0-28rem);
+  background: var(--color-accent);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  transform: translateY(-40%);
+  pointer-events: none;
+}
+
+.ry-command-pipeline-period select:hover {
+  color: var(--color-text-default);
+  border-color: var(--color-border-strong);
+}
+
+.ry-command-pipeline-period select:focus-visible {
+  border-color: var(--color-accent);
+}
+
+.ry-command-pipeline-compare {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-18);
+  white-space: nowrap;
+}
+
+.ry-command-pipeline-compare-dir {
+  font-size: var(--font-size-11);
+  line-height: 1;
+}
+
+.ry-command-pipeline-compare.is-up {
+  color: var(--color-chart-olive);
+}
+
+.ry-command-pipeline-compare.is-down {
+  color: var(--color-accent);
+}
+
+.ry-command-pipeline-controls a {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ry-command-pipeline-controls a:hover { text-decoration: none; }
+
+.ry-command-pipeline-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  margin-block: var(--space-2) var(--space-1);
+  padding: var(--space-4) var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-info-bg);
+}
+
+.ry-command-pipeline-empty-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--length-2-75rem);
+  height: var(--length-2rem);
+  color: var(--color-chart-blue);
+}
+
+.ry-command-pipeline-empty p {
+  flex: 1 1 var(--length-14rem);
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-20);
+}
+
+.ry-command-pipeline-chart {
+  position: relative;
+  height: var(--length-13-75rem);
+  margin-block: var(--space-2) var(--space-1);
+}
+
+.ry-command-pipeline-chart svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.ry-command-pipeline-hguide {
+  stroke: var(--color-border);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+
+.ry-command-pipeline-value {
+  fill: var(--color-text-strong);
+  font-family: var(--font-family-serif);
+  font-size: var(--length-13px);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-command-pipeline-baseline {
+  stroke: var(--color-border-strong);
+  stroke-width: 1;
+  opacity: 0.75;
+}
+
+.ry-command-pipeline-stage-name {
+  fill: var(--color-text-default);
+  font-family: var(--font-family-sans);
+  font-size: var(--length-12px);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-command-pipeline-stage-meta {
+  fill: var(--color-text-subtle);
+  font-family: var(--font-family-sans);
+  font-size: var(--length-9px);
+  font-weight: var(--font-weight-regular);
+  opacity: 0.85;
+}
+
+.ry-command-pipeline-point {
+  cursor: pointer;
+}
+
+.ry-command-pipeline-node.is-active .ry-command-pipeline-point {
+  stroke-width: 2.5;
+}
+
+.ry-command-pipeline-tooltip {
+  position: absolute;
+  top: var(--space-2);
+  z-index: 2;
+  display: grid;
+  gap: var(--space-1);
+  min-width: var(--length-10rem);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-default);
+  background: var(--color-surface);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-1);
+  box-shadow: var(--elevation-1);
+  font-size: var(--font-size-12);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.ry-command-pipeline-tooltip strong {
+  color: var(--color-text-strong);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-command-pipeline-dot {
+  width: var(--size-2);
+  height: var(--size-2);
+  border-radius: var(--radius-pill);
+  flex: 0 0 auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ry-command-pipeline-area,
+  .ry-command-pipeline-area-floor,
+  .ry-command-pipeline-area-soft,
+  .ry-command-pipeline-area-glow {
+    opacity: 0;
+    animation: ry-pipeline-fade 500ms var(--ease-standard) 80ms forwards;
+  }
+
+  .ry-command-pipeline-line {
+    stroke-dasharray: 1600;
+    stroke-dashoffset: 1600;
+    animation: ry-pipeline-draw 900ms var(--ease-standard) forwards;
+  }
+
+  .ry-command-pipeline-node {
+    opacity: 0;
+    animation: ry-pipeline-fade 400ms var(--ease-standard) 500ms forwards;
+  }
+}
+
+@keyframes ry-pipeline-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes ry-pipeline-fade {
+  to { opacity: 1; }
+}
+
+/* Soft rail panels — integrated, not floating cards */
+.ry-command-rail {
+  position: sticky;
+  top: calc(var(--space-5) + var(--control-height-default));
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  min-width: var(--size-0);
+  padding-top: var(--space-0);
+}
+
+.ry-command-glance,
+.ry-command-health {
+  padding: var(--space-0);
+  border: none;
+  border-radius: var(--radius-0);
+  background: transparent;
+  box-shadow: none;
+}
+
+.ry-command-rail > .ry-command-glance + .ry-command-health,
+.ry-command-rail > .ry-command-glance + .ry-command-glance,
+.ry-command-rail > .ry-command-health + .ry-command-glance {
+  padding-top: var(--space-5);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-command-glance .ry-command-section-head,
+.ry-command-glance-head,
+.ry-command-health > h2 {
+  margin: var(--space-0) var(--space-0) var(--space-0);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-command-glance > h2,
+.ry-command-glance-head h2,
+.ry-command-health > h2,
+.ry-command-glance .ry-command-section-head h2 {
+  margin: var(--space-0);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.ry-command-glance-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ry-command-glance > h2,
+.ry-command-health > h2 { margin-bottom: var(--space-3); }
+
+.ry-command-glance-list {
+  display: grid;
+  gap: var(--space-0);
+  margin: var(--space-0);
+  padding: var(--space-3) var(--space-0) var(--space-0);
+  list-style: none;
+}
+
+.ry-command-glance-list > li + li {
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-command-glance-item {
+  display: grid;
+  grid-template-columns: var(--size-8) max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-3);
+  min-height: var(--control-height-touch);
+  padding: var(--space-3) var(--space-0);
+  border-radius: var(--radius-0);
+  color: var(--color-text-default);
+  text-decoration: none;
+}
+
+.ry-command-glance-item:hover,
+.ry-command-glance-item:focus-visible { background: var(--color-surface-hover); }
+
+.ry-command-glance-icon {
+  display: inline-grid;
+  place-items: center;
+  width: var(--size-8);
+  height: var(--size-8);
+  color: var(--color-chart-olive);
+  background: color-mix(in srgb, var(--color-chart-olive) 14%, var(--color-surface));
+  border-radius: var(--radius-pill);
+  flex: 0 0 auto;
+}
+
+.ry-command-glance-item > strong {
+  min-width: var(--size-7);
+  margin-inline-end: var(--space-1);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-20);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-24);
+  text-align: start;
+  font-variant-numeric: tabular-nums;
+}
+
+.ry-command-glance-text {
+  display: grid;
+  gap: var(--border-width-1);
+  min-width: var(--size-0);
+  padding-inline-start: var(--space-1);
+}
+
+.ry-command-glance-label {
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-18);
+  color: var(--color-text-default);
+}
+
+.ry-command-glance-sub {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-16);
+}
+
+.ry-command-glance-all {
+  display: inline-block;
+  margin-top: var(--space-3);
+  text-decoration: none;
+}
+
+.ry-command-activity-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--space-0) var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+}
+
+.ry-command-activity-empty-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--color-text-subtle);
+}
+
+/* Pipeline health donut */
+.ry-command-health-body {
+  display: grid;
+  grid-template-columns: var(--length-7rem) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.ry-command-health-chart {
+  position: relative;
+  width: var(--length-7rem);
+  height: var(--length-7rem);
+}
+
+.ry-command-health-chart svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ry-command-health-center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: var(--length-0-15rem);
+  text-align: center;
+  pointer-events: none;
+}
+
+.ry-command-health-center strong {
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-strong);
+  line-height: 1;
+}
+
+.ry-command-health-center span {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-regular);
+  letter-spacing: var(--letter-spacing-normal);
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.ry-command-health-legend {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+  min-width: 0;
+}
+
+.ry-command-health-legend li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--length-1-2rem);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-16);
+  color: var(--color-text-muted);
+}
+
+.ry-command-health-legend-start {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ry-command-health-legend-end {
+  display: grid;
+  grid-template-columns: var(--length-2rem) var(--length-2-5rem);
+  column-gap: var(--space-2);
+  align-items: baseline;
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.ry-command-health-swatch {
+  width: var(--length-0-35rem);
+  height: var(--length-0-35rem);
+  border-radius: var(--radius-pill);
+  flex: 0 0 auto;
+}
+
+.ry-command-health-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-command-health-count {
+  color: var(--color-text-strong);
+  font-weight: var(--font-weight-semibold);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.ry-command-health-pct {
+  color: var(--color-text-subtle);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 22rem) {
+  .ry-command-health-body {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+  }
+
+  .ry-command-health-legend { width: 100%; }
+}
+
+/* Compact priority queue + upcoming preview lists */
+.ry-command-queue-list,
+.ry-command-upcoming-list {
+  display: grid;
+  gap: var(--space-0);
   margin: var(--space-0);
   padding: var(--space-0);
   list-style: none;
 }
 
-.ry-command-priority-item {
+.ry-command-queue-row,
+.ry-command-activity-row {
   display: grid;
-  grid-template-columns: auto minmax(var(--size-0), 1fr);
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border: var(--border-width-1) solid var(--color-border);
-  border-radius: var(--radius-2);
-  background: var(--color-surface);
+  align-items: center;
+  height: var(--ry-command-preview-row-height);
+  min-height: var(--ry-command-preview-row-height);
+  box-sizing: border-box;
+  column-gap: var(--space-3);
+  padding-block: var(--space-2);
+  border-top: var(--border-width-1) solid var(--color-border);
+  font-size: var(--font-size-13);
 }
 
-.ry-command-priority-blocking {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-subtle);
+.ry-command-queue-row {
+  grid-template-columns: var(--length-1-75rem) minmax(0, 1fr);
+  align-items: start;
 }
 
-.ry-command-priority-position {
-  color: var(--color-text-subtle);
-  font-size: var(--font-size-12);
+.ry-command-activity-row {
+  grid-template-columns: var(--length-0-75rem) var(--length-2-5rem) minmax(0, 1fr) auto var(--space-5);
+}
+
+.ry-command-queue-list > li:first-child,
+.ry-command-upcoming-list > li:first-child {
+  border-top: none;
+}
+
+.ry-command-row-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-top: var(--length-0-2rem);
+}
+
+.ry-command-row-mark-dot {
+  width: var(--length-0-35rem);
+  height: var(--length-0-35rem);
+  border-radius: var(--radius-pill);
+  background: var(--color-chart-olive);
+  flex-shrink: 0;
+}
+
+.ry-command-row-mark-rank {
+  color: var(--color-chart-olive);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--letter-spacing-wide);
+  line-height: 1;
 }
 
-.ry-command-priority-heading {
+.ry-command-row-mark-rule {
+  width: var(--border-width-2);
+  height: var(--length-1rem);
+  border-radius: var(--radius-pill);
+  background: var(--color-chart-olive);
+}
+
+.ry-command-queue-main {
+  display: grid;
+  gap: var(--length-0-2rem);
+  min-width: 0;
+}
+
+.ry-command-queue-primary {
   display: flex;
-  flex-wrap: wrap;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
 }
 
-.ry-command-priority-heading h3 {
-  margin: var(--space-0);
-  font-size: var(--font-size-15);
-}
-
-.ry-command-priority-heading a {
+.ry-command-queue-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--color-text-strong);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-18);
   text-decoration: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
-.ry-command-priority-heading a:hover,
-.ry-command-priority-heading a:focus-visible {
+.ry-command-queue-title:hover,
+.ry-command-queue-title:focus-visible {
   color: var(--color-accent-text);
   text-decoration: underline;
 }
 
-.ry-command-priority-heading small {
-  display: block;
-  margin-top: var(--space-1);
+.ry-command-queue-priority {
+  flex: 0 0 auto;
+  margin-top: var(--length-0-1rem);
+  white-space: nowrap;
+}
+
+.ry-command-queue-secondary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--space-5);
+  align-items: center;
+  column-gap: var(--space-2);
+  min-width: 0;
+}
+
+.ry-command-queue-next {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text-muted);
+  line-height: var(--line-height-16);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.ry-command-priority-reasons summary {
-  cursor: pointer;
-  color: var(--color-accent-text);
-  font-size: var(--font-size-12);
-  font-weight: var(--font-weight-semibold);
+.ry-command-queue-open,
+.ry-command-activity-icon {
+  color: var(--ry-command-nav-link, var(--color-chart-blue));
+  font-size: var(--font-size-14);
+  line-height: 1;
+  text-align: end;
+  text-decoration: none;
 }
 
-.ry-command-priority-reasons ul {
-  margin: var(--space-2) var(--space-0) var(--space-0);
-  padding-inline-start: var(--space-5);
+.ry-command-queue-open:hover,
+.ry-command-queue-open:focus-visible,
+.ry-command-activity-icon:hover,
+.ry-command-activity-icon:focus-visible {
+  color: var(--ry-command-nav-link-hover, var(--color-accent-text));
 }
 
-.ry-command-next-action {
-  margin: var(--space-3) var(--space-0);
-}
-
-.ry-command-reprioritize {
-  min-width: var(--size-0);
-  margin: var(--space-0);
-}
-
-.ry-command-priority-item .ry-button-group {
-  flex-wrap: wrap;
-}
-
-.ry-command-pipeline-exceptions {
+.ry-command-activity-date {
   display: grid;
-  grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
-  gap: var(--space-4);
+  justify-items: start;
+  gap: var(--length-0-05rem);
+  line-height: 1.05;
+  color: var(--color-text-strong);
 }
 
-.ry-command-commercial-grid {
-  display: grid;
-  gap: var(--space-5);
-}
-
-.ry-command-commercial-grid h3 {
-  margin: var(--space-0) var(--space-0) var(--space-3);
-  font-size: var(--font-size-16);
-}
-
-.ry-command-commercial-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
-  gap: var(--space-3) var(--space-5);
-  margin: var(--space-0);
-}
-
-.ry-command-commercial-facts dt {
-  color: var(--color-text-muted);
+.ry-command-activity-month {
+  color: var(--color-text-subtle);
   font-size: var(--font-size-11);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--letter-spacing-wide);
   text-transform: uppercase;
 }
 
+.ry-command-activity-day {
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.ry-command-activity-body {
+  display: grid;
+  gap: var(--length-0-1rem);
+  min-width: 0;
+}
+
+.ry-command-activity-type {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-command-activity-related {
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-16);
+  text-decoration: none;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ry-command-activity-related:hover,
+.ry-command-activity-related:focus-visible {
+  color: var(--color-accent-text);
+  text-decoration: underline;
+}
+
+.ry-command-activity-time {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-12);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ry-command-commercial-facts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-0);
+}
+
+.ry-command-commercial-grid { display: grid; gap: var(--space-5); }
+.ry-command-commercial-grid h3 {
+  margin: var(--space-0) var(--space-0) var(--space-3);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.ry-command-commercial-facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+}
+
 .ry-command-commercial-facts dd {
   margin: var(--space-1) var(--space-0) var(--space-0);
+  color: var(--color-text-strong);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-28);
+  letter-spacing: var(--letter-spacing-tight);
+  font-variant-numeric: tabular-nums;
 }
 
-.ry-command-briefing .ry-ai-recommendation {
-  border: var(--border-width-1) solid var(--color-border);
-  border-radius: var(--radius-2);
-  background: var(--color-surface-subtle);
+.ry-command-commercial-facts .ry-currency {
+  font: inherit;
 }
 
-.ry-command-loading {
+@media (max-width: 56rem) {
+  .ry-command-commercial-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 36rem) {
+  .ry-command-commercial-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ry-command-commercial-facts dd {
+    font-size: var(--font-size-20);
+    line-height: var(--line-height-24);
+  }
+}
+
+.ry-command-pulse-row {
   display: grid;
-  gap: var(--space-4);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-0);
+  align-items: baseline;
+  border-top: var(--border-width-1) solid var(--color-border);
 }
 
-.ry-command-center-page .ry-relationship-mobile-action {
-  display: none;
+.ry-command-pulse-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-4) var(--space-2) var(--space-0);
+  color: var(--color-text-default);
+  text-decoration: none;
 }
+
+.ry-command-pulse-item + .ry-command-pulse-item {
+  padding-inline-start: var(--space-4);
+  border-inline-start: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-command-pulse-item strong {
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-20);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-strong);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.ry-command-pulse-item span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  white-space: nowrap;
+}
+
+.ry-command-pulse-attention strong { color: var(--color-accent); }
+
+.ry-command-briefing {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ry-command-briefing > p {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+}
+
+.ry-command-loading { display: grid; gap: var(--space-4); }
+.ry-command-center-page .ry-relationship-mobile-action { display: none; }
 
 @media (max-width: 64rem) {
-  .ry-command-layout {
-    grid-template-columns: minmax(var(--size-0), 1fr);
-  }
-
-  .ry-command-layout .ry-context-rail {
-    display: none;
-  }
-
-  .ry-command-layout .ry-context-trigger {
-    display: none;
-  }
+  .ry-command-layout { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-command-rail { position: static; grid-row: 1; }
+  .ry-command-split { grid-template-columns: minmax(var(--size-0), 1fr); }
 }
 
 @media (max-width: 48rem) {
-  .ry-command-pipeline-exceptions,
-  .ry-command-commercial-facts {
-    grid-template-columns: minmax(var(--size-0), 1fr);
+  .ry-command-center-page .ry-page-header { margin-bottom: var(--space-2); }
+
+  .ry-command-center-page .ry-page-header h1 {
+    font-size: var(--font-size-30);
+    line-height: var(--line-height-38);
   }
 
-  .ry-command-priority-item {
-    grid-template-columns: minmax(var(--size-0), 1fr);
+  .ry-command-center-page .ry-page-header p:not(.eyebrow) { font-size: var(--font-size-14); }
+
+  .ry-command-focal-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .ry-command-priority-position {
-    display: none;
+  .ry-command-focal-case {
+    max-width: none;
   }
 
-  .ry-command-priority-heading,
-  .ry-command-priority-item .ry-button-group {
-    align-items: stretch;
+  .ry-command-focal-cluster {
+    display: grid;
+    gap: var(--space-4);
+    width: 100%;
+  }
+
+  .ry-command-focal-meta {
+    width: 100%;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ry-command-focal-next dd {
+    white-space: normal;
+  }
+
+  .ry-command-focal-actions {
+    justify-items: start;
+    justify-self: start;
+  }
+
+  .ry-command-pipeline-head {
+    align-items: flex-start;
     flex-direction: column;
   }
 
-  .ry-command-reprioritize,
-  .ry-command-priority-item .ry-button,
-  .ry-command-priority-item .ry-button-group > a {
-    width: 100%;
+  .ry-command-pipeline-controls {
+    justify-content: flex-start;
   }
 
-  .ry-command-center-page .ry-relationship-mobile-action {
-    position: sticky;
-    z-index: var(--z-sticky);
-    bottom: calc(var(--control-height-touch) + env(safe-area-inset-bottom) + var(--space-4));
-    display: grid;
-    gap: var(--space-2);
-    margin-top: var(--space-4);
-    padding: var(--space-3);
-    border: var(--border-width-1) solid var(--color-border-strong);
-    border-radius: var(--radius-2);
-    background: var(--color-surface);
-    box-shadow: var(--elevation-menu);
+  .ry-command-queue-row {
+    grid-template-columns: var(--length-1-75rem) minmax(0, 1fr);
+    height: auto;
+    min-height: var(--ry-command-preview-row-height);
   }
 
-  .ry-command-center-page .ry-relationship-mobile-action > * {
-    width: 100%;
+  .ry-command-activity-row {
+    grid-template-columns: var(--length-0-75rem) var(--length-2-25rem) minmax(0, 1fr) var(--space-5);
+    row-gap: var(--space-1);
+    height: auto;
+    min-height: var(--ry-command-preview-row-height);
+  }
+
+  .ry-command-activity-time {
+    grid-column: 3 / 4;
+  }
+
+  .ry-command-center-page .ry-relationship-mobile-action { display: none; }
+  .ry-command-pulse-row { grid-template-columns: minmax(0, 1fr); }
+  .ry-command-pulse-item + .ry-command-pulse-item {
+    padding-inline-start: var(--space-0);
+    border-inline-start: none;
+    border-top: var(--border-width-1) solid var(--color-border);
   }
 }

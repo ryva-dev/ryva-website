@@ -152,7 +152,7 @@ export function AccountDetailPage() {
   const commissions = (data?.commissions ?? []) as Row[];
   const events = (data?.events ?? []) as Row[];
   return <Shell>
-    <PageHeader eyebrow="Account detail" title={`${shown(account.brandName)} → ${shown(account.businessName)}`} description="Commercial history remains visible after protection or the Brand relationship ends. Health is a human judgment with rationale." action={<StatusPill value={shown(account.status)} />} />
+    <PageHeader eyebrow="Account detail" title={`${shown(account.brandName)} → ${shown(account.businessName)}`} description="Commercial history remains visible after protection or the Brand relationship ends. Health is a judgment with rationale." action={<StatusPill value={shown(account.status)} />} />
     {actionError ? <ErrorPanel message={actionError} /> : null}
     <section className="metric-row">
       <article className="metric"><span>Health</span><StatusPill value={shown(account.health)} /><small>{shown(account.health_rationale)}</small></article>
@@ -172,7 +172,7 @@ export function AccountDetailPage() {
           </select></Field>
           <Field label="Factual health rationale"><textarea required value={rationale} onChange={(event) => setRationale(event.target.value)} /></Field>
           {status === "ended" ? <Field label="End reason"><textarea required value={endedReason} onChange={(event) => setEndedReason(event.target.value)} /></Field> : null}
-          <div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Confirm human account review"}</button></div>
+          <div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Confirm account review"}</button></div>
         </form>
       </section>
       <section className="panel"><h2>Reorder and commission continuity</h2>
@@ -223,7 +223,7 @@ export function ProtectedAccountsPage() {
           territoryScope: {}, protectionStartsOn: startsOn, protectionEndsOn: endsOn,
           protectionTerm: `${startsOn} through ${endsOn} as documented`,
           commissionRights, reorderRights, houseAccountExclusions: "",
-          releaseTerms: "Release requires documented human action."
+          releaseTerms: "Release requires documented reviewer action."
         }
       });
       window.location.reload();
@@ -235,8 +235,8 @@ export function ProtectedAccountsPage() {
     <section className="panel filter-panel"><Field label="Protection status"><select value={status} onChange={(event) => setStatus(event.target.value)}>
       <option value="">All statuses</option>{["pending","active","expiring","expired","disputed","released","ended"].map((item) => <option key={item} value={item}>{item.replaceAll("_"," ")}</option>)}
     </select></Field><SaveView recordType="protected_account" status={status} /></section>
-    <section className="panel"><h2>Register a documented account-rights basis</h2>
-      <p>This creates a pending review only. It cannot activate rights without overlap checks and exact human approval.</p>
+    <section className="panel"><h2>Add protection basis</h2>
+      <p>This creates a pending review only. It cannot activate rights without overlap checks and exact approval.</p>
       {formError ? <ErrorPanel message={formError} /> : null}
       <form className="form-grid" onSubmit={(event) => void create(event)}>
         <Field label="Operational Account"><select required value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">Select Account</option>{(data?.accounts ?? []).map((item) => <option value={item.id} key={item.id}>{shown(item.brandName)} → {shown(item.businessName)}</option>)}</select></Field>
@@ -247,11 +247,11 @@ export function ProtectedAccountsPage() {
         <Field label="Protection ends"><input required type="date" value={endsOn} onChange={(event) => setEndsOn(event.target.value)} /></Field>
         <Field label="Documented commission rights"><textarea required value={commissionRights} onChange={(event) => setCommissionRights(event.target.value)} /></Field>
         <Field label="Documented reorder rights"><textarea required value={reorderRights} onChange={(event) => setReorderRights(event.target.value)} /></Field>
-        <div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? "Creating review…" : "Create pending rights review"}</button></div>
+        <div className="form-actions"><button className="primary-button" disabled={saving}>{saving ? "Saving…" : "Save for review"}</button></div>
       </form>
     </section>
-    {error ? <ErrorPanel message={error} /> : loading ? <Loading label="Loading documented rights" /> :
-      records.length === 0 ? <Empty>No protection records. A verified opening Order may create a review-required basis only when the Agreement contains supporting terms.</Empty> :
+    {error ? <ErrorPanel message={error} /> : loading ? <Loading label="Loading protection" /> :
+      records.length === 0 ? <Empty>No account protection recorded yet. Protection can be reviewed when the opening order and representation agreement support it.</Empty> :
       <section className="panel"><div className="table-wrap"><table><thead><tr><th>Account</th><th>Scope</th><th>Term</th><th>Basis</th><th>Status</th><th /></tr></thead>
         <tbody>{records.map((item) => <tr key={item.id}>
           <td><strong>{shown(item.brandName)}</strong><small>{shown(item.businessName)}</small></td>
@@ -318,7 +318,7 @@ export function OrdersPage() {
     finally { setSaving(false); }
   }
   return <Shell>
-    <PageHeader eyebrow="Verified commercial records" title="Orders" description="Only documented, human-verified Orders create Accounts and estimated Commissions. Drafts and projections are excluded from actual totals." action={<a className="secondary-button" href="/api/commercial-export/order">Export CSV</a>} />
+    <PageHeader eyebrow="Verified commercial records" title="Orders" description="Only documented, verified Orders create Accounts and estimated Commissions. Drafts and projections are excluded from actual totals." action={<a className="secondary-button" href="/api/commercial-export/order">Export CSV</a>} />
     <section className="panel filter-panel"><Field label="Order status"><select value={status} onChange={(event) => setStatus(event.target.value)}>
       <option value="">All statuses</option>{["draft","submitted","confirmed","fulfilled","partially_returned","returned","canceled"].map((item) => <option key={item} value={item}>{item.replaceAll("_"," ")}</option>)}
     </select></Field><SaveView recordType="order" status={status} /></section>
@@ -410,8 +410,8 @@ export function OrderDetailPage() {
           <div><dt>Current immutable revision</dt><dd>{shown(order.currentRevision)}</dd></div>
         </dl>
       </section>
-      <section className="panel"><h2>Human verification</h2>
-        {shown(order.verificationStatus) === "verified" ? <><p><strong>Verified</strong> by a named human on {dateShown(order.verifiedAt)}.</p><Link className="secondary-button" to={`/accounts/${shown(order.accountId)}`}>Open Account</Link></> :
+      <section className="panel"><h2>Verification</h2>
+        {shown(order.verificationStatus) === "verified" ? <><p><strong>Verified</strong> by a named reviewer on {dateShown(order.verifiedAt)}.</p><Link className="secondary-button" to={`/accounts/${shown(order.accountId)}`}>Open Account</Link></> :
           <><Field label="Verification rationale"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
             <button className="primary-button" disabled={saving} onClick={() => void confirm()}>{saving ? "Confirming…" : "Confirm documented Order"}</button>
             <p className="muted">Confirmation atomically creates or links the Account, review-required protection basis, Estimated Commission, and Reorder review.</p></>}
@@ -462,7 +462,7 @@ export function ReordersPage() {
           expectedWindowEndsOn: editing.expectedWindowEndsOn ?? null,
           reminderAt: editing.reminderAt ?? null, accountHealth: health,
           healthRationale: rationale, nextAction, likelihoodLabel: null,
-          likelihoodOrigin: null, estimateExplanation: "Human review; no guaranteed revenue.",
+          likelihoodOrigin: null, estimateExplanation: "Review; no guaranteed revenue.",
           recommendedFollowUp: nextAction, deferOrCloseReason: ["deferred","not_expected","closed"].includes(outcome) ? reason : null
         }
       });
@@ -472,7 +472,7 @@ export function ReordersPage() {
   }
   const records = data?.reorders ?? [];
   return <Shell>
-    <PageHeader eyebrow="Responsible commercial continuity" title="Reorders and account health" description="Reorder windows, averages, likelihood, and recommendations are labeled projections, not guaranteed revenue. Buyer need, service history, authority, permission, and protection require human review." action={<a className="secondary-button" href="/api/commercial-export/reorder">Export CSV</a>} />
+    <PageHeader eyebrow="Responsible commercial continuity" title="Reorders and account health" description="Reorder windows, averages, likelihood, and recommendations are labeled projections, not guaranteed revenue. Buyer need, service history, authority, permission, and protection require review." action={<a className="secondary-button" href="/api/commercial-export/reorder">Export CSV</a>} />
     <section className="panel filter-panel"><Field label="Review status"><select value={status} onChange={(event) => setStatus(event.target.value)}>
       <option value="">All</option>{["projected","due","contacted","ordered","deferred","not_expected","closed"].map((item) => <option key={item} value={item}>{item.replaceAll("_"," ")}</option>)}
     </select></Field><SaveView recordType="reorder" status={status} /></section>
@@ -491,7 +491,7 @@ export function ReordersPage() {
         </dl>
         <button className="secondary-button" onClick={() => { setEditing(item); setRationale(shown(item.healthRationale,"")); setNextAction(shown(item.nextAction,"")); setHealth(shown(item.accountHealth,"healthy")); }}>Review</button>
       </article>)}</section>}
-    {editing ? <section className="panel"><h2>Human Reorder review</h2><form className="form-grid" onSubmit={(event) => void save(event)}>
+    {editing ? <section className="panel"><h2>Reorder review</h2><form className="form-grid" onSubmit={(event) => void save(event)}>
       <Field label="Outcome"><select value={outcome} onChange={(event) => setOutcome(event.target.value)}>
         <option value="due">Due for review</option><option value="contacted">Contacted through approved outreach</option><option value="deferred">Deferred</option><option value="not_expected">Not expected</option><option value="closed">Closed</option>
       </select></Field>
@@ -501,7 +501,7 @@ export function ReordersPage() {
       <Field label="Health rationale"><textarea required value={rationale} onChange={(event) => setRationale(event.target.value)} /></Field>
       <Field label="Required next action"><textarea required value={nextAction} onChange={(event) => setNextAction(event.target.value)} /></Field>
       {["deferred","not_expected","closed"].includes(outcome) ? <Field label="Retained outcome reason"><textarea required value={reason} onChange={(event) => setReason(event.target.value)} /></Field> : null}
-      <div className="form-actions"><button className="primary-button" disabled={saving}>Confirm human review</button><button className="text-button" type="button" onClick={() => setEditing(null)}>Cancel</button></div>
+      <div className="form-actions"><button className="primary-button" disabled={saving}>Confirm review</button><button className="text-button" type="button" onClick={() => setEditing(null)}>Cancel</button></div>
     </form></section> : null}
   </Shell>;
 }
@@ -526,7 +526,7 @@ export function CommissionsPage() {
     return [...result.entries()];
   }, [records]);
   return <Shell>
-    <PageHeader eyebrow="Explainable compensation" title="Commissions" description="Expected, verified, approved, payable, and paid values remain distinct. Every amount links to an Agreement rule, exact Order revision, adjustments, evidence, and human action." action={<a className="secondary-button" href="/api/commercial-export/commission">Export reconciliation</a>} />
+    <PageHeader eyebrow="Explainable compensation" title="Commissions" description="Expected, verified, approved, payable, and paid values remain distinct. Every amount links to an Agreement rule, exact Order revision, adjustments, evidence, and reviewer action." action={<a className="secondary-button" href="/api/commercial-export/commission">Export commissions</a>} />
     <section className="panel filter-panel"><Field label="Commission status"><select value={status} onChange={(event) => setStatus(event.target.value)}>
       <option value="">All</option>{["estimated","pending_verification","approved","payable","paid","disputed","canceled","clawed_back"].map((item) => <option key={item} value={item}>{item.replaceAll("_"," ")}</option>)}
     </select></Field><SaveView recordType="commission" status={status} /></section>
@@ -535,7 +535,7 @@ export function CommissionsPage() {
         {grouped.map(([code, totals]) => <section className="metric-row" key={code} aria-label={`${code} Commission totals`}>
           <article className="metric"><span>{code} Expected</span><strong>{currency(totals.expected,code)}</strong><small>Estimate, not guaranteed income</small></article>
           <article className="metric"><span>{code} Approved</span><strong>{currency(totals.approved,code)}</strong></article>
-          <article className="metric"><span>{code} Paid</span><strong>{currency(totals.paid,code)}</strong><small>Human-confirmed actual</small></article>
+          <article className="metric"><span>{code} Paid</span><strong>{currency(totals.paid,code)}</strong><small>Confirmed actual</small></article>
         </section>)}
         <section className="panel"><div className="table-wrap"><table><thead><tr><th>Order / Brand</th><th>Formula basis</th><th>Expected</th><th>Approved</th><th>Paid</th><th>Status</th><th /></tr></thead>
           <tbody>{records.map((item) => <tr key={item.id}>
@@ -560,7 +560,7 @@ export function CommissionDetailPage() {
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [paymentDate, setPaymentDate] = useState("");
-  const [reason, setReason] = useState("Human reviewed the Agreement rule, exact Order revision, adjustments, and supporting evidence.");
+  const [reason, setReason] = useState("Reviewed the Agreement rule, exact Order revision, adjustments, and supporting evidence.");
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   async function transition(event: FormEvent) {
@@ -607,7 +607,7 @@ export function CommissionDetailPage() {
     {actionError ? <ErrorPanel message={actionError} /> : null}
     <section className="metric-row">
       <article className="metric"><span>Expected</span><strong>{currency(commission.expectedAmount,commission.currency)}</strong><small>System calculation</small></article>
-      <article className="metric"><span>Approved</span><strong>{currency(commission.approvedAmount,commission.currency)}</strong><small>Human-confirmed</small></article>
+      <article className="metric"><span>Approved</span><strong>{currency(commission.approvedAmount,commission.currency)}</strong><small>Confirmed</small></article>
       <article className="metric"><span>Paid</span><strong>{currency(commission.paidAmount,commission.currency)}</strong><small>{commission.paymentDate ? dateShown(commission.paymentDate) : "No payment confirmed"}</small></article>
     </section>
     <div className="split-grid">
@@ -621,7 +621,7 @@ export function CommissionDetailPage() {
           <div><dt>Source versions</dt><dd>Agreement {shown(current.agreementId)} · Order revision {shown(current.orderRevision)}</dd></div>
         </dl></> : <p className="empty">No current calculation. Commission advancement is blocked.</p>}
       </section>
-      <section className="panel"><h2>Human state transition</h2><form onSubmit={(event) => void transition(event)}>
+      <section className="panel"><h2>State transition</h2><form onSubmit={(event) => void transition(event)}>
         <Field label="Next status"><select value={toStatus} onChange={(event) => setToStatus(event.target.value)}>
           {["pending_verification","approved","payable","paid","canceled","clawed_back"].map((item) => <option key={item} value={item}>{item.replaceAll("_"," ")}</option>)}
         </select></Field>
@@ -629,7 +629,7 @@ export function CommissionDetailPage() {
         {["approved","paid","clawed_back"].includes(toStatus) ? <Field label={`${toStatus.replaceAll("_"," ")} amount`}><input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></Field> : null}
         {toStatus === "payable" ? <Field label="Payment due date"><input required type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></Field> : null}
         {toStatus === "paid" ? <Field label="Payment date"><input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></Field> : null}
-        <Field label="Human rationale"><textarea required value={reason} onChange={(event) => setReason(event.target.value)} /></Field>
+        <Field label="Rationale"><textarea required value={reason} onChange={(event) => setReason(event.target.value)} /></Field>
         <div className="button-row"><button className="primary-button" disabled={saving}>Confirm consequential state</button><button className="secondary-button" type="button" disabled={saving || !amount || !documentId} onClick={() => void openDispute()}>Open documented dispute</button></div>
       </form></section>
     </div>
@@ -649,12 +649,12 @@ export function CommissionDisputesPage() {
   );
   const records = data?.disputes ?? [];
   return <Shell>
-    <PageHeader eyebrow="Human-owned resolution" title="Commission Disputes" description="Preserve claims, evidence, communications, chronology, adjustments, and final human decisions. Ryva does not adjudicate contractual rights." action={<a className="secondary-button" href="/api/commercial-export/commission_dispute">Export case list</a>} />
+    <PageHeader eyebrow="Owned resolution" title="Commission Disputes" description="Preserve claims, evidence, communications, chronology, adjustments, and final decisions. Ryva does not adjudicate contractual rights." action={<a className="secondary-button" href="/api/commercial-export/commission_dispute">Export disputes</a>} />
     <section className="panel filter-panel"><Field label="Dispute status"><select value={status} onChange={(event) => setStatus(event.target.value)}>
       <option value="">All</option>{["opened","evidence_needed","submitted","under_review","resolved","rejected","withdrawn"].map((item) => <option key={item} value={item}>{item.replaceAll("_"," ")}</option>)}
     </select></Field><SaveView recordType="commission_dispute" status={status} /></section>
     {error ? <ErrorPanel message={error} /> : loading ? <Loading label="Loading dispute chronology" /> :
-      records.length === 0 ? <Empty>No Commission Disputes. Open one from a Commission variance or overdue-payment review.</Empty> :
+      records.length === 0 ? <Empty>No commission disputes. Disputes can be opened when a commission amount or payment needs review.</Empty> :
       <section className="panel"><div className="table-wrap"><table><thead><tr><th>Case</th><th>Relationship</th><th>Amount</th><th>Reason</th><th>Status</th><th>Next action</th><th /></tr></thead>
         <tbody>{records.map((item) => <tr key={item.id}><td className="monospace">{item.id.slice(0,8)}</td><td>{shown(item.brandName)}<small>{shown(item.businessName)} · {shown(item.orderNumber)}</small></td><td>{currency(item.disputedAmount,item.currency)}</td><td>{shown(item.reason)}</td><td><StatusPill value={shown(item.status)} /></td><td>{shown(item.nextAction)}</td><td><Link to={`/commission-disputes/${item.id}`}>Review case</Link></td></tr>)}</tbody>
       </table></div></section>}
@@ -694,7 +694,7 @@ export function CommissionDisputeDetailPage() {
   const notes = (data?.notes ?? []) as Row[];
   const documents = (data?.documents ?? []) as Row[];
   return <Shell>
-    <PageHeader eyebrow="Dispute case" title={`Order ${shown(dispute.orderNumber)}`} description="Resolution requires evidence, a recorded amount and rationale, and a fresh issued human Decision. Withdrawal does not imply Brand correctness." action={<StatusPill value={shown(dispute.status)} />} />
+    <PageHeader eyebrow="Dispute case" title={`Order ${shown(dispute.orderNumber)}`} description="Resolution requires evidence, a recorded amount and rationale, and a fresh issued Decision. Withdrawal does not imply Brand correctness." action={<StatusPill value={shown(dispute.status)} />} />
     {actionError ? <ErrorPanel message={actionError} /> : null}
     <div className="split-grid">
       <section className="panel"><h2>Claim and evidence</h2><dl className="detail-list">
@@ -704,14 +704,14 @@ export function CommissionDisputeDetailPage() {
         <div><dt>Next action</dt><dd>{shown(dispute.next_action)}</dd></div>
         <div><dt>Evidence</dt><dd>{documents.length ? documents.map((item) => shown(item.name)).join(", ") : "Evidence unavailable — resolution blocked"}</dd></div>
       </dl></section>
-      <section className="panel"><h2>Final human resolution</h2>
+      <section className="panel"><h2>Final resolution</h2>
         {shown(dispute.status) === "resolved" ? <p><strong>{currency(dispute.resolution_amount,dispute.currency)}</strong> · {shown(dispute.resolution)}</p> :
           <form onSubmit={(event) => void resolve(event)}>
             <Field label="Resolved amount"><input required inputMode="decimal" value={resolutionAmount} onChange={(event) => setResolutionAmount(event.target.value)} /></Field>
             <Field label="Resolution rationale"><textarea required value={resolution} onChange={(event) => setResolution(event.target.value)} /></Field>
             <Field label="Resolution evidence document ID"><input required value={documentId} onChange={(event) => setDocumentId(event.target.value)} /></Field>
-            <Field label="Issued human Decision ID"><input required value={decisionId} onChange={(event) => setDecisionId(event.target.value)} /></Field>
-            <button className="primary-button" disabled={saving}>Record final human decision</button>
+            <Field label="Issued Decision ID"><input required value={decisionId} onChange={(event) => setDecisionId(event.target.value)} /></Field>
+            <button className="primary-button" disabled={saving}>Record final decision</button>
           </form>}
       </section>
     </div>

@@ -42,8 +42,11 @@ void describe("Ryva shared component system", () => {
 
   void it("uses authored text as well as semantic tone for status", () => {
     const markup = renderToStaticMarkup(<StatusLabel value="proceed_with_conditions" />);
-    assert.match(markup, />proceed with conditions</);
+    assert.match(markup, />Proceed with conditions</);
     assert.match(markup, /ry-tone-warning/);
+    assert.match(markup, /ry-status-label-dot/);
+    assert.match(renderToStaticMarkup(<StatusLabel value="paid" />), />Paid</);
+    assert.match(renderToStaticMarkup(<StatusLabel value="none" />), />None</);
   });
 
   void it("keeps loading, error, and empty states structurally distinct", () => {
@@ -62,6 +65,13 @@ void describe("Ryva shared component system", () => {
     assert.match(markup, /aria-label="Qualified products"/);
     assert.match(markup, /<caption class="sr-only">Qualified products<\/caption>/);
     assert.match(markup, /scope="col"/);
+  });
+
+  void it("keeps platform tables bold in the first column with wrapping cells", () => {
+    const css = readFileSync(new URL("./components.css", import.meta.url), "utf8");
+    assert.match(css, /\.ry-table td:first-child[\s\S]*?font-weight:\s*var\(--font-weight-semibold\)/);
+    assert.match(css, /\.ry-table td[\s\S]*?white-space:\s*normal/);
+    assert.match(css, /\.ry-table td[\s\S]*?overflow-wrap:\s*break-word/);
   });
 
   void it("exports only token-driven redesign CSS", () => {

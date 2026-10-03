@@ -11,6 +11,9 @@ createdb ryva_pro_dev
 DATABASE_URL=postgres://localhost/ryva_pro_dev PGSSL=disable npm run migrate
 ```
 
+API startup does not apply migrations automatically. Run `npm run migrate`
+after creating a database and whenever the checkout adds a migration.
+
 Do not edit a migration after it has been applied outside a disposable local database. Add a new forward migration.
 
 ## Synthetic fixtures

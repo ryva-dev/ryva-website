@@ -66,7 +66,7 @@ export async function createControlledImport(
       authorityImplications:[
         "Imported claims remain unverified until separately reviewed against their Source.",
         "Imports cannot qualify Products or Buyers, approve authority, create protected rights, verify orders, or approve commissions.",
-        "Consequential record types enter a human review queue and do not become operational authority."
+        "Consequential record types enter a review queue and do not become operational authority."
       ]
     };
     await transaction.query(
@@ -150,12 +150,12 @@ async function createSafeImportedRecord(
     await transaction.query(
       `INSERT INTO tasks
        (id,workspace_id,subject_type,subject_id,title,owner_user_id,status,priority,created_reason,due_at)
-       VALUES($1,$2,$3,$4,$5,$6,'open',$7,'Imported task; human review required',$8)`,
+       VALUES($1,$2,$3,$4,$5,$6,'open',$7,'Imported task; review required',$8)`,
       [id,input.workspaceId,value.subjectType,value.subjectId,value.title,input.userId,
        value.priority||"medium",value.dueAt||null]
     );
   }else{
-    throw new AppError(422,"import_requires_review","This imported record requires human review.");
+    throw new AppError(422,"import_requires_review","This imported record requires review.");
   }
   return id;
 }
@@ -339,7 +339,7 @@ export async function previewRecordMerge(
       documents:"Preserved with original digests and ownership.",
       authority:"Never combined or expanded by merge.",
       commercialHistory:"Orders and commissions remain immutable and separately auditable.",
-      recovery:"The canonical alias can be reversed by an authorized human."
+      recovery:"The canonical alias can be reversed by an authorized reviewer."
     }
   };
 }

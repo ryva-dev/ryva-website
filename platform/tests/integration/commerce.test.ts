@@ -53,7 +53,7 @@ async function setupCommercialFixture(
     brandId: brand.id, name: `Synthetic ${label} Product`, category: "Gift"
   });
   const business = await core(agent, csrf, "business", {
-    name: `Synthetic ${label} Buyer`, businessType: "gift_shop", category: "Gift"
+    name: `Synthetic ${label} Gift Shop`, businessType: "gift_shop", category: "Gift"
   });
   await database.query("UPDATE products SET status='qualified' WHERE id=$1", [product.id]);
   await database.query(
@@ -111,7 +111,7 @@ async function setupCommercialFixture(
       (id,workspace_id,subject_type,subject_id,question,scope,outcome,rationale,
        confidence,owner_user_id,decided_at,next_action,status)
      VALUES($1,$2,'business',$3,'Proceed to Order discussion?','Synthetic Phase 6 fixture',
-       'Proceed','Human documented Buyer value and commercial conditions.','supported',
+       'Proceed','Documented Buyer value and commercial conditions.','supported',
        $4,now(),'Verify the documented Order','issued')`,
     [decisionId, workspaceId, business.id, userId]
   );
@@ -183,7 +183,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
     const confirmed = await agent.post(`/api/orders/${String(order.id)}/confirm`)
       .set("x-csrf-token", csrf).send({
         version: order.version,
-        verificationNotes: "Human compared Order identity, line, quantity, values, and source."
+        verificationNotes: "Compared Order identity, line, quantity, values, and source."
       });
     assert.equal(confirmed.status, 200, confirmed.text);
     fixture.accountId = confirmed.body.accountId;
@@ -219,7 +219,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
     const confirmed = await agent.post(`/api/orders/${String(order.id)}/confirm`)
       .set("x-csrf-token", csrf).send({
         version: order.version,
-        verificationNotes: "Human verified the Order; the Agreement has no protection clause."
+        verificationNotes: "Verified the Order; the Agreement has no protection clause."
       });
     assert.equal(confirmed.status, 200, confirmed.text);
     assert.equal(confirmed.body.protectedAccountId, null);
@@ -292,7 +292,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
     const reconfirmed = await agent.post(`/api/orders/${fixture.orderId}/confirm`)
       .set("x-csrf-token", csrf).send({
         version: corrected.body.order.version,
-        verificationNotes: "Human verified the corrected return against the source."
+        verificationNotes: "Verified the corrected return against the source."
       });
     assert.equal(reconfirmed.status, 200, reconfirmed.text);
     assert.equal(reconfirmed.body.accountId, fixture.accountId);
@@ -312,7 +312,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
         healthRationale: "Opening delivery and support have no unresolved issue.",
         nextAction: "Review Buyer need before approved follow-up.",
         likelihoodLabel: "medium", likelihoodOrigin: "user_entered",
-        estimateExplanation: "Human qualitative estimate; not guaranteed revenue.",
+        estimateExplanation: "Qualitative estimate; not guaranteed revenue.",
         recommendedFollowUp: "Review need and inventory before contact.",
         deferOrCloseReason: null
       });
@@ -350,7 +350,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
     const confirmed = await agent.post(`/api/orders/${reorderOrder.body.order.id}/confirm`)
       .set("x-csrf-token", csrf).send({
         version: reorderOrder.body.order.version,
-        verificationNotes: "Human verified the subsequent Order and documentary rights."
+        verificationNotes: "Verified the subsequent Order and documentary rights."
       });
     assert.equal(confirmed.status, 200, confirmed.text);
     assert.equal(confirmed.body.commission.expectedAmount, "60.00");
@@ -368,14 +368,14 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
     const pending = await agent.post(`/api/commissions/${fixture.commissionId}/status`)
       .set("x-csrf-token", csrf).send({
         version: detail.body.commission.version, toStatus: "pending_verification",
-        reason: "Human verified current Order revision and Agreement rule.",
+        reason: "Verified current Order revision and Agreement rule.",
         sourceDocumentId: fixture.documentId
       });
     assert.equal(pending.status, 200, pending.text);
     const approved = await agent.post(`/api/commissions/${fixture.commissionId}/status`)
       .set("x-csrf-token", csrf).send({
         version: pending.body.commission.version, toStatus: "approved",
-        reason: "Human approved the reconciled amount from documentary evidence.",
+        reason: "Approved the reconciled amount from documentary evidence.",
         sourceDocumentId: fixture.documentId, verifiedAmount: "90.00", approvedAmount: "90.00"
       });
     assert.equal(approved.status, 200, approved.text);
@@ -395,7 +395,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
         owner_user_id,decided_at,next_action,status)
        VALUES($1,$2,'commission_dispute',$3,'Resolve documented variance?',
         'Synthetic dispute evidence','Resolve at 90.00',
-        'Human compared the Agreement, Order revision, and statement.','supported',
+        'Compared the Agreement, Order revision, and statement.','supported',
         $4,now(),'Record the approved resolution','issued')`,
       [decisionId, fixture.workspaceId, fixture.disputeId, fixture.userId]
     );
@@ -411,7 +411,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
     const payable = await agent.post(`/api/commissions/${fixture.commissionId}/status`)
       .set("x-csrf-token", csrf).send({
         version: detail.body.commission.version, toStatus: "payable",
-        reason: "Human confirmed the documented payment due date.",
+        reason: "Confirmed the documented payment due date.",
         sourceDocumentId: fixture.documentId, paymentDueDate: "2026-08-30"
       });
     assert.equal(payable.status, 200, payable.text);
@@ -424,7 +424,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
     const paid = await agent.post(`/api/commissions/${fixture.commissionId}/status`)
       .set("x-csrf-token", csrf).send({
         version: payable.body.commission.version, toStatus: "paid",
-        reason: "Human confirmed cleared payment against the statement.",
+        reason: "Confirmed cleared payment against the statement.",
         sourceDocumentId: fixture.documentId, paidAmount: "90.00", paymentDate: "2026-08-29"
       });
     assert.equal(paid.status, 200, paid.text);
@@ -465,7 +465,7 @@ describe("Phase 6 Accounts, Orders, Reorders, and Commissions", () => {
     const euroConfirmed = await agent.post(`/api/orders/${String(euroOrder.id)}/confirm`)
       .set("x-csrf-token", csrf).send({
         version: euroOrder.version,
-        verificationNotes: "Human verified the EUR Order against its EUR Agreement rule."
+        verificationNotes: "Verified the EUR Order against its EUR Agreement rule."
       });
     assert.equal(euroConfirmed.status, 200, euroConfirmed.text);
     assert.equal(euroConfirmed.body.commission.currency, "EUR");

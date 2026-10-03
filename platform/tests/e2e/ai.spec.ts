@@ -5,7 +5,7 @@ const password = "Synthetic!Passphrase2026";
 async function signIn(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill("active@synthetic.ryva.test");
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -30,7 +30,7 @@ test("reviewer can inspect evidence, freshness, classifications, and human bound
   await expect(page.getByRole("heading", { name: "Synthetic daily briefing" })).toBeVisible();
   await expect(page.getByText("No target state changed")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Classification and citations" })).toBeVisible();
-  await expect(page.getByText("direct evidence", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/direct evidence/i).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "[1] Synthetic workspace fixture" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Missing evidence" })).toBeVisible();
   await expect(page.getByText("Current qualified opportunities")).toBeVisible();

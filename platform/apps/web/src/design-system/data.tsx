@@ -1,6 +1,6 @@
-import type { HTMLAttributes, ReactNode, TableHTMLAttributes } from "react";
+import React, { type HTMLAttributes, type ReactNode, type TableHTMLAttributes } from "react";
 import { Link } from "react-router-dom";
-import { classes, humanize, toneForStatus, type SemanticTone } from "./shared";
+import { classes, statusLabelText, toneForStatus, type SemanticTone } from "./shared";
 
 export function Table({
   caption,
@@ -49,17 +49,20 @@ export function EmptyState({
   title,
   description,
   action,
+  icon,
   compact = false,
   className
 }: {
   title?: ReactNode;
   description: ReactNode;
   action?: ReactNode;
+  icon?: ReactNode;
   compact?: boolean;
   className?: string;
 }) {
   return (
     <div className={classes("ry-empty-state", "empty-state", compact && "ry-empty-state-compact", className)}>
+      {icon ? <span className="ry-empty-state-icon" aria-hidden="true">{icon}</span> : null}
       {title ? <strong>{title}</strong> : null}
       <p>{description}</p>
       {action}
@@ -135,10 +138,11 @@ export function StatusLabel({
   tone?: SemanticTone;
   className?: string;
 }) {
-  const authoredLabel = label ?? humanize(value);
+  const authoredLabel = label ?? statusLabelText(value);
   const resolvedTone = tone ?? toneForStatus(value);
   return (
     <span className={classes("ry-status-label", "status", `ry-tone-${resolvedTone}`, `status-${value.replaceAll("_", "-")}`, className)}>
+      <span className="ry-status-label-dot" aria-hidden="true" />
       {authoredLabel}
     </span>
   );

@@ -16,6 +16,7 @@ import {
   listAgreements,
   listPlacements,
   listRepresentationOpportunities,
+  recordPlacementValueAlignment,
   requestAgreementApproval,
   reviewTermCandidate,
   transitionPlacement,
@@ -297,6 +298,25 @@ export function registerPhase4Routes({
 
   app.get("/api/placements/:placementId", authenticated, read, asyncRoute(async (request, response) => {
     response.json(await getPlacement(database, request.identity!.workspaceId, uuidSchema.parse(request.params.placementId)));
+  }));
+
+  app.post("/api/placements/:placementId/value-alignment", authenticated, csrf, write, asyncRoute(async (request, response) => {
+    const text = z.string().trim().min(1).max(8000);
+    const input = z.object({
+      buyerValue: text,
+      brandValue: text,
+      representativeValue: text,
+      allPartiesReceiveLegitimateValue: z.boolean()
+    }).parse(request.body);
+    response.status(201).json({
+      triangle: await recordPlacementValueAlignment(database, {
+        ...input,
+        workspaceId: request.identity!.workspaceId,
+        actorUserId: request.identity!.userId,
+        requestId: request.requestId,
+        placementId: uuidSchema.parse(request.params.placementId)
+      })
+    });
   }));
 
   app.post("/api/placements/:placementId/stage", authenticated, csrf, write, asyncRoute(async (request, response) => {

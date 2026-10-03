@@ -146,7 +146,7 @@ export function TerritoriesPage() {
         action={<Button disabled={!canWrite} onClick={() => setCreateOpen(true)}>Propose territory</Button>}
       />
       <Alert tone="warning" className="ry-register-policy" title="Proposal does not create authority">
-        Only a reviewed and human-approved Agreement can authorize Product, channel, Buyer, or geographic scope.
+        Only a reviewed and approved Agreement can authorize Product, channel, Buyer, or geographic scope.
       </Alert>
       {!canWrite ? <Alert tone="warning" className="ry-register-policy" title="Read-only access">You may inspect permitted scope proposals, but cannot create or change them in this session.</Alert> : null}
       <section className="ry-register-surface" aria-label="Territory register">
@@ -185,7 +185,7 @@ export function TerritoriesPage() {
             </DataRow>)}</tbody>
           </Table>
           <RegisterMobileList label="Territories">{visibleItems.map((item) => <RegisterMobileRow key={item.id} title={item.name} meta={`${item.territoryType.replaceAll("_", " ")} · ${scopeDescription(item)}`} status={<><StatusLabel value={item.status} /><AuthorityIndicator value="not_authorized" /></>} onOpen={() => setSelected(item)} openLabel={`Review Territory ${item.name}`} />)}</RegisterMobileList>
-          <RegisterPagination page={currentPage} pageCount={pageCount} total={filtered.length} onPage={setPage} />
+          <RegisterPagination page={currentPage} pageCount={pageCount} total={filtered.length} pageSize={pageSize} onPage={setPage} />
         </>}
       </section>
 

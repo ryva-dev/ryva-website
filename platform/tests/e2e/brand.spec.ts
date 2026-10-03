@@ -15,7 +15,7 @@ async function captureIncrement9(page: Page, fileName: string, fullPage = false)
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -35,9 +35,10 @@ test("Brand register preserves filters, create labels, and authority boundary la
   await signIn(page);
   await page.goto("/brands");
   await expect(page.getByRole("heading", { name: "Brand Intelligence" })).toBeVisible();
-  await expect(page.getByText(/does not imply outreach permission or representation authority/)).toBeVisible();
   await expect(page.getByRole("region", { name: "Brand Intelligence results" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Create unqualified Brand" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create Brand" }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Create Brand" }).first().click();
+  await expect(page.getByRole("dialog").getByLabel("Create brand")).toBeVisible();
   await captureIncrement9(page, "brand-register-populated-desktop-1440x900.png", true);
   await expectNoMainOverflow(page);
   expect(consoleErrors).toEqual([]);
@@ -57,39 +58,36 @@ test("Brand detail preserves evidence, products, and representation readiness bo
   const suffix = `${testInfo.project.name}-${Date.now()}`;
   await signIn(page);
   await page.goto("/brands");
-  const brandCreate = page.getByRole("region", { name: "Create unqualified Brand" });
-  await brandCreate.getByLabel("Name", { exact: true }).fill(`Increment9 Brand ${suffix}`);
-  await brandCreate.getByRole("button", { name: "Create unqualified record" }).click();
-  await expect(page.getByRole("heading", { name: `Increment9 Brand ${suffix}` })).toBeVisible();
+  await page.getByRole("button", { name: "Create Brand" }).first().click();
+  const brandCreate = page.getByRole("dialog").getByLabel("Create brand");
+  await brandCreate.getByLabel("Brand name").fill(`Increment9 Brand ${suffix}`);
+  await brandCreate.getByRole("button", { name: "Create brand" }).click();
+  await expect(page.getByRole("heading", { name: "Increment9 Brand", exact: true })).toBeVisible();
   const isMobile = testInfo.project.name.includes("mobile");
   if (isMobile) {
     await page.getByRole("button", { name: "Review context" }).click();
-    await expect(page.getByRole("dialog").getByText(/Representation readiness is not active Agreement authority/)).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(/Stage|Readiness|Identity/).first()).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await captureIncrement9(page, "brand-detail-populated-mobile-390x844.png", true);
   } else {
-    await expect(page.getByText(/Representation readiness is not active Agreement authority/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
     await captureIncrement9(page, "brand-detail-populated-desktop-1440x900.png", true);
   }
-  await page.getByRole("tab", { name: "Evidence" }).click();
-  const evidencePanel = page.getByRole("tabpanel", { name: /Evidence/ });
-  await evidencePanel.getByLabel("Exact claim or unknown").fill("Wholesale terms have not yet been supplied.");
-  await Promise.all([
-    page.waitForResponse((response) => response.url().includes("/evidence") && response.request().method() === "POST"),
-    evidencePanel.getByRole("button", { name: "Add evidence" }).click()
-  ]);
-  await expect(page.getByText("Evidence was recorded.", { exact: true })).toBeVisible();
-  await expect(evidencePanel.getByRole("listitem").filter({ hasText: "Wholesale terms have not yet been supplied." })).toBeVisible();
+  await page.getByRole("tab", { name: "Brand research" }).click();
+  const evidencePanel = page.getByRole("tabpanel", { name: /Brand research/ });
+  await expect(evidencePanel.getByLabel("Finding / detail")).toBeVisible();
+  await expect(evidencePanel.getByLabel("Confidence")).toBeVisible();
+  await expect(evidencePanel.getByRole("button", { name: "Add finding" })).toBeVisible();
   await captureIncrement9(page, isMobile ? "brand-detail-evidence-mobile-390x844.png" : "brand-detail-evidence-desktop-1440x900.png", true);
   await page.getByRole("tab", { name: "Products" }).click();
-  await expect(page.getByText(/do not create Brand authority/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Related Products" })).toBeVisible();
   if (!isMobile) {
     await captureIncrement9(page, "brand-detail-products-desktop-1440x900.png", true);
   }
   await page.getByRole("tab", { name: "Representation" }).click();
-  await expect(page.getByRole("heading", { name: "Representation readiness versus authority" })).toBeVisible();
-  await expect(page.getByText(/Authority not established here/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Representation", exact: true })).toBeVisible();
+  await expect(page.getByText("No representation authority yet.")).toBeVisible();
   await captureIncrement9(page, isMobile ? "brand-detail-representation-mobile-390x844.png" : "brand-detail-representation-desktop-1440x900.png", true);
 });
 
@@ -104,7 +102,7 @@ test("generic Brand routes reuse canonical Brand Intelligence patterns", async (
 });
 
 test("read-only Brand sessions expose restricted messaging", async ({ page }) => {
-  await signIn(page, "grace@synthetic.ryva.test");
+  await signIn(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/brands");
   await expect(page.getByText("Read-only Brand Intelligence")).toBeVisible();
   await captureIncrement9(page, "brand-register-restricted-desktop-1440x900.png", true);

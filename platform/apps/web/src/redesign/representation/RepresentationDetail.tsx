@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useId, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api";
 import { useAuth } from "../../auth";
 import {
@@ -7,6 +7,7 @@ import {
   Alert,
   AuthorityIndicator,
   Button,
+  Drawer,
   EmptyState,
   ErrorState,
   Field,
@@ -26,7 +27,15 @@ import {
   StickyMobileAction,
   type RelationshipTab
 } from "../relationship/RelationshipDetail";
-import { dateTime, opportunityStages, readable, shown, type Row } from "./utils";
+import { brandNameTitle, channelsLabel, dateTime, displayBrandName, displayProductName, opportunityStages, readable, shown, stageDisplayLabel, territoryLabel, type Row } from "./utils";
+
+const AGREEMENT_MAX_BYTES = 20 * 1024 * 1024;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+}
 
 type RecordContext = {
   record: Row;
@@ -44,6 +53,7 @@ type OpportunityDetail = {
 
 export function RepresentationDetailPage() {
   const { id = "" } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { session } = useAuth();
   const canWrite = session?.access.mode === "full" && session.access.capabilities.includes("operational:write");
@@ -59,6 +69,9 @@ export function RepresentationDetailPage() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [contextOpen, setContextOpen] = useState(false);
+  const [stageOpen, setStageOpen] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setError("");
@@ -74,6 +87,38 @@ export function RepresentationDetailPage() {
     }
   }, [id]);
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (location.hash !== "#assign-next-action" || !detail || !canWrite) return;
+    setStage(shown(detail.opportunity.stage, "identified"));
+    setStageOpen(true);
+    const timer = window.setTimeout(() => {
+      const field = document.getElementById("representation-next-action");
+      if (!(field instanceof HTMLSelectElement)) return;
+      field.focus();
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [location.hash, detail, canWrite]);
+
+  function acceptAgreementFile(next: File | null) {
+    if (!next) {
+      setFile(null);
+      return;
+    }
+    const name = next.name.toLowerCase();
+    if (!name.endsWith(".pdf") && !name.endsWith(".docx")) {
+      setError("Use a PDF or DOCX agreement file.");
+      setFile(null);
+      return;
+    }
+    if (next.size > AGREEMENT_MAX_BYTES) {
+      setError(`Agreement files must be ${formatFileSize(AGREEMENT_MAX_BYTES)} or smaller.`);
+      setFile(null);
+      return;
+    }
+    setError("");
+    setFile(next);
+  }
 
   async function upload() {
     if (!file || !detail || !canWrite) return;
@@ -93,12 +138,34 @@ export function RepresentationDetailPage() {
       });
       await api(created.upload.url, { method: "PUT", headers: { "content-type": file.type || "application/pdf" }, body: file });
       setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       await load({ silent: true });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The Agreement original could not be uploaded.");
+      setError(caught instanceof Error ? caught.message : "The agreement could not be uploaded.");
     } finally {
       setSaving(false);
     }
+  }
+
+  function onDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!canWrite || saving) return;
+    setDragActive(true);
+  }
+
+  function onDragLeave(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+  }
+
+  function onDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+    if (!canWrite || saving) return;
+    acceptAgreementFile(event.dataTransfer.files?.[0] ?? null);
   }
 
   async function transition(event: FormEvent) {
@@ -111,10 +178,18 @@ export function RepresentationDetailPage() {
         method: "POST",
         body: { version: detail.opportunity.version, toStage: stage, reason, decisionId, nextActionTaskId: stage === "rejected" ? null : taskId }
       });
+      setReason("");
+      setStageOpen(false);
       await load({ silent: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Stage could not be changed.");
     } finally { setSaving(false); }
+  }
+
+  function openStageChange() {
+    setError("");
+    if (detail) setStage(shown(detail.opportunity.stage, "identified"));
+    setStageOpen(true);
   }
 
   async function createAgreementFromOriginal(documentId: string) {
@@ -158,17 +233,21 @@ export function RepresentationDetailPage() {
     );
   }
 
-  const brandName = shown(detail.opportunity.brandName, "Representation review");
+  const brandName = displayBrandName(detail.opportunity.brandName, "Representation review");
+  const brandTitle = brandNameTitle(detail.opportunity.brandName);
+  const brandId = shown(detail.opportunity.brandId);
   const currentStage = shown(detail.opportunity.stage, "identified");
+  const issuedDecisions = context?.decisions.filter((item) => item.status === "issued") ?? [];
+  const openTasks = context?.tasks.filter((item) => !["completed", "canceled"].includes(String(item.status))) ?? [];
   const events = detail.events ?? [];
   const documents = detail.documents ?? [];
   const products = detail.products ?? [];
 
   const tabs: RelationshipTab[] = [
     { id: "overview", label: "Overview" },
-    { id: "documents", label: "Agreements & Documents", count: documents.length },
+    { id: "documents", label: "Agreement", count: documents.length },
     { id: "scope", label: "Scope" },
-    { id: "activity", label: "Activity", count: events.length }
+    { id: "activity", label: "History", count: events.length }
   ];
 
   const activityEntries = events.map((item, index) => ({
@@ -180,29 +259,56 @@ export function RepresentationDetailPage() {
   }));
 
   const primaryAction = canWrite
-    ? <Button onClick={() => { setError(""); setActiveTab("overview"); }}>Change stage</Button>
+    ? <Button onClick={openStageChange}>Change stage</Button>
     : <Button disabled>Read-only access</Button>;
 
+  const missingTermsLabel = (() => {
+    const value = detail.opportunity.missingTerms;
+    if (Array.isArray(value)) {
+      const labels = value.map((item) => String(item).trim()).filter(Boolean);
+      return labels.length ? labels.join(", ") : "None recorded";
+    }
+    const text = shown(value, "").trim();
+    return text && text !== "—" ? text : "None recorded";
+  })();
+
   const contextContent = (
-    <>
-      <div className="ry-context-item">
-        <strong>Readiness</strong>
-        <StatusLabel value={currentStage} />
-        <small>Human decision required to change Representation stage.</small>
-      </div>
-      <div className="ry-context-item">
-        <strong>Authority</strong>
-        <AuthorityIndicator value="not_established" rationale="An uploaded original never establishes representation authority. Only an active Agreement, reviewed and human-approved through exact-artifact review, does." />
-      </div>
-      <div className="ry-context-item">
-        <strong>Next action</strong>
-        <p>{shown(detail.opportunity.nextAction, "No next action assigned.")}</p>
-      </div>
-      <div className="ry-context-item">
-        <strong>Missing terms</strong>
-        <p>{shown(detail.opportunity.missingTerms, "None recorded.")}</p>
-      </div>
-    </>
+    <div className="ry-representation-status-panel">
+      <dl className="ry-representation-status-list">
+        <div>
+          <dt>Stage</dt>
+          <dd>
+            <span className={`ry-representation-status-mark ry-representation-status-mark-${currentStage}`} aria-hidden="true" />
+            <span>{stageDisplayLabel(currentStage)}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Authority</dt>
+          <dd>
+            <span className="ry-representation-status-mark is-warning" aria-hidden="true" />
+            <span>Not established</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Next action</dt>
+          <dd>
+            <span className={`ry-representation-status-mark${shown(detail.opportunity.nextAction, "").trim() ? " is-ready" : ""}`} aria-hidden="true" />
+            <span>{shown(detail.opportunity.nextAction, "Not assigned")}</span>
+          </dd>
+        </div>
+        <div>
+          <dt>Missing terms</dt>
+          <dd>
+            <span className={`ry-representation-status-mark${missingTermsLabel === "None recorded" ? " is-ready" : " is-warning"}`} aria-hidden="true" />
+            <span>{missingTermsLabel}</span>
+          </dd>
+        </div>
+      </dl>
+      <details className="ry-representation-status-why">
+        <summary>Authority is established only after an agreement is reviewed and approved.</summary>
+        <p>An uploaded original never establishes representation authority on its own. Only an active agreement, reviewed and approved through exact-artifact review, does.</p>
+      </details>
+    </div>
   );
 
   return (
@@ -214,73 +320,120 @@ export function RepresentationDetailPage() {
       <IdentityHeader
         eyebrow="Representation Opportunity"
         title={brandName}
-        relationship={(
-          <span className="ry-relationship-identity-meta">
-            <span>{readable(currentStage)}</span>
-            <span>{products.length} Product{products.length === 1 ? "" : "s"}</span>
-            <span>{documents.length} original document{documents.length === 1 ? "" : "s"}</span>
+        relationship={`${products.length === 1 ? "1 product" : `${products.length} products`} · ${
+          documents.length === 0
+            ? "No original agreement uploaded"
+            : documents.length === 1
+              ? "1 original agreement uploaded"
+              : `${documents.length} original agreements uploaded`
+        }`}
+        warning={currentStage === "rejected" ? <Alert tone="danger" title="Opportunity rejected">This Representation Opportunity is closed.</Alert> : undefined}
+        nextAction={(
+          <span>
+            {canWrite
+              ? "Review scope, upload the agreement, and record the brand decision."
+              : session?.access.reason ?? "Read-only inspection."}
           </span>
         )}
-        status={<StatusLabel value={currentStage} />}
-        warning={currentStage === "rejected" ? <Alert tone="danger" title="Opportunity rejected">This Representation Opportunity is closed.</Alert> : undefined}
-        nextAction={<span>{canWrite ? "Review scope, upload the original, and record a human-owned stage change when ready." : session?.access.reason ?? "Read-only Representation inspection."}</span>}
-        actions={<>{primaryAction}<Link className="ry-button ry-button-secondary" to="/representation">Back to register</Link></>}
+        actions={<>{primaryAction}<Link className="ry-button ry-button-secondary" to="/representation">Back to Representation</Link></>}
       />
       {error ? <ErrorState message={error} /> : null}
       {!canWrite ? <Alert tone="warning" title="Read-only Representation context">You may inspect permitted Representation context, but cannot upload originals, create an Agreement, or change stage in this session.</Alert> : null}
 
       <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Representation relationship views" baseId={tabBaseId} />
-      <RelationshipDetailLayout context={<ContextRail title="Representation context" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>{contextContent}</ContextRail>}>
+      <RelationshipDetailLayout context={<ContextRail title="Representation status" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>{contextContent}</ContextRail>}>
         <RelationshipTabPanel id={tabBaseId} tabId="overview" active={activeTab === "overview"}>
-          <RelationshipSection title="Connected authority record" description="Written terms, original documents, decisions, and next actions remain connected and auditable.">
-            <dl className="ry-relationship-facts">
-              <div><dt>Brand</dt><dd>{brandName}</dd></div>
-              <div><dt>Stage</dt><dd><StatusLabel value={currentStage} /></dd></div>
-              <div><dt>Products</dt><dd>{products.map((item) => item.name).join(", ") || "None recorded"}</dd></div>
+          <RelationshipSection title="Representation overview" description="Review the proposed scope, agreement status, decisions, and next action.">
+            <dl className="ry-relationship-facts ry-representation-overview-facts">
+              <div><dt>Brand</dt><dd title={brandTitle}>{brandName}</dd></div>
+              <div>
+                <dt>Stage</dt>
+                <dd>
+                  <span className={`ry-representation-stage ry-representation-stage-${currentStage}`}>
+                    {stageDisplayLabel(currentStage)}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Products in scope</dt>
+                <dd title={products.map((item) => shown(item.name)).join(", ") || undefined}>
+                  {products.map((item) => displayProductName(item.name)).join(", ") || "None recorded"}
+                </dd>
+              </div>
               <div><dt>Next action</dt><dd>{shown(detail.opportunity.nextAction, "Not assigned")}</dd></div>
             </dl>
-          </RelationshipSection>
-          <RelationshipSection title="Change stage" description="The server rechecks the human Brand decision, next action, and version before changing stage.">
-            <form className="ry-representation-stage-form" onSubmit={(event) => void transition(event)}>
-              <Field label="Stage">
-                <Select value={stage} onChange={(event) => setStage(event.target.value)} disabled={!canWrite}>
-                  {opportunityStages.map((item) => <option key={item} value={item}>{readable(item)}</option>)}
-                </Select>
-              </Field>
-              <Field label="Human decision">
-                <Select required value={decisionId} onChange={(event) => setDecisionId(event.target.value)} disabled={!canWrite}>
-                  <option value="">Select</option>
-                  {context?.decisions.filter((item) => item.status === "issued").map((item) => <option key={item.id} value={String(item.id)}>{shown(item.outcome)}</option>)}
-                </Select>
-              </Field>
-              <Field label="Next action">
-                <Select required={stage !== "rejected"} value={taskId} onChange={(event) => setTaskId(event.target.value)} disabled={!canWrite}>
-                  <option value="">Select</option>
-                  {context?.tasks.filter((item) => !["completed", "canceled"].includes(String(item.status))).map((item) => <option key={item.id} value={String(item.id)}>{shown(item.title)}</option>)}
-                </Select>
-              </Field>
-              <Field label="Reason"><TextArea required value={reason} onChange={(event) => setReason(event.target.value)} disabled={!canWrite} /></Field>
-              <Button type="submit" loading={saving} disabled={!canWrite}>Record stage</Button>
-            </form>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="documents" active={activeTab === "documents"}>
-          <RelationshipSection title="Agreement original" description="Uploading does not create authority. The original remains quarantined until the configured scanner marks it clean.">
-            <AuthorityIndicator value="not_established" rationale="An uploaded or scanned-clean document is never active representation authority by itself." />
+          <RelationshipSection
+            title="Representation agreement"
+            description="Uploading does not create authority. The file stays quarantined until scanning marks it clean."
+          >
+            <AuthorityIndicator
+              value="not_established"
+              rationale="Uploading an agreement does not activate representation authority. It must still be reviewed and approved."
+            />
             {canWrite ? (
-              <div className="ry-representation-upload-row">
-                <input aria-label="Agreement original" type="file" accept=".pdf,.docx" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-                <Button variant="secondary" disabled={!file || saving} onClick={() => void upload()}>Upload original</Button>
+              <div className="ry-representation-upload">
+                <div
+                  className={`ry-representation-dropzone${dragActive ? " is-active" : ""}${file ? " has-file" : ""}`}
+                  onDragEnter={onDragOver}
+                  onDragOver={onDragOver}
+                  onDragLeave={onDragLeave}
+                  onDrop={onDrop}
+                  onClick={() => {
+                    if (!canWrite || saving) return;
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  <input
+                    ref={fileInputRef}
+                    className="ry-representation-dropzone-input"
+                    aria-label="Representation agreement"
+                    type="file"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    disabled={saving}
+                    onChange={(event) => acceptAgreementFile(event.target.files?.[0] ?? null)}
+                  />
+                  <p className="ry-representation-dropzone-title">Drag and drop the signed agreement here</p>
+                  <p className="ry-representation-dropzone-meta">PDF or DOCX · Maximum file size {formatFileSize(AGREEMENT_MAX_BYTES)}</p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="compact"
+                    disabled={saving}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    Browse files
+                  </Button>
+                </div>
+                <div className="ry-representation-upload-status" aria-live="polite">
+                  {saving ? (
+                    <span>Uploading agreement…</span>
+                  ) : file ? (
+                    <>
+                      <span>Ready to upload · {file.name} · {formatFileSize(file.size)}</span>
+                      <Button type="button" size="compact" disabled={saving} onClick={() => void upload()}>
+                        Upload agreement
+                      </Button>
+                    </>
+                  ) : (
+                    <span>No file selected yet.</span>
+                  )}
+                </div>
               </div>
             ) : null}
             {documents.length === 0 ? (
-              <EmptyState compact description="No original document has been uploaded." />
+              <EmptyState compact description="No agreement uploaded yet." />
             ) : (
               <ul className="ry-relationship-evidence-list">
                 {documents.map((item) => (
                   <li key={item.id}>
-                    <strong>{shown(item.name)}</strong>
+                    <strong title={shown(item.name)}>{shown(item.name)}</strong>
                     <small>{shown(item.sha256)}</small>
                     <StatusLabel value={`${shown(item.status)}_${shown(item.scanStatus)}`} />
                     {item.status === "active" && item.scanStatus === "clean" && canWrite ? (
@@ -294,20 +447,56 @@ export function RepresentationDetailPage() {
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="scope" active={activeTab === "scope"}>
-          <RelationshipSection title="Proposed scope" description="Proposed scope guides diligence. It is not a written Agreement scope until an Agreement exists and is approved.">
-            <dl className="ry-relationship-facts">
-              <div><dt>Products</dt><dd>{products.map((item) => item.name).join(", ") || "None recorded"}</dd></div>
-              <div><dt>Channels</dt><dd>{shown(detail.opportunity.proposedChannels)}</dd></div>
-              <div><dt>Territory</dt><dd>{JSON.stringify(detail.opportunity.proposedTerritory ?? {})}</dd></div>
-              <div><dt>Missing terms</dt><dd>{shown(detail.opportunity.missingTerms)}</dd></div>
-              <div><dt>Brand objectives</dt><dd>{shown(detail.opportunity.brandObjectives)}</dd></div>
+          <RelationshipSection
+            title="Proposed scope"
+            description="Proposed scope guides diligence. It becomes written agreement scope only after an agreement is approved."
+          >
+            <dl className="ry-relationship-facts ry-representation-scope-facts">
+              <div>
+                <dt>Products in scope</dt>
+                <dd title={products.map((item) => shown(item.name)).join(", ") || undefined}>
+                  {products.map((item) => displayProductName(item.name)).join(", ") || "None recorded"}
+                </dd>
+              </div>
+              <div>
+                <dt>Sales channels</dt>
+                <dd>{channelsLabel(detail.opportunity.proposedChannels)}</dd>
+              </div>
+              <div>
+                <dt>Territory</dt>
+                <dd>{territoryLabel(detail.opportunity.proposedTerritory)}</dd>
+              </div>
+              <div>
+                <dt>Terms still needed</dt>
+                <dd>
+                  {Array.isArray(detail.opportunity.missingTerms)
+                    ? (detail.opportunity.missingTerms.map((item) => String(item).trim()).filter(Boolean).join(", ") || "None recorded")
+                    : shown(detail.opportunity.missingTerms, "None recorded")}
+                </dd>
+              </div>
+              <div className="ry-representation-scope-goals">
+                <dt>Opportunity goals</dt>
+                <dd>{shown(detail.opportunity.brandObjectives, "None recorded")}</dd>
+              </div>
             </dl>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="activity" active={activeTab === "activity"}>
-          <RelationshipSection title="Stage history" description="Stage changes in newest-first order, most recent first.">
-            <ActivityTimeline entries={activityEntries} empty="No stage change has been recorded." label={`${brandName} activity timeline`} />
+          <RelationshipSection
+            title="Stage history"
+            {...(activityEntries.length ? { description: "Newest stage updates appear first." } : {})}
+            {...(!activityEntries.length ? { className: "ry-representation-history-empty" } : {})}
+          >
+            {activityEntries.length === 0 ? (
+              <EmptyState
+                compact
+                title="No stage changes yet"
+                description="Stage updates and decisions will appear here once recorded."
+              />
+            ) : (
+              <ActivityTimeline entries={activityEntries} label={`${brandName} stage history`} />
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
       </RelationshipDetailLayout>
@@ -315,6 +504,95 @@ export function RepresentationDetailPage() {
       <StickyMobileAction>
         {primaryAction}
       </StickyMobileAction>
+
+      <Drawer
+        open={stageOpen}
+        size="narrow"
+        className="ry-representation-stage-drawer"
+        title="Change stage"
+        description="Confirm the decision, next action, and reason for this stage change."
+        onClose={() => setStageOpen(false)}
+      >
+        <form id="assign-next-action" className="ry-representation-stage-form" onSubmit={(event) => void transition(event)}>
+          <p className="ry-representation-stage-current">
+            Current stage: <strong>{stageDisplayLabel(currentStage)}</strong>
+          </p>
+          <Field label="New stage">
+            <Select value={stage} onChange={(event) => setStage(event.target.value)} disabled={!canWrite}>
+              {opportunityStages.map((item) => <option key={item} value={item}>{stageDisplayLabel(item)}</option>)}
+            </Select>
+          </Field>
+          <div className="ry-representation-stage-related">
+            <Field label="Brand decision">
+              <Select
+                required
+                value={decisionId}
+                onChange={(event) => setDecisionId(event.target.value)}
+                disabled={!canWrite || issuedDecisions.length === 0}
+              >
+                <option value="">{issuedDecisions.length === 0 ? "No issued decisions" : "Select decision"}</option>
+                {issuedDecisions.map((item) => (
+                  <option key={item.id} value={String(item.id)}>{shown(item.outcome)}</option>
+                ))}
+              </Select>
+            </Field>
+            {issuedDecisions.length === 0 && brandId ? (
+              <p className="ry-representation-stage-field-hint">
+                Add a brand decision in qualification first, then return here.{" "}
+                <Link className="ry-representation-stage-field-hint-link" to={`/brands/${brandId}`}>
+                  Open brand
+                </Link>
+              </p>
+            ) : null}
+            <Field label="Next action">
+              <Select
+                id="representation-next-action"
+                required={stage !== "rejected"}
+                value={taskId}
+                onChange={(event) => setTaskId(event.target.value)}
+                disabled={!canWrite || (openTasks.length === 0 && stage !== "rejected")}
+              >
+                <option value="">{openTasks.length === 0 ? "No open tasks" : "Select next action"}</option>
+                {openTasks.map((item) => (
+                  <option key={item.id} value={String(item.id)}>{shown(item.title)}</option>
+                ))}
+              </Select>
+            </Field>
+            {openTasks.length === 0 && stage !== "rejected" ? (
+              <p className="ry-representation-stage-field-hint">
+                Add a task for this brand first, then return here.{" "}
+                <Link className="ry-representation-stage-field-hint-link" to="/tasks">
+                  Open tasks
+                </Link>
+                {brandId ? (
+                  <>
+                    {" · "}
+                    <Link className="ry-representation-stage-field-hint-link" to={`/brands/${brandId}`}>
+                      Open brand
+                    </Link>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+          <Field label="Reason for change">
+            <TextArea
+              required
+              rows={3}
+              placeholder="Briefly explain why the stage is changing."
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              disabled={!canWrite}
+            />
+          </Field>
+          <div className="ry-representation-stage-actions">
+            <Button type="button" variant="tertiary" size="compact" disabled={saving} onClick={() => setStageOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" size="compact" loading={saving} disabled={!canWrite}>Save stage change</Button>
+          </div>
+        </form>
+      </Drawer>
     </div>
   );
 }

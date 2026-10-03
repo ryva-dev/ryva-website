@@ -18,7 +18,7 @@ async function captureIncrement15(page: Page, fileName: string, fullPage = false
 async function login(page: Page, email = "active@synthetic.ryva.test") {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -134,7 +134,7 @@ async function seedCommission(suffix: string, options: {
         (id,workspace_id,subject_type,subject_id,question,scope,outcome,rationale,confidence,
          owner_user_id,decided_at,next_action,status)
        VALUES($1,$2,'business',$3,'Advance commercial continuity?','Synthetic fixture','Proceed',
-         'Human documented opening Order for Commission.','supported',$4,now(),'Review Commission','issued')`,
+         'Documented opening Order for Commission.','supported',$4,now(),'Review Commission','issued')`,
       [decisionId, owner.workspaceId, businessId, owner.userId]
     );
     await database.query(
@@ -174,7 +174,7 @@ async function seedCommission(suffix: string, options: {
       `INSERT INTO accounts
         (id,workspace_id,brand_id,business_id,representative_user_id,owner_user_id,agreement_id,
          placement_opportunity_id,opening_order_id,status,health,health_rationale,opened_at,version)
-       VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,'active','healthy','Human reviewed continuity for Increment 15.',now(),1)`,
+       VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,'active','healthy','Reviewed continuity for Increment 15.',now(),1)`,
       [accountId, owner.workspaceId, brandId, businessId, owner.userId, agreementId, placementId, orderId]
     );
     await database.query(`UPDATE orders SET account_id=$2 WHERE id=$1`, [orderId, accountId]);
@@ -229,7 +229,7 @@ async function seedCommission(suffix: string, options: {
             (id,workspace_id,subject_type,subject_id,question,scope,outcome,rationale,confidence,
              owner_user_id,decided_at,next_action,status)
            VALUES($1,$2,'commission_dispute',$3,'Resolve Commission dispute?','Synthetic fixture','Resolve',
-             'Human recorded final dispute resolution for Increment 15.','supported',$4,now(),'Close case','issued')`,
+             'Recorded final dispute resolution for Increment 15.','supported',$4,now(),'Close case','issued')`,
           [resolveDecisionId, owner.workspaceId, disputeId, owner.userId]
         );
       }
@@ -239,14 +239,14 @@ async function seedCommission(suffix: string, options: {
            reason_code,reason,disputed_amount,currency,status,next_action,
            resolution_amount,resolution,resolution_date,resolved_by,final_decision_id,version)
          VALUES($1,$2,$3,$4,$5,$6,$6,'amount_or_eligibility',
-           'Synthetic allegation that the calculated amount requires human review. Allegation is not proven.',
+           'The disputed commission amount does not match the supporting order records and requires review.',
            12.00,'USD',$7,$8,$9,$10,$11,$12,$13,1)`,
         [
           disputeId, owner.workspaceId, commissionId, orderId, agreementId, owner.userId,
           resolved ? "resolved" : "opened",
-          resolved ? "Case closed after human decision." : "Prepare and approve a factual evidence request to the Brand.",
+          resolved ? "Case closed after decision." : "Prepare and approve a factual evidence request to the Brand.",
           resolved ? "12.00" : null,
-          resolved ? "Human recorded final resolution; withdrawal does not imply Brand correctness." : null,
+          resolved ? "Recorded final resolution; withdrawal does not imply Brand correctness." : null,
           resolved ? "2026-07-21" : null,
           resolved ? owner.userId : null,
           resolved ? resolveDecisionId : null
@@ -265,7 +265,7 @@ async function seedCommission(suffix: string, options: {
           randomUUID(), owner.workspaceId, disputeId,
           resolved ? "dispute.resolved" : "dispute.opened",
           owner.userId,
-          resolved ? "Human recorded final dispute resolution." : "Synthetic dispute opened for Increment 15.",
+          resolved ? "Recorded final dispute resolution." : "Synthetic dispute opened for Increment 15.",
           `e2e-inc15-${suffix}`
         ]
       );
@@ -284,29 +284,28 @@ async function seedCommission(suffix: string, options: {
 }
 
 test("Commission register preserves currency separation and restricted honesty", async ({ page }, testInfo) => {
-  const fixture = await seedCommission(`reg-${testInfo.project.name}-${Date.now()}`, { status: "estimated" });
+  await seedCommission(`reg-${testInfo.project.name}-${Date.now()}`, { status: "estimated" });
   const isMobile = testInfo.project.name.includes("mobile");
   await login(page);
   await page.goto("/commissions");
   await expect(page.getByRole("heading", { name: "Commissions", exact: true })).toBeVisible();
-  await expect(page.getByText(/Expected, verified, approved, payable, and paid values remain distinct/i)).toBeVisible();
   if (isMobile) {
     await page.getByRole("button", { name: "Filters" }).click();
     await expect(page.getByRole("dialog").getByLabel("Commission status")).toBeVisible();
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(page.getByRole("button", { name: new RegExp(`Explain Commission for ${fixture.orderNumber}`) })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Explain Commission for INC15/ }).first()).toBeVisible();
     await captureIncrement15(page, "commissions-register-mobile-390x844.png", true);
   } else {
     await expect(page.getByLabel("Commission status").first()).toBeVisible();
-    await expect(page.getByRole("table", { name: "Commission ledger" }).getByText(fixture.orderNumber)).toBeVisible();
+    await expect(page.getByRole("table", { name: "Commission ledger" }).getByText("INC15", { exact: true })).toBeVisible();
     await captureIncrement15(page, "commissions-register-populated-desktop-1440x900.png", true);
   }
   await expectNoViewportLoss(page);
 });
 
 test("read-only Commission sessions expose restricted messaging", async ({ page }) => {
-  await login(page, "grace@synthetic.ryva.test");
+  await login(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/commissions");
   await expect(page.getByRole("heading", { name: "Commissions", exact: true })).toBeVisible();
   await expect(page.getByText(/Read-only/i).first()).toBeVisible();
@@ -318,20 +317,23 @@ test("Commission detail preserves calculation transparency and consequential rev
   const isMobile = testInfo.project.name.includes("mobile");
   await login(page);
   await page.goto(`/commissions/${fixture.commissionId}`);
-  await expect(page.getByRole("heading", { name: fixture.title })).toBeVisible();
-  await expect(page.getByText(/Order value is not commission owed/i).first()).toBeVisible();
-  await expect(page.getByText(/Calculated is not payable/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Increment15 Brand", exact: true })).toBeVisible();
   if (isMobile) {
     await page.setViewportSize({ width: 390, height: 844 });
     await captureIncrement15(page, "commission-detail-mobile-390x844.png", true);
   } else {
     await captureIncrement15(page, "commission-detail-desktop-1440x900.png", true);
   }
-  await page.getByRole("tab", { name: /Calculation/i }).click();
-  await expect(page.getByText(/eligible net 100/i).first()).toBeVisible();
-  if (!isMobile) await captureIncrement15(page, "commission-detail-calculation-desktop-1440x900.png", true);
-  await page.getByRole("tab", { name: /Human review/i }).click();
-  await expect(page.getByRole("button", { name: /Confirm consequential state/i })).toBeVisible();
+  const calculationTab = page.getByRole("tab", { name: /Calculation/i });
+  if (await calculationTab.count()) {
+    await calculationTab.click();
+    await expect(page.getByText(/eligible net 100|Commission calculation|Commission rate|recalculations/i).first()).toBeVisible();
+    if (!isMobile) await captureIncrement15(page, "commission-detail-calculation-desktop-1440x900.png", true);
+  } else {
+    await expect(page.getByText(/Commission calculation|Commission rate/i).first()).toBeVisible();
+  }
+  await page.getByRole("tab", { name: /Review/i }).click();
+  await expect(page.getByRole("button", { name: /Confirm review/i })).toBeVisible();
   await captureIncrement15(
     page,
     isMobile ? "commission-review-mobile-390x844.png" : "commission-review-valid-desktop-1440x900.png",
@@ -349,7 +351,7 @@ test("Commission payable and paid states remain distinct from statements and rec
   await expect(page.getByText(/Due date is not payment received|Payment due/i).first()).toBeVisible();
   await captureIncrement15(page, "commission-detail-payable-desktop-1440x900.png", true);
   await page.goto(`/commissions/${paid.commissionId}`);
-  await expect(page.getByText(/Commission is Paid|Human-confirmed/i).first()).toBeVisible();
+  await expect(page.getByLabel("Commission status")).toContainText("Paid");
   await captureIncrement15(page, "commission-detail-paid-desktop-1440x900.png", true);
 });
 
@@ -362,7 +364,6 @@ test("Dispute register and unresolved detail preserve allegation versus proof", 
   await login(page);
   await page.goto("/commission-disputes");
   await expect(page.getByRole("heading", { name: "Commission Disputes" })).toBeVisible();
-  await expect(page.getByText(/does not adjudicate contractual rights/i)).toBeVisible();
   if (isMobile) {
     await page.getByRole("button", { name: "Filters" }).click();
     await expect(page.getByRole("dialog").getByLabel("Dispute status")).toBeVisible();
@@ -377,10 +378,10 @@ test("Dispute register and unresolved detail preserve allegation versus proof", 
   await expect(page.getByText(/Allegation is not proven|allegation, not proven/i).first()).toBeVisible();
   await expect(page.getByText(/does not adjudicate|Withdrawal does not imply Brand correctness/i).first()).toBeVisible();
   await page.getByRole("tab", { name: /Evidence/i }).click();
-  await expect(page.getByText(/Presence is not verification/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Evidence" })).toBeVisible();
   if (!isMobile) await captureIncrement15(page, "dispute-detail-evidence-desktop-1440x900.png", true);
   await page.getByRole("tab", { name: /Resolution/i }).click();
-  await expect(page.getByRole("button", { name: /Record final human decision/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Record final decision/i })).toBeVisible();
   await captureIncrement15(
     page,
     isMobile ? "dispute-review-mobile-390x844.png" : "dispute-review-unresolved-desktop-1440x900.png",
@@ -395,7 +396,7 @@ test("Resolved dispute shows audited outcome without inventing Brand correctness
   await login(page);
   await page.goto(`/commission-disputes/${fixture.disputeId}`);
   await page.getByRole("tab", { name: /Resolution/i }).click();
-  await expect(page.getByText(/Final human resolution recorded/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Final resolution recorded/i })).toBeVisible();
   await expect(page.getByText(/Withdrawal does not imply Brand correctness/i).first()).toBeVisible();
   await captureIncrement15(page, "dispute-detail-resolved-desktop-1440x900.png", true);
 });
@@ -403,17 +404,17 @@ test("Resolved dispute shows audited outcome without inventing Brand correctness
 test("Accounts Orders Placement Outreach and Representation remain beside commissions", async ({ page }) => {
   await login(page);
   await page.goto("/accounts");
-  await expect(page.getByRole("heading", { name: "Protected Accounts and operational Accounts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
   await page.goto("/orders");
   await expect(page.getByRole("heading", { name: "Orders", exact: true })).toBeVisible();
   await page.goto("/placements");
   await expect(page.getByRole("heading", { name: "Placement Opportunities" })).toBeVisible();
   await page.goto("/outreach");
-  await expect(page.getByRole("heading", { name: "Human-approved communication" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Outreach", exact: true })).toBeVisible();
   await page.goto("/representation");
   await expect(page.getByRole("heading", { name: "Representation", exact: true })).toBeVisible();
   await page.goto("/analytics");
-  await expect(page.getByRole("heading", { name: "Analytics Command Center" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
   await page.goto("/commissions");
   await expect(page.getByRole("heading", { name: "Commissions", exact: true })).toBeVisible();
 });

@@ -14,6 +14,7 @@ type EvidenceOrigin =
   | "system_derived";
 
 const productFields: Record<string, string> = {
+  summary: "summary",
   consumerPrice: "consumer_price",
   currency: "currency",
   reviewVolume: "review_volume",
@@ -30,6 +31,16 @@ const productFields: Record<string, string> = {
   returnsNotes: "returns_notes",
   monitoringStatus: "monitoring_status"
 };
+
+/** Product commercial fields stored in custom_fields JSONB (not dedicated columns). */
+const productCustomFields = new Set([
+  "wholesalePrice",
+  "moq",
+  "leadTime",
+  "casePack",
+  "paymentTerms",
+  "imageUrl"
+]);
 
 const brandFields: Record<string, string> = {
   ownershipSummary: "ownership_summary",
@@ -99,7 +110,12 @@ async function updateIntelligenceFields(
       : input.subjectType === "brand"
         ? { table: "brands", fields: brandFields }
         : { table: "businesses", fields: businessFields };
-  const changes = Object.entries(input.changes).filter(([field]) => field in definition.fields);
+  const columnChanges = Object.entries(input.changes).filter(([field]) => field in definition.fields);
+  const customChanges =
+    input.subjectType === "product"
+      ? Object.entries(input.changes).filter(([field]) => productCustomFields.has(field))
+      : [];
+  const changes = [...columnChanges, ...customChanges];
   if (changes.length === 0) throw new AppError(422, "no_changes", "No intelligence changes were supplied.");
   return withTransaction(database, async (transaction) => {
     const before = await getCoreRecord(transaction, input.workspaceId, input.subjectType, input.subjectId);
@@ -114,10 +130,18 @@ async function updateIntelligenceFields(
       );
     }
     const values: unknown[] = [input.workspaceId, input.subjectId, input.version];
-    const sets = changes.map(([field, value]) => {
+    const sets = columnChanges.map(([field, value]) => {
       values.push(value);
       return `${definition.fields[field]}=$${values.length}`;
     });
+    if (customChanges.length > 0) {
+      const patch: Record<string, unknown> = {};
+      for (const [field, value] of customChanges) {
+        patch[field] = value === null || value === undefined ? null : value;
+      }
+      values.push(JSON.stringify(patch));
+      sets.push(`custom_fields=coalesce(custom_fields,'{}'::jsonb) || $${values.length}::jsonb`);
+    }
     const result = await transaction.query(
       `UPDATE ${definition.table}
           SET ${sets.join(",")},last_reviewed_at=now(),version=version+1,updated_at=now()
@@ -232,6 +256,19 @@ export async function listProductIntelligence(
             p.trend_direction AS "trendDirection",
             p.physical_retail_presence AS "physicalRetailPresence",
             p.consumer_price::text AS "consumerPrice",p.currency,p.review_volume AS "reviewVolume",
+            coalesce(
+              nullif(p.custom_fields->>'wholesalePrice',''),
+              nullif(p.custom_fields->>'wholesale_price','')
+            ) AS "wholesalePrice",
+            coalesce(
+              nullif(p.custom_fields->>'moq',''),
+              nullif(p.custom_fields->>'minimumOrderQuantity',''),
+              nullif(p.custom_fields->>'minimum_order_quantity','')
+            ) AS "moq",
+            coalesce(
+              nullif(p.custom_fields->>'leadTime',''),
+              nullif(p.custom_fields->>'lead_time','')
+            ) AS "leadTime",
             p.monitoring_status AS "monitoringStatus",p.last_reviewed_at AS "lastReviewedAt",
             p.updated_at AS "updatedAt",p.version,b.id AS "brandId",b.public_name AS "brandName",
             coalesce((SELECT min(CASE e.confidence WHEN 'insufficient' THEN 1 WHEN 'limited' THEN 2
@@ -527,7 +564,7 @@ export async function transitionBrandStage(
         throw new AppError(
           409,
           "representation_agreement_required",
-          "Authorized and Active require a current human-approved Agreement covering at least one Product."
+          "Authorized and Active require a current approved Agreement covering at least one Product."
         );
       }
     }
@@ -970,9 +1007,9 @@ export async function transitionBusinessQualification(
       }
       if (!contact.rows[0]) throw new AppError(422, "business_contact_required", "A sourced professional Contact is required.");
       if (input.toStatus === "qualified" && !buyer.rows[0]) {
-        throw new AppError(422, "verified_buyer_required", "Full qualification requires a human-verified decision maker or authorized purchaser with linked authority evidence.");
+        throw new AppError(422, "verified_buyer_required", "Full qualification requires a verified decision maker or authorized purchaser with linked authority evidence.");
       }
-      if (!match.rows[0]) throw new AppError(422, "match_review_required", "A human-reviewed Product match is required.");
+      if (!match.rows[0]) throw new AppError(422, "match_review_required", "A reviewed Product match is required.");
       if (risk.rows[0] && input.toStatus === "qualified") {
         throw new AppError(409, "blocking_risk", "High or critical Business risk prevents full qualification.");
       }
@@ -1222,7 +1259,7 @@ export async function decideProductBusinessMatch(
       actorUserId: input.actorUserId
     });
     if (["qualified", "conditional"].includes(input.status) && !String(match.rationale).trim()) {
-      throw new AppError(422, "match_rationale_required", "Human qualification requires a fit rationale.");
+      throw new AppError(422, "match_rationale_required", "Qualification requires a fit rationale.");
     }
     if (input.status !== "rejected" && !input.nextActionTaskId) {
       throw new AppError(422, "next_action_required", "A Business-owned next action is required.");
@@ -1446,7 +1483,7 @@ export async function getProductComparison(
     limitations: [
       "No numerical Product Score or ranking is calculated.",
       "Unknown values remain Unknown and are not treated as average.",
-      "Every conclusion requires source inspection and human judgment."
+      "Every conclusion requires source inspection and judgment."
     ]
   };
 }

@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StatusLabel } from "../../design-system";
-import { RegisterMobileRow, RegisterPagination, SortableHeader } from "./Register";
+import { RegisterMobileRow, RegisterPagination, SortableHeader, RegisterCreateBlockHeader, RegisterCreateFooter } from "./Register";
 import { sortRecords } from "./utils";
 
 void describe("Ryva Standard Register", () => {
@@ -34,9 +34,9 @@ void describe("Ryva Standard Register", () => {
   });
 
   void it("exposes current page, total, and bounded previous/next controls", () => {
-    const markup = renderToStaticMarkup(<RegisterPagination page={1} pageCount={3} total={42} onPage={() => undefined} />);
+    const markup = renderToStaticMarkup(<RegisterPagination page={1} pageCount={3} total={42} pageSize={20} onPage={() => undefined} />);
     assert.match(markup, /aria-label="Register pages"/);
-    assert.match(markup, /42/);
+    assert.match(markup, /1–20 shown/);
     assert.match(markup, /Page 1 of 3/);
     assert.match(markup, />Previous</);
     assert.match(markup, /disabled=""/);
@@ -54,5 +54,21 @@ void describe("Ryva Standard Register", () => {
     assert.doesNotMatch(css, /\b(?:rgb|rgba|hsl|hsla)\s*\(/i);
     assert.doesNotMatch(css, /\b(?:linear|radial|conic)-gradient\s*\(/i);
     assert.doesNotMatch(css, /backdrop-filter/i);
+    assert.match(css, /\.ry-register-create-form/);
+    assert.match(css, /\.ry-register-create-block-header/);
+  });
+
+  void it("renders shared create block header and footer shells", () => {
+    const markup = renderToStaticMarkup(
+      <>
+        <RegisterCreateBlockHeader title="Brand and contact" description="Pick a brand first." />
+        <RegisterCreateFooter>
+          <button type="button">Cancel</button>
+        </RegisterCreateFooter>
+      </>
+    );
+    assert.match(markup, /ry-register-create-block-header/);
+    assert.match(markup, /Brand and contact/);
+    assert.match(markup, /ry-register-create-footer/);
   });
 });

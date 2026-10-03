@@ -153,7 +153,7 @@ export function OutreachPage() {
   }
 
   return <div className="page">
-    <PageHeader eyebrow="Outreach Center" title="Human-approved communication" description="Prepare, approve, send, call, and follow up from one authority-checked history. Ryva never sends or calls autonomously." action={<div className="button-row"><Link className="secondary-button" to="/outreach/templates">Templates</Link><Link className="secondary-button" to="/outreach/sequences">Sequences</Link></div>} />
+    <PageHeader title="Outreach" action={<div className="button-row"><Link className="secondary-button" to="/outreach/templates">Templates</Link><Link className="secondary-button" to="/outreach/sequences">Sequences</Link></div>} />
     {error ? <ErrorPanel message={error} /> : null}
     {loading ? <Loading label="Loading outreach work" /> : <>
       <section className="metric-row">
@@ -192,12 +192,12 @@ export function OutreachPage() {
           </form>
         </section>
       </div>
-      <section className="panel"><p className="eyebrow">Human call workflow</p><h2>Log a call</h2>
+      <section className="panel"><h2>Log a call</h2>
         <form className="form-grid" onSubmit={(event) => void logCall(event)}>
           <Field label="Objective"><input required value={callObjective} onChange={(event) => setCallObjective(event.target.value)} /></Field>
           <Field label="Outcome"><input required value={callOutcome} onChange={(event) => setCallOutcome(event.target.value)} /></Field>
           <Field label="Notes"><textarea required value={callNotes} onChange={(event) => setCallNotes(event.target.value)} /></Field>
-          <div className="form-actions"><button className="primary-button" disabled={saving || !placementId || !contactId}>Log human-placed call</button></div>
+          <div className="form-actions"><button className="primary-button" disabled={saving || !placementId || !contactId}>Log call</button></div>
         </form>
       </section>
       <section className="panel"><h2>Messages</h2>
@@ -300,7 +300,7 @@ export function OutreachDetailPage() {
         <section className="panel"><h2>Evidence-linked claims</h2>{detail.message.claims.length === 0 ? <p className="empty">No material claims declared.</p> : detail.message.claims.map((item) => <div className="timeline-item" key={item.id}><StatusPill value={shown(item.status)} /><p>{shown(item.claimText)}</p><small>Evidence {shown(item.evidenceId, "missing")}</small></div>)}</section>
         <section className="panel"><h2>Immutable attachments</h2>{detail.message.attachments.length === 0 ? <p className="empty">No attachments.</p> : detail.message.attachments.map((item) => <div className="timeline-item" key={shown(item.documentId)}><StatusPill value={shown(item.scanStatus)} /><p>{shown(item.documentId)}</p><small>{shown(item.sha256).slice(0,16)}…</small></div>)}</section>
       </div>
-      <section className="panel"><p className="eyebrow">Consequential action</p><h2>Human approval and send</h2>
+      <section className="panel"><h2>Approval and send</h2>
         <p>Approval does not send. Queueing revalidates access, authority, recipient permission, conflict state, claims, and attachments. The worker repeats those checks immediately before provider delivery.</p>
         <div className="button-row">
           {detail.message.status === "draft" ? <button className="secondary-button" disabled={saving} onClick={() => void requestApproval()}>Request exact approval</button> : null}
@@ -309,11 +309,11 @@ export function OutreachDetailPage() {
           {detail.message.status === "approved" && detail.message.channel === "social" ? <button className="primary-button" disabled={saving} onClick={() => void confirmSocialSend()}>Confirm I sent this exact message</button> : null}
         </div>
       </section>
-      {["replied","received"].includes(detail.message.status) ? <section className="panel"><p className="eyebrow">Human-owned response tracking</p><h2>Classify the Buyer response</h2>
+      {["replied","received"].includes(detail.message.status) ? <section className="panel"><h2>Classify the Buyer response</h2>
         <form className="form-grid" onSubmit={(event) => void classifyResponse(event)}>
           <Field label="Response"><select value={classification} onChange={(event) => setClassification(event.target.value)}>{["interested","not_now","objection","question","opt_out","wrong_contact","not_fit"].map((item) => <option key={item}>{item}</option>)}</select></Field>
           <Field label="Response notes"><textarea required value={responseNotes} onChange={(event) => setResponseNotes(event.target.value)} /></Field>
-          <div className="form-actions"><button className="primary-button" disabled={saving}>Record human classification</button></div>
+          <div className="form-actions"><button className="primary-button" disabled={saving}>Record classification</button></div>
         </form>
       </section> : null}
     </> : null}
@@ -345,7 +345,7 @@ export function OutreachTemplatesPage() {
       await load();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Template could not be saved."); }
   }
-  return <div className="page"><PageHeader eyebrow="Outreach Center" title="Versioned templates" description="Reusable starting points never carry approval. Each communication becomes its own evidence-checked, human-approved artifact." action={<Link className="secondary-button" to="/outreach">Back to outreach</Link>} />
+  return <div className="page"><PageHeader title="Templates" action={<Link className="secondary-button" to="/outreach">Back to outreach</Link>} />
     {error ? <ErrorPanel message={error} /> : null}
     <div className="split-grid"><section className="panel"><h2>Template library</h2>{templates.length === 0 ? <p className="empty">No templates yet.</p> : templates.map((item) => <article className="record-card" key={item.id}><StatusPill value={shown(item.channel)} /><h3>{shown(item.name)}</h3><p>{shown(item.purpose)}</p><small>Version {shown(item.currentVersion)}</small></article>)}</section>
     <section className="panel"><h2>Create template</h2><form className="form-grid" onSubmit={(event) => void create(event)}>
@@ -390,7 +390,7 @@ export function OutreachSequencesPage() {
       setName(""); setPurpose(""); await load();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Sequence could not be created."); }
   }
-  return <div className="page"><PageHeader eyebrow="Outreach Center" title="Human-controlled sequences" description="Sequences schedule reviewable work and stop automatically on reply, opt-out, conflict, access restriction, or invalid authority. They never auto-send." action={<Link className="secondary-button" to="/outreach">Back to outreach</Link>} />
+  return <div className="page"><PageHeader title="Sequences" action={<Link className="secondary-button" to="/outreach">Back to outreach</Link>} />
     {error ? <ErrorPanel message={error} /> : null}
     <div className="split-grid"><section className="panel"><h2>Sequences</h2>{sequences.length === 0 ? <p className="empty">No sequences yet.</p> : sequences.map((item) => <article className="record-card" key={item.id}><StatusPill value={shown(item.status)} /><h3>{shown(item.name)}</h3><p>{shown(item.purpose)}</p><small>{shown(item.stepCount)} steps · {shown(item.activeEnrollments)} active</small></article>)}</section>
     <section className="panel"><h2>Create a two-step sequence</h2><form className="form-grid" onSubmit={(event) => void create(event)}>

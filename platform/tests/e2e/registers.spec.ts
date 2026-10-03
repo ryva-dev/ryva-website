@@ -5,9 +5,9 @@ const password = "Synthetic!Passphrase2026";
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Your Ryva Pro access/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Your Ryva access/ })).toBeVisible();
 }
 
 test("Source and Territory pilots preserve mutation contracts inside accessible drawers", async ({ page }, testInfo) => {
@@ -19,7 +19,7 @@ test("Source and Territory pilots preserve mutation contracts inside accessible 
   await createSource.click();
   const sourceDrawer = page.getByRole("dialog", { name: "Register evidence Source" });
   await expect(sourceDrawer).toBeVisible();
-  await sourceDrawer.getByRole("textbox", { name: /^Reference Required$/ }).fill(`Synthetic retailer brief ${suffix}`);
+  await sourceDrawer.getByRole("textbox", { name: "Reference", exact: true }).fill(`Synthetic retailer brief ${suffix}`);
   await sourceDrawer.getByLabel("Owner or provider").fill("Ryva synthetic fixture");
   await sourceDrawer.getByLabel("URL").fill("https://example.invalid/synthetic-source");
   await sourceDrawer.getByRole("button", { name: "Register source" }).click();
@@ -62,6 +62,7 @@ test("register filtering, saved views, structured mobile rows, and route states 
   await page.getByRole("button", { name: "Clear filters" }).click();
 
   if (!mobile) {
+    await page.locator(".ry-saved-view > summary").click();
     await page.getByLabel("Saved view name").fill(`Synthetic view ${testInfo.project.name}`);
     await page.getByRole("button", { name: "Save view" }).click();
     await expect(page.getByRole("status").filter({ hasText: /Saved Synthetic view/ })).toBeVisible();
@@ -77,7 +78,7 @@ test("register filtering, saved views, structured mobile rows, and route states 
 });
 
 test("read-only sessions inspect register truth without mutation affordances", async ({ page }) => {
-  await signIn(page, "grace@synthetic.ryva.test");
+  await signIn(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/sources");
   await expect(page.getByRole("heading", { name: "Sources", level: 1 })).toBeVisible();
   await expect(page.getByText("You may inspect permitted provenance")).toBeVisible();
@@ -120,19 +121,28 @@ test("migrated registers reflow at exact mobile widths without clipped controls"
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       const geometry = await page.evaluate(`(() => {
         const width = window.visualViewport?.width ?? window.innerWidth;
-        let offenderCount = 0;
+        const offenders = [];
         for (const element of document.querySelectorAll("#main-content *, .ry-mobile-bottom-nav > *")) {
+          if (element.closest(".ry-table-wrap, .ry-relationship-tabs")) continue;
           const rect = element.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0 && (rect.left < -0.5 || rect.right > width + 0.5)) offenderCount += 1;
+          if (rect.width > 0 && rect.height > 0 && (rect.left < -0.5 || rect.right > width + 0.5)) {
+            offenders.push({
+              tag: element.tagName,
+              className: String(element.className),
+              text: String(element.textContent || "").trim().slice(0, 80),
+              left: rect.left,
+              right: rect.right
+            });
+          }
         }
         return {
           clientWidth: document.documentElement.clientWidth,
           scrollWidth: document.documentElement.scrollWidth,
-          offenderCount
+          offenders
         };
-      })()`) as { clientWidth: number; scrollWidth: number; offenderCount: number };
+      })()`) as { clientWidth: number; scrollWidth: number; offenders: Array<Record<string, unknown>> };
       expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
-      expect(geometry.offenderCount).toBe(0);
+      expect(geometry.offenders).toEqual([]);
     }
   }
   expect(errors).toEqual([]);

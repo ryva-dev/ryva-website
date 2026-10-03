@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiProblem } from "../../api";
 import { useAuth } from "../../auth";
 import {
   ActivityTimeline,
   Alert,
-  ApprovalPanel,
-  AuthorityIndicator,
   Button,
   ConfirmationDialog,
   EmptyState,
@@ -19,15 +17,9 @@ import {
   TextArea
 } from "../../design-system";
 import {
-  ConsequentialReviewLayout,
-  ExactArtifact,
-  ReadinessSummary,
   ReviewErrorSummary,
   ReviewOutcome,
-  ReviewSection,
-  ValidationSummary,
-  type ReviewReadiness,
-  type ValidationCheck
+  type ReviewReadiness
 } from "../consequential/ConsequentialReview";
 import {
   ContextRail,
@@ -39,10 +31,25 @@ import {
   StickyMobileAction
 } from "../relationship/RelationshipDetail";
 import {
+  authorityBlockedActionReason,
+  authorityBlockedAlertContent,
+  authorityRecoveryLabel
+} from "../representation/utils";
+import { displayBrandName } from "../brand/utils";
+import {
   dateTime,
+  displayAddress,
+  displayAddressTitle,
+  displayName,
+  displayNameTitle,
+  displayOutreachRecipient,
+  displayOutreachSender,
   field,
   hasUnresolvedPlaceholders,
   messageStatus,
+  messageStatusTone,
+  outreachPermissionLabel,
+  outreachVerificationLabel,
   readable,
   responseClassifications,
   shown,
@@ -88,11 +95,16 @@ function isStaleConflict(caught: unknown): boolean {
     ].some((code) => caught.type.includes(code) || /version|stale|artifact changed|no longer current/i.test(caught.message));
 }
 
-function authorityTone(outcome: string): "success" | "warning" | "danger" | "info" {
-  if (outcome === "authorized") return "success";
-  if (outcome === "review_required" || outcome === "not_checked") return "warning";
-  if (outcome === "denied") return "danger";
-  return "info";
+function checkStatus(ok: boolean, complete: string, incomplete: string) {
+  return { ok, status: ok ? complete : incomplete };
+}
+
+function DisabledActionHint({ reason, children }: { reason: string; children: ReactNode }) {
+  return (
+    <span className="ry-disabled-action-hint" title={reason}>
+      {children}
+    </span>
+  );
 }
 
 export function OutreachDetailPage() {
@@ -200,7 +212,7 @@ export function OutreachDetailPage() {
     try {
       const result = await api<{ approval: Row }>(`/api/outreach/${id}/approval`, { method: "POST" });
       setApprovalId(result.approval.id);
-      setLastOutcome("Approval requested for this exact artifact.");
+      setLastOutcome("Approval requested for this message.");
       await load();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "Approval could not be requested.");
@@ -227,10 +239,10 @@ export function OutreachDetailPage() {
       });
       setConfirmationOpen(false);
       setPendingAction(null);
-      setLastOutcome("Exact artifact approved. Approval does not send.");
+      setLastOutcome("Message approved. Sending is a separate step.");
       await load();
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "Exact artifact could not be approved.");
+      setActionError(caught instanceof Error ? caught.message : "Message could not be approved.");
       setConflict(isStaleConflict(caught));
       setConfirmationOpen(false);
     } finally {
@@ -249,7 +261,7 @@ export function OutreachDetailPage() {
       await api(`/api/outreach/${id}/send`, { method: "POST" });
       setConfirmationOpen(false);
       setPendingAction(null);
-      setLastOutcome("Approved message queued. Queued does not mean delivered.");
+      setLastOutcome("Message queued. Delivery status updates when the provider responds.");
       await load();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "Message could not be queued.");
@@ -277,7 +289,7 @@ export function OutreachDetailPage() {
       });
       setConfirmationOpen(false);
       setPendingAction(null);
-      setLastOutcome("Human confirmation of external social send recorded.");
+      setLastOutcome("External social send confirmed.");
       await load();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "External social send could not be confirmed.");
@@ -307,7 +319,7 @@ export function OutreachDetailPage() {
         }
       });
       setResponseNotes("");
-      setLastOutcome(`Response classified as ${classification}. Classification does not create an Order.`);
+      setLastOutcome(`Response classified as ${classification}. This does not create an order.`);
       await load();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "Response could not be classified.");
@@ -332,8 +344,8 @@ export function OutreachDetailPage() {
   if (loading && !detail) {
     return (
       <div className="page ry-relationship-page ry-outreach-page">
-        <RelationshipTrail items={[{ label: "Outreach", to: "/outreach" }, { label: "Loading outreach artifact" }]} />
-        <LoadingState label="Loading outreach artifact" />
+        <RelationshipTrail items={[{ label: "Outreach", to: "/outreach" }, { label: "Loading message" }]} />
+        <LoadingState label="Loading outreach message" />
       </div>
     );
   }
@@ -341,8 +353,8 @@ export function OutreachDetailPage() {
   if (error || !detail) {
     return (
       <div className="page ry-relationship-page ry-outreach-page">
-        <RelationshipTrail items={[{ label: "Outreach", to: "/outreach" }, { label: "Outreach artifact unavailable" }]} />
-        <IdentityHeader eyebrow="Exact outreach artifact" title="Message unavailable" />
+        <RelationshipTrail items={[{ label: "Outreach", to: "/outreach" }, { label: "Message unavailable" }]} />
+        <IdentityHeader title="Message unavailable" />
         <ErrorState message={error || "Outreach message not found."} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} />
       </div>
     );
@@ -352,34 +364,52 @@ export function OutreachDetailPage() {
   const status = messageStatus(message);
   const channel = shown(message.channel);
   const subject = shown(message.subject, "(no subject)");
+  const subjectLabel = displayName(message.subject, "(no subject)");
   const body = shown(message.body, "");
   const placementId = shown(field(message, "placementOpportunityId", "placement_opportunity_id"));
   const contactId = shown(field(message, "contactId", "contact_id"));
   const brandId = shown(field(message, "brandId", "brand_id"));
   const businessId = shown(field(message, "businessId", "business_id"));
   const agreementId = shown(field(message, "agreementId", "agreement_id"));
-  const brandName = shown(placement?.placement.brandName, "Brand");
-  const businessName = shown(placement?.placement.businessName, "Business");
-  const contactName = shown(contact?.name, "Contact");
+  const brandName = displayBrandName(placement?.placement.brandName, "Brand");
+  const businessName = displayName(placement?.placement.businessName, "Business");
+  const contactName = displayName(contact?.name, "Contact");
+  const recipientPresentation = displayOutreachRecipient(message.recipientAddress, contact, businessName, "Not recorded");
+  const recipientLabel = recipientPresentation.label;
+  const senderLabel = displayOutreachSender(message.senderAddress, "Not recorded");
+  const recipientTitle = recipientPresentation.title ?? displayAddressTitle(message.recipientAddress);
+  const senderTitle = displayAddressTitle(message.senderAddress);
   const permissionStatus = shown(contact?.permissionStatus ?? contact?.permission_status, "unknown");
   const verificationStatus = shown(contact?.verificationStatus ?? contact?.verification_status, "unverified");
   const lastVerifiedAt = contact?.lastVerifiedAt ?? contact?.last_verified_at;
   const permissionBlocked = ["prohibited", "opted_out"].includes(permissionStatus);
-  const verificationStaleOrMissing = verificationStatus !== "verified";
   const unresolved = hasUnresolvedPlaceholders(subject === "(no subject)" ? "" : subject, body);
   const authorityOutcome = authority?.outcome ?? "not_checked";
   const authorized = authorityOutcome === "authorized";
+  const authorityBlocked = !authorized && Array.isArray(authority?.reasonCodes) && authority.reasonCodes.length
+    ? authorityBlockedAlertContent(authority.reasonCodes)
+    : null;
+  const authorityBlocksActions = authority !== null && !authorized;
+  const blockedActionReason = authorityBlocked
+    ? authorityBlockedActionReason(authority!.reasonCodes)
+    : "Representation authority is not confirmed for this message.";
   const claims = Array.isArray(message.claims) ? message.claims : [];
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const productIds = Array.isArray(message.products) ? message.products.map(String) : (placement?.products.map((item) => item.productId) ?? []);
   const isReplyState = ["replied", "received"].includes(status);
+  const recipientReady = Boolean(message.recipientAddress);
+  const permissionReady = !permissionBlocked && permissionStatus === "professional_purpose";
+  const verificationReady = verificationStatus === "verified";
+  const contentReady = !unresolved;
+  const sendComplete = ["queued", "accepted", "delivered", "replied", "failed", "suppressed", "canceled"].includes(status);
+  const approvalReady = ["approved", "queued", "accepted", "delivered"].includes(status);
 
   const blockers = [
-    ...(!canWrite ? [session?.access.reason ?? "This session cannot approve, queue, or classify Outreach."] : []),
-    ...(permissionBlocked ? [`Contact permission is ${readable(permissionStatus)}. Permission is distinct from verification and address presence.`] : []),
-    ...(unresolved ? ["Unresolved merge placeholders remain in the exact subject or body."] : []),
-    ...(!authorized && status === "draft" ? [`Representation authority is ${readable(authorityOutcome)}. Placement readiness does not authorize Outreach.`] : []),
-    ...(conflict ? ["The Outreach artifact version or related approval is no longer current. Reload before retrying."] : [])
+    ...(!canWrite ? [session?.access.reason ?? "You can review this message, but cannot approve or send in this session."] : []),
+    ...(permissionBlocked ? [`Update contact permission (${readable(permissionStatus)})`] : []),
+    ...(unresolved ? ["Resolve merge placeholders in the subject or body"] : []),
+    ...(!authorized && status === "draft" ? ["Confirm representation authority"] : []),
+    ...(conflict ? ["Reload this message"] : [])
   ];
 
   const readinessState: ReviewReadiness = conflict
@@ -388,66 +418,74 @@ export function OutreachDetailPage() {
       ? "restricted"
       : permissionBlocked || unresolved
         ? "blocked"
-        : ["queued", "accepted", "delivered", "replied", "failed", "suppressed", "canceled"].includes(status)
+        : sendComplete
           ? "completed"
           : "requires_review";
 
-  const validationChecks: ValidationCheck[] = [
+  const reviewChecks = [
     {
       id: "recipient",
-      label: "Exact recipient and channel",
-      detail: `${message.recipientAddress} · ${channel}. Address presence does not imply permission.`,
-      state: message.recipientAddress ? "passed" : "failed"
+      name: "Recipient and channel",
+      ...checkStatus(recipientReady, "Complete", "Missing"),
+      link: null as string | null,
+      linkLabel: null as string | null
     },
     {
       id: "permission",
-      label: "Contact permission",
-      detail: `Stored permission is ${readable(permissionStatus)}. Verified does not mean allowed.`,
-      state: permissionBlocked ? "failed" : permissionStatus === "professional_purpose" ? "passed" : "requires_review"
+      name: "Contact permission",
+      ...checkStatus(
+        permissionReady,
+        "Complete",
+        permissionBlocked ? "Needs attention" : "Needs attention"
+      ),
+      link: contactId !== "—" ? `/contacts/${contactId}` : null,
+      linkLabel: "Review contact →"
     },
     {
       id: "verification",
-      label: "Contact verification",
-      detail: verificationStaleOrMissing
-        ? `${readable(verificationStatus)}. Verification freshness is separate from permission and suppression.`
-        : `Verified${lastVerifiedAt ? ` · ${dateTime(lastVerifiedAt)}` : ""}. Verification does not grant Outreach permission.`,
-      state: verificationStatus === "verified" ? "passed" : "requires_review"
+      name: "Contact verification",
+      ...checkStatus(verificationReady, "Complete", "Needs attention"),
+      link: contactId !== "—" ? `/contacts/${contactId}` : null,
+      linkLabel: "Verify contact →"
     },
     {
-      id: "placeholders",
-      label: "Exact message content",
-      detail: unresolved
-        ? "Unresolved {{placeholders}} remain. Do not approve a template-shaped draft as if it were the final artifact."
-        : "No unresolved merge placeholders detected in the stored subject and body.",
-      state: unresolved ? "failed" : "passed"
+      id: "content",
+      name: "Message content",
+      ...checkStatus(contentReady, "Complete", "Incomplete"),
+      link: null,
+      linkLabel: null
     },
     {
       id: "authority",
-      label: "Representation authority context",
-      detail: authorized
-        ? "Authority evaluation returned authorized for the linked Agreement scope. Authority does not auto-approve this message."
-        : `Authority outcome is ${readable(authorityOutcome)}. ${Array.isArray(authority?.reasonCodes) ? authority.reasonCodes.join(", ") : "No reason codes."}`,
-      state: authorized ? "passed" : "requires_review"
+      name: "Representation authority",
+      ...checkStatus(authorized, "Complete", "Needs attention"),
+      link: agreementId !== "—" ? `/agreements/${agreementId}` : null,
+      linkLabel: "Review agreement →"
     },
     {
-      id: "approval-send",
-      label: "Approval versus send",
-      detail: status === "approved"
-        ? "Approved exact artifact. Approval does not send; queueing revalidates before provider delivery."
-        : status === "queued"
-          ? "Queued for worker delivery. Queued does not mean delivered or read."
-          : `Current status is ${readable(status)}.`,
-      state: ["approved", "queued", "accepted", "delivered"].includes(status) ? "passed" : "requires_review"
+      id: "approval",
+      name: "Approval",
+      ok: approvalReady,
+      status: approvalReady ? "Complete" : status === "approval_requested" ? "In progress" : "Required",
+      link: null,
+      linkLabel: null
     }
   ];
+
+  const stillNeeded = blockers;
+  const actionBlocked = readinessState === "blocked" || readinessState === "restricted" || readinessState === "stale";
+  const approvalActionBlocked = actionBlocked || authorityBlocksActions;
+  const approvalBlockedReason = authorityBlocksActions
+    ? blockedActionReason
+    : blockers[0] ?? "Complete the review checklist before continuing.";
 
   const activityEntries = [
     {
       id: "status",
-      title: `Message status · ${readable(status)}`,
-      description: "Stored Outreach status only. Open, read, and engagement analytics are not invented here.",
+      title: `Status · ${readable(status)}`,
+      description: "Stored message status only.",
       meta: dateTime(field(message, "updatedAt", "updated_at"), "Time not recorded"),
-      status: <StatusLabel value={status} />
+      status: <StatusLabel value={status} tone={messageStatusTone(status)} />
     },
     ...(message.scheduledAt ? [{
       id: "scheduled",
@@ -460,13 +498,13 @@ export function OutreachDetailPage() {
       id: `claim-${shown(item.id)}`,
       title: "Evidence-linked claim",
       description: shown(item.claimText),
-      meta: `Evidence ${shown(item.evidenceId, "missing")}`,
+      meta: shown(item.evidenceId, "Evidence not linked"),
       status: <StatusLabel value={shown(item.status)} />
     }))
   ];
 
   const tabs = [
-    { id: "message", label: "Exact message" },
+    { id: "message", label: "Message" },
     { id: "contact", label: "Contact & permission" },
     { id: "placement", label: "Placement" },
     { id: "review", label: "Approval & send" },
@@ -474,65 +512,98 @@ export function OutreachDetailPage() {
     ...(isReplyState ? [{ id: "response", label: "Response" }] : [])
   ];
 
-  const primaryAction = !canWrite
-    ? <Button disabled>Read-only access</Button>
-    : status === "draft"
-      ? <Button loading={saving} onClick={() => void requestApproval()}>Request exact approval</Button>
-      : status === "approval_requested"
-        ? <Button loading={saving} disabled={!approvalId} onClick={() => openConfirmation("approve")}>Approve exact artifact</Button>
-        : status === "approved" && channel === "email"
-          ? <Button loading={saving} onClick={() => openConfirmation("queue")}>Queue approved message</Button>
-          : status === "approved" && channel === "social"
-            ? <Button loading={saving} onClick={() => openConfirmation("confirm-social")}>Confirm I sent this exact message</Button>
-            : <Button variant="secondary" onClick={() => setActiveTab("message")}>Review exact artifact</Button>;
+  const headerRecoveryAction = authorityBlocksActions && canWrite && agreementId !== "—" ? (
+    <Link className="ry-button ry-button-primary" to={`/agreements/${agreementId}`}>
+      {authorityBlocked ? authorityRecoveryLabel(authority.reasonCodes) : "Review agreement"}
+    </Link>
+  ) : null;
+
+  const reviewTabAction = !canWrite
+    ? null
+    : status === "draft" ? (
+      <DisabledActionHint reason={approvalBlockedReason}>
+        <Button loading={saving} disabled={approvalActionBlocked} title={approvalBlockedReason} onClick={() => void requestApproval()}>
+          Request approval
+        </Button>
+      </DisabledActionHint>
+    ) : status === "approval_requested" ? (
+      <Button loading={saving} disabled={!approvalId || approvalActionBlocked} onClick={() => openConfirmation("approve")}>
+        Approve message
+      </Button>
+    ) : status === "approved" && channel === "email" ? (
+      <Button loading={saving} disabled={approvalActionBlocked} onClick={() => openConfirmation("queue")}>
+        Queue message
+      </Button>
+    ) : status === "approved" && channel === "social" ? (
+      <Button loading={saving} disabled={approvalActionBlocked} onClick={() => openConfirmation("confirm-social")}>
+        Confirm I sent this
+      </Button>
+    ) : null;
+
+  const mobileAction = headerRecoveryAction ?? (
+    canWrite && (status === "draft" || status === "approval_requested")
+      ? <Button variant="secondary" onClick={() => setActiveTab("review")}>Review and continue</Button>
+      : <Link className="ry-button ry-button-secondary" to="/outreach">Back to outreach</Link>
+  );
 
   const confirmationCopy = pendingAction === "approve"
     ? {
-        title: "Approve this exact Outreach artifact?",
-        description: "Approval binds recipient, sender, channel, subject, body, claims, attachments, and timing together. Approval does not send or queue delivery.",
-        confirmLabel: "Approve exact artifact"
+        title: "Approve this message?",
+        description: "Approval locks the recipient, sender, channel, subject, body, claims, attachments, and timing together. Sending remains a separate step.",
+        confirmLabel: "Approve message"
       }
     : pendingAction === "queue"
       ? {
-          title: "Queue this approved email?",
-          description: "Queueing revalidates access, authority, recipient permission, conflict state, claims, and attachments. Queued does not mean delivered.",
-          confirmLabel: "Queue approved message"
+          title: "Queue this email?",
+          description: "We'll recheck permission and content, then hand it off for delivery.",
+          confirmLabel: "Queue message"
         }
       : {
-          title: "Confirm you sent this exact social message?",
-          description: "Only confirm after you personally sent this exact approved social message to the named recipient outside Ryva.",
+          title: "Confirm you sent this social message?",
+          description: "Only confirm after you personally sent this approved social message to the named recipient outside Ryva.",
           confirmLabel: "Confirm external send"
         };
 
+  const authorityStatusLabel = authorized ? "Confirmed" : readable(authorityOutcome);
+  const permissionStatusLabel = outreachPermissionLabel(permissionStatus, permissionBlocked);
+  const verificationStatusLabel = outreachVerificationLabel(verificationReady, lastVerifiedAt);
+
   const contextContent = (
     <>
-      <div className="ry-context-item">
-        <strong>Status</strong>
-        <StatusLabel value={status} />
-        <small>Approved ≠ sent. Queued ≠ delivered.</small>
-      </div>
-      <div className="ry-context-item">
-        <strong>Permission</strong>
-        <StatusLabel value={permissionStatus} />
-        <small>Unknown is distinct from allowed.</small>
-      </div>
-      <div className="ry-context-item">
-        <strong>Verification</strong>
-        <StatusLabel value={verificationStatus} />
-      </div>
-      <div className="ry-context-item">
-        <strong>Authority</strong>
-        <AuthorityIndicator
-          value={authorityOutcome}
-          tone={authorityTone(authorityOutcome)}
-          rationale="Representation authority informs Outreach eligibility checks. It does not approve or send this artifact."
-        />
-      </div>
-      <div className="ry-context-item">
-        <strong>Placement</strong>
-        <p>{placementId !== "—" ? <Link to={`/placements/${placementId}`}>{brandName} → {businessName}</Link> : "Not linked"}</p>
-        <small>Placement readiness does not authorize Outreach.</small>
-      </div>
+      <dl className="ry-outreach-status-list">
+        <div className="ry-outreach-status-row">
+          <dt>Status</dt>
+          <dd>{readable(status)}</dd>
+        </div>
+        <div className="ry-outreach-status-row">
+          <dt>Email permission</dt>
+          <dd>{permissionStatusLabel}</dd>
+        </div>
+        <div className="ry-outreach-status-row">
+          <dt>Email verification</dt>
+          <dd>{verificationStatusLabel}</dd>
+        </div>
+        <div className="ry-outreach-status-row">
+          <dt>Authority</dt>
+          <dd>{authorityStatusLabel}</dd>
+        </div>
+        <div className="ry-outreach-status-row">
+          <dt>Placement</dt>
+          <dd>
+            {placementId !== "—"
+              ? <Link to={`/placements/${placementId}`}>{brandName} → {businessName}</Link>
+              : "Not linked"}
+          </dd>
+        </div>
+      </dl>
+      {activeTab === "review" && stillNeeded.length > 0 ? (
+        <div className="ry-outreach-missing-actions ry-outreach-missing-actions-rail" role="status">
+          <strong>Still needed</strong>
+          <ul>
+            {stillNeeded.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+      ) : null}
     </>
   );
 
@@ -540,68 +611,112 @@ export function OutreachDetailPage() {
     <div className="page ry-relationship-page ry-outreach-page">
       <RelationshipTrail items={[
         { label: "Outreach", to: "/outreach" },
-        { label: subject }
+        { label: subjectLabel }
       ]} />
       <IdentityHeader
-        eyebrow="Exact outreach artifact"
-        title={subject}
+        title={<span title={displayNameTitle(message.subject)}>{subjectLabel}</span>}
         relationship={(
-          <span className="ry-relationship-identity-meta">
-            <span>{contactName}</span>
-            <span>{channel}</span>
-            <span>{businessName}</span>
+          <span className="ry-relationship-identity-meta ry-outreach-identity-meta">
+            <StatusLabel value={status} tone={messageStatusTone(status)} className="ry-outreach-identity-status" />
+            <span aria-hidden="true">·</span>
+            <span title={displayNameTitle(placement?.placement.businessName)}>
+              {businessName.replace(/\s+Business$/i, "").trim() || businessName}
+            </span>
           </span>
         )}
-        status={<StatusLabel value={status} />}
         warning={permissionBlocked ? (
-          <Alert tone="danger" title="Contact permission blocks external Outreach.">
-            Stored permission is {readable(permissionStatus)}. Verification and address presence do not override this state.
+          <Alert tone="danger" title="Contact permission blocks outreach.">
+            Stored permission is {readable(permissionStatus)}. Verification and address presence do not change this.
+          </Alert>
+        ) : authorityBlocksActions ? (
+          <Alert tone="danger" title="Representation authority blocks approval." className="ry-outreach-authority-alert">
+            {authorityBlocked ? authorityBlocked.messages.map((item, index) => (
+              <Fragment key={item.code}>
+                <p className="ry-outreach-authority-alert-line">{item.summary}</p>
+                <p className="ry-outreach-authority-alert-line">
+                  {item.guidance}
+                  {authorityBlocked.showAgreementLink && agreementId !== "—" && index === authorityBlocked.messages.length - 1 ? (
+                    <>{" "}<Link to={`/agreements/${agreementId}`}>Review agreement →</Link></>
+                  ) : null}
+                </p>
+              </Fragment>
+            )) : (
+              <p className="ry-outreach-authority-alert-line">Confirm representation authority before requesting approval.</p>
+            )}
           </Alert>
         ) : unresolved ? (
           <Alert tone="warning" title="Unresolved placeholders remain">
-            Do not treat a template-shaped draft as the exact message under review until placeholders are resolved.
+            Finish the draft before treating it as the message under review.
           </Alert>
         ) : undefined}
-        nextAction={<span>{canWrite ? "Review the exact recipient, channel, content, permission, and suppression facts before any approval or queue action." : session?.access.reason ?? "Read-only Outreach inspection."}</span>}
-        actions={<>{primaryAction}<Link className="ry-button ry-button-secondary" to="/outreach">Back to outreach</Link></>}
+        nextAction={<span>{canWrite ? "Review recipient, content, and permission before approving or sending." : session?.access.reason ?? "Read-only Outreach inspection."}</span>}
+        actions={<>{headerRecoveryAction}<Link className="ry-button ry-button-secondary" to="/outreach">Back to outreach</Link></>}
       />
       {!canWrite ? (
         <Alert tone="warning" title="Read-only Outreach context">
-          You may inspect permitted Outreach artifacts, but cannot request approval, approve, queue, confirm, or classify in this session.
+          You may inspect permitted messages, but cannot request approval, approve, queue, confirm, or classify in this session.
         </Alert>
       ) : null}
       {actionError ? <ReviewErrorSummary message={actionError} conflict={conflict} onReload={() => { void load(); setConflict(false); setActionError(""); }} /> : null}
 
       <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Outreach relationship views" baseId={tabBaseId} />
-      <RelationshipDetailLayout context={<ContextRail title="Outreach context" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>{contextContent}</ContextRail>}>
+      <RelationshipDetailLayout context={(
+        <ContextRail
+          title="Outreach status"
+          className="ry-outreach-status-rail"
+          triggerLabel="Review status"
+          open={contextOpen}
+          onOpen={() => setContextOpen(true)}
+          onClose={() => setContextOpen(false)}
+        >
+          {contextContent}
+        </ContextRail>
+      )}>
         <RelationshipTabPanel id={tabBaseId} tabId="message" active={activeTab === "message"}>
-          <RelationshipSection title="Exact delivery scope" description="Recipient, sender, content, claims, attachments, channel and timing are approved together. Any material edit invalidates approval.">
-            <dl className="ry-relationship-facts">
-              <div><dt>Recipient</dt><dd>{message.recipientAddress}</dd></div>
-              <div><dt>Sender</dt><dd>{message.senderAddress}</dd></div>
-              <div><dt>Channel</dt><dd>{channel}</dd></div>
+          <RelationshipSection title="Message details" description="Recipient, sender, content, claims, attachments, channel, and timing are reviewed together.">
+            <dl className="ry-relationship-facts ry-outreach-facts">
+              <div><dt>Recipient</dt><dd title={recipientTitle}>{recipientLabel}</dd></div>
+              <div><dt>Sender</dt><dd title={senderTitle}>{senderLabel}</dd></div>
+              <div><dt>Channel</dt><dd>{readable(channel)}</dd></div>
               <div><dt>Timing</dt><dd>{shown(message.scheduledAt, "Immediate after approval")}</dd></div>
-              <div><dt>Artifact digest</dt><dd><code>{detail.digest.slice(0, 16)}…</code></dd></div>
               <div><dt>Version</dt><dd>{shown(message.version)}</dd></div>
             </dl>
-            <h3>Exact body</h3>
-            <pre className="ry-outreach-message-preview">{body}</pre>
+            <details className="ry-outreach-technical-details">
+              <summary>View technical details</summary>
+              <dl className="ry-relationship-facts ry-outreach-facts">
+                <div><dt>Digest</dt><dd><code className="ry-outreach-digest">{detail.digest}</code></dd></div>
+              </dl>
+            </details>
+            <h3 className="ry-outreach-body-heading">Message body</h3>
+            <pre className="ry-outreach-message-preview">{body || "No body recorded."}</pre>
           </RelationshipSection>
-          <RelationshipSection title="Evidence-linked claims" description="Unsupported claims block approval. Declaring no claim is allowed when no factual claim is made.">
-            {claims.length === 0 ? <EmptyState compact description="No material claims declared." /> : (
+          <RelationshipSection title="Evidence-linked claims" description="Claims that need evidence appear here before approval.">
+            {claims.length === 0 ? (
+              <EmptyState
+                compact
+                className="ry-outreach-empty-state"
+                description="No claims recorded."
+              />
+            ) : (
               <ul className="ry-relationship-evidence-list">
                 {claims.map((item) => (
                   <li key={shown(item.id)}>
                     <StatusLabel value={shown(item.status)} />
                     <strong>{shown(item.claimText)}</strong>
-                    <small>Evidence {shown(item.evidenceId, "missing")}</small>
+                    <small>{shown(item.evidenceId, "Evidence not linked")}</small>
                   </li>
                 ))}
               </ul>
             )}
           </RelationshipSection>
-          <RelationshipSection title="Immutable attachments" description="Only clean immutable Document IDs may attach to an Outreach artifact.">
-            {attachments.length === 0 ? <EmptyState compact description="No attachments." /> : (
+          <RelationshipSection title="Attachments" description="Only clean immutable documents may attach to this message.">
+            {attachments.length === 0 ? (
+              <EmptyState
+                compact
+                className="ry-outreach-empty-state"
+                description="No attachments yet."
+              />
+            ) : (
               <ul className="ry-relationship-evidence-list">
                 {attachments.map((item) => (
                   <li key={shown(item.documentId)}>
@@ -616,100 +731,157 @@ export function OutreachDetailPage() {
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="contact" active={activeTab === "contact"}>
-          <RelationshipSection title="Contact identity and permission" description="Contact verification, permission, suppression, and channel availability remain distinct. Unknown is not allowed.">
-            <dl className="ry-relationship-facts">
+          <RelationshipSection title="Contact & permission" description="Confirm who receives this message and whether contact is permitted.">
+            <dl className="ry-relationship-facts ry-outreach-facts">
+              <div><dt>Recipient</dt><dd title={recipientTitle}>{recipientLabel}</dd></div>
               <div><dt>Contact</dt><dd>{contactId !== "—" ? <Link to={`/contacts/${contactId}`}>{contactName}</Link> : contactName}</dd></div>
               <div><dt>Business</dt><dd>{businessId !== "—" ? <Link to={`/buyers/${businessId}`}>{businessName}</Link> : businessName}</dd></div>
-              <div><dt>Destination</dt><dd>{message.recipientAddress}</dd></div>
-              <div><dt>Permission</dt><dd><StatusLabel value={permissionStatus} /></dd></div>
-              <div><dt>Verification</dt><dd><StatusLabel value={verificationStatus} />{lastVerifiedAt ? <small> · {dateTime(lastVerifiedAt)}</small> : null}</dd></div>
-              <div><dt>Email on Contact</dt><dd>{shown(contact?.email, "Address missing")}</dd></div>
+              <div><dt>Email on contact</dt><dd title={displayAddressTitle(contact?.email)}>{displayAddress(contact?.email, "Not recorded")}</dd></div>
             </dl>
-            <p className="ry-outreach-boundary">An available email address does not authorize Outreach. Suppression and channel rules are revalidated by the server on approval and queue.</p>
+            <div className="ry-outreach-permission-actions">
+              <div className="ry-outreach-permission-action">
+                <div className="ry-outreach-permission-action-copy">
+                  <strong>Email permission</strong>
+                  <span>{permissionStatusLabel}</span>
+                </div>
+                {!permissionReady && contactId !== "—" ? (
+                  <Link to={`/contacts/${contactId}`}>Review contact →</Link>
+                ) : null}
+              </div>
+              <div className="ry-outreach-permission-action">
+                <div className="ry-outreach-permission-action-copy">
+                  <strong>Email verification</strong>
+                  <span>{verificationStatusLabel}</span>
+                </div>
+                {!verificationReady && contactId !== "—" ? (
+                  <Link to={`/contacts/${contactId}`}>Verify contact →</Link>
+                ) : null}
+              </div>
+            </div>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="placement" active={activeTab === "placement"}>
-          <RelationshipSection title="Placement, Product, and Brand context" description="Placement informs Outreach context. Placement stage readiness does not authorize send, queue, or approve actions.">
-            <dl className="ry-relationship-facts">
+          <RelationshipSection title="Placement context" description="Linked placement and agreement context for this outreach.">
+            <dl className="ry-relationship-facts ry-outreach-facts">
               <div><dt>Placement</dt><dd>{placementId !== "—" ? <Link to={`/placements/${placementId}`}>{brandName} → {businessName}</Link> : "Not linked"}</dd></div>
-              <div><dt>Placement stage</dt><dd><StatusLabel value={shown(placement?.placement.stage, "unknown")} /></dd></div>
+              <div><dt>Placement stage</dt><dd>{readable(shown(placement?.placement.stage, "unknown"))}</dd></div>
               <div><dt>Brand</dt><dd>{brandId !== "—" ? <Link to={`/brands/${brandId}`}>{brandName}</Link> : brandName}</dd></div>
-              <div><dt>Agreement</dt><dd>{agreementId !== "—" ? <Link to={`/agreements/${agreementId}`}>Open Agreement</Link> : "Not linked"}</dd></div>
-              <div><dt>Products in message</dt><dd>{productIds.length || "None recorded"}</dd></div>
-              <div><dt>Authority channel</dt><dd>{shown(field(message, "authorityChannel", "authority_channel"), "Not recorded")}</dd></div>
+              <div><dt>Agreement</dt><dd>{agreementId !== "—" ? <Link to={`/agreements/${agreementId}`}>Open agreement</Link> : "Not linked"}</dd></div>
+              <div><dt>Products</dt><dd>{productIds.length || "None recorded"}</dd></div>
+              <div><dt>Authority channel</dt><dd>{readable(shown(field(message, "authorityChannel", "authority_channel"), "Not recorded"))}</dd></div>
             </dl>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="review" active={activeTab === "review"}>
           <div id="outreach-review" className="ry-outreach-review">
-            {lastOutcome ? <ReviewOutcome title="Outreach action recorded" status={status} consequence={lastOutcome} /> : null}
-            <ConsequentialReviewLayout readiness={<>
-              <ReadinessSummary
-                state={readinessState}
-                description="Approval does not send. Queueing revalidates access, authority, recipient permission, conflict state, claims, and attachments. The worker repeats those checks immediately before provider delivery."
-                blockers={blockers}
-                context={(
-                  <dl className="ry-review-facts">
-                    <div><dt>Status</dt><dd>{readable(status)}</dd></div>
-                    <div><dt>Digest</dt><dd><code>{detail.digest.slice(0, 16)}…</code></dd></div>
-                    <div><dt>Version</dt><dd>{shown(message.version)}</dd></div>
-                  </dl>
-                )}
-              />
-              <AuthorityIndicator
-                value={authorityOutcome}
-                tone={authorityTone(authorityOutcome)}
-                rationale="Authority context informs eligibility. AI cannot approve, send, or establish permission."
-              />
-            </>}>
-              <ExactArtifact
-                title="Exact Outreach message"
-                description="This stored recipient, channel, subject, and body—not a reusable template—are the artifact under review."
-                version={`${shown(message.version)} · ${detail.digest.slice(0, 12)}…`}
-                code
-              >
-                {`To: ${message.recipientAddress}\nFrom: ${message.senderAddress}\nChannel: ${channel}\nSubject: ${subject}\n\n${body}`}
-              </ExactArtifact>
-              <ValidationSummary
-                checks={validationChecks}
-                description="Displayed checks summarize stored facts. The server revalidates on every approval and queue attempt. A visible action does not mean the server will permit it."
-              />
-              <ReviewSection
-                eyebrow="Consequential action"
-                title="Human approval and send"
-                description="Preserve the boundary between draft, approval pending, approved, queued, sent/accepted, delivered, failed, and cancelled."
-              >
-                <ApprovalPanel
-                  title="Exact-artifact decision"
-                  readiness={<p>{readable(readinessState)}. Permission, verification, suppression, and channel checks remain distinct. A visible action does not mean the server will permit it.</p>}
-                  consequence={<p>Request approval, approve the exact digest, queue email, or confirm an external social send. Approval does not send. Queued does not mean delivered. Do not invent open or reply status.</p>}
-                  rationale={<p>Server validation, optimistic concurrency, and audit history remain authoritative over this panel.</p>}
-                  processing={saving}
-                  actions={(
-                    <div className="ry-outreach-header-actions">
-                      {status === "draft" ? <Button variant="secondary" loading={saving} disabled={!canWrite} onClick={() => void requestApproval()}>Request exact approval</Button> : null}
-                      {status === "approval_requested" ? <Button loading={saving} disabled={!canWrite || !approvalId} onClick={() => openConfirmation("approve")}>Approve exact artifact</Button> : null}
-                      {status === "approved" && channel === "email" ? <Button loading={saving} disabled={!canWrite} onClick={() => openConfirmation("queue")}>Queue approved message</Button> : null}
-                      {status === "approved" && channel === "social" ? <Button loading={saving} disabled={!canWrite} onClick={() => openConfirmation("confirm-social")}>Confirm I sent this exact message</Button> : null}
-                    </div>
-                  )}
+            <RelationshipSection
+              title="Approval & send"
+              description="See what is complete, what needs attention, and what to do before approving or sending."
+            >
+              {lastOutcome ? (
+                <ReviewOutcome
+                  title="Outreach action recorded"
+                  status={status}
+                  consequence={lastOutcome}
                 />
-              </ReviewSection>
-            </ConsequentialReviewLayout>
+              ) : null}
+
+              <dl className="ry-outreach-review-stages">
+                <div>
+                  <dt>Current status</dt>
+                  <dd>{readable(status)}</dd>
+                </div>
+                <div>
+                  <dt>Next step</dt>
+                  <dd>
+                    {status === "draft"
+                      ? "Request approval"
+                      : status === "approval_requested"
+                        ? "Approve message"
+                        : status === "approved" && channel === "email"
+                          ? "Queue message"
+                          : status === "approved" && channel === "social"
+                            ? "Confirm send"
+                            : sendComplete
+                              ? "Complete"
+                              : "Review message"}
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="ry-outreach-before-approving">
+                <h3>Before approving</h3>
+                <ul className="ry-outreach-review-checks">
+                  {reviewChecks.map((item) => {
+                    const rowBody = (
+                      <>
+                        <span className="ry-outreach-review-check-mark" aria-hidden="true">{item.ok ? "✓" : "–"}</span>
+                        <span className="ry-outreach-review-check-label">
+                          <span className="ry-outreach-review-check-name">{item.name}</span>
+                          <span className="ry-outreach-review-check-sep" aria-hidden="true"> — </span>
+                          <span className="ry-outreach-review-check-status">{item.status}</span>
+                        </span>
+                        {!item.ok && item.linkLabel ? (
+                          <span className="ry-outreach-review-link">{item.linkLabel}</span>
+                        ) : null}
+                      </>
+                    );
+                    return (
+                      <li key={item.id} data-state={item.ok ? "complete" : "incomplete"}>
+                        {!item.ok && item.link ? (
+                          <Link className="ry-outreach-review-check-row" to={item.link}>{rowBody}</Link>
+                        ) : rowBody}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              <div className="ry-outreach-review-preview">
+                <h3>Message under review</h3>
+                <pre className="ry-outreach-message-preview" title={recipientTitle || senderTitle}>{`To: ${recipientLabel}\nFrom: ${senderLabel}\nChannel: ${channel}\nSubject: ${subjectLabel}\n\n${body}`}</pre>
+                <details className="ry-outreach-technical-details">
+                  <summary>View technical details</summary>
+                  <p className="ry-outreach-technical-copy">Digest <code className="ry-outreach-digest">{detail.digest}</code> · version {shown(message.version)}</p>
+                </details>
+              </div>
+
+              <div className="ry-outreach-review-actions-block">
+                <h3>Review and continue</h3>
+                <p className="ry-outreach-review-hint">
+                  Approval does not send. Queueing rechecks permission and content before delivery.
+                </p>
+                <div className="ry-outreach-header-actions ry-outreach-review-actions">
+                  {reviewTabAction}
+                  {sendComplete ? (
+                    <p className="ry-outreach-review-complete">This message has already moved past approval.</p>
+                  ) : null}
+                </div>
+              </div>
+            </RelationshipSection>
           </div>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="activity" active={activeTab === "activity"}>
-          <RelationshipSection title="Outreach activity" description="Only stored status, claims, and timing appear here. Engagement analytics are not fabricated.">
-            <ActivityTimeline entries={activityEntries} />
+          <RelationshipSection title="Outreach activity" description="Stored status, claims, and timing for this message.">
+            {activityEntries.length ? (
+              <ActivityTimeline entries={activityEntries} label="Outreach activity" />
+            ) : (
+              <EmptyState
+                compact
+                className="ry-outreach-empty-state"
+                title="No activity yet"
+                description="Status changes, claims, and timing will appear here."
+              />
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         {isReplyState ? (
           <RelationshipTabPanel id={tabBaseId} tabId="response" active={activeTab === "response"}>
-            <RelationshipSection title="Classify the Buyer response" description="Human-owned response tracking. A reply does not create an Order or commercial outcome.">
+            <RelationshipSection title="Classify the buyer response" description="A reply does not create an order or commercial outcome.">
               <form className="ry-outreach-call-form" onSubmit={(event) => void classifyResponse(event)}>
                 <Field label="Response">
                   <Select value={classification} onChange={(event) => setClassification(event.target.value)} disabled={!canWrite}>
@@ -719,7 +891,7 @@ export function OutreachDetailPage() {
                 <Field label="Response notes">
                   <TextArea required value={responseNotes} onChange={(event) => setResponseNotes(event.target.value)} disabled={!canWrite} />
                 </Field>
-                <Button type="submit" loading={saving} disabled={!canWrite}>{saving ? "Recording…" : "Record human classification"}</Button>
+                <Button type="submit" loading={saving} disabled={!canWrite}>{saving ? "Recording…" : "Record classification"}</Button>
               </form>
             </RelationshipSection>
           </RelationshipTabPanel>
@@ -727,7 +899,7 @@ export function OutreachDetailPage() {
       </RelationshipDetailLayout>
 
       <StickyMobileAction>
-        {primaryAction}
+        {mobileAction}
       </StickyMobileAction>
 
       <ConfirmationDialog
@@ -735,10 +907,13 @@ export function OutreachDetailPage() {
         title={confirmationCopy.title}
         description={confirmationCopy.description}
         consequence={<>
-          <strong>Exact Outreach artifact</strong>
-          <p>Recipient {message.recipientAddress} · {channel}</p>
-          <p>Subject: {subject}</p>
-          <p>Digest {detail.digest.slice(0, 16)}… · version {shown(message.version)}</p>
+          <strong>Message</strong>
+          <p title={recipientTitle}>Recipient {recipientLabel} · {readable(channel)}</p>
+          <p title={displayNameTitle(message.subject)}>Subject: {subjectLabel}</p>
+          <details className="ry-outreach-technical-details">
+            <summary>View technical details</summary>
+            <p>Digest <code className="ry-outreach-digest">{detail.digest}</code> · version {shown(message.version)}</p>
+          </details>
         </>}
         confirmLabel={confirmationCopy.confirmLabel}
         processing={saving}

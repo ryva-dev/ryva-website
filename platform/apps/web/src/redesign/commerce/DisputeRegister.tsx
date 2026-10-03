@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../api";
 import { useAuth } from "../../auth";
 import {
@@ -33,6 +33,10 @@ import { CommercialSubnav } from "./CommercialSubnav";
 import {
   currency,
   disputeStatuses,
+  displayBrandName,
+  brandNameTitle,
+  displayName,
+  field,
   readable,
   shown,
   type Row
@@ -56,12 +60,15 @@ function disputeValue(item: Row, sortField: string): string {
   if (sortField === "status") return shown(item.status).toLowerCase();
   if (sortField === "amount") return String(Number(item.disputedAmount ?? 0)).padStart(18, "0");
   if (sortField === "next") return shown(item.nextAction).toLowerCase();
-  if (sortField === "relationship") return `${shown(item.brandName)} ${shown(item.businessName)}`.toLowerCase();
+  if (sortField === "relationship") return `${displayBrandName(item.brandName)} ${displayName(item.businessName)}`.toLowerCase();
+  if (sortField === "case") return shown(item.orderNumber, shown(item.id)).toLowerCase();
   return shown(item.id).toLowerCase();
 }
 
 export function DisputeRegisterPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const accountFilter = searchParams.get("accountId")?.trim() || "";
   const { session } = useAuth();
   const canWrite = session?.access.mode === "full"
     && session.access.capabilities.includes("operational:write");
@@ -69,7 +76,7 @@ export function DisputeRegisterPage() {
   const [filters, setFilters] = useState<RegisterFilterValue>(initialFilters);
   const [sort, setSort] = useState<RegisterSort>({ field: "status", direction: "asc" });
   const [visibleColumns, setVisibleColumns] = useState(new Set(columnOptions.map((column) => column.id)));
-  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
+  const [density, setDensity] = useState<"comfortable" | "compact">("compact");
   const [filterOpen, setFilterOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -98,11 +105,13 @@ export function DisputeRegisterPage() {
   const sorted = useMemo(() => {
     const query = String(filters.query ?? "").trim().toLowerCase();
     const filtered = records.filter((item) => {
-      if (statusFilter && shown(item.status) !== statusFilter) return false;
+      if (accountFilter && shown(field(item, "accountId", "account_id"), "") !== accountFilter) return false;
+      const itemStatus = typeof item.status === "string" ? item.status : "";
+      if (statusFilter && itemStatus !== statusFilter) return false;
       if (!query) return true;
       const haystack = [
         shown(item.id),
-        shown(item.brandName),
+        displayBrandName(item.brandName),
         shown(item.businessName),
         shown(item.orderNumber),
         shown(item.reason),
@@ -115,7 +124,7 @@ export function DisputeRegisterPage() {
     return [...filtered].sort((left, right) =>
       disputeValue(left, sort.field).localeCompare(disputeValue(right, sort.field)) * direction
     );
-  }, [records, filters, sort, statusFilter]);
+  }, [records, filters, sort, statusFilter, accountFilter]);
 
   const filterFields = (
     <Field label="Dispute status">
@@ -130,10 +139,10 @@ export function DisputeRegisterPage() {
     <div className="page ry-register-page ry-commerce-page">
       <CommercialSubnav />
       <PageHeader
-        eyebrow="Human-owned resolution"
+        eyebrow="Owned resolution"
         title="Commission Disputes"
-        description="Preserve claims, evidence, communications, chronology, adjustments, and final human decisions. Ryva does not adjudicate contractual rights."
-        action={<a className="ry-button ry-button-secondary" href="/api/commercial-export/commission_dispute">Export case list</a>}
+        description="Preserve claims, evidence, communications, chronology, adjustments, and final decisions. Ryva does not adjudicate contractual rights."
+        action={<a className="ry-button ry-button-secondary" href="/api/commercial-export/commission_dispute">Export disputes</a>}
       />
       {!canWrite ? <Alert tone="warning" title="Read-only dispute register">{session?.access.reason ?? "This session cannot mutate dispute cases."}</Alert> : null}
       {error ? <ErrorState message={error} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} /> : null}
@@ -184,52 +193,68 @@ export function DisputeRegisterPage() {
         />
 
         {loading ? <LoadingState label="Loading dispute chronology" /> : sorted.length === 0 ? (
-          <EmptyState description={records.length === 0
-            ? "No Commission Disputes. Open one from a Commission variance or overdue-payment review."
-            : "No disputes match the current filters."}
+          <EmptyState
+            title={records.length === 0 ? "No commission disputes." : undefined}
+            description={records.length === 0
+              ? "Disputes can be opened when a commission amount or payment needs review."
+              : "No disputes match the current filters."}
           />
         ) : (
           <>
-            <Table caption="Commission dispute cases" compact={density === "compact"}>
+            <Table caption="Commission dispute cases" compact className="ry-commerce-dispute-table">
               <thead>
                 <tr>
                   {visibleColumns.has("case") ? <SortableHeader label="Case" field="case" sort={sort} onSort={setSort} /> : null}
                   {visibleColumns.has("relationship") ? <SortableHeader label="Relationship" field="relationship" sort={sort} onSort={setSort} /> : null}
-                  {visibleColumns.has("amount") ? <SortableHeader label="Amount" field="amount" sort={sort} onSort={setSort} /> : null}
+                  {visibleColumns.has("amount") ? <SortableHeader className="ry-commerce-numeric" label="Amount" field="amount" sort={sort} onSort={setSort} /> : null}
                   {visibleColumns.has("reason") ? <th scope="col">Reason</th> : null}
                   {visibleColumns.has("status") ? <SortableHeader label="Status" field="status" sort={sort} onSort={setSort} /> : null}
                   {visibleColumns.has("next") ? <SortableHeader label="Next action" field="next" sort={sort} onSort={setSort} /> : null}
-                  <th scope="col"><span className="sr-only">Open</span></th>
+                  <th scope="col" className="ry-register-cell-actions"><span className="sr-only">Open</span></th>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((item) => (
-                  <DataRow key={item.id}>
-                    {visibleColumns.has("case") ? <td className="monospace">{shown(item.id).slice(0, 8)}</td> : null}
-                    {visibleColumns.has("relationship") ? (
-                      <td>
-                        <strong>{shown(item.brandName)}</strong>
-                        <small>{shown(item.businessName)} · {shown(item.orderNumber)}</small>
+                {sorted.map((item) => {
+                  const caseLabel = shown(item.orderNumber) !== "—"
+                    ? displayName(item.orderNumber)
+                    : shown(item.id).slice(0, 8);
+                  return (
+                    <DataRow key={item.id}>
+                      {visibleColumns.has("case") ? (
+                        <td className="ry-commerce-dispute-case">
+                          <span title={shown(item.id)}>{caseLabel}</span>
+                        </td>
+                      ) : null}
+                      {visibleColumns.has("relationship") ? (
+                        <td><strong title={brandNameTitle(item.brandName)}>{displayBrandName(item.brandName)}</strong></td>
+                      ) : null}
+                      {visibleColumns.has("amount") ? (
+                        <td className="ry-commerce-numeric">
+                          <CurrencyValue value={item.disputedAmount as string} currency={shown(item.currency, "USD")} status="actual" />
+                        </td>
+                      ) : null}
+                      {visibleColumns.has("reason") ? <td>{shown(item.reason)}</td> : null}
+                      {visibleColumns.has("status") ? <td><StatusLabel value={shown(item.status)} /></td> : null}
+                      {visibleColumns.has("next") ? <td>{shown(item.nextAction)}</td> : null}
+                      <td className="ry-register-cell-actions">
+                        <Link
+                          to={`/commission-disputes/${item.id}`}
+                          className="ry-commerce-row-arrow"
+                          aria-label={`Review dispute ${caseLabel}`}
+                        >
+                          <span aria-hidden="true">→</span>
+                        </Link>
                       </td>
-                    ) : null}
-                    {visibleColumns.has("amount") ? (
-                      <td className="ry-commerce-numeric">
-                        <CurrencyValue value={item.disputedAmount as string} currency={shown(item.currency, "USD")} status="actual" />
-                      </td>
-                    ) : null}
-                    {visibleColumns.has("reason") ? <td>{shown(item.reason)}<small>Allegation, not proven fact</small></td> : null}
-                    {visibleColumns.has("status") ? <td><StatusLabel value={shown(item.status)} /></td> : null}
-                    {visibleColumns.has("next") ? <td>{shown(item.nextAction)}</td> : null}
-                    <td><Link to={`/commission-disputes/${item.id}`}>Review case</Link></td>
-                  </DataRow>
-                ))}
+                    </DataRow>
+                  );
+                })}
               </tbody>
             </Table>
             <RegisterMobileList label="Commission dispute cases">
               {sorted.map((item) => (
                 <RegisterMobileRow
                   key={item.id}
-                  title={`${shown(item.brandName)} · ${shown(item.orderNumber)}`}
+                  title={displayBrandName(item.brandName)}
                   meta={`${currency(item.disputedAmount, item.currency)} · ${readable(shown(item.status))} · ${shown(item.nextAction)}`}
                   status={<StatusLabel value={shown(item.status)} />}
                   onOpen={() => void navigate(`/commission-disputes/${item.id}`)}

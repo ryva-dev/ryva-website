@@ -1,26 +1,47 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { accountProtectionLabel } from "./utils.js";
 
 void describe("Ryva Commerce", () => {
+  void it("formats protection status without unverified chip language", () => {
+    assert.equal(accountProtectionLabel("unverified"), "Not confirmed");
+    assert.equal(accountProtectionLabel("not_asserted"), "Not confirmed");
+    assert.equal(accountProtectionLabel(null), "Not confirmed");
+    assert.equal(accountProtectionLabel("pending"), "Needs review");
+    assert.equal(accountProtectionLabel("active"), "Active");
+  });
+
   void it("account register preserves continuity copy and register contracts", () => {
     const source = readFileSync(new URL("./AccountRegister.tsx", import.meta.url), "utf8");
-    assert.match(source, /title="Protected Accounts and operational Accounts"/);
+    assert.match(source, /title="Accounts"/);
     assert.match(source, /do not create contractual rights/i);
     assert.match(source, /Account status/);
     assert.match(source, /No Accounts yet\. Confirm a documented opening Order/);
     assert.match(source, /\/api\/accounts/);
     assert.match(source, /\/api\/commercial-export\/account/);
     assert.match(source, /RegisterMobileList/);
+    assert.match(source, /RegisterPagination/);
+    assert.match(source, /pageSize = 20/);
+    assert.match(source, /relationshipDisplay|displayName/);
     assert.match(source, /CommercialSubnav/);
+    assert.match(source, /lastOrderNumber \|\| "—"/);
+    assert.doesNotMatch(source, /healthNote \? <small>\{healthNote\}<\/small> : null/);
+    assert.match(source, /accountProtectionLabel/);
+    assert.doesNotMatch(source, /<StatusLabel value=\{protectionStatus\}/);
+    assert.doesNotMatch(source, /No asserted protection/);
   });
 
   void it("account detail preserves health review and commercial boundaries", () => {
     const source = readFileSync(new URL("./AccountDetail.tsx", import.meta.url), "utf8");
-    assert.match(source, /Confirm human account review/);
+    assert.match(source, /Confirm account review/);
     assert.match(source, /Factual health rationale/);
     assert.match(source, /Commercial history remains visible/);
     assert.match(source, /not guaranteed revenue/i);
+    assert.match(source, /No protection recorded/);
+    assert.match(source, /Review protection →/);
+    assert.match(source, /to="\/protected-accounts"/);
+    assert.doesNotMatch(source, /protection asserted/i);
     assert.match(source, /ConsequentialReviewLayout/);
     assert.match(source, /ConfirmationDialog/);
     assert.match(source, /Commission calculation|commission calculation|Open Commissions/i);
@@ -31,23 +52,37 @@ void describe("Ryva Commerce", () => {
     const source = readFileSync(new URL("./OrderRegister.tsx", import.meta.url), "utf8");
     assert.match(source, /title="Orders"/);
     assert.match(source, /Record an opening Order/);
+    assert.match(source, /Record Opening Order/);
+    assert.match(source, /ry-commerce-create-drawer/);
     assert.match(source, /Order-discussion Placement/);
     assert.match(source, /Clean source document/);
     assert.match(source, /Add line/);
     assert.match(source, /Save review-required Order/);
     assert.match(source, /Drafts and projections are excluded/i);
+    assert.match(source, /RegisterPagination/);
+    assert.match(source, /pageSize = 20/);
+    assert.match(source, /pagedOrders\.map/);
     assert.match(source, /\/api\/orders/);
   });
 
   void it("order detail preserves consequential confirmation boundaries", () => {
     const source = readFileSync(new URL("./OrderDetail.tsx", import.meta.url), "utf8");
-    assert.match(source, /Confirm documented Order/);
+    assert.match(source, /Confirm order verification/);
+    assert.match(source, /Order verification/);
+    assert.match(source, /Order items/);
+    assert.match(source, /Connected records/);
+    assert.match(source, /View audit details/);
+    assert.match(source, /ry-commerce-amount-summary/);
     assert.match(source, /ConsequentialReviewLayout/);
     assert.match(source, /ExactArtifact/);
     assert.match(source, /\/api\/orders\/\$\{id\}\/confirm/);
     assert.match(source, /caught instanceof ApiProblem/);
     assert.match(source, /commission owed|not commission/i);
-    assert.match(source, /existing commission workflow|Open commissions/);
+    assert.match(source, /existing commission workflow|Open commissions|Review commissions/);
+    assert.doesNotMatch(source, /Confirm documented Order/);
+    assert.doesNotMatch(source, /Immutable source/);
+    assert.doesNotMatch(source, /Stored line items/);
+    assert.doesNotMatch(source, /Version \{shown\(order\.version\)\}/);
   });
 
   void it("protected account register preserves documentary-rights copy", () => {
@@ -55,25 +90,47 @@ void describe("Ryva Commerce", () => {
     assert.match(source, /title="Protected Accounts"/);
     assert.match(source, /does not create contractual protection/i);
     assert.match(source, /Protection status/);
-    assert.match(source, /Register a documented account-rights basis/);
-    assert.match(source, /Create pending rights review/);
+    assert.match(source, /No account protection recorded yet/);
+    assert.match(source, /opening order and representation agreement/i);
+    assert.match(source, /Add protection basis/);
+    assert.match(source, /!loading && total > 0/);
+    assert.match(source, /EmptyState[\s\S]*Add protection basis/);
+    assert.match(source, /Save for review/);
+    assert.match(source, /ry-commerce-create-drawer/);
+    assert.match(source, /RegisterPagination/);
+    assert.match(source, /pageSize = 20/);
+    assert.match(source, /pagedRecords\.map/);
     assert.match(source, /\/api\/protected-accounts/);
+    assert.doesNotMatch(source, /Register rights basis/);
+    assert.doesNotMatch(source, /review-required basis/);
   });
 
   void it("reorder register preserves projection honesty", () => {
     const source = readFileSync(new URL("./ReorderRegister.tsx", import.meta.url), "utf8");
     assert.match(source, /title="Reorders and account health"/);
     assert.match(source, /not guaranteed revenue/i);
-    assert.match(source, /Human Reorder review/);
-    assert.match(source, /Confirm human review/);
+    assert.match(source, /Reorder review/);
+    assert.match(source, /Confirm review/);
     assert.match(source, /\/api\/reorders/);
     assert.match(source, /Review status/);
+    assert.match(source, /RegisterPagination/);
+    assert.match(source, /pageSize = 20/);
+    assert.match(source, /pagedRecords\.map/);
+    assert.match(source, /No eligible reorder reviews/);
+    assert.match(source, /Review opening orders/);
+    assert.match(source, /to="\/orders"/);
+    assert.match(source, /relationshipDisplay/);
+    assert.match(source, /ry-commerce-row-arrow/);
+    assert.match(source, /Drawer/);
+    assert.match(source, /Time alone never establishes eligibility/i);
+    assert.doesNotMatch(source, /Actual verified history only/);
+    assert.doesNotMatch(source, /Projection, not eligibility/);
   });
 
   void it("protected account detail preserves exact-scope consequential review", () => {
     const source = readFileSync(new URL("./ProtectedAccountDetail.tsx", import.meta.url), "utf8");
-    assert.match(source, /Confirm documentary protection decision/);
-    assert.match(source, /Confirm exact-scope approval/);
+    assert.match(source, /Confirm documentary protection decision|Confirm protection decision/);
+    assert.match(source, /Confirm exact-scope approval|Confirm approval/);
     assert.match(source, /ConsequentialReviewLayout/);
     assert.match(source, /ExactArtifact/);
     assert.match(source, /\/api\/protected-accounts\/\$\{id\}\/approval/);
@@ -116,15 +173,33 @@ void describe("Ryva Commerce", () => {
 
   void it("commission detail preserves consequential transitions and calculation transparency", () => {
     const source = readFileSync(new URL("./CommissionDetail.tsx", import.meta.url), "utf8");
-    assert.match(source, /Confirm consequential state/);
+    assert.match(source, /Confirm review/);
+    assert.match(source, /Complete commission review/);
+    assert.match(source, /Commission review/);
+    assert.match(source, /Status after review/);
+    assert.match(source, /Supporting evidence/);
+    assert.match(source, /Review notes/);
+    assert.match(source, /Attach supporting evidence before completing this review/);
     assert.match(source, /ConsequentialReviewLayout/);
     assert.match(source, /ExactArtifact/);
     assert.match(source, /\/api\/commissions\/\$\{id\}\/status/);
     assert.match(source, /\/api\/commissions\/\$\{id\}\/disputes/);
     assert.match(source, /caught instanceof ApiProblem/);
+    assert.match(source, /Calculated commission is not payable until approved/);
+    assert.match(source, /Approved commission is not complete until paid/);
     assert.match(source, /Calculated is not payable/);
     assert.match(source, /Approved is not paid/);
     assert.match(source, /Visible calculation/);
+    assert.match(source, /Calculation history/);
+    assert.match(source, /No recalculations yet/);
+    assert.match(source, /calculations\.length > 1/);
+    assert.match(source, /No supporting documents yet/);
+    assert.match(source, /label: "Disputes"/);
+    assert.doesNotMatch(source, /No current calculation\./);
+    assert.doesNotMatch(source, /No calculation history\./);
+    assert.doesNotMatch(source, /No linked documents/);
+    assert.doesNotMatch(source, /Confirm consequential state/);
+    assert.doesNotMatch(source, /A clean evidence document ID is required/);
   });
 
   void it("dispute register and detail preserve allegation versus proof boundaries", () => {
@@ -133,8 +208,12 @@ void describe("Ryva Commerce", () => {
     assert.match(register, /title="Commission Disputes"/);
     assert.match(register, /does not adjudicate contractual rights/i);
     assert.match(register, /Dispute status/);
-    assert.match(register, /Open one from a Commission variance/i);
-    assert.match(detail, /Record final human decision/);
+    assert.match(register, /No commission disputes/);
+    assert.match(register, /commission amount or payment needs review/i);
+    assert.match(register, /Export disputes/);
+    assert.doesNotMatch(register, /Export case list/);
+    assert.doesNotMatch(register, /Open one from a Commission variance/);
+    assert.match(detail, /Record final decision/);
     assert.match(detail, /ConsequentialReviewLayout/);
     assert.match(detail, /Allegation is not proven|allegation is not proven|Allegation, not proven/i);
     assert.match(detail, /\/api\/commission-disputes\/\$\{id\}\/resolve/);

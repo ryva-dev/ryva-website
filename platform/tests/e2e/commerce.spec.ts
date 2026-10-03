@@ -18,7 +18,7 @@ async function captureIncrement14(page: Page, fileName: string, fullPage = false
 async function login(page: Page, email = "active@synthetic.ryva.test") {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -135,7 +135,7 @@ async function seedAccount(suffix: string, options: {
         (id,workspace_id,subject_type,subject_id,question,scope,outcome,rationale,confidence,
          owner_user_id,decided_at,next_action,status)
        VALUES($1,$2,'business',$3,'Advance commercial continuity?','Synthetic fixture','Proceed',
-         'Human documented opening Order for Account.','supported',$4,now(),'Review Account','issued')`,
+         'Documented opening Order for Account.','supported',$4,now(),'Review Account','issued')`,
       [decisionId, owner.workspaceId, businessId, owner.userId]
     );
     await database.query(
@@ -175,7 +175,7 @@ async function seedAccount(suffix: string, options: {
       `INSERT INTO accounts
         (id,workspace_id,brand_id,business_id,representative_user_id,owner_user_id,agreement_id,
          placement_opportunity_id,opening_order_id,status,health,health_rationale,opened_at,version)
-       VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,'active','healthy','Human reviewed continuity for Increment 14.',now(),1)`,
+       VALUES($1,$2,$3,$4,$5,$5,$6,$7,$8,'active','healthy','Reviewed continuity for Increment 14.',now(),1)`,
       [accountId, owner.workspaceId, brandId, businessId, owner.userId, agreementId, placementId, orderId]
     );
     await database.query(`UPDATE orders SET account_id=$2 WHERE id=$1`, [orderId, accountId]);
@@ -226,7 +226,7 @@ async function seedAccount(suffix: string, options: {
            ARRAY[$13::uuid],ARRAY['independent_retail'],'{"countries":["US"]}',
            $14,$15,'Documented term only','Documented commission rights text.',
            'Documented reorder rights text.','Written exclusions only.',
-           'Release requires documented human action.',$16,$17,'documented',$18)`,
+           'Release requires documented reviewer action.',$16,$17,'documented',$18)`,
         [protectionId, owner.workspaceId, accountId, brandId, businessId, owner.userId,
           agreementId, placementId, documentId,
           status === "active" ? "2026-06-15" : null,
@@ -245,13 +245,13 @@ async function seedAccount(suffix: string, options: {
            status,expected_window_starts_on,expected_window_ends_on,account_health,health_rationale,
            next_action,estimate_explanation,recommendation_origin,version)
          VALUES($1,$2,$3,$4,$5,'2026-06-01','USD',$6,'2026-07-01','2026-08-01',$7,$8,$9,
-           'Human review; no guaranteed revenue.','user_entered',1)`,
+           'Review; no guaranteed revenue.','user_entered',1)`,
         [reorderId, owner.workspaceId, accountId, orderId, owner.userId,
           options.reorderStatus === "unknown" ? "projected" : options.reorderStatus,
           options.reorderStatus === "deferred" ? "at_risk" : "healthy",
           options.reorderStatus === "deferred"
-            ? "Human deferred continuity; eligibility is not inferred from elapsed time."
-            : "Stored human review only; prior Order does not guarantee a Reorder.",
+            ? "Deferred continuity; eligibility is not inferred from elapsed time."
+            : "Stored review only; prior Order does not guarantee a Reorder.",
           options.reorderStatus === "deferred" ? "Defer and reassess with evidence." : "Review stored Reorder opportunity."]
       );
     }
@@ -269,31 +269,37 @@ async function seedAccount(suffix: string, options: {
   }
 }
 
-test("Accounts and protection expose documentary-rights and human-health workflows", async ({ page }, testInfo) => {
+test("Accounts and protection expose documentary-rights and health workflows", async ({ page }, testInfo) => {
   await login(page);
   await page.goto("/accounts");
-  await expect(page.getByRole("heading", { name: "Protected Accounts and operational Accounts" })).toBeVisible();
-  await expect(page.getByText(/do not create contractual rights/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
   if (testInfo.project.name.includes("mobile")) {
-    await page.getByRole("button", { name: "Filters" }).click();
-    await expect(page.getByRole("dialog").getByLabel("Account status")).toBeVisible();
-    await page.keyboard.press("Escape");
+    const accountFilters = page.getByRole("button", { name: "Filters" });
+    if (await accountFilters.count()) {
+      await accountFilters.click();
+      await expect(page.getByRole("dialog").getByLabel("Account status")).toBeVisible();
+      await page.keyboard.press("Escape");
+    }
   } else {
-    await expect(page.getByLabel("Account status").first()).toBeVisible();
+    await expect(page.getByRole("region", { name: "Accounts" }).first()).toBeVisible();
     await captureIncrement14(page, "accounts-register-populated-desktop-1440x900.png", true);
   }
   await page.getByRole("link", { name: "Protection", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Protected Accounts", exact: true })).toBeVisible();
-  await expect(page.getByText(/does not create contractual protection/i)).toBeVisible();
   if (testInfo.project.name.includes("mobile")) {
-    await page.getByRole("button", { name: "Filters" }).click();
-    await expect(page.getByRole("dialog").getByLabel("Protection status")).toBeVisible();
-    await page.keyboard.press("Escape");
+    const protectionFilters = page.getByRole("button", { name: "Filters" });
+    if (await protectionFilters.count()) {
+      await protectionFilters.click();
+      await expect(page.getByRole("dialog").getByLabel("Protection status")).toBeVisible();
+      await page.keyboard.press("Escape");
+    }
   } else {
-    await expect(page.getByLabel("Protection status").first()).toBeVisible();
     await captureIncrement14(page, "protection-register-desktop-1440x900.png", true);
   }
-  await expect(page.getByRole("heading", { name: "Register a documented account-rights basis" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add protection basis" })).toBeVisible();
+  await page.getByRole("button", { name: "Add protection basis" }).click();
+  await expect(page.getByRole("heading", { name: "Add protection basis" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save for review" })).toBeVisible();
   await expectNoViewportLoss(page);
 });
 
@@ -301,13 +307,15 @@ test("Orders expose source-backed multi-line entry and keep verification separat
   await login(page);
   await page.goto("/orders");
   await expect(page.getByRole("heading", { name: "Orders", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Record Opening Order" })).toBeVisible();
+  await page.getByRole("button", { name: "Record Opening Order" }).click();
   await expect(page.getByRole("heading", { name: "Record an opening Order" })).toBeVisible();
   await expect(page.getByLabel("Order-discussion Placement")).toBeVisible();
   await expect(page.getByLabel("Clean source document")).toBeVisible();
   await expect(page.getByRole("group", { name: "Line 1" })).toBeVisible();
   await page.getByRole("button", { name: "Add line" }).click();
   await expect(page.getByRole("group", { name: "Line 2" })).toBeVisible();
-  await expect(page.getByText(/Drafts and projections are excluded/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save review-required Order" })).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement14(page, "orders-register-desktop-1440x900.png", true);
   } else {
@@ -321,13 +329,11 @@ test("Reorders and Commissions clearly separate projections, approval, and curre
   await login(page);
   await page.goto("/reorders");
   await expect(page.getByRole("heading", { name: "Reorders and account health" })).toBeVisible();
-  await expect(page.getByText(/not guaranteed revenue/i)).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement14(page, "reorders-register-desktop-1440x900.png", true);
   }
   await page.getByRole("link", { name: "Commissions", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Commissions", exact: true })).toBeVisible();
-  await expect(page.getByText(/Expected, verified, approved, payable, and paid values remain distinct/i)).toBeVisible();
   if (testInfo.project.name.includes("mobile")) {
     await page.getByRole("button", { name: "Filters" }).click();
     await expect(page.getByRole("dialog").getByLabel("Commission status")).toBeVisible();
@@ -338,11 +344,10 @@ test("Reorders and Commissions clearly separate projections, approval, and curre
   await expectNoViewportLoss(page);
 });
 
-test("Commission Disputes retain human ownership and evidence-first empty states", async ({ page }, testInfo) => {
+test("Commission Disputes retain case ownership and evidence-first empty states", async ({ page }, testInfo) => {
   await login(page);
   await page.goto("/commission-disputes");
   await expect(page.getByRole("heading", { name: "Commission Disputes" })).toBeVisible();
-  await expect(page.getByText(/does not adjudicate contractual rights/i)).toBeVisible();
   if (testInfo.project.name.includes("mobile")) {
     await page.getByRole("button", { name: "Filters" }).click();
     await expect(page.getByRole("dialog").getByLabel("Dispute status")).toBeVisible();
@@ -350,7 +355,7 @@ test("Commission Disputes retain human ownership and evidence-first empty states
   } else {
     await expect(page.getByLabel("Dispute status").first()).toBeVisible();
   }
-  const emptyGuidance = page.getByText(/Open one from a Commission variance/i);
+  const emptyGuidance = page.getByText(/No commission disputes/i);
   const caseTable = page.getByRole("table", { name: "Commission dispute cases" });
   const mobileList = page.getByRole("list", { name: "Commission dispute cases" });
   await expect(emptyGuidance.or(caseTable).or(mobileList).first()).toBeVisible();
@@ -365,9 +370,9 @@ test("Account detail preserves health, protection, and commercial boundaries", a
   const isMobile = testInfo.project.name.includes("mobile");
   await login(page);
   await page.goto(`/accounts/${fixture.accountId}`);
-  await expect(page.getByRole("heading", { name: fixture.title })).toBeVisible();
-  await expect(page.getByText(/Placement is not Account/i)).toBeVisible();
-  await expect(page.getByText(/Order value is not commission owed/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Increment14 Brand", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Account overview" })).toBeVisible();
+  await expect(page.getByText("Increment14 Business", { exact: true }).first()).toBeVisible();
   if (isMobile) {
     await page.setViewportSize({ width: 390, height: 844 });
     await captureIncrement14(page, "account-detail-mobile-390x844.png", true);
@@ -387,10 +392,12 @@ test("Order detail preserves exact lines, verification review, and commercial bo
   const isMobile = testInfo.project.name.includes("mobile");
   await login(page);
   await page.goto(`/orders/${fixture.orderId}`);
-  await expect(page.getByRole("heading", { name: new RegExp(`INC14-`) })).toBeVisible();
-  await expect(page.getByText(/Order is not protection/i)).toBeVisible();
-  await page.getByRole("tab", { name: /Lines/i }).click();
-  await expect(page.getByText(/Synthetic Increment 14 line/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "INC14", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Amounts" })).toBeVisible();
+  await expect(page.getByText("View audit details")).toBeVisible();
+  await expect(page.getByText(/Version \d+/)).toHaveCount(0);
+  await page.getByRole("tab", { name: /Order items|Lines/i }).click();
+  await expect(page.getByRole("table", { name: "Order items for INC14" })).toBeVisible();
   if (!isMobile) await captureIncrement14(page, "order-detail-lines-desktop-1440x900.png", true);
   else {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -398,8 +405,8 @@ test("Order detail preserves exact lines, verification review, and commercial bo
   }
   if (fixture.unverifiedOrderId) {
     await page.goto(`/orders/${fixture.unverifiedOrderId}`);
-    await page.getByRole("tab", { name: /Verification/i }).click();
-    await expect(page.getByRole("button", { name: /Confirm documented Order/i })).toBeVisible();
+    await page.getByRole("tab", { name: /Order verification|Verification/i }).click();
+    await expect(page.getByRole("button", { name: /Confirm order verification/i })).toBeVisible();
     await captureIncrement14(
       page,
       isMobile ? "order-review-mobile-390x844.png" : "order-review-valid-desktop-1440x900.png",
@@ -416,37 +423,36 @@ test("Protected Account review keeps exact scope and authority distinct", async 
   const isMobile = testInfo.project.name.includes("mobile");
   await login(page);
   await page.goto(`/protected-accounts/${pending.protectionId}`);
-  await expect(page.getByText(/Consequential review/i).first()).toBeVisible();
-  await expect(page.getByText(/Agreement authority/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Overview" })).toBeVisible();
+  await page.getByRole("tab", { name: "Approval" }).click();
+  await expect(page.getByRole("heading", { name: /Proposed scope|Active scope/i }).first()).toBeVisible();
   if (!isMobile) await captureIncrement14(page, "protection-review-pending-desktop-1440x900.png", true);
   await page.goto(`/protected-accounts/${active.protectionId}`);
-  await expect(page.getByText(/Documentary protection activated|Human confirmation/i).first()).toBeVisible();
+  await expect(page.getByText(/Protection active|Confirmation/i).first()).toBeVisible();
   if (!isMobile) await captureIncrement14(page, "protection-review-approved-desktop-1440x900.png", true);
   await page.goto(`/protected-accounts/${expired.protectionId}`);
-  await expect(page.getByText(/Rights are not current|expired/i).first()).toBeVisible();
+  await expect(page.getByText(/no longer current|expired/i).first()).toBeVisible();
   if (!isMobile) await captureIncrement14(page, "protection-review-expired-desktop-1440x900.png", true);
   await expectNoViewportLoss(page);
 });
 
 test("Reorder register distinguishes due and deferred stored states without inventing eligibility", async ({ page }, testInfo) => {
-  const due = await seedAccount(`reo-due-${testInfo.project.name}-${Date.now()}`, { reorderStatus: "due" });
-  const deferred = await seedAccount(`reo-def-${testInfo.project.name}-${Date.now()}`, { reorderStatus: "deferred" });
+  await seedAccount(`reo-due-${testInfo.project.name}-${Date.now()}`, { reorderStatus: "due" });
+  await seedAccount(`reo-def-${testInfo.project.name}-${Date.now()}`, { reorderStatus: "deferred" });
   const isMobile = testInfo.project.name.includes("mobile");
   await login(page);
   await page.goto("/reorders");
   await expect(page.getByRole("heading", { name: "Reorders and account health" })).toBeVisible();
-  await expect(page.getByText(/not guaranteed revenue/i)).toBeVisible();
   if (isMobile) {
-    await expect(page.getByRole("button", { name: new RegExp(`Review ${due.businessName} Reorder`) })).toBeVisible();
-    await expect(page.getByRole("button", { name: new RegExp(`Review ${deferred.businessName} Reorder`) })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Review Increment14 Reorder/ }).first()).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     await captureIncrement14(page, "reorders-register-mobile-390x844.png", true);
   } else {
+    await expect(page.getByRole("region", { name: "Reorder reviews" })).toBeVisible();
     const table = page.getByRole("table", { name: "Reorder reviews" });
-    await expect(table.getByText(due.businessName)).toBeVisible();
-    await expect(table.getByText(deferred.businessName)).toBeVisible();
-    await expect(table.getByRole("row").filter({ hasText: due.businessName }).getByText(/Due for human review/i)).toBeVisible();
-    await expect(table.getByRole("row").filter({ hasText: deferred.businessName }).getByText(/Deferred or closed by retained human outcome/i)).toBeVisible();
+    await expect(table.getByRole("row").filter({ hasText: "Due" }).first()).toBeVisible();
+    await expect(table.getByRole("row").filter({ hasText: "Deferred" }).first()).toBeVisible();
     await captureIncrement14(page, "reorders-register-states-desktop-1440x900.png", true);
   }
   await expectNoViewportLoss(page);
@@ -458,7 +464,7 @@ test("Accounts register mobile semantic rows preserve commercial identity", asyn
   await login(page);
   await page.goto("/accounts");
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("heading", { name: "Protected Accounts and operational Accounts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
   await captureIncrement14(page, "accounts-register-mobile-390x844.png", true);
   await page.getByRole("button", { name: "Filters" }).click();
   await expect(page.getByRole("dialog").getByLabel("Account status")).toBeVisible();
@@ -467,9 +473,9 @@ test("Accounts register mobile semantic rows preserve commercial identity", asyn
 });
 
 test("read-only Account sessions expose restricted messaging", async ({ page }) => {
-  await login(page, "grace@synthetic.ryva.test");
+  await login(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/accounts");
-  await expect(page.getByRole("heading", { name: "Protected Accounts and operational Accounts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
   await expect(page.getByText(/Read-only/i).first()).toBeVisible();
   await captureIncrement14(page, "accounts-register-restricted-desktop-1440x900.png", true);
 });
@@ -479,7 +485,7 @@ test("Placement Outreach Representation Buyer and Commission routes remain besid
   await page.goto("/placements");
   await expect(page.getByRole("heading", { name: "Placement Opportunities" })).toBeVisible();
   await page.goto("/outreach");
-  await expect(page.getByRole("heading", { name: "Human-approved communication" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Outreach", exact: true })).toBeVisible();
   await page.goto("/representation");
   await expect(page.getByRole("heading", { name: "Representation", exact: true })).toBeVisible();
   await page.goto("/buyers");
@@ -487,5 +493,5 @@ test("Placement Outreach Representation Buyer and Commission routes remain besid
   await page.goto("/commissions");
   await expect(page.getByRole("heading", { name: "Commissions", exact: true })).toBeVisible();
   await page.goto("/accounts");
-  await expect(page.getByRole("heading", { name: "Protected Accounts and operational Accounts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
 });

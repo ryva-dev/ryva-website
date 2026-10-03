@@ -42,16 +42,42 @@ const schema = z
     EMAIL_WEBHOOK_SECRET: z.string().default(""),
     EMAIL_FROM_ADDRESS: z.union([z.literal(""), z.string().email()]).default(""),
     OUTREACH_SEND_ENABLED: booleanString,
+    TRANSACTIONAL_EMAIL_PROVIDER_URL: z.union([z.literal(""), z.string().url()]).default(""),
+    TRANSACTIONAL_EMAIL_PROVIDER_TOKEN: z.string().default(""),
+    TRANSACTIONAL_EMAIL_FROM_ADDRESS: z.union([z.literal(""), z.string().email()]).default(""),
+    PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(15).max(240).default(60),
+    RYVA_PRO_TRIAL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+    TERMS_DOCUMENT_URL: z.union([z.literal(""), z.string().url()]).default(""),
+    TERMS_DOCUMENT_VERSION: z.string().trim().default("2026-10-02"),
+    PRIVACY_DOCUMENT_URL: z.union([z.literal(""), z.string().url()]).default(""),
+    PRIVACY_DOCUMENT_VERSION: z.string().trim().default("2026-10-02"),
+    REFUND_POLICY_DOCUMENT_URL: z.union([z.literal(""), z.string().url()]).default(""),
+    REFUND_POLICY_DOCUMENT_VERSION: z.string().trim().default("2026-10-02"),
+    DISCLAIMER_DOCUMENT_URL: z.union([z.literal(""), z.string().url()]).default(""),
+    DISCLAIMER_DOCUMENT_VERSION: z.string().trim().default("2026-10-02"),
     STRIPE_SECRET_KEY: z.string().default(""),
     STRIPE_WEBHOOK_SECRET: z.string().default(""),
+    STRIPE_PROGRAM_PRICE_ID: z.string().default(""),
+    PROGRAM_PRICE_CENTS: z.coerce.number().int().refine((value) => value === 39700, {
+      message: "The Ryva Program price must be 39700 cents."
+    }).default(39700),
+    PROGRAM_PRICE_CURRENCY: z.string().trim().toLowerCase().refine((value) => value === "usd", {
+      message: "The Ryva Program currency must be USD."
+    }).default("usd"),
     STRIPE_PRICE_ID: z.string().default(""),
+    RYVA_PRO_PRICE_CENTS: z.coerce.number().int().refine((value) => value === 2000, {
+      message: "Ryva Pro must cost 2000 cents per month."
+    }).default(2000),
+    RYVA_PRO_PRICE_CURRENCY: z.string().trim().toLowerCase().refine((value) => value === "usd", {
+      message: "Ryva Pro currency must be USD."
+    }).default("usd"),
     STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
     LOCAL_STORAGE_PATH: z.string().default(".data/documents"),
     S3_BUCKET: z.string().default(""),
     S3_REGION: z.string().default(""),
     S3_ENDPOINT: z.union([z.literal(""), z.string().url()]).default(""),
     MALWARE_SCANNER_WEBHOOK_SECRET: z.string().default(""),
-    SUPPORT_EMAIL: z.string().email().default("support@example.com"),
+    SUPPORT_EMAIL: z.string().email().default("support@ryvaforge.com"),
     JOB_WORKER_ENABLED: booleanString,
     JOB_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(60_000).default(5000),
     CONTROLLED_LAUNCH_ENABLED: booleanString,
@@ -64,14 +90,17 @@ const schema = z
     const required: Array<keyof typeof value> = [
       "SESSION_PEPPER",
       "FIELD_ENCRYPTION_KEY",
-      "CREDENTIAL_WEBHOOK_SECRET",
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_PROGRAM_PRICE_ID",
       "STRIPE_PRICE_ID",
       "EMAIL_PROVIDER_URL",
       "EMAIL_PROVIDER_TOKEN",
       "EMAIL_WEBHOOK_SECRET",
       "EMAIL_FROM_ADDRESS",
+      "TRANSACTIONAL_EMAIL_PROVIDER_URL",
+      "TRANSACTIONAL_EMAIL_PROVIDER_TOKEN",
+      "TRANSACTIONAL_EMAIL_FROM_ADDRESS",
       "S3_BUCKET",
       "S3_REGION",
       "MALWARE_SCANNER_WEBHOOK_SECRET"
@@ -90,6 +119,18 @@ const schema = z
         code: "custom",
         path: ["APP_URL"],
         message: "APP_URL must use HTTPS in production"
+      });
+    }
+    if (
+      (value.TERMS_DOCUMENT_URL && !value.TERMS_DOCUMENT_URL.startsWith("https://")) ||
+      (value.PRIVACY_DOCUMENT_URL && !value.PRIVACY_DOCUMENT_URL.startsWith("https://")) ||
+      (value.REFUND_POLICY_DOCUMENT_URL && !value.REFUND_POLICY_DOCUMENT_URL.startsWith("https://")) ||
+      (value.DISCLAIMER_DOCUMENT_URL && !value.DISCLAIMER_DOCUMENT_URL.startsWith("https://"))
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["TERMS_DOCUMENT_URL"],
+        message: "Production legal document URLs must use HTTPS"
       });
     }
     if (value.PGSSL === "disable") {

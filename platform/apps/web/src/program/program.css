@@ -1,0 +1,1572 @@
+.ry-program-page {
+  width: min(100%, var(--width-workspace-max));
+  margin: var(--space-0) auto;
+  padding: var(--space-6) var(--space-7) var(--space-9);
+  color: var(--color-text-strong);
+}
+
+.ry-program-page a {
+  text-underline-offset: var(--size-2);
+}
+
+.ry-program-masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-masthead.compact {
+  margin-bottom: var(--space-7);
+}
+
+.ry-program-masthead p {
+  max-width: var(--width-drawer-wide);
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.ry-program-kicker,
+.ry-program-back {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.ry-program-kicker {
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+}
+
+.ry-program-overline,
+.ry-program-state {
+  display: block;
+  margin-bottom: var(--space-3);
+  color: var(--color-accent);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-program-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--width-drawer-standard));
+  gap: var(--space-9);
+  align-items: end;
+  padding: var(--space-9) var(--space-0);
+}
+
+.ry-program-hero h1,
+.ry-program-module-layout h1,
+.ry-program-lesson h1,
+.ry-program-final-preparing h1 {
+  max-width: var(--width-reading);
+  margin-bottom: var(--space-5);
+  font-family: var(--font-family-serif);
+  font-size: clamp(var(--font-size-36), 5vw, var(--font-size-48));
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-44);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.ry-program-hero > div > p:not(.ry-program-overline) {
+  max-width: var(--width-reading);
+  margin-bottom: var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-18);
+}
+
+.ry-program-hero aside {
+  padding: var(--space-6);
+  border-top: var(--border-width-2) solid var(--color-accent);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-hero dl {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-6) var(--space-0) var(--space-0);
+}
+
+.ry-program-hero dl div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ry-program-hero dt,
+.ry-program-contents > span {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-program-hero dd {
+  margin: var(--space-0);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-18);
+}
+
+.ry-program-primary-link,
+.ry-program-secondary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height-touch);
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-width-1) solid var(--color-accent);
+  border-radius: var(--radius-1);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.ry-program-primary-link {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+}
+
+.ry-program-primary-link:hover {
+  background: var(--color-accent-hover);
+}
+
+.ry-program-secondary-link {
+  color: var(--color-accent);
+  background: transparent;
+}
+
+.ry-program-progress > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+  color: var(--color-text-default);
+}
+
+.ry-program-progress progress {
+  width: 100%;
+  height: var(--size-2);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--color-border-strong);
+  accent-color: var(--color-accent);
+}
+
+.ry-program-progress progress::-webkit-progress-bar {
+  border-radius: var(--radius-pill);
+  background: var(--color-border-strong);
+}
+
+.ry-program-progress progress::-webkit-progress-value {
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+}
+
+.ry-program-journey {
+  padding-top: var(--space-7);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-journey > header {
+  max-width: var(--width-reading);
+  margin-bottom: var(--space-7);
+}
+
+.ry-program-journey > header h2,
+.ry-program-completion h2 {
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-36);
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-program-journey ol,
+.ry-program-item-list,
+.ry-program-contents ol {
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-program-module-row {
+  display: grid;
+  grid-template-columns: var(--size-10) minmax(0, 1fr) minmax(0, var(--width-stat-chip-featured));
+  gap: var(--space-6);
+  align-items: start;
+  padding: var(--space-6) var(--space-0);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-module-number {
+  padding-top: var(--space-1);
+  color: var(--color-accent);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+}
+
+.ry-program-module-row h3,
+.ry-program-final-row h3,
+.ry-program-item-list h3 {
+  margin-bottom: var(--space-2);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-program-module-row h3 a,
+.ry-program-final-row h3 a,
+.ry-program-item-list h3 a {
+  text-decoration: none;
+}
+
+.ry-program-module-row p,
+.ry-program-final-row p,
+.ry-program-item-list p {
+  margin-bottom: var(--space-0);
+  color: var(--color-text-muted);
+}
+
+.ry-program-module-meta {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: end;
+  padding-top: var(--space-5);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-13);
+}
+
+.ry-program-module-row.state-locked,
+.ry-program-module-row.state-preparing,
+.ry-program-final-row.state-draft,
+.ry-program-final-row.state-locked {
+  opacity: 65%;
+}
+
+.ry-program-final-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--width-drawer-standard));
+  gap: var(--space-8);
+  align-items: center;
+  margin-top: var(--space-7);
+  padding: var(--space-7);
+  color: var(--color-text-on-dark);
+  background: var(--color-shell-bg);
+}
+
+.ry-program-final-row .ry-program-state,
+.ry-program-final-row p {
+  color: var(--color-shell-text-muted);
+}
+
+.ry-program-final-row blockquote {
+  margin: var(--space-0);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-30);
+  font-style: italic;
+}
+
+.ry-program-module-layout {
+  display: grid;
+  grid-template-columns: minmax(0, var(--width-drawer-standard)) minmax(0, 1fr);
+  gap: var(--space-9);
+}
+
+.ry-program-module-layout > header {
+  position: sticky;
+  top: var(--space-6);
+  align-self: start;
+}
+
+.ry-program-module-layout .ry-program-back,
+.ry-program-lesson .ry-program-back,
+.ry-program-final-preparing .ry-program-back {
+  display: inline-block;
+  margin-bottom: var(--space-7);
+}
+
+.ry-program-item-list {
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-item-list li {
+  display: grid;
+  grid-template-columns: var(--size-8) minmax(0, 1fr) auto;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-0);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-item-list li > span,
+.ry-program-item-list small {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-12);
+}
+
+.ry-program-item-list li > strong {
+  color: var(--color-accent);
+  font-size: var(--font-size-13);
+}
+
+.ry-program-inline-check-status {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-3);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-program-inline-check-status > span {
+  display: inline-grid;
+  width: var(--size-5);
+  height: var(--size-5);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  place-items: center;
+  color: var(--color-accent);
+}
+
+.ry-program-preparing,
+.ry-program-final-preparing {
+  max-width: var(--width-reading);
+  padding: var(--space-7);
+  border-top: var(--border-width-2) solid var(--color-accent);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-lesson-layout {
+  display: grid;
+  grid-template-columns: minmax(0, var(--width-reading)) minmax(0, var(--width-context-rail));
+  gap: var(--space-9);
+  justify-content: center;
+}
+
+.ry-program-lesson > header {
+  padding-bottom: var(--space-6);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-lesson > header > p:not(.ry-program-overline) {
+  font-size: var(--font-size-18);
+}
+
+.ry-program-prose {
+  padding: var(--space-7) var(--space-0);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-20);
+  line-height: var(--line-height-32);
+}
+
+.ry-program-prose > p {
+  margin: var(--space-0) var(--space-0) var(--space-5);
+}
+
+.ry-program-prose h2,
+.ry-program-prose h3 {
+  font-family: var(--font-family-serif);
+}
+
+.ry-program-prose h2 {
+  margin: var(--space-8) var(--space-0) var(--space-4);
+}
+
+.ry-program-prose h3 {
+  margin: var(--space-7) var(--space-0) var(--space-3);
+}
+
+.ry-program-prose > ul,
+.ry-program-prose > ol {
+  margin: var(--space-0) var(--space-0) var(--space-6);
+}
+
+.ry-program-prose > :last-child {
+  margin-bottom: var(--space-0);
+}
+
+.ry-program-prose blockquote {
+  margin: var(--space-7) var(--space-0);
+  padding-left: var(--space-5);
+  border-left: var(--border-width-2) solid var(--color-accent);
+  color: var(--color-accent);
+  font-size: var(--font-size-30);
+  font-style: italic;
+}
+
+.ry-program-callout,
+.ry-program-video,
+.ry-program-considerations,
+.ry-program-transcript {
+  margin: var(--space-6) var(--space-0);
+  padding: var(--space-5);
+  border-top: var(--border-width-2) solid var(--color-accent);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-video {
+  display: grid;
+  gap: var(--space-2);
+  min-height: var(--width-stat-chip-featured);
+  align-content: center;
+  background:
+    linear-gradient(135deg, var(--color-accent-subtle), var(--color-surface-subtle));
+}
+
+.ry-program-video span,
+.ry-program-workspace-preview header span,
+.ry-program-workspace-preview aside > span,
+.ry-program-workspace-preview article > span {
+  color: var(--color-accent);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-program-video strong {
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+}
+
+.ry-program-video p {
+  max-width: var(--width-reading);
+  margin: var(--space-0);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-relationship-visual,
+.ry-program-commercial-journey {
+  margin: var(--space-7) var(--space-0);
+  padding: var(--space-6);
+  background: var(--color-shell-bg);
+}
+
+.ry-program-relationship-visual figcaption,
+.ry-program-commercial-journey figcaption {
+  margin-bottom: var(--space-5);
+  color: var(--color-shell-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-program-relationship-center {
+  width: fit-content;
+  margin: var(--space-0) auto var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-width-1) solid var(--color-accent);
+  color: var(--color-text-on-dark);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-20);
+  text-align: center;
+}
+
+.ry-program-relationship-visual ul,
+.ry-program-commercial-journey ol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-program-relationship-visual li {
+  padding: var(--space-4);
+  border-top: var(--border-width-1) solid var(--color-accent);
+  color: var(--color-text-on-dark);
+  background: var(--color-shell-bg-hover);
+}
+
+.ry-program-relationship-visual li:last-child {
+  grid-column: 1 / -1;
+}
+
+.ry-program-relationship-visual li > strong {
+  color: var(--color-text-on-dark);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-20);
+}
+
+.ry-program-relationship-visual li p,
+.ry-program-relationship-visual li blockquote {
+  margin: var(--space-2) var(--space-0) var(--space-0);
+  color: var(--color-shell-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-relationship-visual li blockquote {
+  padding: var(--space-0);
+  border: none;
+  color: var(--color-text-on-dark);
+  font-family: var(--font-family-serif);
+  font-style: italic;
+}
+
+.ry-program-commercial-journey ol {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.ry-program-commercial-journey li {
+  position: relative;
+  min-height: var(--width-stat-chip-featured);
+  padding: var(--space-4);
+  color: var(--color-text-on-dark);
+  background: var(--color-shell-bg-hover);
+}
+
+.ry-program-commercial-journey li:not(:last-child)::after {
+  position: absolute;
+  top: var(--space-5);
+  right: calc(var(--space-3) * -1);
+  z-index: var(--z-base);
+  color: var(--color-accent);
+  content: "→";
+}
+
+.ry-program-commercial-journey li span {
+  display: block;
+  margin-bottom: var(--space-4);
+  color: var(--color-accent);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-12);
+}
+
+.ry-program-commercial-journey li strong {
+  font-size: var(--font-size-18);
+}
+
+.ry-program-commercial-journey li p {
+  margin: var(--space-2) var(--space-0) var(--space-0);
+  color: var(--color-shell-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-20);
+}
+
+.ry-program-visual-note {
+  margin: var(--space-5) var(--space-0) var(--space-0);
+  color: var(--color-shell-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+}
+
+.ry-program-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-7) var(--space-0);
+}
+
+.ry-program-comparison article {
+  padding: var(--space-5);
+  border-top: var(--border-width-2) solid var(--color-accent);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-comparison article h3 {
+  margin: var(--space-0) var(--space-0) var(--space-3);
+  font-size: var(--font-size-24);
+}
+
+.ry-program-comparison article p,
+.ry-program-comparison article li {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-workspace-preview {
+  margin: var(--space-7) var(--space-0);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  background: var(--color-surface);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-workspace-preview > header {
+  display: flex;
+  gap: var(--space-5);
+  align-items: start;
+  justify-content: space-between;
+  padding: var(--space-6);
+  color: var(--color-text-on-dark);
+  background: var(--color-shell-bg);
+}
+
+.ry-program-workspace-preview > header h2 {
+  margin: var(--space-2) var(--space-0);
+  color: var(--color-text-on-dark);
+}
+
+.ry-program-workspace-preview > header p {
+  max-width: var(--width-reading);
+  margin: var(--space-0);
+  color: var(--color-shell-text-muted);
+}
+
+.ry-program-workspace-preview > header > strong {
+  flex: none;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-1) solid var(--color-accent);
+  color: var(--color-text-on-dark);
+  font-size: var(--font-size-12);
+}
+
+.ry-program-workspace-preview > aside,
+.ry-program-workspace-preview > footer {
+  padding: var(--space-5) var(--space-6);
+  background: var(--color-accent-subtle);
+}
+
+.ry-program-workspace-preview > aside h3,
+.ry-program-workspace-preview > footer h3 {
+  margin: var(--space-2) var(--space-0);
+  font-family: var(--font-family-serif);
+}
+
+.ry-program-workspace-preview > aside ul,
+.ry-program-workspace-preview > footer ol {
+  margin-bottom: var(--space-0);
+}
+
+.ry-program-preview-map {
+  display: grid;
+  grid-template-columns: minmax(0, var(--width-context-rail)) minmax(0, 1fr);
+  min-height: var(--width-drawer-wide);
+}
+
+.ry-program-preview-map nav {
+  display: grid;
+  align-content: start;
+  padding: var(--space-3);
+  border-right: var(--border-width-1) solid var(--color-border);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-preview-map nav button {
+  min-height: var(--control-height-default);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-left: var(--border-width-2) solid transparent;
+  color: var(--color-text-muted);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ry-program-preview-map nav button:hover,
+.ry-program-preview-map nav button[aria-pressed="true"] {
+  border-left-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.ry-program-preview-map article {
+  display: grid;
+  gap: var(--space-3);
+  align-content: center;
+  padding: var(--space-7);
+}
+
+.ry-program-preview-map article h3,
+.ry-program-preview-map article p {
+  margin: var(--space-0);
+}
+
+.ry-program-preview-map article h3 {
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-30);
+}
+
+.ry-program-preview-map article > strong {
+  padding: var(--space-4);
+  border-left: var(--border-width-2) solid var(--color-accent);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-transcript summary {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.ry-program-media-placeholder {
+  display: grid;
+  min-height: var(--width-stat-chip-featured);
+  place-items: center;
+  padding: var(--space-5);
+  color: var(--color-text-muted);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-contents {
+  position: sticky;
+  top: var(--space-6);
+  align-self: start;
+  padding-left: var(--space-6);
+  border-left: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-contents h2 {
+  margin: var(--space-2) var(--space-0) var(--space-4);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+  line-height: var(--line-height-28);
+}
+
+.ry-program-contents li a {
+  display: grid;
+  grid-template-columns: var(--size-7) minmax(0, 1fr) var(--size-5);
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-3) var(--space-3);
+  border-left: var(--border-width-2) solid transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-20);
+  text-decoration: none;
+}
+
+.ry-program-contents li a > span:nth-child(2) {
+  min-width: var(--space-0);
+  text-wrap: pretty;
+}
+
+.ry-program-contents li small {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-16);
+}
+
+.ry-program-contents li strong {
+  color: var(--color-success);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-20);
+  text-align: right;
+}
+
+.ry-program-contents li.current a {
+  border-left-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-program-contents li.current a > span:first-child {
+  font-weight: var(--font-weight-bold);
+}
+
+.ry-program-activity {
+  width: min(100%, var(--width-reading));
+  margin: var(--space-8) auto var(--space-7);
+  padding-top: var(--space-7);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-activity-intro {
+  max-width: var(--width-reading);
+  margin: var(--space-0) var(--space-0) var(--space-7);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-activity-step {
+  margin: var(--space-0);
+  padding: var(--space-0);
+  border: none;
+}
+
+.ry-program-activity-step > legend {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  margin: var(--space-0) var(--space-0) var(--space-4);
+  padding: var(--space-0);
+}
+
+.ry-program-activity-step-number {
+  color: var(--color-accent);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-16);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-program-activity-step-title {
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-32);
+  text-wrap: pretty;
+}
+
+.ry-program-activity-context {
+  margin: var(--space-0) var(--space-0) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-prose + .ry-program-activity,
+.ry-program-prose + .ry-program-knowledge-check {
+  margin-top: var(--space-2);
+}
+
+.ry-program-knowledge-check {
+  width: min(100%, var(--width-reading));
+  margin: var(--space-9) auto var(--space-7);
+  padding: var(--space-6) var(--space-0) var(--space-0);
+  border: none;
+  border-top: var(--border-width-2) solid var(--color-accent);
+  background: transparent;
+}
+
+.ry-program-knowledge-check > header {
+  max-width: var(--width-reading);
+  margin-bottom: var(--space-7);
+}
+
+.ry-program-knowledge-check > header .ry-program-overline {
+  margin-bottom: var(--space-2);
+}
+
+.ry-program-knowledge-check > header h2 {
+  margin: var(--space-0) var(--space-0) var(--space-2);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-30);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-38);
+}
+
+.ry-program-knowledge-check > header > p:last-child {
+  max-width: var(--width-reading);
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-knowledge-check > form {
+  display: grid;
+  gap: var(--space-0);
+}
+
+.ry-program-knowledge-check > form > button {
+  width: fit-content;
+  margin-top: var(--space-7);
+}
+
+.ry-program-knowledge-question {
+  display: block;
+  margin: var(--space-0);
+  padding: var(--space-0) var(--space-0) var(--space-4);
+  border: none;
+  background: transparent;
+}
+
+.ry-program-knowledge-question + .ry-program-knowledge-question {
+  margin-top: var(--space-4);
+  padding-top: var(--space-7);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-knowledge-question > legend {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  max-width: var(--width-reading);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-20);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-28);
+  text-wrap: pretty;
+}
+
+.ry-program-question-number {
+  display: block;
+  color: var(--color-accent);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-16);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.ry-program-question-title {
+  display: block;
+}
+
+.ry-program-knowledge-question.is-unanswered {
+  scroll-margin-block: var(--space-9);
+  margin-left: calc(var(--space-4) * -1);
+  padding-left: calc(var(--space-4) - var(--border-width-2));
+  border-left: var(--border-width-2) solid var(--color-accent);
+}
+
+.ry-program-question-required {
+  color: var(--color-accent);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-16);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-program-check-instruction {
+  margin: var(--space-3) var(--space-0) var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-20);
+}
+
+.ry-program-check-options,
+.ry-program-check-ordering,
+.ry-program-check-matching {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  margin-top: var(--space-5);
+}
+
+.ry-program-check-options {
+  grid-auto-rows: minmax(calc(var(--size-10) + var(--space-1)), max-content);
+}
+
+.ry-program-check-options label {
+  box-sizing: border-box;
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  height: calc(var(--size-10) + var(--space-1));
+  min-height: calc(var(--size-10) + var(--space-1));
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: var(--color-surface);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-20);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ry-program-check-options label:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-check-options label:focus-within {
+  outline: var(--border-width-2) solid var(--color-focus-ring);
+  outline-offset: var(--size-2);
+}
+
+.ry-program-check-options input[type="radio"],
+.ry-program-check-options input[type="checkbox"] {
+  flex: none;
+  width: var(--size-4);
+  height: var(--size-4);
+  margin: var(--space-0);
+  accent-color: var(--color-accent);
+}
+
+.ry-program-check-options label:has(input:checked) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-program-check-ordering label,
+.ry-program-check-matching label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.ry-program-check-ordering select,
+.ry-program-check-matching select {
+  min-height: var(--control-height-default);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  background: var(--color-surface);
+  font: inherit;
+}
+
+.ry-program-check-number {
+  display: grid;
+  gap: var(--space-2);
+  width: min(100%, var(--width-stat-chip-featured));
+  margin-top: var(--space-5);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-20);
+}
+
+.ry-program-check-number input {
+  min-height: var(--control-height-touch);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  border-radius: var(--radius-1);
+  color: var(--color-text-default);
+  background: var(--color-surface);
+  font: inherit;
+}
+
+.ry-program-question-feedback {
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-left: var(--border-width-2) solid var(--color-accent);
+  background: var(--color-surface-subtle);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-question-feedback.is-correct {
+  border-left-color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.ry-program-question-feedback > strong {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--color-accent);
+  font-weight: var(--font-weight-bold);
+}
+
+.ry-program-question-feedback.is-correct > strong {
+  color: var(--color-success);
+}
+
+.ry-program-question-feedback p {
+  margin: var(--space-0);
+}
+
+.ry-program-question-feedback aside,
+.ry-program-question-feedback ul {
+  margin: var(--space-3) var(--space-0) var(--space-0);
+}
+
+.ry-program-question-feedback aside {
+  padding-left: var(--space-4);
+  border-left: var(--border-width-1) solid var(--color-border-strong);
+}
+
+.ry-program-inline-continue {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-options,
+.ry-program-ordering {
+  margin: var(--space-5) var(--space-0) var(--space-0);
+  padding: var(--space-5) var(--space-0) var(--space-0);
+  border: none;
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-options > legend,
+.ry-program-ordering > legend {
+  width: 100%;
+  padding: var(--space-0);
+  color: var(--color-text-strong);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-20);
+}
+
+.ry-program-prompt {
+  margin: var(--space-5) var(--space-0) var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-24);
+}
+
+.ry-program-field {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: var(--border-width-1) solid var(--color-border);
+  color: var(--color-text-strong);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-20);
+}
+
+.ry-program-field textarea {
+  box-sizing: border-box;
+  min-height: calc(var(--space-9) + var(--space-7));
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  border-radius: var(--radius-1);
+  color: var(--color-text-default);
+  background: var(--color-surface);
+  font: inherit;
+  resize: vertical;
+}
+
+.ry-program-option-grid,
+.ry-program-ordering-grid {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.ry-program-option-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ry-program-option-grid label,
+.ry-program-ordering-grid label {
+  box-sizing: border-box;
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: calc(var(--size-10) + var(--space-1));
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: var(--color-surface);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-20);
+  cursor: pointer;
+}
+
+.ry-program-option-grid label:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-subtle);
+}
+
+.ry-program-option-grid label:focus-within {
+  outline: var(--border-width-2) solid var(--color-focus-ring);
+  outline-offset: var(--size-2);
+}
+
+.ry-program-option-grid input {
+  flex: none;
+  width: var(--size-4);
+  height: var(--size-4);
+  margin: var(--space-0);
+  accent-color: var(--color-accent);
+}
+
+.ry-program-option-grid label:has(input:checked) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-program-ordering-grid label {
+  justify-content: space-between;
+}
+
+.ry-program-ordering-grid select {
+  min-height: var(--control-height-default);
+  padding: var(--space-2);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  background: var(--color-surface);
+}
+
+.ry-program-activity > button {
+  width: fit-content;
+  margin-top: var(--space-7);
+}
+
+.ry-program-lesson-actions,
+.ry-program-completion > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  padding-top: var(--space-5);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-complete-mark {
+  color: var(--color-success);
+}
+
+.ry-program-completion {
+  margin: var(--space-7) var(--space-0);
+  padding: var(--space-7);
+  border-top: var(--border-width-2) solid var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.ry-program-final-assessment > header {
+  margin-bottom: var(--space-9);
+}
+
+.ry-program-assessment-result {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 760px);
+  margin: var(--space-9) auto 0;
+  padding-top: var(--space-8);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-assessment-result > .ry-program-overline {
+  margin: var(--space-0) var(--space-0) var(--space-3);
+  line-height: var(--line-height-16);
+}
+
+.ry-program-assessment-result h2 {
+  max-width: 680px;
+  margin: var(--space-0) var(--space-0) var(--space-5);
+  font-family: var(--font-family-serif);
+  font-size: clamp(1.75rem, 3vw, 2.4rem);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-44);
+  letter-spacing: var(--letter-spacing-tight);
+  text-wrap: balance;
+}
+
+.ry-program-assessment-score {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-8);
+  color: var(--color-accent);
+  font-family: var(--font-family-serif);
+  font-size: 2.5rem;
+}
+
+.ry-program-assessment-score span {
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+}
+
+.ry-program-assessment-performance {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
+}
+
+.ry-program-assessment-performance > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+}
+
+.ry-program-assessment-performance span,
+.ry-program-assessment-performance strong {
+  font-size: var(--font-size-14);
+}
+
+.ry-program-assessment-performance progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 4px;
+  accent-color: var(--color-accent);
+}
+
+.ry-program-assessment-result > button {
+  align-self: flex-start;
+}
+
+.ry-program-formula,
+.ry-program-data-table {
+  margin: var(--space-7) 0;
+}
+
+.ry-program-formula {
+  padding: var(--space-5) 0 var(--space-5) var(--space-5);
+  border-left: var(--size-1) solid var(--color-accent);
+}
+
+.ry-program-formula figcaption,
+.ry-program-data-table figcaption {
+  margin-bottom: var(--space-3);
+  color: var(--color-accent);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-program-formula code {
+  display: block;
+  margin-bottom: var(--space-3);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-18);
+}
+
+.ry-program-formula p,
+.ry-program-formula small,
+.ry-program-data-table p {
+  display: block;
+  color: var(--color-text-muted);
+}
+
+.ry-program-data-table > div {
+  overflow-x: auto;
+}
+
+.ry-program-data-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-14);
+}
+
+.ry-program-data-table th,
+.ry-program-data-table td {
+  padding: var(--space-3);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ry-program-numeric-field input,
+.ry-program-mapping-field select,
+.ry-program-score-matrix select,
+.ry-program-classification select,
+.ry-program-assortment-builder select {
+  min-height: var(--control-height-default);
+}
+
+.ry-program-mapping-field,
+.ry-program-score-matrix,
+.ry-program-classification,
+.ry-program-assortment-builder {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-5) 0;
+  padding: 0;
+  border: 0;
+}
+
+.ry-program-mapping-field > label,
+.ry-program-score-matrix > label,
+.ry-program-classification > label,
+.ry-program-assortment-products > label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(var(--width-stat-chip-featured), 34%);
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-assortment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+  align-items: baseline;
+  padding: var(--space-4) 0;
+  border-top: var(--border-width-1) solid var(--color-accent);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-program-assortment-summary .is-over {
+  color: var(--color-danger);
+}
+
+.ry-program-assortment-summary .is-met {
+  color: var(--color-success);
+}
+
+.ry-program-assortment-products {
+  display: grid;
+}
+
+.ry-program-assortment-products label > span,
+.ry-program-assortment-products small {
+  display: grid;
+  gap: var(--space-1);
+}
+
+@media (max-width: 640px) {
+  .ry-program-mapping-field > label,
+  .ry-program-score-matrix > label,
+  .ry-program-classification > label,
+  .ry-program-assortment-products > label {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .ry-program-assessment-score {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 64rem) {
+  .ry-program-hero,
+  .ry-program-module-layout,
+  .ry-program-lesson-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-7);
+  }
+
+  .ry-program-module-layout > header,
+  .ry-program-contents {
+    position: static;
+  }
+
+  .ry-program-contents {
+    order: -1;
+    padding: var(--space-5);
+    border: var(--border-width-1) solid var(--color-border);
+  }
+
+  .ry-program-commercial-journey ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ry-program-preview-map {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-program-preview-map nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-right: none;
+    border-bottom: var(--border-width-1) solid var(--color-border);
+  }
+
+  .ry-program-option-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 48rem) {
+  .ry-program-page {
+    padding: var(--space-5) var(--space-4) var(--space-8);
+  }
+
+  .ry-program-knowledge-check {
+    margin: var(--space-8) auto var(--space-7);
+    padding: var(--space-5) var(--space-0) var(--space-0);
+  }
+
+  .ry-program-check-options label {
+    height: auto;
+  }
+
+  .ry-program-option-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-program-contents {
+    order: initial;
+  }
+
+  .ry-program-masthead,
+  .ry-program-final-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-program-masthead {
+    display: grid;
+  }
+
+  .ry-program-masthead p {
+    text-align: left;
+  }
+
+  .ry-program-hero {
+    padding: var(--space-7) var(--space-0);
+  }
+
+  .ry-program-module-row {
+    grid-template-columns: var(--size-8) minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  .ry-program-module-meta {
+    grid-column: 2;
+    justify-items: start;
+    padding-top: var(--space-0);
+  }
+
+  .ry-program-final-row,
+  .ry-program-completion,
+  .ry-program-final-preparing {
+    padding: var(--space-5);
+  }
+
+  .ry-program-item-list li {
+    grid-template-columns: var(--size-7) minmax(0, 1fr);
+  }
+
+  .ry-program-item-list li > strong {
+    grid-column: 2;
+  }
+
+  .ry-program-relationship-visual,
+  .ry-program-commercial-journey {
+    padding: var(--space-4);
+  }
+
+  .ry-program-relationship-visual ul,
+  .ry-program-commercial-journey ol,
+  .ry-program-comparison,
+  .ry-program-check-ordering label,
+  .ry-program-check-matching label {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-program-relationship-visual li:last-child {
+    grid-column: auto;
+  }
+
+  .ry-program-commercial-journey li:not(:last-child)::after {
+    top: auto;
+    right: var(--space-4);
+    bottom: calc(var(--space-3) * -1);
+    content: "↓";
+  }
+
+  .ry-program-workspace-preview > header {
+    display: grid;
+  }
+
+  .ry-program-preview-map nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ry-program-preview-map article,
+  .ry-program-workspace-preview > header,
+  .ry-program-workspace-preview > aside,
+  .ry-program-workspace-preview > footer {
+    padding: var(--space-5);
+  }
+}

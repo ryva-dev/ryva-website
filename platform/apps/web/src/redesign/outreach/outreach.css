@@ -1,36 +1,163 @@
-/* Ryva Outreach Center — UI Redesign Increment 13. */
+/* Ryva Outreach — UI Redesign Increment 13. */
 
 .ry-outreach-page { width: min(100%, var(--width-workspace-max)); }
+
+.ry-outreach-page .ry-page-header {
+  margin-bottom: var(--space-3);
+}
+
+.ry-outreach-page.ry-register-page .ry-page-header {
+  margin-bottom: var(--space-2);
+}
+
+.ry-outreach-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.ry-outreach-summary {
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
+}
+
+.ry-outreach-summary p {
+  margin: var(--space-0);
+  color: var(--color-text-default);
+  font-size: var(--font-size-14);
+}
+
+.ry-outreach-summary-note {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
+
+.ry-outreach-alert {
+  margin-bottom: var(--space-5);
+}
+
+.ry-outreach-workspace {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  align-items: start;
+  margin-bottom: var(--space-6);
+}
+
+.ry-outreach-surface {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.ry-outreach-surface-context {
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-inline-start: var(--border-width-1) solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-radius: var(--radius-0);
+  background: transparent;
+  box-shadow: none;
+}
+
+.ry-outreach-surface-primary {
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  box-shadow: 0 var(--length-1px) var(--length-2px) color-mix(in srgb, var(--color-text-default) 5%, transparent);
+}
 
 .ry-outreach-section-heading {
   display: grid;
   gap: var(--space-1);
-  padding: var(--space-4) var(--space-4) var(--space-0);
+  margin: var(--space-0);
+  padding: var(--space-0);
 }
 
-.ry-outreach-section-heading h2 { margin: var(--space-0); }
+.ry-outreach-section-heading h2 {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-16);
+  font-weight: var(--font-weight-semibold);
+}
 
-.ry-outreach-summary {
-  display: grid;
+.ry-outreach-section-heading p {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
+
+.ry-outreach-section-heading-context {
+  gap: var(--length-0-15rem);
+}
+
+.ry-outreach-section-heading-context h2 {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--length-0-01em);
+}
+
+.ry-outreach-section-heading-context p {
+  font-size: var(--font-size-12);
+  line-height: 1.35;
+}
+
+.ry-outreach-section-heading-primary h2 {
+  font-size: var(--font-size-18);
+  line-height: 1.25;
+}
+
+.ry-outreach-section-heading-primary p {
+  max-width: var(--length-42rem);
+  color: var(--color-text-default);
+  font-size: var(--font-size-13);
+}
+
+.ry-outreach-surface-context .ry-outreach-activity-list li {
+  padding: var(--length-0-35rem) 0;
+  border-bottom-color: color-mix(in srgb, var(--color-border) 35%, transparent);
+}
+
+.ry-outreach-surface-context .ry-outreach-activity-copy strong {
+  color: var(--color-text-default);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-outreach-surface-context .ry-status-label {
+  font-size: var(--font-size-11, var(--length-0-6875rem));
+}
+
+.ry-outreach-page .ry-register-surface > .ry-outreach-section-heading {
+  margin: var(--space-0) var(--space-0) var(--space-3);
+}
+
+.ry-outreach-page .ry-register-surface .ry-register-commandbar {
+  align-items: end;
+  gap: var(--space-3);
+  padding-block: var(--space-0) var(--space-3);
+}
+
+.ry-outreach-page .ry-register-surface .ry-register-filter-inline {
+  padding-block: var(--space-3) var(--space-0);
+}
+
+.ry-outreach-page .ry-outreach-empty {
+  justify-items: start;
+  place-items: start;
   gap: var(--space-2);
-  margin-bottom: var(--space-5);
-  padding: var(--space-4);
-  border: var(--border-width-1) solid var(--color-border);
-  border-radius: var(--radius-2);
-  background: var(--color-surface-default);
+  padding: var(--space-2) 0;
+  text-align: left;
 }
 
-.ry-outreach-summary p { margin: var(--space-0); }
-.ry-outreach-summary-note { color: var(--color-text-muted); font-size: var(--font-size-12); }
-
-.ry-outreach-workspace {
-  display: grid;
-  gap: var(--space-6);
-  grid-template-columns: minmax(var(--size-0), 1.2fr) minmax(var(--size-0), 1fr);
-  align-items: start;
-}
-
-.ry-outreach-history-list {
+.ry-outreach-activity-list {
   display: grid;
   gap: var(--space-0);
   margin: var(--space-0);
@@ -38,40 +165,78 @@
   list-style: none;
 }
 
-.ry-outreach-history-item,
-.record-list .task-row {
+.ry-outreach-activity-list li {
   display: grid;
-  grid-template-columns: minmax(var(--size-0), 1fr) auto;
-  gap: var(--space-3);
-  align-items: start;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-width-1) solid var(--color-border);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--length-0-45rem) 0;
+  border-bottom: var(--border-width-1) solid color-mix(in srgb, var(--color-border) 55%, transparent);
 }
 
-.ry-outreach-history-item strong,
-.ry-outreach-history-item small { display: block; overflow-wrap: anywhere; }
-
-.ry-outreach-prepare-form,
-.ry-outreach-call-form,
-.ry-outreach-template-form,
-.ry-outreach-sequence-form {
-  display: grid;
-  gap: var(--space-4);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
-  align-items: start;
-  padding: var(--space-4);
+.ry-outreach-activity-list li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
-.ry-outreach-prepare-form > *,
-.ry-outreach-call-form > *,
-.ry-outreach-template-form > *,
-.ry-outreach-sequence-form > *,
+.ry-outreach-surface > .ry-register-pagination {
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: var(--border-width-1) solid color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+.ry-outreach-activity-copy {
+  display: grid;
+  gap: var(--length-0-05rem);
+  min-width: 0;
+}
+
+.ry-outreach-activity-copy strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.ry-outreach-activity-copy small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11, var(--length-0-6875rem));
+  line-height: 1.3;
+}
+
+.ry-outreach-prepare-form {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+  padding: var(--space-0);
+}
+
+.ry-outreach-prepare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1) var(--space-2);
+  align-items: start;
+}
+
+.ry-outreach-prepare-span {
+  grid-column: 1 / -1;
+}
+
 .ry-outreach-prepare-form .ry-field,
+.ry-outreach-prepare-form .field,
 .ry-outreach-call-form .ry-field,
-.ry-outreach-template-form .ry-field,
-.ry-outreach-sequence-form .ry-field {
-  min-width: var(--size-0);
-  max-width: 100%;
+.ry-outreach-call-form .field {
+  gap: var(--length-0-2rem);
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.ry-outreach-prepare-form .ry-field-label,
+.ry-outreach-call-form .ry-field-label {
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
 }
 
 .ry-outreach-prepare-form .ry-select,
@@ -83,19 +248,118 @@
 .ry-outreach-call-form select,
 .ry-outreach-call-form .ry-input,
 .ry-outreach-call-form input,
-.ry-outreach-call-form textarea,
-.ry-outreach-template-form .ry-select,
-.ry-outreach-template-form select,
-.ry-outreach-template-form .ry-input,
-.ry-outreach-template-form input,
-.ry-outreach-template-form textarea,
-.ry-outreach-sequence-form .ry-select,
-.ry-outreach-sequence-form select,
-.ry-outreach-sequence-form .ry-input,
-.ry-outreach-sequence-form input {
+.ry-outreach-call-form textarea {
   width: 100%;
   max-width: 100%;
-  min-width: var(--size-0);
+  min-width: 0;
+}
+
+#prepare-message textarea {
+  min-height: var(--length-4-5rem);
+  max-height: var(--length-10rem);
+}
+
+.ry-outreach-prepare-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-2);
+  width: 100%;
+}
+
+.ry-outreach-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--length-0-35rem);
+  width: fit-content;
+  margin: var(--space-0);
+  padding: var(--length-0-35rem) var(--length-0-7rem);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  cursor: pointer;
+  text-align: center;
+}
+
+.ry-outreach-advanced-toggle::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  margin-block: var(--length-0-05rem) 0;
+  border-block: var(--length-0-25rem) solid transparent;
+  border-inline-start: var(--length-0-3rem) solid currentColor;
+  transform-origin: 35% 50%;
+  transition: transform 120ms ease;
+}
+
+.ry-outreach-advanced-toggle.is-open::before {
+  transform: rotate(90deg);
+}
+
+.ry-outreach-advanced-fields {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: var(--space-2);
+  margin-top: var(--space-0);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-1) solid var(--color-chart-olive);
+  border-radius: var(--radius-2);
+  background: transparent;
+}
+
+.ry-outreach-prepare-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.ry-outreach-prepare-hint {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-outreach-call-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ry-outreach-call-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.ry-outreach-call-actions > .ry-button-destructive,
+.ry-outreach-template-form .ry-outreach-call-actions > .ry-button.ry-button-destructive {
+  margin-inline-end: auto;
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.ry-outreach-call-actions > .ry-button-destructive:hover:not(:disabled),
+.ry-outreach-template-form .ry-outreach-call-actions > .ry-button.ry-button-destructive:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  filter: none;
+}
+
+.ry-outreach-call-actions > .ry-button-destructive:active:not(:disabled),
+.ry-outreach-template-form .ry-outreach-call-actions > .ry-button.ry-button-destructive:active:not(:disabled) {
+  background: var(--color-accent-pressed);
+  border-color: var(--color-accent-pressed);
 }
 
 .ry-outreach-message-preview {
@@ -103,74 +367,834 @@
   min-width: var(--size-0);
   margin: var(--space-0);
   padding: var(--space-4);
-  border: var(--border-width-1) solid var(--color-border);
+  border: var(--border-width-1) solid var(--color-chart-olive);
   border-radius: var(--radius-2);
-  background: var(--color-surface-subtle);
+  background: transparent;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: inherit;
 }
 
+.ry-outreach-template-form {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  padding: var(--space-0);
+}
+
+.ry-outreach-template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1) var(--space-2);
+  align-items: start;
+}
+
+.ry-outreach-sequence-form {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
+  align-items: start;
+  padding: var(--space-0) var(--space-5) var(--space-5);
+}
+
+.ry-outreach-template-form .ry-field,
+.ry-outreach-sequence-form .ry-field {
+  min-width: var(--size-0);
+  max-width: 100%;
+  gap: var(--length-0-2rem);
+  margin-bottom: 0;
+}
+
+.ry-outreach-template-form .ry-field-label {
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+}
+
+.ry-outreach-template-form .ry-select,
+.ry-outreach-template-form select,
+.ry-outreach-template-form .ry-input,
+.ry-outreach-template-form input:not([type="checkbox"]),
+.ry-outreach-template-form textarea,
+.ry-outreach-sequence-form .ry-select,
+.ry-outreach-sequence-form select,
+.ry-outreach-sequence-form .ry-input,
+.ry-outreach-sequence-form input:not([type="checkbox"]) {
+  width: 100%;
+  max-width: 100%;
+  min-width: var(--size-0);
+}
+
+.ry-outreach-fill-ins {
+  display: grid;
+  gap: var(--length-0-2rem);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  border: 0;
+  min-width: 0;
+}
+
+.ry-outreach-fill-ins legend {
+  margin: var(--space-0);
+  padding: var(--space-0);
+  color: var(--color-text-default);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+}
+
+.ry-outreach-fill-ins > p {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11, var(--length-0-6875rem));
+  line-height: 1.3;
+}
+
+.ry-outreach-fill-ins-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--length-0-15rem) var(--length-0-75rem);
+  margin-top: var(--length-0-25rem);
+}
+
+.ry-outreach-fill-ins .ry-choice {
+  align-items: center;
+  gap: var(--length-0-4rem);
+  min-height: 0;
+  padding-block: var(--length-0-1rem);
+}
+
+.ry-outreach-fill-ins .ry-choice input {
+  width: var(--length-0-85rem);
+  height: var(--length-0-85rem);
+  min-width: var(--length-0-85rem);
+  min-height: var(--length-0-85rem);
+  max-width: var(--length-0-85rem);
+  max-height: var(--length-0-85rem);
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--color-chart-blue);
+}
+
+.ry-outreach-fill-ins .ry-choice span {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.ry-outreach-fill-ins .ry-choice strong {
+  color: var(--color-text-default);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+}
+
+.ry-outreach-template-drawer .ry-drawer-header {
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.ry-outreach-template-drawer .ry-drawer-header h2 {
+  margin-block: var(--space-0) var(--space-1);
+  font-size: var(--font-size-18);
+}
+
+.ry-outreach-template-drawer .ry-drawer-header p {
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-outreach-template-drawer .ry-drawer-body {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.ry-outreach-library {
+  margin-bottom: var(--space-4);
+}
+
+.ry-outreach-library-channels {
+  display: grid;
+  gap: var(--space-0);
+}
+
+.ry-outreach-library-channel {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-width-1) solid color-mix(in srgb, var(--color-chart-olive) 45%, var(--color-border));
+}
+
+.ry-outreach-library-channel:first-child {
+  padding-top: var(--space-1);
+}
+
+.ry-outreach-library-channel:last-child {
+  border-bottom: 0;
+  padding-bottom: var(--space-0);
+}
+
+.ry-outreach-library-channel-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.ry-outreach-library-channel-heading h3 {
+  margin: var(--space-0);
+  color: var(--color-chart-blue);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-outreach-library-channel-heading span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.ry-outreach-library-channel .ry-outreach-empty {
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+}
+
 .ry-outreach-library-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
-  gap: var(--space-4);
-  padding: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--length-11rem)), 1fr));
+  gap: var(--space-2);
+  padding: var(--space-0);
 }
 
 .ry-outreach-library-card {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--length-0-35rem);
   justify-items: start;
+  width: 100%;
   min-width: var(--size-0);
-  padding: var(--space-4);
-  border: var(--border-width-1) solid var(--color-border);
+  margin: var(--space-0);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-1) solid var(--color-chart-olive);
   border-radius: var(--radius-2);
-  background: var(--color-surface-default);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
   overflow-wrap: anywhere;
 }
 
-.ry-outreach-library-card h3 { margin: var(--space-0); }
+.ry-outreach-library-card:hover,
+.ry-outreach-library-card:focus-visible {
+  background: color-mix(in srgb, var(--color-chart-olive) 8%, transparent);
+  outline: none;
+}
+
+.ry-outreach-library-card:focus-visible {
+  box-shadow: 0 0 0 var(--border-width-2) color-mix(in srgb, var(--color-chart-olive) 45%, transparent);
+}
+
+.ry-outreach-library-card h3 {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+
+.ry-outreach-library-card small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  line-height: 1.3;
+}
+
+.ry-outreach-library-card .ry-outreach-sequence-meta {
+  font-size: var(--font-size-11, var(--length-0-6875rem));
+}
+
+.ry-outreach-sequence-view {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ry-outreach-sequence-view dl {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+}
+
+.ry-outreach-sequence-view div {
+  display: grid;
+  gap: var(--length-0-15rem);
+}
+
+.ry-outreach-sequence-view dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-outreach-sequence-view dd {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-medium);
+  overflow-wrap: anywhere;
+}
+
 .ry-outreach-library-card .quiet-tag,
 .ry-outreach-library-card .ry-status-label {
   max-width: 100%;
+  font-size: var(--font-size-11, var(--length-0-6875rem));
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
-.ry-outreach-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
+.ry-outreach-page .ry-status-label.status-approved,
+.ry-outreach-page .ry-status-label.ry-tone-success {
+  color: var(--color-chart-olive);
 }
 
-.ry-outreach-boundary {
-  margin: var(--space-0) var(--space-4) var(--space-4);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-13);
+/* Register + detail Status — chart palette by message lifecycle */
+.ry-outreach-page .ry-status-label.status-draft {
+  color: var(--color-chart-taupe);
+}
+
+.ry-outreach-page .ry-status-label.status-approval-requested,
+.ry-outreach-page .ry-status-label.status-queued {
+  color: var(--color-chart-blue);
+}
+
+.ry-outreach-page .ry-status-label.status-approved,
+.ry-outreach-page .ry-status-label.status-accepted,
+.ry-outreach-page .ry-status-label.status-delivered,
+.ry-outreach-page .ry-status-label.status-replied,
+.ry-outreach-page .ry-status-label.status-received {
+  color: var(--color-chart-olive);
+}
+
+.ry-outreach-page .ry-status-label.status-failed,
+.ry-outreach-page .ry-status-label.status-bounced,
+.ry-outreach-page .ry-status-label.status-suppressed,
+.ry-outreach-page .ry-status-label.status-canceled {
+  color: var(--color-chart-plum);
 }
 
 @media (max-width: 64rem) {
-  .ry-outreach-workspace { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-outreach-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-outreach-surface-primary {
+    order: 1;
+  }
+
+  .ry-outreach-surface-context {
+    order: 2;
+  }
 }
 
 @media (max-width: 48rem) {
-  .ry-outreach-prepare-form,
-  .ry-outreach-call-form,
-  .ry-outreach-template-form,
-  .ry-outreach-sequence-form {
-    grid-template-columns: minmax(var(--size-0), 1fr);
+  .ry-outreach-prepare-grid,
+  .ry-outreach-template-grid,
+  .ry-outreach-fill-ins-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
+
+  .ry-outreach-sequence-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .ry-outreach-page .ry-register-mobile-identity,
   .ry-outreach-page .ry-register-mobile-identity strong,
   .ry-outreach-page .ry-register-mobile-identity span {
     min-width: var(--size-0);
     overflow-wrap: anywhere;
   }
-  .ry-outreach-header-actions { width: 100%; }
-  .ry-outreach-header-actions .ry-button { flex: 1 1 auto; }
+
+  .ry-outreach-header-actions {
+    width: 100%;
+  }
+
+  .ry-outreach-header-actions .ry-button {
+    flex: 1 1 auto;
+  }
+}
+
+/* Outreach subject / detail */
+
+.ry-outreach-page .ry-relationship-trail a,
+.ry-outreach-page .ry-outreach-identity-meta a,
+.ry-outreach-page .ry-outreach-facts a,
+.ry-outreach-page .ry-outreach-status-list a {
+  color: var(--color-chart-blue);
+}
+
+.ry-outreach-identity-meta {
+  gap: var(--length-0-35rem);
+  align-items: center;
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-outreach-page .ry-outreach-identity-status {
+  flex: 0 0 auto;
+  align-self: baseline;
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
+  letter-spacing: normal;
+  text-transform: capitalize;
+}
+
+.ry-outreach-page .ry-outreach-identity-status.status-draft {
+  color: var(--color-chart-taupe);
+}
+
+.ry-outreach-page .ry-outreach-identity-status.status-approval-requested,
+.ry-outreach-page .ry-outreach-identity-status.status-queued {
+  color: var(--color-chart-blue);
+}
+
+.ry-outreach-page .ry-outreach-identity-status.status-approved,
+.ry-outreach-page .ry-outreach-identity-status.status-accepted,
+.ry-outreach-page .ry-outreach-identity-status.status-delivered,
+.ry-outreach-page .ry-outreach-identity-status.status-replied {
+  color: var(--color-chart-olive);
+}
+
+.ry-outreach-page .ry-outreach-identity-status.status-failed,
+.ry-outreach-page .ry-outreach-identity-status.status-bounced,
+.ry-outreach-page .ry-outreach-identity-status.status-suppressed,
+.ry-outreach-page .ry-outreach-identity-status.status-canceled {
+  color: var(--color-chart-plum);
+}
+
+.ry-outreach-page .ry-outreach-status-rail.ry-context-rail {
+  position: sticky;
+  top: var(--space-5);
+  align-self: start;
+  gap: var(--space-3);
+  max-width: var(--length-18rem);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid color-mix(in srgb, var(--color-chart-taupe) 22%, var(--color-border-base));
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  box-shadow: 0 var(--length-1px) var(--length-2px) color-mix(in srgb, var(--color-text-strong) 4%, transparent);
+}
+
+.ry-outreach-page .ry-outreach-status-rail h2 {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-outreach-status-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+}
+
+.ry-outreach-status-row {
+  display: grid;
+  grid-template-columns: var(--length-5-75rem) minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: var(--space-0);
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-outreach-status-row dt {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-outreach-status-row dt::after {
+  content: ":";
+}
+
+.ry-outreach-status-row dd {
+  margin: var(--space-0);
+  min-width: var(--size-0);
+  color: var(--color-text-default);
+  overflow-wrap: anywhere;
+}
+
+.ry-outreach-page .ry-status-label,
+.ry-outreach-page .status {
+  text-transform: capitalize !important;
+  letter-spacing: normal;
+}
+
+.ry-outreach-open {
+  color: var(--color-chart-blue);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ry-outreach-open:hover,
+.ry-outreach-open:focus-visible {
+  color: color-mix(in srgb, var(--color-chart-blue) 78%, var(--color-text-strong));
+  text-decoration: underline;
+}
+
+.ry-outreach-facts dt {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+
+.ry-outreach-page .ry-empty-state.ry-outreach-empty-state,
+.ry-outreach-page .ry-empty-state-compact.ry-outreach-empty-state {
+  display: block;
+  justify-items: start;
+  place-items: start;
+  gap: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.ry-outreach-page .ry-relationship-section:has(.ry-activity-timeline) {
+  gap: var(--space-3);
+  padding-block: var(--space-1) var(--space-2);
+  border-bottom: none;
+}
+
+.ry-outreach-page .ry-activity-timeline li {
+  padding-block: var(--space-3);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-outreach-page .ry-outreach-empty-state strong {
+  display: block;
+  margin: 0;
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
+  color: var(--color-text-default);
+}
+
+.ry-outreach-page .ry-outreach-empty-state p {
+  display: block;
+  max-width: none;
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-outreach-body-heading {
+  margin: var(--space-4) var(--space-0) var(--space-2);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-outreach-technical-details {
+  margin-top: var(--space-3);
+}
+
+.ry-outreach-technical-details summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  list-style: none;
+}
+
+.ry-outreach-technical-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.ry-outreach-technical-details[open] summary {
+  margin-bottom: var(--space-2);
+}
+
+.ry-outreach-technical-copy {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-outreach-digest {
+  display: inline;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: inherit;
+}
+
+.ry-outreach-review-stages {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-0) 0 var(--space-5);
+}
+
+.ry-outreach-review-stages dt {
+  margin: var(--space-0) 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--length-0-02em);
+  text-transform: uppercase;
+}
+
+.ry-outreach-review-stages dd {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-16);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-outreach-review-stages > div:first-child dd {
+  color: var(--color-accent);
+}
+
+.ry-outreach-before-approving {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+}
+
+.ry-outreach-before-approving h3 {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-outreach-review-checks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-outreach-review-checks li {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--length-1-5rem);
+  color: var(--color-text-default);
+  font-size: var(--font-size-14);
+  line-height: 1.35;
+}
+
+.ry-outreach-review-check-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  padding: var(--length-0-15rem) 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-1);
+}
+
+.ry-outreach-review-check-row:hover,
+.ry-outreach-review-check-row:focus-visible {
+  background: color-mix(in srgb, var(--color-surface-hover) 65%, transparent);
+}
+
+.ry-outreach-review-check-row:focus-visible {
+  outline: var(--length-2px) solid var(--color-focus-ring);
+  outline-offset: var(--length-2px);
+}
+
+.ry-outreach-review-check-row:hover .ry-outreach-review-link,
+.ry-outreach-review-check-row:focus-visible .ry-outreach-review-link {
+  text-decoration: underline;
+}
+
+.ry-outreach-permission-actions {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.ry-outreach-permission-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-subtle);
+}
+
+.ry-outreach-permission-action-copy {
+  display: grid;
+  gap: var(--length-0-15rem);
+  min-width: 0;
+}
+
+.ry-outreach-permission-action-copy strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-outreach-permission-action-copy span {
+  color: var(--color-text-default);
+  font-size: var(--font-size-14);
+}
+
+.ry-outreach-page .ry-identity-warning .ry-outreach-authority-alert > div {
+  gap: var(--space-0);
+}
+
+.ry-outreach-authority-alert-line {
+  margin: var(--space-0);
+  line-height: 1.35;
+}
+
+.ry-outreach-page .ry-disabled-action-hint {
+  display: inline-flex;
+  cursor: not-allowed;
+}
+
+.ry-outreach-page .ry-disabled-action-hint .ry-button:disabled {
+  pointer-events: none;
+}
+
+.ry-outreach-review-check-label {
+  display: inline;
+  min-width: 0;
+}
+
+.ry-outreach-review-check-name {
+  color: var(--color-text-strong);
+}
+
+.ry-outreach-review-check-status {
+  color: var(--color-text-muted);
+}
+
+.ry-outreach-review-checks li[data-state="incomplete"] .ry-outreach-review-check-status {
+  color: var(--color-text-strong);
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-outreach-review-check-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--length-1-25rem);
+  height: var(--length-1-25rem);
+  border-radius: var(--length-999px);
+  font-size: var(--font-size-12);
+  line-height: 1;
+}
+
+.ry-outreach-review-checks li[data-state="complete"] .ry-outreach-review-check-mark {
+  background: color-mix(in srgb, var(--color-success, var(--color-visual-green)) 18%, transparent);
+  color: var(--color-success, var(--color-visual-green));
+}
+
+.ry-outreach-review-checks li[data-state="incomplete"] .ry-outreach-review-check-mark {
+  background: color-mix(in srgb, var(--color-warning, var(--color-visual-amber)) 18%, transparent);
+  color: var(--color-warning, var(--color-visual-amber));
+}
+
+.ry-outreach-review-link {
+  margin-left: auto;
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+  white-space: nowrap;
+  color: var(--color-chart-blue);
+}
+
+.ry-outreach-review-preview,
+.ry-outreach-review-actions-block {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.ry-outreach-review-preview > h3,
+.ry-outreach-review-actions-block > h3 {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-outreach-review-hint {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-outreach-review-actions {
+  margin-top: var(--space-1);
+}
+
+.ry-outreach-review-complete {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-outreach-missing-actions {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width-1) solid color-mix(in srgb, var(--color-warning, var(--color-visual-amber)) 28%, var(--color-border));
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--color-warning, var(--color-visual-amber)) 8%, transparent);
+}
+
+.ry-outreach-missing-actions strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+}
+
+.ry-outreach-missing-actions ul {
+  margin: var(--space-0);
+  padding-inline-start: var(--length-1-1rem);
+  color: var(--color-text-default);
+  font-size: var(--font-size-13);
+}
+
+.ry-outreach-missing-actions-rail {
+  margin-top: var(--space-2);
+}
+
+@media (max-width: 40rem) {
+  .ry-outreach-review-stages {
+    grid-template-columns: 1fr;
+  }
+
+  .ry-outreach-review-checks li {
+    flex-wrap: wrap;
+  }
+
+  .ry-outreach-review-link {
+    margin-left: var(--length-1-75rem);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ry-outreach-library-card { transition: none; }
+  .ry-outreach-library-card,
+  .ry-outreach-advanced-toggle::before {
+    transition: none;
+  }
 }

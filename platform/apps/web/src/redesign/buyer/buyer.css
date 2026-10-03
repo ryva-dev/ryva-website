@@ -2,31 +2,328 @@
 
 .ry-buyer-workspace {
   display: grid;
-  grid-template-columns: minmax(var(--size-0), 2fr) minmax(var(--size-0), 1.4fr) minmax(var(--width-context-rail), 1fr);
-  gap: var(--space-4);
+  grid-template-columns: minmax(var(--size-0), 1fr);
+  gap: var(--space-5);
   align-items: start;
 }
 
 .ry-buyer-results { min-width: var(--size-0); }
-.ry-buyer-summary {
-  display: grid;
-  gap: var(--space-4);
-  padding: var(--space-5);
-  border: var(--border-width-1) solid var(--color-border);
-  border-radius: var(--radius-2);
-  background: var(--color-surface-default);
-  min-width: var(--size-0);
+
+.ry-buyer-page .ry-register-filter-inline .ry-buyer-filters.ry-filter-bar,
+.ry-buyer-page .ry-register-filter-inline .ry-buyer-filters.filter-panel,
+.ry-buyer-page .ry-buyer-filters {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: end;
+  gap: var(--space-2);
 }
 
-.ry-buyer-identity-summary h2 { margin: var(--space-0); font-size: var(--font-size-20); }
-.ry-buyer-identity-meta { margin: var(--space-2) var(--space-0) var(--space-4); color: var(--color-text-muted); }
-.ry-buyer-summary-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
-.ry-buyer-create { margin-top: var(--space-6); }
+.ry-buyer-page .ry-register-filter-inline .ry-buyer-filters .ry-field,
+.ry-buyer-page .ry-register-filter-inline .ry-buyer-filters .field {
+  flex: 0 1 var(--length-8rem);
+  width: auto;
+  min-width: var(--length-6-5rem);
+  max-width: var(--length-9rem);
+}
+
+.ry-buyer-page .ry-register-filter-inline .ry-buyer-filters .ry-buyer-search-field,
+.ry-buyer-page .ry-buyer-filters .ry-buyer-search-field {
+  flex: 1 1 var(--length-18rem);
+  min-width: var(--length-14rem);
+  max-width: none;
+  grid-column: auto;
+}
+
+.ry-buyer-page .ry-buyer-search-field .ry-search-input,
+.ry-buyer-page .ry-buyer-search-field .ry-input,
+.ry-buyer-page .ry-buyer-filters .ry-select,
+.ry-buyer-page .ry-buyer-filters select,
+.ry-buyer-page .ry-buyer-filters .ry-input {
+  width: 100%;
+  max-width: none;
+}
+
+.ry-buyer-catalog-bar {
+  align-items: center;
+}
+
+.ry-buyer-page .ry-register-filter-inline .ry-buyer-filters .ry-buyer-sort-field,
+.ry-buyer-page .ry-buyer-filters .ry-buyer-sort-field {
+  flex: 0 1 var(--length-12-5rem);
+  min-width: var(--length-11-5rem);
+  max-width: var(--length-14rem);
+  margin-inline-start: auto;
+}
+
+.ry-buyer-catalog {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--length-11rem)), 1fr));
+  gap: var(--space-3);
+  margin: var(--space-4) var(--space-0) var(--space-5);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-buyer-tile {
+  position: relative;
+  display: grid;
+  gap: var(--space-0);
+  min-width: var(--size-0);
+  border: var(--border-width-1) solid var(--color-chart-olive);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  box-shadow: none;
+  overflow: clip;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.ry-buyer-tile:hover {
+  transform: translateY(var(--length-neg-1px));
+  box-shadow: 0 var(--length-1px) var(--length-2px) color-mix(in srgb, var(--color-text-strong) 6%, transparent);
+}
+
+.ry-buyer-tile.is-selected {
+  border-width: var(--border-width-2);
+  border-color: var(--color-chart-olive);
+  box-shadow: 0 0 0 var(--length-1px) color-mix(in srgb, var(--color-chart-olive) 35%, transparent);
+}
+
+.ry-buyer-tile-select {
+  display: grid;
+  gap: var(--space-0);
+  width: 100%;
+  min-width: var(--size-0);
+  padding: var(--space-0);
+  color: inherit;
+  text-align: start;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.ry-buyer-tile-select:focus-visible {
+  outline: none;
+}
+
+.ry-buyer-tile:has(.ry-buyer-tile-select:focus-visible) {
+  border-color: var(--color-chart-olive);
+  box-shadow: 0 0 0 var(--length-2px) color-mix(in srgb, var(--color-chart-olive) 40%, transparent);
+}
+
+.ry-buyer-tile-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 5;
+  min-height: var(--length-7-5rem);
+  overflow: hidden;
+}
+
+.ry-buyer-tile-media::before {
+  content: "";
+  position: absolute;
+  inset: var(--space-0);
+  background:
+    var(--gradient-catalog-tile-highlight);
+}
+
+.ry-buyer-tile-media.ry-tone-ink {
+  --tile-from: var(--color-shell-border);
+  --tile-to: var(--color-shell-bg);
+}
+
+.ry-buyer-tile-media.ry-tone-oxblood {
+  --tile-from: var(--color-visual-oxblood-light);
+  --tile-to: var(--color-accent);
+}
+
+.ry-buyer-tile-media.ry-tone-olive {
+  --tile-from: var(--color-visual-olive);
+  --tile-to: var(--color-visual-olive-dark);
+}
+
+.ry-buyer-tile-media.ry-tone-powder {
+  --tile-from: var(--color-visual-blue);
+  --tile-to: var(--color-visual-blue-dark);
+}
+
+.ry-buyer-tile-media.ry-tone-sand {
+  --tile-from: var(--color-visual-taupe);
+  --tile-to: var(--color-visual-taupe-dark);
+}
+
+.ry-buyer-tile-mark {
+  position: relative;
+  z-index: 1;
+  color: var(--color-white-alpha-92);
+  font-family: var(--font-family-serif);
+  font-size: clamp(var(--font-size-24), 5vw, var(--font-size-30));
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: 1;
+}
+
+.ry-buyer-tile-body {
+  display: grid;
+  gap: var(--length-0-2rem);
+  justify-items: start;
+  width: 100%;
+  min-width: var(--size-0);
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  color: inherit;
+  text-align: start;
+  font: inherit;
+}
+
+.ry-buyer-tile-body strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+}
+
+.ry-buyer-tile-meta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.ry-buyer-tile-qualification {
+  margin-top: var(--length-0-15rem);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: 1.35;
+  text-transform: capitalize;
+}
+
+.ry-buyer-tile-coverage,
+.ry-buyer-tile-risk {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  line-height: 1.3;
+}
+
+.ry-buyer-tile-risk {
+  color: var(--color-text-strong);
+}
+
+.ry-buyer-tile-open {
+  position: absolute;
+  width: var(--length-1px);
+  height: var(--length-1px);
+  padding: 0;
+  margin: var(--length-neg-1px);
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ry-buyer-preview-dialog {
+  gap: var(--space-3);
+  padding: var(--space-4);
+  overflow: visible;
+}
+
+.ry-buyer-preview-dialog .ry-dialog-header {
+  gap: var(--space-3);
+}
+
+.ry-buyer-preview-dialog .ry-dialog-header h2 {
+  margin-block: var(--space-0) var(--space-1);
+  font-size: var(--font-size-18);
+}
+
+.ry-buyer-preview-dialog .ry-dialog-header p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+}
+
+.ry-buyer-preview-dialog .ry-dialog-body {
+  gap: var(--space-3);
+}
+
+.ry-buyer-preview-dialog .ry-dialog-footer {
+  padding-top: var(--space-3);
+}
+
+.ry-buyer-preview-facts {
+  margin: var(--space-0);
+}
+
+.ry-buyer-preview-facts > div {
+  grid-template-columns: minmax(var(--length-5rem), 32%) minmax(var(--size-0), 1fr);
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+}
+
+.ry-buyer-preview-facts > div:first-child {
+  padding-block-start: var(--space-0);
+}
+
+.ry-buyer-create-drawer .ry-drawer-header {
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.ry-buyer-create-drawer .ry-drawer-header h2 {
+  margin-block: var(--space-0) var(--space-1);
+  font-size: var(--font-size-18);
+}
+
+.ry-buyer-create-drawer .ry-drawer-header p {
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-buyer-create-drawer .ry-drawer-body {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
 .ry-buyer-create-form {
   display: grid;
-  gap: var(--space-4);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
-  align-items: end;
+  gap: var(--space-3);
+}
+
+.ry-buyer-create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  align-items: start;
+}
+
+.ry-buyer-create-span {
+  grid-column: 1 / -1;
+}
+
+.ry-buyer-create-form .ry-field,
+.ry-buyer-create-form .field {
+  gap: var(--length-0-2rem);
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.ry-buyer-create-form .ry-field-label {
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+}
+
+.ry-buyer-create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
 }
 
 .ry-buyer-field-form,
@@ -37,23 +334,423 @@
 .ry-buyer-buyer-form,
 .ry-buyer-match-form {
   display: grid;
-  gap: var(--space-4);
-  margin-top: var(--space-4);
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
-.ry-buyer-inline-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); margin-left: var(--space-3); }
+.ry-buyer-inline-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.ry-buyer-page.ry-relationship-page,
+.ry-buyer-page.ry-relationship-page h1,
+.ry-buyer-page.ry-relationship-page h2,
+.ry-buyer-page.ry-relationship-page h3,
+.ry-buyer-page.ry-relationship-page p,
+.ry-buyer-page.ry-relationship-page label,
+.ry-buyer-page.ry-relationship-page input,
+.ry-buyer-page.ry-relationship-page select,
+.ry-buyer-page.ry-relationship-page textarea,
+.ry-buyer-page.ry-relationship-page button {
+  font-family: var(--font-family-sans);
+}
+
+.ry-buyer-page .ry-relationship-layout {
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+  grid-template-columns: minmax(0, 1fr) var(--width-context-rail);
+}
+
+.ry-buyer-page .ry-relationship-main,
+.ry-buyer-page .ry-relationship-tab-panel,
+.ry-buyer-page .ry-relationship-section {
+  width: 100%;
+  max-width: none;
+}
+
+.ry-buyer-page .ry-relationship-main,
+.ry-buyer-page .ry-relationship-tab-panel {
+  gap: var(--space-3);
+}
+
+.ry-buyer-page .ry-relationship-section {
+  gap: var(--space-2);
+  padding-block: var(--space-1) var(--space-3);
+  border-bottom-color: var(--color-chart-olive);
+}
+
+.ry-buyer-page .ry-relationship-section > header {
+  gap: var(--space-2);
+}
+
+.ry-buyer-page .ry-relationship-section h2 {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-16);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.35;
+  letter-spacing: var(--letter-spacing-normal);
+}
+
+.ry-buyer-page .ry-relationship-section header p {
+  margin: var(--space-0);
+  margin-block-start: var(--length-0-15rem);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
+
+.ry-buyer-page .ry-context-rail {
+  top: var(--space-3);
+  gap: var(--space-3);
+  padding-inline-start: var(--space-3);
+  border-inline-start: var(--border-width-1) solid var(--color-chart-olive);
+}
+
+.ry-buyer-page .ry-context-rail-content {
+  gap: var(--space-2);
+}
+
+.ry-buyer-page .ry-context-item {
+  gap: var(--length-0-15rem);
+  padding-bottom: var(--space-2);
+  border-bottom-color: var(--color-chart-olive);
+}
+
+.ry-buyer-page .ry-context-item strong {
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-11, var(--length-0-6875rem));
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--length-0-02em);
+  text-transform: uppercase;
+}
+
+.ry-buyer-page .ry-context-item p,
+.ry-buyer-page .ry-context-item span,
+.ry-buyer-page .ry-context-item a,
+.ry-buyer-page .ry-context-item small {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-buyer-review,
+.ry-buyer-workspace-form,
+.ry-buyer-form-grid {
+  width: 100%;
+  max-width: none;
+}
+
+.ry-buyer-review {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ry-buyer-form-compact {
+  gap: var(--space-2);
+}
+
+.ry-buyer-form-compact .ry-field,
+.ry-buyer-form-compact .field {
+  gap: var(--length-0-15rem);
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.ry-buyer-form-compact .ry-field-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+}
+
+.ry-buyer-page .ry-buyer-form-compact .ry-input,
+.ry-buyer-page .ry-buyer-form-compact .ry-select,
+.ry-buyer-page .ry-buyer-form-compact input.ry-input,
+.ry-buyer-page .ry-buyer-form-compact select.ry-select {
+  width: 100%;
+  max-width: none;
+  min-height: var(--control-height-compact);
+  padding: var(--length-0-3rem) 0;
+  border: 0;
+  border-bottom: var(--border-width-1) solid var(--color-chart-olive);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-strong);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+  box-shadow: none;
+}
+
+.ry-buyer-page .ry-buyer-form-compact .ry-input:hover,
+.ry-buyer-page .ry-buyer-form-compact .ry-select:hover,
+.ry-buyer-page .ry-buyer-form-compact input.ry-input:hover,
+.ry-buyer-page .ry-buyer-form-compact select.ry-select:hover {
+  border-color: var(--color-text-strong);
+  background: transparent;
+}
+
+.ry-buyer-page .ry-buyer-form-compact .ry-input:focus,
+.ry-buyer-page .ry-buyer-form-compact .ry-select:focus,
+.ry-buyer-page .ry-buyer-form-compact input.ry-input:focus,
+.ry-buyer-page .ry-buyer-form-compact select.ry-select:focus {
+  outline: none;
+  border-bottom-color: var(--color-oxblood, var(--color-accent));
+  box-shadow: none;
+  background: transparent;
+}
+
+.ry-buyer-page .ry-buyer-form-compact .ry-button {
+  justify-self: start;
+  min-height: var(--control-height-compact);
+  height: var(--control-height-compact);
+  margin-top: var(--space-1);
+  padding-block: var(--space-0);
+  padding-inline: var(--space-3);
+  font-size: var(--font-size-12);
+}
+
+.ry-buyer-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  align-items: start;
+}
+
+.ry-buyer-form-span {
+  grid-column: 1 / -1;
+}
+
+.ry-buyer-advanced {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border: 0;
+  border-top: var(--border-width-1) solid var(--color-chart-olive);
+  border-radius: 0;
+  background: transparent;
+}
+
+.ry-buyer-advanced > summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
+}
+
+.ry-buyer-advanced[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.ry-buyer-status-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--length-0-35rem);
+}
+
+.ry-buyer-status-sep {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-buyer-page .ry-buyer-identity-status,
+.ry-buyer-page .ry-buyer-status-meta .ry-status-label {
+  flex: 0 0 auto;
+  align-self: baseline;
+  min-height: 0;
+  padding: var(--space-0);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.35;
+  letter-spacing: normal;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.ry-buyer-page .ry-buyer-identity-status.is-attention {
+  color: var(--color-chart-blue);
+}
+
+.ry-buyer-page .ry-buyer-identity-status.is-complete {
+  color: var(--color-chart-olive);
+}
+
+.ry-buyer-identity-meta {
+  display: inline;
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-14);
+  line-height: 1.4;
+}
+
+.ry-buyer-readonly-note {
+  margin: var(--space-0) var(--space-0) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-buyer-status-item {
+  gap: var(--space-1);
+}
+
+.ry-buyer-status-item strong {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--length-0-02em);
+  text-transform: uppercase;
+}
+
+.ry-buyer-status-item > span,
+.ry-buyer-status-item > p,
+.ry-buyer-status-item > small {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  line-height: 1.35;
+}
+
+.ry-buyer-status-item > small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-buyer-review-status {
+  margin: var(--space-0) var(--space-0) var(--space-2);
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
+
+.ry-buyer-empty-note {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
+
+.ry-buyer-inline-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-chart-blue);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: var(--length-0-12em);
+}
+
+.ry-buyer-inline-link:hover {
+  color: color-mix(in srgb, var(--color-chart-blue) 78%, var(--color-text-strong));
+}
+
+.ry-buyer-page .ry-relationship-facts {
+  gap: var(--space-2) var(--space-4);
+}
+
+.ry-buyer-page .ry-relationship-facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.ry-buyer-page .ry-relationship-facts dd {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  line-height: 1.4;
+}
+
+.ry-buyer-page .ry-relationship-evidence-list {
+  gap: var(--space-2);
+}
+
+.ry-buyer-page .ry-relationship-evidence-list li {
+  gap: var(--space-1);
+  padding-block: var(--space-2);
+}
+
+.ry-buyer-page .ry-relationship-evidence-list a,
+.ry-buyer-page .ry-relationship-evidence-list a strong {
+  color: var(--color-chart-blue);
+  text-decoration: none;
+}
+
+.ry-buyer-page .ry-relationship-evidence-list a:hover,
+.ry-buyer-page .ry-relationship-evidence-list a:hover strong {
+  color: color-mix(in srgb, var(--color-chart-blue) 78%, var(--color-text-strong));
+  text-decoration: underline;
+  text-underline-offset: var(--length-0-12em);
+}
+
+.ry-buyer-page .ry-relationship-policy {
+  margin: var(--space-0) var(--space-0) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: 1.4;
+}
 
 @media (max-width: 64rem) {
-  .ry-buyer-workspace { grid-template-columns: minmax(var(--size-0), 1fr); }
-  .ry-buyer-summary,
-  .ry-buyer-context-rail-desktop { display: none; }
+  .ry-buyer-page .ry-register-filter-inline .ry-buyer-filters.ry-filter-bar,
+  .ry-buyer-page .ry-buyer-filters {
+    flex-wrap: wrap;
+  }
+
+  .ry-buyer-page .ry-register-filter-inline .ry-buyer-filters .ry-buyer-search-field {
+    flex: 1 1 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .ry-buyer-page .ry-relationship-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-buyer-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-buyer-catalog {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--length-10rem)), 1fr));
+    gap: var(--space-2);
+  }
 }
 
 @media (max-width: 48rem) {
-  .ry-buyer-create-form { grid-template-columns: minmax(var(--size-0), 1fr); }
-  .ry-buyer-summary-actions .ry-button { width: 100%; }
+  .ry-buyer-page .ry-register-filter-inline .ry-buyer-filters .ry-field,
+  .ry-buyer-page .ry-register-filter-inline .ry-buyer-filters .field {
+    flex: 1 1 calc(50% - var(--space-2));
+    max-width: none;
+  }
+
+  .ry-buyer-create-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-buyer-catalog {
+    grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ry-drawer { animation-duration: var(--duration-instant); }
+  .ry-buyer-tile { transition: none; }
+  .ry-buyer-tile:hover { transform: none; }
 }

@@ -1,0 +1,52 @@
+/*
+ * Ryva Pro theme layer — screenshot visual direction.
+ *
+ * Typography: Newsreader (restrained editorial serif for hero moments)
+ * paired with Manrope (UI sans).
+ *
+ * This file holds finishes that need literal values or gradients
+ * (font loading, dimensional dark sidebar). Everything else uses tokens.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&display=swap");
+
+/* Dark luxe sidebar: subtle tonal depth instead of a flat black slab. */
+.ry-sidebar {
+  background:
+    radial-gradient(120% 42% at 50% -8%, rgba(255, 255, 255, 0.055), transparent 62%),
+    linear-gradient(185deg, #1a191c 0%, #141416 48%, #121214 100%);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.035),
+    var(--shell-edge-shadow);
+}
+
+.ry-mobile-topbar,
+.ry-mobile-menu {
+  background: linear-gradient(180deg, #1a191c 0%, #141416 100%);
+}
+
+.ry-sidebar .ry-notification-count,
+.ry-mobile-topbar .ry-notification-count,
+.ry-workspace-topbar .ry-notification-count {
+  background: #8f2f45;
+}
+
+.ry-sidebar-scroll {
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+/* Soft frosted workspace chrome — finish lives here, not in token-guarded shell.css. */
+.ry-workspace-topbar {
+  background: color-mix(in srgb, var(--color-surface-canvas) 88%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+/* Eyebrows are suppressed globally in styles.css — keep this file free of page chrome. */
+
+/* Soft panel treatment used across registers / rails — not boxed widgets. */
+.ry-panel-soft {
+  padding: var(--space-5);
+  border: none;
+  border-radius: var(--radius-4);
+  background: var(--color-surface);
+  box-shadow: var(--elevation-1);
+}

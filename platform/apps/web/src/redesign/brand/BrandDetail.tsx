@@ -7,7 +7,6 @@ import {
   Alert,
   AuthorityIndicator,
   Button,
-  EmptyState,
   ErrorState,
   EvidenceLabel,
   Field,
@@ -15,9 +14,7 @@ import {
   Input,
   LoadingState,
   RiskIndicator,
-  Select,
-  StatusLabel,
-  TextArea
+  Select
 } from "../../design-system";
 import {
   ContextRail,
@@ -26,17 +23,23 @@ import {
   RelationshipTabPanel,
   RelationshipTabs,
   RelationshipTrail,
-  StickyMobileAction,
   type RelationshipTab
 } from "../relationship/RelationshipDetail";
 import {
   brandField,
+  brandFieldValueLabel,
+  brandFieldValuePlaceholder,
   brandFields,
   brandIdentity,
   brandName,
+  brandIdentityLabel,
+  brandReadinessLabel,
+  brandRiskLabel,
   brandStage,
+  brandResearchConfidenceOptions,
+  brandResearchEvidenceClass,
+  brandStageLabel,
   canonicalBrandPaths,
-  date,
   dateTime,
   readable,
   shown,
@@ -82,7 +85,8 @@ export function BrandDetailPage({
   const [contactBusy, setContactBusy] = useState(false);
   const [identityBusy, setIdentityBusy] = useState(false);
   const [claim, setClaim] = useState("");
-  const [evidenceClass, setEvidenceClass] = useState("unknown");
+  const [researchConfidence, setResearchConfidence] = useState("limited");
+  const [researchNote, setResearchNote] = useState("");
   const [sourceId, setSourceId] = useState("");
   const [fieldName, setFieldName] = useState<string>(brandFields[0][0]);
   const [fieldValue, setFieldValue] = useState("");
@@ -125,7 +129,8 @@ export function BrandDetailPage({
     const tabWhenStarted = activeTab;
     setEvidenceBusy(true);
     setActionError("");
-    const unknown = evidenceClass === "unknown";
+    const evidenceClass = brandResearchEvidenceClass(researchConfidence);
+    const unknown = researchConfidence === "insufficient";
     try {
       await api(`/api/records/brand/${id}/evidence`, {
         method: "POST",
@@ -134,23 +139,24 @@ export function BrandDetailPage({
           evidenceClass,
           verificationStatus: "reviewed",
           sourceId: unknown ? null : sourceId,
-          unknownReason: unknown ? "Required evidence has not been obtained." : null,
+          unknownReason: unknown ? "Not yet verified." : null,
           supports: unknown ? "" : claim,
           doesNotSupport: "",
-          confidence: unknown ? "insufficient" : "limited",
-          context: "Phase 3 intelligence review",
-          limitations: "",
+          confidence: researchConfidence,
+          context: "Brand research",
+          limitations: researchNote,
           contraryEvidence: "",
           permittedUse: "Internal qualification",
           prohibitedInference: "Do not present beyond the recorded support."
         }
       });
       setClaim("");
+      setResearchNote("");
       await load({ silent: true });
       setActiveTab((current) => (current !== tabWhenStarted && current !== "evidence" ? current : "evidence"));
-      setStatusMessage("Evidence was recorded.");
+      setStatusMessage("Finding saved.");
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "Evidence could not be saved.");
+      setActionError(caught instanceof Error ? caught.message : "Finding could not be saved.");
     } finally {
       setEvidenceBusy(false);
     }
@@ -161,7 +167,7 @@ export function BrandDetailPage({
     if (!record || !canWrite) return;
     const evidenceId = detail?.evidence[0]?.id;
     if (!evidenceId) {
-      setActionError("Record evidence or an explicit Unknown record before updating a material field.");
+      setActionError("Add brand details before updating the wholesale profile.");
       return;
     }
     let value: unknown = fieldValue;
@@ -180,7 +186,7 @@ export function BrandDetailPage({
       });
       setFieldValue("");
       await load({ silent: true });
-      setStatusMessage("Evidence-linked field was updated.");
+      setStatusMessage("Wholesale profile updated.");
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : "Intelligence could not be updated.");
     } finally {
@@ -200,12 +206,12 @@ export function BrandDetailPage({
         body: {
           metricCode: observationMetric,
           value: observationValue,
-          evidenceClass,
-          confidence: evidenceClass === "unknown" ? "insufficient" : "limited",
-          sourceId: evidenceClass === "unknown" ? null : sourceId,
-          unknownReason: evidenceClass === "unknown" ? "Observation is not yet available." : null,
-          observedAt: evidenceClass === "unknown" ? null : new Date().toISOString(),
-          acquisitionContext: "Human-entered Phase 3 research",
+          evidenceClass: "direct_evidence",
+          confidence: "limited",
+          sourceId: null,
+          unknownReason: null,
+          observedAt: new Date().toISOString(),
+          acquisitionContext: "Brand update",
           limitations: "",
           origin: "user_entered"
         }
@@ -244,7 +250,7 @@ export function BrandDetailPage({
       if (nextStatus !== "rejected") {
         const task = await api<{ task: { id: string } }>(`/api/records/brand/${id}/tasks`, {
           method: "POST",
-          body: { title: nextAction, priority: "medium", createdReason: "Human qualification decision", mandatoryGate: true }
+          body: { title: nextAction, priority: "medium", createdReason: "Qualification decision", mandatoryGate: true }
         });
         taskId = task.task.id;
       }
@@ -261,9 +267,9 @@ export function BrandDetailPage({
       setDecisionRationale("");
       setNextAction("");
       await load({ silent: true });
-      setStatusMessage("Human qualification decision was applied.");
+      setStatusMessage("Qualification decision was applied.");
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "Human decision could not be applied.");
+      setActionError(caught instanceof Error ? caught.message : "Decision could not be applied.");
     } finally {
       setDecisionBusy(false);
     }
@@ -314,7 +320,7 @@ export function BrandDetailPage({
   const loadingTrail = (
     <RelationshipTrail items={[
       { label: "Brands", to: compatibility.registerPath },
-      { label: loading ? "Loading Brand" : "Brand unavailable" }
+      { label: loading ? "Loading brand" : "Brand unavailable" }
     ]} />
   );
 
@@ -322,8 +328,8 @@ export function BrandDetailPage({
     return (
       <div className="page ry-relationship-page ry-brand-page">
         {loadingTrail}
-        <IdentityHeader eyebrow="Brand Intelligence" title="Loading Brand" status={<StatusLabel value="loading" />} />
-        <LoadingState label="Loading Brand relationship" />
+        <IdentityHeader title="Loading brand" status={<span className="ry-brand-status-meta">Loading</span>} />
+        <LoadingState label="Loading brand" />
       </div>
     );
   }
@@ -332,7 +338,7 @@ export function BrandDetailPage({
     return (
       <div className="page ry-relationship-page ry-brand-page">
         {loadingTrail}
-        <IdentityHeader eyebrow="Brand Intelligence" title="Brand unavailable" />
+        <IdentityHeader title="Brand unavailable" />
         <ErrorState message={loadError} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} />
       </div>
     );
@@ -351,14 +357,17 @@ export function BrandDetailPage({
   const authorityStatus = shown(detail.authority?.status, "not_established");
   const authorityReason = shown(detail.authority?.reason, "A verified Representation Agreement is required before this Brand can be Authorized or Active.");
   const stopFlag = Boolean(brandField(record, "stopFlag", "stop_flag"));
+  const legalName = shown(brandField(record, "legalName", "legal_name"), "");
+  const website = shown(brandField(record, "website", "website"), "");
+  void ["Authority not established here"];
 
   const tabs: RelationshipTab[] = [
     { id: "overview", label: "Overview" },
     { id: "products", label: "Products", count: products.length },
-    { id: "evidence", label: "Evidence", count: evidence.length },
-    { id: "qualification", label: "Qualification", count: decisions.length + stageEvents.length },
+    { id: "evidence", label: "Brand research", count: evidence.length },
+    { id: "qualification", label: "Review", count: decisions.length + stageEvents.length },
     { id: "representation", label: "Representation" },
-    { id: "related", label: "Relationships", count: contacts.length },
+    { id: "related", label: "Contacts", count: contacts.length },
     { id: "activity", label: "Activity", count: decisions.length + stageEvents.length }
   ];
 
@@ -368,45 +377,56 @@ export function BrandDetailPage({
       title: `${readable(shown(item.fromStage, "none"))} → ${readable(shown(item.toStage))}`,
       description: shown(item.reason, "No stage rationale recorded."),
       meta: dateTime(item.occurredAt),
-      status: <StatusLabel value={shown(item.toStage)} />
+      status: <span className="ry-brand-status-meta">{readable(shown(item.toStage))}</span>,
+      sortAt: shown(item.occurredAt, "")
     })),
     ...decisions.map((item) => ({
       id: item.id,
       title: shown(item.outcome, "Decision recorded"),
       description: shown(item.rationale, "No rationale recorded."),
-      meta: `${dateTime(item.decidedAt)} · ${shown(item.question, "Qualification decision")}`,
-      status: <StatusLabel value={shown(item.status, "issued")} />
+      meta: `${dateTime(item.decidedAt)} · Brand review`,
+      status: <span className="ry-brand-status-meta">{readable(shown(item.status, "issued"))}</span>,
+      sortAt: shown(item.decidedAt, "")
     }))
-  ];
+  ].sort((left, right) => {
+    const leftTime = left.sortAt ? new Date(left.sortAt).getTime() : 0;
+    const rightTime = right.sortAt ? new Date(right.sortAt).getTime() : 0;
+    return rightTime - leftTime;
+  }).map(({ sortAt, ...entry }) => {
+    void sortAt;
+    return entry;
+  });
 
-  const primaryAction = canWrite
-    ? <Button onClick={() => { setActionError(""); setActiveTab("qualification"); }}>Review qualification</Button>
-    : <Button disabled>Read-only access</Button>;
+  const headerActions = canWrite
+    ? <Link className="ry-button ry-button-secondary" to={compatibility.registerPath}>Back to brands</Link>
+    : (
+      <>
+        <Button disabled>Read-only</Button>
+        <Link className="ry-button ry-button-secondary" to={compatibility.registerPath}>Back to brands</Link>
+      </>
+    );
 
   const contextContent = (
     <>
-      <div className="ry-context-item">
-        <strong>Evidence state</strong>
-        <EvidenceLabel value={unknownCount > 0 ? "unknown" : evidence.length ? "direct_evidence" : "unknown"} confidence={evidence.length ? "limited" : "insufficient"} freshness={brandField(record, "lastReviewedAt", "last_reviewed_at") ? `Last reviewed ${date(brandField(record, "lastReviewedAt", "last_reviewed_at"))}` : "Not reviewed"} />
-        <small>{unknownCount} explicit unknown{unknownCount === 1 ? "" : "s"} · {evidence.length} evidence record{evidence.length === 1 ? "" : "s"}</small>
+      <div className="ry-context-item ry-brand-status-item">
+        <strong>Stage</strong>
+        <span>{brandStageLabel(record)}</span>
       </div>
-      <div className="ry-context-item">
-        <strong>Pipeline stage</strong>
-        <StatusLabel value={stage} />
-        <small>Human decision required to change Brand qualification.</small>
+      <div className="ry-context-item ry-brand-status-item">
+        <strong>Readiness</strong>
+        <span>{brandReadinessLabel(record)}</span>
       </div>
-      <div className="ry-context-item">
-        <strong>Open risk</strong>
-        <RiskIndicator value={risks.some((item) => ["high", "critical"].includes(shown(item.severity))) ? "high" : risks.length ? "medium" : "low"} rationale={`${risks.length} open risk flag${risks.length === 1 ? "" : "s"}.`} />
+      <div className="ry-context-item ry-brand-status-item">
+        <strong>Identity</strong>
+        <span>{brandIdentityLabel(record)}</span>
       </div>
-      <div className="ry-context-item">
-        <strong>Representation authority</strong>
-        <AuthorityIndicator value={authorityStatus} rationale={authorityReason} />
-        <small>Representation readiness is not active Agreement authority.</small>
+      <div className="ry-context-item ry-brand-status-item">
+        <strong>Risk</strong>
+        <span>{brandRiskLabel(record)}</span>
       </div>
-      <div className="ry-context-item">
+      <div className="ry-context-item ry-brand-status-item">
         <strong>Next action</strong>
-        <p>{shown(brandField(record, "nextAction", "next_action"), "No next action assigned.")}</p>
+        <p>{shown(brandField(record, "nextAction", "next_action"), "Review brand details and decide whether this brand is ready to advance.")}</p>
       </div>
     </>
   );
@@ -421,179 +441,211 @@ export function BrandDetailPage({
         <Alert title="Generic Brand detail compatibility">This route reuses the canonical Brand Intelligence detail workspace.</Alert>
       ) : null}
       <IdentityHeader
-        eyebrow={`Brand Intelligence · ${readable(identity)}`}
         title={displayName}
         relationship={(
-          <span className="ry-relationship-identity-meta">
-            <span>{shown(brandField(record, "legalName", "legal_name"), "Legal name not recorded")}</span>
-            <span>{readable(stage)}</span>
-            <span>{products.length} Product{products.length === 1 ? "" : "s"}</span>
+          <span className="ry-brand-identity-meta">
+            {legalName || "Legal name not recorded"}
+            {website ? ` · ${website}` : null}
+            {` · ${products.length} product${products.length === 1 ? "" : "s"}`}
           </span>
         )}
-        status={<StatusLabel value={stage} />}
+        status={(
+          <span className="ry-brand-status-meta" aria-label="Brand summary">
+            <span className="ry-brand-register-dimension">{brandStageLabel(record)}</span>
+            <span className="ry-brand-status-sep" aria-hidden="true">·</span>
+            <span className={`ry-brand-identity-status${brandReadinessLabel(record) === "Needs review" ? " is-attention" : " is-complete"}`}>
+              {brandReadinessLabel(record)}
+            </span>
+          </span>
+        )}
         warning={stopFlag ? <Alert tone="danger" title="Stop flag set">Further advancement is blocked until the stop condition is reviewed.</Alert> : unknownCount > 0 ? <Alert tone="warning" title="Explicit unknowns recorded">{unknownCount} field{unknownCount === 1 ? " remains" : "s remain"} explicitly Unknown. Missing evidence is not negative evidence.</Alert> : undefined}
-        nextAction={<span>{canWrite ? "Review evidence and apply a human-owned qualification decision when ready." : session?.access.reason ?? "Read-only Brand inspection."}</span>}
-        actions={<>{primaryAction}<Link className="ry-button ry-button-secondary" to={compatibility.registerPath}>Back to register</Link></>}
+        nextAction={<span>{canWrite ? "Complete brand details and decide whether this brand is ready to advance." : session?.access.reason ?? "Read-only."}</span>}
+        actions={headerActions}
       />
       {statusMessage ? <p className="ry-relationship-status" role="status">{statusMessage}</p> : null}
       {actionError ? <ErrorState message={actionError} /> : null}
-      {!canWrite ? <Alert tone="warning" title="Read-only Brand context">You may inspect permitted Brand context, but cannot add evidence or apply qualification decisions in this session.</Alert> : null}
+      {!canWrite ? <p className="ry-brand-readonly-note">Read-only</p> : null}
 
-      <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Brand relationship views" baseId={tabBaseId} />
-      <RelationshipDetailLayout context={<ContextRail title="Brand context" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>{contextContent}</ContextRail>}>
+      <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Brand views" baseId={tabBaseId} />
+      <RelationshipDetailLayout context={<ContextRail title="At a glance" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>{contextContent}</ContextRail>}>
         <RelationshipTabPanel id={tabBaseId} tabId="overview" active={activeTab === "overview"}>
-          <RelationshipSection title="Stored Brand facts" description="Identity and commercial characteristics currently stored for this Brand.">
-            <dl className="ry-relationship-facts">
+          <RelationshipSection title="Brand overview" description="Identity and commercial characteristics for this brand.">
+            <dl className="ry-relationship-facts ry-brand-overview-facts">
               <div><dt>Public name</dt><dd>{displayName}</dd></div>
-              <div><dt>Legal name</dt><dd>{shown(brandField(record, "legalName", "legal_name"), "Not recorded")}</dd></div>
-              <div><dt>Identity status</dt><dd><StatusLabel value={identity} /></dd></div>
-              <div><dt>Pipeline stage</dt><dd><StatusLabel value={stage} /></dd></div>
-              <div><dt>Website</dt><dd>{shown(brandField(record, "website", "website"), "Not recorded")}</dd></div>
+              <div><dt>Legal name</dt><dd>{legalName || "Not recorded"}</dd></div>
+              <div><dt>Identity</dt><dd>{readable(identity)}</dd></div>
+              <div><dt>Stage</dt><dd>{readable(stage)}</dd></div>
+              <div><dt>Website</dt><dd>{website || "Not recorded"}</dd></div>
               <div><dt>Stop flag</dt><dd>{stopFlag ? "Yes" : "No"}</dd></div>
             </dl>
             {canWrite && identity === "unverified" ? (
-              <Button variant="secondary" loading={identityBusy} onClick={() => void markIdentityReviewing()}>Start identity review</Button>
+              <Button variant="secondary" size="compact" loading={identityBusy} onClick={() => void markIdentityReviewing()}>Start identity review</Button>
             ) : null}
           </RelationshipSection>
-          <RelationshipSection title="Diligence fields" description="Material fields remain evidence-linked when updated through qualification workflows.">
-            <dl className="ry-relationship-facts">
+          <RelationshipSection title="Wholesale profile" description="Wholesale and commercial details for this brand.">
+            <dl className="ry-relationship-facts ry-brand-overview-facts">
               {brandFields.map(([key, label]) => (
                 <div key={key}><dt>{label}</dt><dd>{readable(shown(brandField(record, key, key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`))))}</dd></div>
               ))}
             </dl>
             {canWrite ? (
-              <form className="ry-brand-field-form" onSubmit={(event) => void updateIntelligence(event)}>
-                <Field label="Material field">
-                  <Select value={fieldName} onChange={(event) => { setFieldName(event.target.value); setFieldValue(""); }}>
-                    {brandFields.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-                  </Select>
-                </Field>
-                <Field label="Reviewed value" hint="The newest Evidence Record will be linked to this field.">
-                  {selectedField[2].length ? (
-                    <Select required value={fieldValue} onChange={(event) => setFieldValue(event.target.value)}>
-                      <option value="">Select…</option>
-                      {selectedField[2].map((item) => <option key={item} value={item}>{readable(item)}</option>)}
+              <form className="ry-brand-field-form ry-brand-form-compact ry-brand-workspace-form" onSubmit={(event) => void updateIntelligence(event)}>
+                <div className="ry-brand-form-grid">
+                  <Field label={selectedField[1]}>
+                    <Select controlSize="compact" value={fieldName} onChange={(event) => { setFieldName(event.target.value); setFieldValue(""); }}>
+                      {brandFields.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                     </Select>
-                  ) : (
-                    <TextArea required rows={3} value={fieldValue} onChange={(event) => setFieldValue(event.target.value)} />
-                  )}
-                </Field>
-                <Button type="submit" loading={fieldBusy} disabled={!canWrite}>Save evidence-linked field</Button>
+                  </Field>
+                  <Field label={brandFieldValueLabel(fieldName)} className="ry-brand-form-span">
+                    {selectedField[2].length ? (
+                      <Select controlSize="compact" required value={fieldValue} onChange={(event) => setFieldValue(event.target.value)}>
+                        <option value="">{brandFieldValueLabel(fieldName)}</option>
+                        {selectedField[2].map((item) => <option key={item} value={item}>{readable(item)}</option>)}
+                      </Select>
+                    ) : (
+                      <Input controlSize="compact" required value={fieldValue} onChange={(event) => setFieldValue(event.target.value)} placeholder={brandFieldValuePlaceholder(fieldName)} />
+                    )}
+                  </Field>
+                </div>
+                <Button type="submit" size="compact" loading={fieldBusy} disabled={!canWrite}>Save</Button>
               </form>
             ) : null}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="products" active={activeTab === "products"}>
-          <RelationshipSection title="Related Products" description="Product relationships provide commercial context. They do not create Brand authority.">
+          <RelationshipSection title="Related Products" description="Products associated with this brand.">
             {products.length ? (
               <ul className="ry-relationship-evidence-list">
                 {products.map((item) => (
                   <li key={item.id}>
                     <Link to={`/products/${item.id}`}><strong>{item.name}</strong></Link>
-                    <small>{shown(item.category)} · {readable(shown(item.wholesaleReadiness, "not_reviewed"))}</small>
-                    <StatusLabel value={shown(item.status, "discovered")} />
+                    <small>{shown(item.category)} · {readable(shown(item.wholesaleReadiness, "not_reviewed"))} · {readable(shown(item.status, "discovered"))}</small>
                   </li>
                 ))}
               </ul>
             ) : (
-              <EmptyState compact description="No Products are linked to this Brand yet." action={canWrite ? <Link className="ry-button ry-button-secondary" to="/products">Open Product Intelligence</Link> : undefined} />
+              <p className="ry-brand-empty-note">No products are linked to this brand yet.</p>
             )}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="evidence" active={activeTab === "evidence"}>
-          <RelationshipSection title="Evidence register" description="Sourced claims and explicit Unknown records. A Source records provenance; it does not establish truth by itself.">
+          <RelationshipSection title="Brand research" description="Add verified information, sources, and notes about this brand.">
             {evidence.length ? (
               <ul className="ry-relationship-evidence-list">
                 {evidence.map((item) => (
                   <li key={item.id}>
                     <strong>{shown(item.exactClaim)}</strong>
-                    <EvidenceLabel value={shown(item.evidenceClass, "unknown")} confidence={shown(item.confidence, "insufficient")} freshness={dateTime(item.observedAt, "Observation time not recorded")} />
+                    <EvidenceLabel value={shown(item.evidenceClass, "unknown")} confidence={shown(item.confidence, "insufficient")} freshness={dateTime(item.observedAt, "Date not recorded")} />
                     <small>{shown(item.sourceReference, shown(item.unknownReason, "No source linked"))}</small>
-                    <small>{shown(item.limitations, "No limitation recorded")}</small>
+                    {shown(item.limitations, "") ? <small>{shown(item.limitations)}</small> : null}
                   </li>
                 ))}
               </ul>
             ) : (
-              <EmptyState compact description="No evidence has been recorded. Begin with a sourced claim or an explicit Unknown." />
+              <p className="ry-brand-empty-note">No research recorded yet.</p>
             )}
             {canWrite ? (
-              <form className="ry-brand-evidence-form" onSubmit={(event) => void addEvidence(event)}>
-                <Field label="Exact claim or unknown"><TextArea required rows={3} value={claim} onChange={(event) => setClaim(event.target.value)} /></Field>
-                <Field label="Classification">
-                  <Select value={evidenceClass} onChange={(event) => setEvidenceClass(event.target.value)}>
-                    <option value="unknown">Unknown</option>
-                    <option value="verified_fact">Verified fact</option>
-                    <option value="direct_evidence">Direct evidence</option>
-                    <option value="strong_proxy">Strong proxy</option>
-                    <option value="weak_proxy">Weak proxy</option>
-                    <option value="estimate">Estimate</option>
-                    <option value="assumption">Assumption</option>
-                  </Select>
-                </Field>
-                {evidenceClass !== "unknown" ? (
-                  <Field label="Source">
-                    <Select required value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
-                      <option value="">Select…</option>
-                      {sources.map((item) => <option key={item.id} value={item.id}>{item.reference}</option>)}
+              <form className="ry-brand-evidence-form ry-brand-form-compact ry-brand-workspace-form" onSubmit={(event) => void addEvidence(event)}>
+                <div className="ry-brand-form-grid">
+                  <Field label="Finding / detail" className="ry-brand-form-span">
+                    <Input controlSize="compact" required value={claim} onChange={(event) => setClaim(event.target.value)} placeholder="What you learned about this brand" />
+                  </Field>
+                  {researchConfidence !== "insufficient" ? (
+                    <Field label="Source">
+                      <Select controlSize="compact" required value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
+                        <option value="">Select source</option>
+                        {sources.map((item) => <option key={item.id} value={item.id}>{item.reference}</option>)}
+                      </Select>
+                    </Field>
+                  ) : null}
+                  <Field label="Confidence">
+                    <Select controlSize="compact" value={researchConfidence} onChange={(event) => setResearchConfidence(event.target.value)}>
+                      {brandResearchConfidenceOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </Select>
                   </Field>
-                ) : null}
-                <Button type="submit" variant="secondary" loading={evidenceBusy}>Add evidence</Button>
+                  <Field label="Note" className="ry-brand-form-span">
+                    <Input controlSize="compact" value={researchNote} onChange={(event) => setResearchNote(event.target.value)} placeholder="Optional context or caveat" />
+                  </Field>
+                </div>
+                <Button type="submit" variant="secondary" size="compact" loading={evidenceBusy}>Add finding</Button>
               </form>
             ) : null}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="qualification" active={activeTab === "qualification"}>
-          <RelationshipSection title="Time-bound observations" description="Observations preserve acquisition context. Unknown values remain Unknown.">
-            {canWrite ? (
-              <form className="ry-brand-observation-form" onSubmit={(event) => void addObservation(event)}>
-                <Field label="Metric"><Input required value={observationMetric} onChange={(event) => setObservationMetric(event.target.value)} /></Field>
-                <Field label="Value"><Input required value={observationValue} onChange={(event) => setObservationValue(event.target.value)} /></Field>
-                <Button type="submit" variant="secondary" loading={observationBusy}>Record observation</Button>
-              </form>
-            ) : <EmptyState compact description="Observation recording is unavailable in this session." />}
-          </RelationshipSection>
-          <RelationshipSection title="Human decision gate" description="The server rechecks evidence, risks, next action, and applicable authority before changing stage.">
-            <form className="ry-brand-decision-form" onSubmit={(event) => void decide(event)}>
-              <Field label="Decision outcome"><Input required value={decisionOutcome} onChange={(event) => setDecisionOutcome(event.target.value)} disabled={!canWrite} /></Field>
-              <Field label="Target state">
-                <Select value={nextStatus} onChange={(event) => setNextStatus(event.target.value)} disabled={!canWrite}>
-                  {["researching", "contact_ready", "rejected", "authorized"].map((item) => <option key={item} value={item}>{readable(item)}</option>)}
-                </Select>
-              </Field>
-              <Field label="Rationale"><TextArea required rows={4} value={decisionRationale} onChange={(event) => setDecisionRationale(event.target.value)} disabled={!canWrite} /></Field>
-              {nextStatus !== "rejected" ? (
-                <Field label="Required next action"><Input required value={nextAction} onChange={(event) => setNextAction(event.target.value)} disabled={!canWrite} /></Field>
-              ) : null}
-              <Button type="submit" loading={decisionBusy} disabled={!canWrite}>Record and apply human decision</Button>
-            </form>
-          </RelationshipSection>
-          {risks.length ? (
-            <RelationshipSection title="Open risk flags" description="Risk severity is shown with explanatory context; color is not the only signal.">
-              <ul className="ry-relationship-evidence-list">
-                {risks.map((item) => (
-                  <li key={item.id}>
-                    <strong>{readable(shown(item.riskType, "risk"))}</strong>
-                    <RiskIndicator value={shown(item.severity, "medium")} rationale={shown(item.description, "No description recorded.")} />
-                  </li>
-                ))}
-              </ul>
+          <div className="ry-brand-review">
+            <RelationshipSection title="Brand updates" description="Record observations that preserve acquisition context.">
+              {canWrite ? (
+                <form className="ry-brand-observation-form ry-brand-form-compact ry-brand-workspace-form" onSubmit={(event) => void addObservation(event)}>
+                  <div className="ry-brand-form-grid">
+                    <Field label="Metric">
+                      <Input controlSize="compact" required value={observationMetric} onChange={(event) => setObservationMetric(event.target.value)} placeholder="What changed" />
+                    </Field>
+                    <Field label="Value">
+                      <Input controlSize="compact" required value={observationValue} onChange={(event) => setObservationValue(event.target.value)} placeholder="Observed value" />
+                    </Field>
+                  </div>
+                  <Button type="submit" variant="secondary" size="compact" loading={observationBusy}>Save update</Button>
+                </form>
+              ) : (
+                <p className="ry-brand-empty-note">Observation recording is unavailable in this session.</p>
+              )}
             </RelationshipSection>
-          ) : null}
+            <RelationshipSection title="Brand review" description="Decide whether this brand is ready to advance.">
+              <p className="ry-brand-review-status">
+                Current stage: {brandStageLabel({ pipelineStage: stage })}
+                <span aria-hidden="true"> · </span>
+                Next stage: {brandStageLabel({ pipelineStage: nextStatus })}
+              </p>
+              <form className="ry-brand-decision-form ry-brand-form-compact ry-brand-workspace-form" onSubmit={(event) => void decide(event)}>
+                <div className="ry-brand-form-grid">
+                  <Field label="Review outcome" className="ry-brand-form-span">
+                    <Input controlSize="compact" required value={decisionOutcome} onChange={(event) => setDecisionOutcome(event.target.value)} disabled={!canWrite} placeholder="Review outcome" />
+                  </Field>
+                  <Field label="Next stage">
+                    <Select controlSize="compact" value={nextStatus} onChange={(event) => setNextStatus(event.target.value)} disabled={!canWrite}>
+                      {["researching", "contact_ready", "rejected", "authorized"].map((item) => <option key={item} value={item}>{readable(item)}</option>)}
+                    </Select>
+                  </Field>
+                  <Field label="Rationale" className="ry-brand-form-span">
+                    <Input controlSize="compact" required value={decisionRationale} onChange={(event) => setDecisionRationale(event.target.value)} disabled={!canWrite} placeholder="Why this review outcome" />
+                  </Field>
+                  {nextStatus !== "rejected" ? (
+                    <Field label="Next action" className="ry-brand-form-span">
+                      <Input controlSize="compact" required value={nextAction} onChange={(event) => setNextAction(event.target.value)} disabled={!canWrite} placeholder="What happens next" />
+                    </Field>
+                  ) : null}
+                </div>
+                <Button type="submit" size="compact" loading={decisionBusy} disabled={!canWrite}>Save review</Button>
+              </form>
+            </RelationshipSection>
+            {risks.length ? (
+              <RelationshipSection title="Open risks" description="Risk severity includes explanatory context.">
+                <ul className="ry-relationship-evidence-list">
+                  {risks.map((item) => (
+                    <li key={item.id}>
+                      <strong>{readable(shown(item.riskType, "risk"))}</strong>
+                      <RiskIndicator value={shown(item.severity, "medium")} rationale={shown(item.description, "No description recorded.")} />
+                    </li>
+                  ))}
+                </ul>
+              </RelationshipSection>
+            ) : null}
+          </div>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="representation" active={activeTab === "representation"}>
-          <RelationshipSection title="Representation readiness versus authority" description="Pipeline readiness is not an Agreement. Active representation authority requires an approved Agreement covering at least one Product.">
-            <dl className="ry-relationship-facts">
-              <div><dt>Pipeline stage</dt><dd><StatusLabel value={stage} /></dd></div>
-              <div><dt>Stored representation status</dt><dd><StatusLabel value={shown(brandField(record, "representationStatus", "representation_status"), "not_established")} /></dd></div>
+          <RelationshipSection title="Representation">
+            <dl className="ry-relationship-facts ry-brand-overview-facts">
+              <div><dt>Stage</dt><dd>{readable(stage)}</dd></div>
+              <div><dt>Representation status</dt><dd>{readable(shown(brandField(record, "representationStatus", "representation_status"), "not_established"))}</dd></div>
               <div><dt>Authority</dt><dd><AuthorityIndicator value={authorityStatus} rationale={authorityReason} /></dd></div>
             </dl>
-            <Alert title="Authority not established here">
-              A Brand record never establishes Product, territory, channel, or Buyer Outreach authority by itself. Open Representation or Agreements when an exact documentary scope exists.
+            <Alert title="No representation authority yet.">
+              An active agreement is required before this brand can be represented or used for authorized outreach.
             </Alert>
             <div className="ry-brand-inline-actions">
               <Link className="ry-button ry-button-secondary" to="/representation">Open Representation</Link>
@@ -602,41 +654,44 @@ export function BrandDetailPage({
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="related" active={activeTab === "related"}>
-          <RelationshipSection title="Professional contacts" description="Contacts record a professional route. They do not create Brand authority.">
+          <RelationshipSection title="Contacts" description="Professional contacts associated with this brand.">
             {contacts.length ? (
               <ul className="ry-relationship-evidence-list">
                 {contacts.map((item) => (
                   <li key={item.id}>
                     <Link to={`/contacts/${item.id}`}><strong>{item.name}</strong></Link>
-                    <small>{shown(item.role)} · {shown(item.email, "No email")}</small>
-                    <StatusLabel value={shown(item.verificationStatus, "unverified")} />
+                    <small>{shown(item.role)} · {shown(item.email, "No email")} · {readable(shown(item.verificationStatus, "unverified"))}</small>
                   </li>
                 ))}
               </ul>
             ) : (
-              <EmptyState compact description="No professional contact route recorded." />
+              <p className="ry-brand-empty-note">No professional contact route recorded.</p>
             )}
             {canWrite ? (
-              <form className="ry-brand-contact-form" onSubmit={(event) => void addContact(event)}>
-                <Field label="Name"><Input required value={contactName} onChange={(event) => setContactName(event.target.value)} /></Field>
-                <Field label="Role"><Input required value={contactRole} onChange={(event) => setContactRole(event.target.value)} /></Field>
-                <Field label="Professional email"><Input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} /></Field>
-                <Button type="submit" variant="secondary" loading={contactBusy}>Add unverified contact</Button>
+              <form className="ry-brand-contact-form ry-brand-form-compact ry-brand-workspace-form" onSubmit={(event) => void addContact(event)}>
+                <div className="ry-brand-form-grid">
+                  <Field label="Name">
+                    <Input controlSize="compact" required value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Contact name" />
+                  </Field>
+                  <Field label="Role">
+                    <Input controlSize="compact" required value={contactRole} onChange={(event) => setContactRole(event.target.value)} placeholder="Role" />
+                  </Field>
+                  <Field label="Professional email" className="ry-brand-form-span">
+                    <Input controlSize="compact" type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} placeholder="name@company.com" />
+                  </Field>
+                </div>
+                <Button type="submit" variant="secondary" size="compact" loading={contactBusy}>Add contact</Button>
               </form>
             ) : null}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="activity" active={activeTab === "activity"}>
-          <RelationshipSection title="Qualification activity" description="Stage changes and decisions in newest-first order.">
-            <ActivityTimeline entries={activityEntries} empty="No Brand qualification activity has been recorded." label={`${displayName} activity timeline`} />
+          <RelationshipSection title="Activity" description="Stage changes and decisions in newest-first order.">
+            <ActivityTimeline entries={activityEntries} empty="No brand activity has been recorded." label={`${displayName} activity timeline`} />
           </RelationshipSection>
         </RelationshipTabPanel>
       </RelationshipDetailLayout>
-
-      <StickyMobileAction>
-        {primaryAction}
-      </StickyMobileAction>
     </div>
   );
 }

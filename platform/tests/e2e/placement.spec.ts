@@ -18,7 +18,7 @@ async function captureIncrement12(page: Page, fileName: string, fullPage = false
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -119,13 +119,13 @@ async function seedPlacement(
         (id,workspace_id,subject_type,subject_id,question,scope,outcome,rationale,confidence,
          owner_user_id,decided_at,next_action,status)
        VALUES($1,$2,'business',$3,'Advance Placement?','Synthetic fixture','Proceed',
-         'Human documented Buyer value for Placement.','supported',$4,now(),'Prepare outreach','issued')`,
+         'Documented Buyer value for Placement.','supported',$4,now(),'Prepare outreach','issued')`,
       [decisionId, owner.workspaceId, businessId, owner.userId]
     );
     await database.query(
       `INSERT INTO tasks
         (id,workspace_id,subject_type,subject_id,title,status,owner_user_id,due_at,priority,created_reason)
-       VALUES($1,$2,'business',$3,'Prepare authorized Placement next action','open',$4,now()+interval '3 days','medium','Increment 12 Placement fixture')`,
+       VALUES($1,$2,'business',$3,'Contact buyer','open',$4,now()+interval '3 days','medium','Increment 12 Placement fixture')`,
       [taskId, owner.workspaceId, businessId, owner.userId]
     );
     await database.query(
@@ -173,24 +173,18 @@ test("Placement register preserves Table Kanban create and authority copy", asyn
   await signIn(page);
   await page.goto("/placements");
   await expect(page.getByRole("heading", { name: "Placement Opportunities" })).toBeVisible();
-  await expect(page.getByText(/three-party value/i)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Create a Placement Opportunity" })).toBeVisible();
-  if (testInfo.project.name.includes("mobile")) {
-    await page.getByRole("button", { name: "Create Placement" }).click();
-    await expect(page.getByRole("dialog").getByLabel("Active Agreement")).toBeVisible();
-    await expect(page.getByRole("dialog").getByLabel("Concrete Buyer value")).toBeVisible();
-    await expect(page.getByRole("dialog").getByText(/Brand, Business Buyer, and Representative/i)).toBeVisible();
-  } else {
-    await expect(page.getByLabel("Active Agreement").first()).toBeVisible();
-    await expect(page.getByLabel("Concrete Buyer value").first()).toBeVisible();
-    await expect(page.getByText(/Brand, Business Buyer, and Representative/i).first()).toBeVisible();
-  }
+  await page.getByRole("button", { name: "Create Placement" }).click();
+  const createDialog = page.getByRole("dialog");
+  await expect(createDialog.getByLabel("Active Agreement")).toBeVisible();
+  await expect(createDialog.getByLabel("Concrete Buyer value")).toBeVisible();
+  await expect(createDialog.getByText(/Brand, Business Buyer, and Representative/i)).toBeVisible();
+  await page.keyboard.press("Escape");
   if (!testInfo.project.name.includes("mobile")) {
     await expect(page.getByRole("button", { name: "Table" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Kanban" })).toBeVisible();
     await captureIncrement12(page, "placement-register-table-desktop-1440x900.png", true);
     await page.getByRole("button", { name: "Kanban" }).click();
-    await expect(page.getByText(/Dragging a card opens human stage review/i)).toBeVisible();
+    await expect(page.getByText(/Drag a placement to another stage/)).toBeVisible();
     await captureIncrement12(page, "placement-register-kanban-desktop-1440x900.png", true);
     await page.getByRole("button", { name: "Table" }).click();
   }
@@ -205,13 +199,13 @@ test("Placement register mobile uses stage-grouped rows without document overflo
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/placements");
   await expect(page.getByRole("heading", { name: "Placement Opportunities" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Qualified|Identified/i }).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "Placement pipeline", exact: true })).toBeVisible();
   await captureIncrement12(page, "placement-register-mobile-stage-grouped-390x844.png", true);
   await expectNoMainOverflow(page);
 });
 
 test("read-only Placement sessions expose restricted messaging", async ({ page }) => {
-  await signIn(page, "grace@synthetic.ryva.test");
+  await signIn(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/placements");
   await expect(page.getByRole("heading", { name: "Placement Opportunities" })).toBeVisible();
   await expect(page.getByText("Read-only Placement workspace")).toBeVisible();
@@ -246,36 +240,43 @@ test("Representation Product Brand Buyer Contact Outreach and commercial routes 
   await expect(page.getByRole("heading", { name: "Placement Opportunities" })).toBeVisible();
 });
 
-test("Placement detail preserves authority triangle and consequential stage review", async ({ page }, testInfo) => {
+test("Placement detail preserves authority triangle and advance placement review", async ({ page }, testInfo) => {
   const suffix = `detail-${testInfo.project.name}-${Date.now()}`;
   const fixture = await seedPlacement(suffix, "identified");
   const isMobile = testInfo.project.name.includes("mobile");
   await signIn(page);
   await page.goto(`/placements/${fixture.placementId}`);
-  await expect(page.getByRole("heading", { name: fixture.title })).toBeVisible();
-  await expect(page.getByText(/Every advancement rechecks authority/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Increment12 Brand", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Placement overview" })).toBeVisible();
+  await expect(page.getByLabel("Placement stage timeline")).toBeVisible();
   if (isMobile) {
-    await page.getByRole("button", { name: "Review context" }).click();
-    await expect(page.getByRole("dialog").getByText(/Placement stage does not create Representation authority/i)).toBeVisible();
+    await page.getByRole("button", { name: "Review status" }).click();
+    await expect(page.getByRole("dialog").getByRole("heading", { name: "Placement status" })).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(/Authority/i).first()).toBeVisible();
     await page.keyboard.press("Escape");
   } else {
-    await expect(page.getByText(/Placement stage does not create Representation authority/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Placement status" })).toBeVisible();
+    await expect(page.locator(".ry-placement-status-rail").getByText(/Authority/i)).toBeVisible();
   }
   await captureIncrement12(page, isMobile
     ? "placement-detail-populated-mobile-390x844.png"
     : "placement-detail-populated-desktop-1440x900.png", true);
-  await page.getByRole("tab", { name: /Authority/i }).click();
-  await expect(page.getByRole("heading", { name: "Representation and Agreement authority" })).toBeVisible();
+  await page.getByRole("tab", { name: /Overview/i }).click();
+  await expect(page.getByRole("heading", { name: "Agreement coverage" })).toBeVisible();
+  await expect(page.getByText(/This placement is covered by the active agreement|Agreement coverage needs attention/i)).toBeVisible();
   if (!isMobile) await captureIncrement12(page, "placement-detail-authority-desktop-1440x900.png", true);
-  await page.getByRole("tab", { name: /Fit & evidence/i }).click();
-  await expect(page.getByRole("heading", { name: "Relationship Triangle" })).toBeVisible();
-  await page.getByRole("tab", { name: /Stage review/i }).click();
-  await expect(page.getByText(/Exact Placement stage change|Consequential|Decision readiness/i).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Prepare confirmation" })).toBeVisible();
+  await page.getByRole("tab", { name: /Rationale/i }).click();
+  await expect(page.getByRole("heading", { name: "Value alignment" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Advance placement" })).toBeVisible();
+  await expect(page.getByText("Before advancing")).toBeVisible();
+  await expect(page.getByText(/Agreement coverage/)).toBeVisible();
+  await expect(page.getByText("Review and advance")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Advance to /i })).toBeVisible();
   if (!isMobile) await captureIncrement12(page, "placement-transition-review-desktop-1440x900.png", true);
   else await captureIncrement12(page, "placement-transition-review-mobile-390x844.png", true);
   await page.getByRole("tab", { name: /Activity/i }).click();
-  await expect(page.getByText(/Placement created for Increment 12 fixture|Identified/i).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Placement timeline" })).toBeVisible();
+  await expect(page.getByText(/Placement created for Increment 12 fixture|Stage changed to Identified|Identified/i).first()).toBeVisible();
   if (!isMobile) await captureIncrement12(page, "placement-detail-activity-desktop-1440x900.png", true);
   await expectNoMainOverflow(page);
 });
@@ -286,15 +287,16 @@ test("valid Placement stage transition records audited outcome", async ({ page }
   const fixture = await seedPlacement(suffix, "identified");
   await signIn(page);
   await page.goto(`/placements/${fixture.placementId}?toStage=qualified#stage-review`);
-  await expect(page.getByRole("heading", { name: fixture.title })).toBeVisible();
-  await expect(page.getByRole("tab", { name: /Stage review/i })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByLabel("Fresh human decision")).not.toHaveValue("");
+  await expect(page.getByRole("heading", { name: "Increment12 Brand", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Rationale/i })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Decision")).not.toHaveValue("");
   await expect(page.getByLabel("Next action")).not.toHaveValue("");
-  await page.getByLabel("Reason").fill("Human confirmed current fit and authority for qualification.");
-  await page.getByRole("button", { name: "Prepare confirmation" }).click();
+  await page.getByLabel("Notes").fill("Confirmed current fit and authority for qualification.");
+  await page.locator("#stage-review").getByRole("button", { name: "Advance to Qualified" }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Record human-confirmed stage" }).click();
-  await expect(page.getByRole("heading", { name: "Stage transition recorded" })).toBeVisible();
+  await expect(page.getByRole("alertdialog").getByRole("heading", { name: "Review and advance" })).toBeVisible();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Advance to Qualified" }).click();
+  await expect(page.getByRole("heading", { name: "Stage advanced" })).toBeVisible();
   await captureIncrement12(page, "placement-transition-completed-audit-desktop-1440x900.png", true);
 });
 
@@ -304,14 +306,14 @@ test("invalid Placement stage transition preserves input and prior stage", async
   const fixture = await seedPlacement(suffix, "prepared");
   await signIn(page);
   await page.goto(`/placements/${fixture.placementId}?toStage=contacted#stage-review`);
-  await expect(page.getByRole("heading", { name: fixture.title })).toBeVisible();
-  await expect(page.getByLabel("Fresh human decision")).not.toHaveValue("");
-  await page.getByLabel("Reason").fill("Attempt premature contact without verified outreach activity.");
-  await page.getByRole("button", { name: "Prepare confirmation" }).click();
+  await expect(page.getByRole("heading", { name: "Increment12 Brand", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Decision")).not.toHaveValue("");
+  await page.getByLabel("Notes").fill("Attempt premature contact without verified outreach activity.");
+  await page.locator("#stage-review").getByRole("button", { name: "Advance to Contacted" }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Record human-confirmed stage" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Advance to Contacted" }).click();
   await expect(page.getByText(/verified outreach|Contacted requires/i).first()).toBeVisible();
-  await expect(page.getByLabel("Reason")).toHaveValue("Attempt premature contact without verified outreach activity.");
+  await expect(page.getByLabel("Notes")).toHaveValue("Attempt premature contact without verified outreach activity.");
   await expect(page.getByText(/Prepared/i).first()).toBeVisible();
   await captureIncrement12(page, "placement-transition-blocker-desktop-1440x900.png", true);
 });

@@ -4,9 +4,33 @@ import { useAuth } from "../../auth";
 import { Alert, Button, ErrorState, Field, Input, LoadingState, PageHeader, Select, TextArea } from "../../design-system";
 import { useLoad } from "../../hooks";
 
-type Profile = { userId: string; workspaceId: string; name: string; email: string; timeZone: string; locale: string; professionalTitle: string; outreachName: string; outreachSignature: string; currency: string; categoryInterests: string[]; businessTypeInterests: string[]; geographicPreferences: string[]; experienceLevel: string; workingHours: Record<string, unknown>; version: number };
+type Profile = {
+  userId: string;
+  workspaceId: string;
+  firstName: string;
+  lastName: string;
+  name: string;
+  email: string;
+  timeZone: string;
+  locale: string;
+  professionalTitle: string;
+  outreachName: string;
+  outreachSignature: string;
+  currency: string;
+  categoryInterests: string[];
+  businessTypeInterests: string[];
+  geographicPreferences: string[];
+  experienceLevel: string;
+  workingHours: Record<string, unknown>;
+  version: number;
+};
+
 const join = (values: string[]) => values.join(", ");
 const split = (value: string) => [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+
+function defaultDisplayName(firstName: string, lastName: string): string {
+  return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+}
 
 export function ProfileWorkspacePage() {
   const { session, refresh } = useAuth();
@@ -14,12 +38,32 @@ export function ProfileWorkspacePage() {
   const workspaceId = session?.user.workspaceId ?? "";
   const state = useLoad(() => api<{ profile: Profile }>(`/api/workspaces/${workspaceId}/profile`), [workspaceId]);
   const [form, setForm] = useState<Record<string, string>>({});
-  const [error, setError] = useState(""); const [saved, setSaved] = useState(false); const [saving, setSaving] = useState(false);
+  const [displayNameTouched, setDisplayNameTouched] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     const profile = state.data?.profile;
     if (!profile) return;
-    setForm({ name: profile.name, timeZone: profile.timeZone, locale: profile.locale, professionalTitle: profile.professionalTitle, outreachName: profile.outreachName, outreachSignature: profile.outreachSignature, currency: profile.currency, categoryInterests: join(profile.categoryInterests), businessTypeInterests: join(profile.businessTypeInterests), geographicPreferences: join(profile.geographicPreferences), experienceLevel: profile.experienceLevel });
+    setForm({
+      firstName: profile.firstName ?? "",
+      lastName: profile.lastName ?? "",
+      name: profile.name,
+      timeZone: profile.timeZone,
+      locale: profile.locale,
+      professionalTitle: profile.professionalTitle,
+      outreachName: profile.outreachName,
+      outreachSignature: profile.outreachSignature,
+      currency: profile.currency,
+      categoryInterests: join(profile.categoryInterests),
+      businessTypeInterests: join(profile.businessTypeInterests),
+      geographicPreferences: join(profile.geographicPreferences),
+      experienceLevel: profile.experienceLevel
+    });
+    setDisplayNameTouched(false);
   }, [state.data]);
+
   function field(name: string) {
     return {
       value: form[name] ?? "",
@@ -27,30 +71,186 @@ export function ProfileWorkspacePage() {
         setForm((current) => ({ ...current, [name]: event.target.value }))
     };
   }
-  async function submit(event: FormEvent) {
-    event.preventDefault(); if (!state.data || !canWrite) return;
-    setSaving(true); setError(""); setSaved(false);
-    try {
-      const result = await api<{ profile: Profile }>(`/api/workspaces/${workspaceId}/profile`, { method: "PUT", body: { version: state.data.profile.version, name: form.name ?? "", timeZone: form.timeZone ?? "", locale: form.locale ?? "", professionalTitle: form.professionalTitle ?? "", outreachName: form.outreachName ?? "", outreachSignature: form.outreachSignature ?? "", currency: form.currency ?? "", categoryInterests: split(form.categoryInterests ?? ""), businessTypeInterests: split(form.businessTypeInterests ?? ""), geographicPreferences: split(form.geographicPreferences ?? ""), experienceLevel: form.experienceLevel ?? "not_set", workingHours: state.data.profile.workingHours } });
-      state.setData(result); await refresh(); setSaved(true);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Profile could not be saved."); }
-    finally { setSaving(false); }
+
+  function updateNamePart(part: "firstName" | "lastName", value: string) {
+    setForm((current) => {
+      const next = { ...current, [part]: value };
+      if (!displayNameTouched) {
+        next.name = defaultDisplayName(
+          part === "firstName" ? value : current.firstName ?? "",
+          part === "lastName" ? value : current.lastName ?? ""
+        );
+      }
+      return next;
+    });
   }
-  if (state.loading && !state.data) return <div className="page ry-settings-page"><PageHeader eyebrow="Professional identity" title="Profile" description="Loading your professional identity." /><LoadingState label="Loading profile" /></div>;
-  if (state.error && !state.data) return <div className="page ry-settings-page"><PageHeader eyebrow="Professional identity" title="Profile" description="Your professional identity could not be loaded." /><ErrorState message={state.error} action={<Button variant="secondary" onClick={() => void state.reload()}>Try again</Button>} /></div>;
-  return <div className="page ry-settings-page">
-    <PageHeader eyebrow="Professional identity" title="Profile" description="These settings provide regional context and, where approved, your external communication identity." />
-    {!canWrite ? <Alert tone="warning" title="Read-only profile">You may review this profile, but this session cannot change it.</Alert> : null}
-    {error ? <Alert tone="danger" title="Profile unavailable">{error}</Alert> : null}
-    {state.data ? <form className="panel ry-settings-panel ry-settings-form-grid" onSubmit={(event) => void submit(event)}>
-      <Field label="Full name" required><Input required maxLength={120} autoComplete="name" {...field("name")} disabled={!canWrite} /></Field>
-      <Field label="Email" hint="Verified account email cannot be changed here."><Input value={state.data.profile.email} disabled /></Field>
-      <Field label="Professional title"><Input maxLength={120} {...field("professionalTitle")} disabled={!canWrite} /></Field><Field label="Outreach name"><Input maxLength={120} {...field("outreachName")} disabled={!canWrite} /></Field>
-      <Field label="Time zone" required><Input required maxLength={100} placeholder="America/New_York" {...field("timeZone")} disabled={!canWrite} /></Field><Field label="Currency" required><Input required pattern="[A-Z]{3}" maxLength={3} {...field("currency")} disabled={!canWrite} /></Field>
-      <Field label="Locale" required><Input required maxLength={20} placeholder="en-US" {...field("locale")} disabled={!canWrite} /></Field><Field label="Experience"><Select {...field("experienceLevel")} disabled={!canWrite}><option value="not_set">Not set</option><option value="new">New to placement</option><option value="developing">Developing practice</option><option value="experienced">Experienced representative</option></Select></Field>
-      <Field label="Category interests" hint="Comma-separated"><Input {...field("categoryInterests")} disabled={!canWrite} /></Field><Field label="Business types" hint="Comma-separated"><Input {...field("businessTypeInterests")} disabled={!canWrite} /></Field><Field label="Geographic preferences" hint="Comma-separated"><Input {...field("geographicPreferences")} disabled={!canWrite} /></Field>
-      <Field label="Outreach signature" hint="Captured with future approved sends."><TextArea rows={5} maxLength={4000} {...field("outreachSignature")} disabled={!canWrite} /></Field>
-      <div className="ry-settings-actions"><Button type="submit" loading={saving} disabled={!canWrite}>{canWrite ? "Save profile" : "Read-only access"}</Button>{saved ? <span role="status">Profile saved.</span> : null}</div>
-    </form> : null}
-  </div>;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!state.data || !canWrite) return;
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    const firstName = (form.firstName ?? "").trim();
+    const lastName = (form.lastName ?? "").trim();
+    const name = ((form.name ?? "").trim() || defaultDisplayName(firstName, lastName));
+    try {
+      const result = await api<{ profile: Profile }>(`/api/workspaces/${workspaceId}/profile`, {
+        method: "PUT",
+        body: {
+          version: state.data.profile.version,
+          firstName,
+          lastName,
+          name,
+          timeZone: form.timeZone ?? "",
+          locale: form.locale ?? "",
+          professionalTitle: form.professionalTitle ?? "",
+          outreachName: form.outreachName ?? "",
+          outreachSignature: form.outreachSignature ?? "",
+          currency: form.currency ?? "",
+          categoryInterests: split(form.categoryInterests ?? ""),
+          businessTypeInterests: split(form.businessTypeInterests ?? ""),
+          geographicPreferences: split(form.geographicPreferences ?? ""),
+          experienceLevel: form.experienceLevel ?? "not_set",
+          workingHours: state.data.profile.workingHours
+        }
+      });
+      state.setData(result);
+      await refresh();
+      setSaved(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Profile could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (state.loading && !state.data) {
+    return (
+      <div className="page ry-settings-page ry-settings-page-wide">
+        <PageHeader title="Profile" />
+        <LoadingState label="Loading profile" />
+      </div>
+    );
+  }
+
+  if (state.error && !state.data) {
+    return (
+      <div className="page ry-settings-page ry-settings-page-wide">
+        <PageHeader title="Profile" />
+        <ErrorState message={state.error} action={<Button variant="secondary" onClick={() => void state.reload()}>Try again</Button>} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="page ry-settings-page ry-settings-page-wide">
+      <PageHeader title="Profile" />
+      {!canWrite ? <Alert tone="warning" title="Read-only profile">You may review this profile, but this session cannot change it.</Alert> : null}
+      {error ? <Alert tone="danger" title="Profile unavailable">{error}</Alert> : null}
+
+      {state.data ? (
+        <form className="ry-settings-panel" onSubmit={(event) => void submit(event)}>
+          <header className="ry-settings-section-heading">
+            <h2>Identity</h2>
+            <p className="ry-settings-fine-print">Account identity from signup. Display name is how you appear across Ryva.</p>
+          </header>
+          <div className="ry-settings-form-grid">
+            <Field label="First name" required>
+              <Input
+                required
+                maxLength={80}
+                autoComplete="given-name"
+                controlSize="compact"
+                value={form.firstName ?? ""}
+                onChange={(event) => updateNamePart("firstName", event.target.value)}
+                disabled={!canWrite}
+              />
+            </Field>
+            <Field label="Last name">
+              <Input
+                maxLength={80}
+                autoComplete="family-name"
+                controlSize="compact"
+                value={form.lastName ?? ""}
+                onChange={(event) => updateNamePart("lastName", event.target.value)}
+                disabled={!canWrite}
+              />
+            </Field>
+            <Field className="ry-settings-span-2" label="Display name" required>
+              <Input
+                required
+                maxLength={120}
+                autoComplete="nickname"
+                controlSize="compact"
+                value={form.name ?? ""}
+                onChange={(event) => {
+                  setDisplayNameTouched(true);
+                  setForm((current) => ({ ...current, name: event.target.value }));
+                }}
+                disabled={!canWrite}
+              />
+            </Field>
+            <Field label="Email" hint="Used to sign in. Verified login email cannot be changed here.">
+              <Input value={state.data.profile.email} controlSize="compact" disabled />
+            </Field>
+            <Field label="Professional title">
+              <Input maxLength={120} controlSize="compact" {...field("professionalTitle")} disabled={!canWrite} />
+            </Field>
+            <Field label="Outreach name">
+              <Input maxLength={120} controlSize="compact" {...field("outreachName")} disabled={!canWrite} />
+            </Field>
+          </div>
+
+          <header className="ry-settings-section-heading">
+            <h2>Regional defaults</h2>
+          </header>
+          <div className="ry-settings-form-grid">
+            <Field label="Time zone" required>
+              <Input required maxLength={100} placeholder="America/New_York" controlSize="compact" {...field("timeZone")} disabled={!canWrite} />
+            </Field>
+            <Field label="Currency" required>
+              <Input required pattern="[A-Z]{3}" maxLength={3} controlSize="compact" {...field("currency")} disabled={!canWrite} />
+            </Field>
+            <Field label="Locale" required>
+              <Input required maxLength={20} placeholder="en-US" controlSize="compact" {...field("locale")} disabled={!canWrite} />
+            </Field>
+            <Field label="Experience">
+              <Select controlSize="compact" {...field("experienceLevel")} disabled={!canWrite}>
+                <option value="not_set">Not set</option>
+                <option value="new">New to placement</option>
+                <option value="developing">Developing practice</option>
+                <option value="experienced">Experienced representative</option>
+              </Select>
+            </Field>
+          </div>
+
+          <header className="ry-settings-section-heading">
+            <h2>Focus areas</h2>
+          </header>
+          <div className="ry-settings-form-grid">
+            <Field label="Category interests" hint="Comma-separated">
+              <Input controlSize="compact" {...field("categoryInterests")} disabled={!canWrite} />
+            </Field>
+            <Field label="Business types" hint="Comma-separated">
+              <Input controlSize="compact" {...field("businessTypeInterests")} disabled={!canWrite} />
+            </Field>
+            <Field className="ry-settings-span-2" label="Geographic preferences" hint="Comma-separated">
+              <Input controlSize="compact" {...field("geographicPreferences")} disabled={!canWrite} />
+            </Field>
+            <Field className="ry-settings-span-2" label="Outreach signature" hint="Used with approved outreach sends.">
+              <TextArea rows={4} maxLength={4000} {...field("outreachSignature")} disabled={!canWrite} />
+            </Field>
+          </div>
+
+          <div className="ry-settings-actions">
+            <Button type="submit" loading={saving} disabled={!canWrite}>
+              {canWrite ? "Save profile" : "Read-only access"}
+            </Button>
+            {saved ? <span role="status">Profile saved.</span> : null}
+          </div>
+        </form>
+      ) : null}
+    </div>
+  );
 }

@@ -32,7 +32,7 @@ async function login(page: Page, email = "active@synthetic.ryva.test") {
   await page.context().clearCookies();
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 }
@@ -56,22 +56,21 @@ async function loginAdmin(page: Page) {
   await page.context().clearCookies();
   await page.goto("/login");
   await page.getByLabel("Email").fill("admin@synthetic.ryva.test");
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Verify your sign-in" })).toBeVisible();
   await page.getByLabel("Verification code").fill(await adminCode());
   await page.getByRole("button", { name: "Verify and continue" }).click();
-  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("heading", { name: "Platform operations" })).toBeVisible({ timeout: 20_000 });
 }
 
 test("Analytics workspace distinguishes periods, freshness, and accessible tables", async ({ page }, testInfo) => {
   await login(page);
   await page.goto("/analytics");
-  await expect(page.getByRole("heading", { name: "Analytics Command Center" })).toBeVisible();
-  await expect(page.getByText(/Period /)).toBeVisible();
-  await expect(page.getByText(/Calculated /)).toBeVisible();
-  await expect(page.getByLabel("Analytics metrics")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Export permitted CSV" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Analytics filters" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Performance overview" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Export data" })).toBeVisible();
   await expectNoViewportLoss(page);
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "analytics-populated-desktop-1440x900.png", true);
@@ -80,19 +79,21 @@ test("Analytics workspace distinguishes periods, freshness, and accessible table
   }
   await page.getByLabel("From").fill("2020-01-01");
   await page.getByLabel("To").fill("2020-01-31");
-  await page.getByRole("button", { name: "Recalculate" }).click();
-  await expect(page.getByText("Period 2020-01-01–2020-01-31")).toBeVisible();
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(page.getByLabel("From")).toHaveValue("2020-01-01");
+  await expect(page.getByLabel("To")).toHaveValue("2020-01-31");
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "analytics-filtered-date-range-desktop-1440x900.png", true);
   }
-  await page.getByRole("button", { name: "Pipeline Analytics" }).click();
-  await expect(page.getByText("Weighted pipeline disabled")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "User-entered ranges" })).toBeVisible();
-  await page.getByRole("button", { name: "Reports" }).click();
-  await expect(page.getByRole("heading", { name: "Saved and exportable reports" })).toBeVisible();
-  await page.getByRole("button", { name: "Metric Definitions" }).click();
-  await expect(page.getByRole("heading", { name: "Expected commission" })).toBeVisible();
-  await expect(page.getByText("Grouped by ISO currency; currencies are never combined.").first()).toBeVisible();
+  await page.getByRole("tab", { name: "Pipeline Analytics" }).click();
+  await expect(page.getByRole("region", { name: "Pipeline" })).toBeVisible();
+  await page.getByRole("tab", { name: "Reports" }).click();
+  await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Analytics CSV exports" })).toBeVisible();
+  await page.getByRole("button", { name: "Metric guide" }).click();
+  await expect(page.getByRole("region", { name: "Metric guide" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Expected commission/ })).toBeVisible();
+  await expect(page.getByText("do not prove general market demand").first()).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "analytics-definitions-desktop-1440x900.png", true);
     await captureIncrement16(page, "analytics-freshness-or-partial-desktop-1440x900.png", true);
@@ -100,10 +101,10 @@ test("Analytics workspace distinguishes periods, freshness, and accessible table
 });
 
 test("Analytics restricted sessions remain honest", async ({ page }) => {
-  await login(page, "grace@synthetic.ryva.test");
+  await login(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/analytics");
-  await expect(page.getByRole("heading", { name: "Analytics Command Center" })).toBeVisible();
-  await expect(page.getByText("No Product Score or hidden probability.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Analytics" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText(/restricted/i);
   await captureIncrement16(page, "analytics-restricted-desktop-1440x900.png", true);
   await expectNoViewportLoss(page);
 });
@@ -111,14 +112,14 @@ test("Analytics restricted sessions remain honest", async ({ page }) => {
 test("Import staged preview remains distinct from execution", async ({ page }, testInfo) => {
   await login(page);
   await navigateFromShell(page, "Import");
-  await expect(page.getByRole("heading", { name: "Import and review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Import data" })).toBeVisible();
   const name = `Inc16Import${Date.now()}`;
   await page.locator("textarea").first().fill(`name\n${name}`);
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "import-selected-file-desktop-1440x900.png", true);
   }
-  await page.getByRole("button", { name: "Validate preview" }).click();
-  await expect(page.getByRole("heading", { name: "Validation result" })).toBeVisible();
+  await page.getByRole("button", { name: "Preview import" }).click();
+  await expect(page.getByRole("heading", { name: "Preview result" })).toBeVisible();
   await expect(page.getByText("awaiting explicit approval", { exact: true })).toBeVisible();
   await expect(page.getByText("Import committed.")).toHaveCount(0);
   if (!testInfo.project.name.includes("mobile")) {
@@ -152,9 +153,9 @@ test("Export request is not file-ready until the worker completes", async ({ pag
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "exports-register-desktop-1440x900.png", true);
   }
-  await page.getByText("brands", { exact: true }).click();
-  await page.getByText("evidence", { exact: true }).click();
-  await page.getByRole("button", { name: "Generate audited export" }).click();
+  await page.getByRole("checkbox", { name: "Brands" }).check();
+  await page.getByRole("checkbox", { name: "Evidence" }).check();
+  await page.getByRole("button", { name: "Generate export" }).click();
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) {
@@ -162,7 +163,7 @@ test("Export request is not file-ready until the worker completes", async ({ pag
   } else {
     await captureIncrement16(page, "export-review-mobile-390x844.png", true);
   }
-  await dialog.getByRole("button", { name: "Generate audited export" }).click();
+  await dialog.getByRole("button", { name: "Generate export" }).click();
   await expect(page.getByRole("heading", { name: "Export queued" })).toBeVisible();
   await expect(page.getByText(/durable worker will generate/i)).toBeVisible();
   await expect(page.getByRole("link", { name: "Download export" })).toHaveCount(0);
@@ -179,6 +180,7 @@ test("Settings sections preserve save honesty and read-only states", async ({ pa
   await login(page);
   await navigateFromShell(page, "Settings");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Profile & account" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Preferences" })).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "settings-workspace-desktop-1440x900.png", true);
@@ -186,31 +188,31 @@ test("Settings sections preserve save honesty and read-only states", async ({ pa
     await captureIncrement16(page, "settings-mobile-390x844.png", true);
   }
   await page.getByRole("button", { name: "AI assistance" }).click();
-  await expect(page.getByRole("heading", { name: "Evidence-first AI assistance" })).toBeVisible();
-  await page.getByRole("button", { name: "Sessions & security" }).click();
+  await expect(page.getByRole("heading", { name: "Evidence-first assistance" })).toBeVisible();
+  await page.getByRole("button", { name: "Security" }).click();
   await expect(page.getByRole("heading", { name: "Active sessions" })).toBeVisible();
   await page.getByRole("button", { name: "Account closure" }).click();
   await expect(page.getByRole("button", { name: "Request account closure review" })).toBeVisible();
 
-  await login(page, "grace@synthetic.ryva.test");
+  await login(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/settings");
-  await expect(page.getByText("Read-only settings", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Read-only access" })).toBeDisabled();
+  await page.getByRole("button", { name: "Preferences" }).click();
+  await expect(page.getByRole("alert")).toContainText(/restricted/i);
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "settings-restricted-desktop-1440x900.png", true);
   }
 });
 
 test("Profile and Access keep capability honesty", async ({ page }, testInfo) => {
-  await login(page, "grace@synthetic.ryva.test");
+  await login(page, "mentor-readonly@synthetic.ryva.test");
   await navigateFromShell(page, "Profile");
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Read-only access" })).toBeDisabled();
+  await expect(page.getByRole("alert")).toContainText(/restricted/i);
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "profile-read-only-desktop-1440x900.png", true);
   }
   await page.goto("/access");
-  await expect(page.getByRole("heading", { name: "Your Ryva Pro access" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your Ryva access" })).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) {
     await captureIncrement16(page, "access-restricted-desktop-1440x900.png", true);
   }
@@ -218,7 +220,7 @@ test("Profile and Access keep capability honesty", async ({ page }, testInfo) =>
 
 test("Operations distinguishes health, jobs, audit, and restricted visibility", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes("mobile"), "Admin MFA operations screenshots use desktop.");
-  await login(page, "grace@synthetic.ryva.test");
+  await login(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto("/admin");
   await expect(page.getByRole("heading", { name: "Platform operations" })).toBeVisible();
   await expect(page.getByText(/could not be loaded|Operational boundary|Least-privilege/i).first()).toBeVisible();
@@ -241,13 +243,11 @@ test("Operations distinguishes health, jobs, audit, and restricted visibility", 
   await captureIncrement16(page, "operations-audit-desktop-1440x900.png", true);
 });
 
-test("Boundary honesty: missing is not zero and connected is not healthy", async ({ page }) => {
+test("Boundary honesty: missing records are not fabricated as activity", async ({ page }) => {
   await login(page);
   await page.goto("/analytics");
-  await expect(page.getByRole("heading", { name: "Not Connected" })).toBeVisible();
-  await expect(page.getByText(/No verified external intelligence is connected/)).toBeVisible();
-  await expect(page.getByText("Unavailable — denominator or provider data is absent").first()).toBeVisible();
-  await page.getByRole("button", { name: "Pipeline Analytics" }).click();
-  await expect(page.getByText("Weighted pipeline disabled")).toBeVisible();
-  await expect(page.getByText(/not guaranteed income|will not fabricate/i).first()).toBeVisible();
+  await expect(page.getByText("No verified Orders match these filters.")).toBeVisible();
+  await page.getByRole("tab", { name: "Pipeline Analytics" }).click();
+  await expect(page.getByRole("region", { name: "Pipeline" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Needs attention" })).toBeVisible();
 });

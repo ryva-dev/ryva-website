@@ -190,7 +190,7 @@ export function ContactDetailPage({
     ...(record.lastVerifiedAt ? [{
       id: "current-verification",
       title: "Current professional route verification",
-      description: shown(record.verificationNotes, "Human verification is recorded without additional notes."),
+      description: shown(record.verificationNotes, "Verification is recorded without additional notes."),
       meta: `${dateTime(record.lastVerifiedAt)} · ${selectedSource?.reference ?? "Source reference unavailable"}`,
       status: <StatusLabel value={verificationStatus} />
     }] : []),
@@ -216,13 +216,13 @@ export function ContactDetailPage({
     <>
       <div className="ry-context-item">
         <strong>Next action</strong>
-        <p>{!canWrite ? "Verification changes are unavailable in this session." : !hasProfessionalRoute ? "Record a professional route before verification." : activeSources.length === 0 ? "Register an active Source before verification." : verificationStatus === "verified" ? "Refresh the route when its source becomes stale." : "Complete human verification with an active Source."}</p>
+        <p>{!canWrite ? "Verification changes are unavailable in this session." : !hasProfessionalRoute ? "Record a professional route before verification." : activeSources.length === 0 ? "Register an active Source before verification." : verificationStatus === "verified" ? "Refresh the route when its source becomes stale." : "Complete verification with an active Source."}</p>
         {activeSources.length === 0 && canWrite ? <Link to="/sources">Open Sources</Link> : null}
       </div>
       <div className="ry-context-item">
         <strong>Verification freshness</strong>
         <StatusLabel value={verificationStatus} />
-        <small>{record.lastVerifiedAt ? `Last verified ${dateTime(record.lastVerifiedAt)}` : "No completed human verification"}</small>
+        <small>{record.lastVerifiedAt ? `Last verified ${dateTime(record.lastVerifiedAt)}` : "No completed verification"}</small>
       </div>
       <div className="ry-context-item">
         <strong>Permission and suppression</strong>
@@ -260,12 +260,12 @@ export function ContactDetailPage({
         <Alert title="Generic Contact detail compatibility">This route reuses the canonical Contact relationship workspace.</Alert>
       ) : null}
       <IdentityHeader
-        eyebrow="Buyer Intelligence · Human verification"
+        eyebrow="Buyer Intelligence · Verification"
         title={record.name}
         relationship={<span className="ry-relationship-identity-meta"><span>{shown(record.role, "Role not recorded")}</span>{parent && parentPath ? <Link to={parentPath}>{parent.name}</Link> : <span>Parent relationship unavailable</span>}<span>{professionalRoute || "Professional route missing"}</span></span>}
         status={<StatusLabel value={verificationStatus} />}
         warning={!hasProfessionalRoute ? <Alert tone="warning" title="Professional route missing">Verification requires an email, phone number, or professional handle.</Alert> : externallyBlocked ? <Alert tone="danger" title="External contact blocked">The stored permission status blocks external contact. Verification does not override suppression.</Alert> : undefined}
-        nextAction={<span>{canVerify ? (verificationStatus === "verified" ? "Refresh this route when its evidence changes." : "Complete human verification against an active Source.") : !canWrite ? session?.access.reason : activeSources.length === 0 ? "Register an active Source before verification." : "Record a professional route before verification."}</span>}
+        nextAction={<span>{canVerify ? (verificationStatus === "verified" ? "Refresh this route when its evidence changes." : "Complete verification against an active Source.") : !canWrite ? session?.access.reason : activeSources.length === 0 ? "Register an active Source before verification." : "Record a professional route before verification."}</span>}
         actions={<>{primaryAction}<Button variant="secondary" disabled={!canWrite} onClick={() => { setActionError(""); setNoteOpen(true); }}>Add note</Button></>}
       />
       {statusMessage ? <p className="ry-relationship-status" role="status">{statusMessage}</p> : null}
@@ -325,7 +325,7 @@ export function ContactDetailPage({
               <p>Buyer roles and purchasing authority are recorded on the associated Business, not on this Contact.{parent ? <> See <Link to={parentPath}>{parent.name}</Link>.</> : null}</p>
             </RelationshipSection>
           ) : null}
-          <RelationshipSection title="Verification record" description="A human-owned freshness check linked to one active Source.">
+          <RelationshipSection title="Verification record" description="A freshness check linked to one active Source.">
             <dl className="ry-relationship-facts">
               <div><dt>Status</dt><dd><StatusLabel value={verificationStatus} /></dd></div>
               <div><dt>Source</dt><dd>{selectedSource?.reference ?? (record.sourceId ? "Source reference unavailable" : "No Source linked")}</dd></div>
@@ -339,7 +339,7 @@ export function ContactDetailPage({
           <RelationshipSection title="Relationship activity" description="Recorded Contact activity in newest-first order.">
             <ActivityTimeline entries={activityEntries} empty="No Contact activity has been recorded." label={`${record.name} activity timeline`} />
           </RelationshipSection>
-          <RelationshipSection title="Notes" description="Human-authored context remains separate from evidence and verification.">
+          <RelationshipSection title="Notes" description="Reviewer-authored context remains separate from evidence and verification.">
             {context.notes.length ? <ul className="ry-relationship-evidence-list">{context.notes.map((item) => <li key={item.id}><strong>{shown(item.body)}</strong><small>{typeof item.createdAt === "string" ? new Date(item.createdAt).toLocaleString() : "Time not recorded"}</small></li>)}</ul> : <EmptyState compact description="No Contact notes have been recorded." action={canWrite ? <Button variant="secondary" onClick={() => setNoteOpen(true)}>Add note</Button> : undefined} />}
           </RelationshipSection>
         </RelationshipTabPanel>
@@ -354,14 +354,14 @@ export function ContactDetailPage({
         <StickyMobileAction>{primaryAction}</StickyMobileAction>
       </RelationshipDetailLayout>
 
-      <Drawer open={verificationOpen} title={verificationStatus === "verified" ? "Refresh professional route" : "Verify professional route"} description="Human verification must name an active Source, observation time, and exact notes." onClose={() => setVerificationOpen(false)}>
+      <Drawer open={verificationOpen} title={verificationStatus === "verified" ? "Refresh professional route" : "Verify professional route"} description="Verification must name an active Source, observation time, and exact notes." onClose={() => setVerificationOpen(false)}>
         <form onSubmit={(event) => void verify(event)}>
           <Alert title="Verification boundary">This action verifies the professional route and freshness only. It does not approve Buyer authority or external Outreach.</Alert>
           {actionError ? <ErrorState message={actionError} /> : null}
           <Field label="Verification Source" required><Select required value={sourceId} onChange={(event) => setSourceId(event.target.value)}><option value="">Select an active Source</option>{activeSources.map((item) => <option key={item.id} value={item.id}>{item.reference}</option>)}</Select></Field>
           <Field label="Source observed at" required><Input type="datetime-local" required value={observedAt} onChange={(event) => setObservedAt(event.target.value)} /></Field>
-          <Field label="Human verification notes" required hint="Record what you checked and what this Source does not establish."><TextArea required rows={5} value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
-          <Button type="submit" loading={saving}>Record human verification</Button>
+          <Field label="Verification notes" required hint="Record what you checked and what this Source does not establish."><TextArea required rows={5} value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
+          <Button type="submit" loading={saving}>Record verification</Button>
         </form>
       </Drawer>
 

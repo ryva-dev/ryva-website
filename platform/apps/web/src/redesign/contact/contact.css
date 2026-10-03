@@ -23,11 +23,11 @@
 .ry-contact-call-prep dd { margin: var(--space-0); }
 
 .ry-contact-create { margin-top: var(--space-6); }
-.ry-contact-create-form {
-  display: grid;
-  gap: var(--space-4);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--width-drawer-narrow)), 1fr));
-  align-items: end;
+
+.ry-contact-create.panel {
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 @media (max-width: 64rem) {
@@ -35,7 +35,7 @@
 }
 
 @media (max-width: 48rem) {
-  .ry-contact-create-form { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-contact-call-prep { padding: var(--space-4); }
 }
 
 @media (prefers-reduced-motion: reduce) {

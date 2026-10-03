@@ -143,7 +143,7 @@ orders, mark payment, or move stages. Cite context ordinals for every supported 
 Use only the supplied context. Distinguish Verified Fact, Direct Evidence, Strong Proxy, Weak Proxy,
 Estimate, Model Inference, and Unknown. State missing and contrary evidence. Do not produce numerical
 scores, hidden weights, probabilities, forecasts, or unsupported certainty. Recommendations are editable
-options for a named human, with an observable reason and a manual next action.`;
+options for a named reviewer, with an observable reason and a manual next action.`;
 
 function digest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -444,7 +444,7 @@ async function recordContext(
     documentId: targetType === "document" ? targetId : null,
     evidenceClass: "direct_evidence",
     freshnessAt: freshness((row as Record<string, unknown> | undefined)?.updated_at),
-    limitations: "A stored record may contain human assertions that require linked evidence.",
+    limitations: "A stored record may contain assertions that require linked evidence.",
     permittedUse: "Professional review within this workspace.",
     contentExcerpt: excerpt(row)
   }];
@@ -503,7 +503,7 @@ async function recordContext(
       freshnessAt: freshness(item.updatedAt),
       limitations: item.classification === "estimate"
         ? "Projected or expected values are not guaranteed outcomes."
-        : "Connected records may contain human assertions that require source review.",
+        : "Connected records may contain assertions that require source review.",
       permittedUse: "Explain connected-record context within this workspace.",
       contentExcerpt: excerpt(item.payload)
     });

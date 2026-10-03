@@ -20,6 +20,8 @@ import {
 } from "../../design-system";
 import {
   ActiveFilters,
+  RegisterCreateBlockHeader,
+  RegisterCreateFooter,
   RegisterFilterSheet,
   RegisterMobileList,
   RegisterMobileRow,
@@ -169,7 +171,7 @@ export function ContactRegisterPage({
         </Alert>
       ) : null}
       <Alert className="ry-register-policy" title="Contact, Business, and Buyer are distinct">
-        Contacts store professional routes and human verification only. They do not create Buyer authority, representation permission, or outreach approval.
+        Contacts store professional routes and verification only. They do not create Buyer authority, representation permission, or outreach approval.
       </Alert>
       {!canWrite ? (
         <Alert tone="warning" className="ry-register-policy" title="Read-only Contact register">
@@ -254,21 +256,29 @@ export function ContactRegisterPage({
         )}
       </section>
 
-      <section className="ry-contact-create panel" aria-label="Create unverified Contact">
-        <h2>Create Contact</h2>
-        <p>New Contacts begin unverified. Link to a Business parent; the stored role does not create Buyer purchasing authority.</p>
+      <section className="ry-contact-create ry-register-create panel" aria-label="Create unverified Contact">
         {createError ? <ErrorState message={createError} /> : null}
-        <form className="ry-contact-create-form" onSubmit={(event) => void create(event)}>
-          <Field label="Business parent" required>
-            <Select required value={parentId} onChange={(event) => setParentId(event.target.value)} disabled={!canWrite}>
-              <option value="">Select…</option>
-              {businesses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </Select>
-          </Field>
-          <Field label="Name" required><Input required value={name} onChange={(event) => setName(event.target.value)} disabled={!canWrite} /></Field>
-          <Field label="Role" required><Input required value={role} onChange={(event) => setRole(event.target.value)} disabled={!canWrite} /></Field>
-          <Field label="Email"><Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={!canWrite} /></Field>
-          <Button type="submit" disabled={!canWrite}>Create unverified Contact</Button>
+        <form className="ry-contact-create-form ry-register-create-form" onSubmit={(event) => void create(event)}>
+          <section className="ry-register-create-block">
+            <RegisterCreateBlockHeader
+              title="Create Contact"
+              description="New contacts begin unverified. Link to a business parent; the stored role does not create buyer purchasing authority."
+            />
+            <div className="ry-register-create-grid">
+              <Field label="Business parent" required className="ry-register-create-grid-span">
+                <Select required value={parentId} onChange={(event) => setParentId(event.target.value)} disabled={!canWrite}>
+                  <option value="">Select…</option>
+                  {businesses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </Select>
+              </Field>
+              <Field label="Name" required><Input required value={name} onChange={(event) => setName(event.target.value)} disabled={!canWrite} /></Field>
+              <Field label="Role" required><Input required value={role} onChange={(event) => setRole(event.target.value)} disabled={!canWrite} /></Field>
+              <Field label="Email"><Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={!canWrite} /></Field>
+            </div>
+          </section>
+          <RegisterCreateFooter>
+            <Button type="submit" disabled={!canWrite}>Create unverified Contact</Button>
+          </RegisterCreateFooter>
         </form>
       </section>
     </div>

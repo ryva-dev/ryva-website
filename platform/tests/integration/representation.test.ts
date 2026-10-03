@@ -46,7 +46,7 @@ async function task(agent: Agent, csrf: string, type: string, id: string, title:
 async function decision(agent: Agent, csrf: string, type: string, id: string, outcome: string) {
   const response = await agent.post(`/api/records/${type}/${id}/decisions`).set("x-csrf-token", csrf).send({
     question: `Should this ${type} advance?`, scope: "Synthetic Phase 4 fixture only",
-    outcome, rationale: "Human-owned synthetic acceptance decision based on classified evidence.",
+    outcome, rationale: "Synthetic acceptance decision based on classified evidence.",
     confidence: "supported", nextAction: "Complete the next authority gate.", status: "issued"
   });
   assert.equal(response.status, 201, response.text);
@@ -191,7 +191,7 @@ describe("Phase 4 Representation Workspace and Agreement Authority", () => {
       .set("x-csrf-token", csrf).send({
         version: 1, decision: "confirmed",
         editedValue: "Within 30 days after Brand receives cleared buyer payment.",
-        reviewNotes: "Human compared the cited section to the immutable original."
+        reviewNotes: "Compared the cited section to the immutable original."
       });
     assert.equal(confirmed.status, 200, confirmed.text);
 
@@ -258,12 +258,12 @@ describe("Phase 4 Representation Workspace and Agreement Authority", () => {
     assert.equal(placement.status, 201, placement.text);
     const placementId = placement.body.placement.id as string;
     const qualified = await agent.post(`/api/placements/${placementId}/stage`).set("x-csrf-token", csrf).send({
-      version: 1, toStage: "qualified", reason: "Human confirmed current fit and authority.",
+      version: 1, toStage: "qualified", reason: "Confirmed current fit and authority.",
       decisionId: businessDecision, evidenceIds: [], nextActionTaskId: businessTask
     });
     assert.equal(qualified.status, 200, qualified.text);
     const prepared = await agent.post(`/api/placements/${placementId}/stage`).set("x-csrf-token", csrf).send({
-      version: 2, toStage: "prepared", reason: "Human confirmed the authorized preparation basis.",
+      version: 2, toStage: "prepared", reason: "Confirmed the authorized preparation basis.",
       decisionId: businessDecision, evidenceIds: [], nextActionTaskId: businessTask
     });
     assert.equal(prepared.status, 200, prepared.text);

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 import { classes, type SemanticTone } from "./shared";
 
 export function Banner({

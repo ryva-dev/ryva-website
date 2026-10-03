@@ -38,7 +38,7 @@ async function setupFixture(){
   ids.workspace=workspaceId;ids.user=userId;
   const brand=await core(agent,csrf,"brand",{name:"Synthetic Analytics Brand"});
   const product=await core(agent,csrf,"product",{brandId:brand.id,name:"Synthetic Analytics Product",category:"Gift"});
-  const business=await core(agent,csrf,"business",{name:"Synthetic Analytics Buyer",businessType:"gift_shop",category:"Gift"});
+  const business=await core(agent,csrf,"business",{name:"Synthetic Analytics Gift Shop",businessType:"gift_shop",category:"Gift"});
   const contact=await core(agent,csrf,"contact",{parentType:"business",parentId:business.id,name:"Synthetic Buyer",role:"Buyer"});
   Object.assign(ids,{brand:brand.id,product:product.id,business:business.id,contact:contact.id});
   const source=newId();const evidence=newId();const document=newId();const agreement=newId();
@@ -90,7 +90,7 @@ async function setupFixture(){
   await database.query(
     `INSERT INTO decision_records(id,workspace_id,subject_type,subject_id,question,scope,
        outcome,rationale,confidence,owner_user_id,decided_at,next_action,status)
-     VALUES($1,$2,'business',$3,'Proceed?','Synthetic','Proceed','Supported synthetic fixture',
+     VALUES($1,$2,'business',$3,'Proceed?','Business review','Proceed','Supported by current research',
        'supported',$4,now(),'Review order','issued')`,[decision,workspaceId,business.id,userId]
   );
   await database.query(

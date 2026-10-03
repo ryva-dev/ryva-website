@@ -6,6 +6,7 @@ import {
   Alert,
   Button,
   DataRow,
+  Drawer,
   EmptyState,
   ErrorState,
   Field,
@@ -25,14 +26,22 @@ import {
   RegisterFilterSheet,
   RegisterMobileList,
   RegisterMobileRow,
+  RegisterPagination,
   RegisterSavedViews,
   SortableHeader,
   type RegisterFilterValue,
   type RegisterSort
 } from "../register/Register";
+import { displayBrandName } from "../brand/utils";
 import {
   dateTime,
+  displayAddress,
+  displayAddressTitle,
+  displayName,
+  displayNameTitle,
+  field,
   messageStatus,
+  messageStatusTone,
   placementReadyStages,
   readable,
   shown,
@@ -41,6 +50,14 @@ import {
 } from "./utils";
 
 type Placement = Row & { businessId?: string; business_id?: string };
+
+const ACTIVITY_PAGE_SIZE = 10;
+
+function recordBusinessId(record: Record<string, unknown> | null | undefined): string {
+  if (!record) return "";
+  const value = shown(field(record, "businessId", "business_id"), "");
+  return value === "—" ? "" : value;
+}
 
 const initialFilters: RegisterFilterValue = {
   query: "",
@@ -54,6 +71,15 @@ const columnOptions = [
   { id: "subject", label: "Subject" },
   { id: "status", label: "Status", required: true }
 ];
+
+function activityLabel(kind: unknown): string {
+  const value = shown(kind, "activity");
+  if (value === "task") return "Task";
+  if (value === "note") return "Note";
+  if (value === "outreach_message" || value === "message") return "Message";
+  if (value === "call") return "Call";
+  return readable(value);
+}
 
 export function OutreachWorkspacePage() {
   const navigate = useNavigate();
@@ -76,10 +102,10 @@ export function OutreachWorkspacePage() {
   const [attachmentIds, setAttachmentIds] = useState("");
   const [templateVersionId, setTemplateVersionId] = useState("");
   const [senderAddress, setSenderAddress] = useState(session?.user.email ?? "");
-  const [providerConfigured, setProviderConfigured] = useState(false);
   const [callObjective, setCallObjective] = useState("");
   const [callNotes, setCallNotes] = useState("");
   const [callOutcome, setCallOutcome] = useState("");
+  const [callOpen, setCallOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -88,6 +114,8 @@ export function OutreachWorkspacePage() {
   const [visibleColumns, setVisibleColumns] = useState(new Set(columnOptions.map((column) => column.id)));
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [activityPage, setActivityPage] = useState(1);
+  const [claimsOpen, setClaimsOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,19 +125,19 @@ export function OutreachWorkspacePage() {
         api<{ messages: Row[] }>("/api/outreach"),
         api<{ history: Row[] }>("/api/outreach/history"),
         api<{ placements: Placement[] }>("/api/placements"),
-        api<{ records: Row[] }>("/api/records/contact"),
+        api<{ records: Row[] }>("/api/records/contact?limit=100"),
         api<{ templates: Row[] }>("/api/outreach/templates"),
         api<{ senderAddress: string; providerConfigured: boolean }>("/api/outreach/config")
       ]);
       setMessages(outreach.messages);
       setHistory(activity.history);
+      setActivityPage(1);
       setPlacements(placementPayload.placements);
       setContacts(contactPayload.records);
       setTemplates(templatePayload.templates);
       setSenderAddress(configuration.senderAddress);
-      setProviderConfigured(configuration.providerConfigured);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Outreach Center could not be loaded.");
+      setError(caught instanceof Error ? caught.message : "Outreach could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -125,6 +153,7 @@ export function OutreachWorkspacePage() {
   useEffect(() => {
     if (!placementId) {
       setPlacementProducts([]);
+      setContactId("");
       return;
     }
     void api<{ products: Array<{ productId: string }> }>(`/api/placements/${placementId}`)
@@ -132,9 +161,24 @@ export function OutreachWorkspacePage() {
       .catch((caught) => setError(caught instanceof Error ? caught.message : "Placement context could not be loaded."));
   }, [placementId]);
 
+  const selectedPlacement = useMemo(
+    () => placements.find((item) => item.id === placementId) ?? null,
+    [placements, placementId]
+  );
+  const placementBusinessId = recordBusinessId(selectedPlacement);
+  const placementContacts = useMemo(() => {
+    if (!placementBusinessId) return [];
+    return contacts.filter((item) => recordBusinessId(item) === placementBusinessId);
+  }, [contacts, placementBusinessId]);
+
+  useEffect(() => {
+    if (!contactId) return;
+    if (!placementContacts.some((item) => item.id === contactId)) setContactId("");
+  }, [contactId, placementContacts]);
+
   const selectedContact = useMemo(
-    () => contacts.find((item) => item.id === contactId),
-    [contacts, contactId]
+    () => placementContacts.find((item) => item.id === contactId) ?? contacts.find((item) => item.id === contactId),
+    [placementContacts, contacts, contactId]
   );
 
   function updateFilter(id: string, value: string) {
@@ -185,6 +229,13 @@ export function OutreachWorkspacePage() {
   const needsApproval = messages.filter((item) => item.status === "approval_requested").length;
   const queued = messages.filter((item) => item.status === "queued").length;
   const replies = messages.filter((item) => item.status === "replied" || item.direction === "inbound").length;
+  const readyPlacements = placements.filter((item) => (placementReadyStages as readonly string[]).includes(shown(item.stage)));
+  const activityPageCount = Math.max(1, Math.ceil(history.length / ACTIVITY_PAGE_SIZE));
+  const currentActivityPage = Math.min(activityPage, activityPageCount);
+  const pagedHistory = useMemo(
+    () => history.slice((currentActivityPage - 1) * ACTIVITY_PAGE_SIZE, currentActivityPage * ACTIVITY_PAGE_SIZE),
+    [history, currentActivityPage]
+  );
 
   async function createMessage(event: FormEvent) {
     event.preventDefault();
@@ -243,6 +294,7 @@ export function OutreachWorkspacePage() {
       setCallObjective("");
       setCallNotes("");
       setCallOutcome("");
+      setCallOpen(false);
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Call could not be logged.");
@@ -251,14 +303,22 @@ export function OutreachWorkspacePage() {
     }
   }
 
+  function scrollToPrepare() {
+    document.getElementById("prepare-message")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <div className="page ry-register-page ry-outreach-page">
       <PageHeader
-        eyebrow="Outreach Center"
-        title="Human-approved communication"
-        description="Prepare, approve, send, call, and follow up from one authority-checked history. Ryva never sends or calls autonomously."
+        title="Outreach"
+        description="Prepare buyer messages, log calls, and review replies. Approval is required before send."
         action={(
           <div className="ry-outreach-header-actions">
+            {canWrite ? (
+              <Button variant="secondary" onClick={() => setCallOpen(true)}>Log call</Button>
+            ) : (
+              <Button disabled>Read-only access</Button>
+            )}
             <Link className="ry-button ry-button-secondary" to="/outreach/templates">Templates</Link>
             <Link className="ry-button ry-button-secondary" to="/outreach/sequences">Sequences</Link>
           </div>
@@ -267,114 +327,196 @@ export function OutreachWorkspacePage() {
       {error ? <ErrorState message={error} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} /> : null}
       {!canWrite ? (
         <Alert tone="warning" className="ry-register-policy" title="Read-only Outreach workspace">
-          You may inspect permitted Outreach history and drafts, but cannot prepare drafts, approve, queue, or log calls in this session.
+          You may inspect Outreach history and drafts, but cannot prepare messages, approve, queue, or log calls in this session.
         </Alert>
       ) : null}
 
       {loading ? <LoadingState label="Loading outreach work" /> : (
         <>
           <section className="ry-outreach-summary" aria-label="Outreach status summary">
-            <p><strong>{needsApproval}</strong> needs approval · <strong>{queued}</strong> queued · <strong>{replies}</strong> replies</p>
-            <p className="ry-outreach-summary-note">Counts reflect stored message statuses only. Placement readiness does not authorize Outreach, and queued does not mean delivered.</p>
+            <p>
+              <strong>{needsApproval}</strong> {needsApproval === 1 ? "needs" : "need"} approval
+              {" · "}
+              <strong>{queued}</strong> queued
+              {" · "}
+              <strong>{replies}</strong> {replies === 1 ? "reply" : "replies"}
+            </p>
+            <p className="ry-outreach-summary-note">
+              Review drafts waiting for approval, then queue or send when your email provider is ready.
+            </p>
           </section>
-          {!providerConfigured ? (
-            <Alert tone="warning" title="Email provider unavailable">
-              Drafting, review, calls, notes, and templates remain available. Approved email stays queued until a verified provider and worker are configured.
-            </Alert>
-          ) : null}
 
           <div className="ry-outreach-workspace">
-            <section className="panel" aria-label="Communication and activity">
-              <header className="ry-outreach-section-heading">
-                <p className="eyebrow">Unified history</p>
-                <h2>Communication and activity</h2>
+            <section className="ry-outreach-surface ry-outreach-surface-context" aria-label="Activity">
+              <header className="ry-outreach-section-heading ry-outreach-section-heading-context">
+                <h2>Activity</h2>
+                <p>Recent messages, calls, notes, and related work.</p>
               </header>
               {history.length === 0 ? (
-                <EmptyState description="No outreach activity yet. Start from a prepared Placement with current authority." />
+                <EmptyState
+                  compact
+                  className="ry-outreach-empty"
+                  title="No activity yet"
+                  description="Start from a placement that is ready for outreach."
+                  action={<Link className="ry-button ry-button-secondary" to="/placements">Open placements</Link>}
+                />
               ) : (
-                <div className="record-list">
-                  {history.map((item) => (
-                    <div className="task-row" key={`${shown(item.kind)}-${item.id}`}>
-                      <span>
-                        <strong>{shown(item.summary)}</strong>
-                        <small>{shown(item.kind)} · {dateTime(item.occurredAt)}</small>
-                      </span>
-                      <StatusLabel value={shown(item.status)} />
-                    </div>
-                  ))}
-                </div>
+                <>
+                  <ul className="ry-outreach-activity-list">
+                    {pagedHistory.map((item) => (
+                      <li key={`${shown(item.kind)}-${item.id}`}>
+                        <div className="ry-outreach-activity-copy">
+                          <strong title={displayNameTitle(item.summary)}>{displayName(item.summary)}</strong>
+                          <small>{activityLabel(item.kind)} · {dateTime(item.occurredAt)}</small>
+                        </div>
+                        <StatusLabel value={shown(item.status)} tone={messageStatusTone(shown(item.status))} />
+                      </li>
+                    ))}
+                  </ul>
+                  {history.length > ACTIVITY_PAGE_SIZE ? (
+                    <RegisterPagination
+                      page={currentActivityPage}
+                      pageCount={activityPageCount}
+                      total={history.length}
+                      pageSize={ACTIVITY_PAGE_SIZE}
+                      onPage={setActivityPage}
+                    />
+                  ) : null}
+                </>
               )}
             </section>
 
-            <section className="panel" aria-label="Prepare outreach">
-              <header className="ry-outreach-section-heading">
-                <p className="eyebrow">Draft</p>
-                <h2>Prepare outreach</h2>
+            <section id="prepare-message" className="ry-outreach-surface ry-outreach-surface-primary" aria-label="Prepare message">
+              <header className="ry-outreach-section-heading ry-outreach-section-heading-primary">
+                <h2>Prepare message</h2>
+                <p>Draft an email or social message for review. Nothing sends from this form.</p>
               </header>
-              <p className="ry-outreach-boundary">A prepared Placement is required context, not permission. Contact verification, permission, suppression, channel, claims, and exact-artifact approval are checked separately by the server.</p>
               <form className="ry-outreach-prepare-form" onSubmit={(event) => void createMessage(event)}>
-                <Field label="Prepared Placement">
-                  <Select required value={placementId} onChange={(event) => setPlacementId(event.target.value)} disabled={!canWrite}>
-                    <option value="">Select Placement</option>
-                    {placements.filter((item) => (placementReadyStages as readonly string[]).includes(shown(item.stage))).map((item) => (
-                      <option value={item.id} key={item.id}>{shown(item.brandName)} → {shown(item.businessName)} · {shown(item.stage)}</option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Buyer Contact">
-                  <Select required value={contactId} onChange={(event) => setContactId(event.target.value)} disabled={!canWrite}>
-                    <option value="">Select Contact</option>
-                    {contacts.map((item) => (
-                      <option value={item.id} key={item.id}>{shown(item.name)} · {shown(item.email, "no email")}</option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Channel">
-                  <Select value={channel} onChange={(event) => setChannel(event.target.value as "email" | "social")} disabled={!canWrite}>
-                    <option value="email">Email</option>
-                    <option value="social">Social draft</option>
-                  </Select>
-                </Field>
-                <Field label="Verified sender"><Input value={senderAddress} disabled /></Field>
-                <Field label="Template">
-                  <Select value={templateVersionId} onChange={(event) => applyTemplate(event.target.value)} disabled={!canWrite}>
-                    <option value="">No template</option>
-                    {templates.filter((item) => item.channel === channel).map((item) => (
-                      <option key={shown(item.versionId)} value={shown(item.versionId)}>{shown(item.name)} · v{shown(item.currentVersion)}</option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Subject"><Input value={subject} onChange={(event) => setSubject(event.target.value)} disabled={!canWrite} /></Field>
-                <Field label="Material claim" hint="Leave blank when no factual claim is made. Unsupported claims block approval.">
-                  <Input value={claimText} onChange={(event) => setClaimText(event.target.value)} disabled={!canWrite} />
-                </Field>
-                <Field label="Evidence ID"><Input value={evidenceId} onChange={(event) => setEvidenceId(event.target.value)} disabled={!canWrite} /></Field>
-                <Field label="Clean attachment IDs" hint="Comma-separated immutable Document IDs.">
-                  <Input value={attachmentIds} onChange={(event) => setAttachmentIds(event.target.value)} disabled={!canWrite} />
-                </Field>
-                <Field label="Exact body"><TextArea required rows={9} value={body} onChange={(event) => setBody(event.target.value)} disabled={!canWrite} /></Field>
-                <Button type="submit" loading={saving} disabled={!canWrite || placementProducts.length === 0}>{saving ? "Creating…" : "Create reviewable draft"}</Button>
+                <div className="ry-outreach-prepare-grid">
+                  <Field label="Placement">
+                    <Select
+                      required
+                      controlSize="compact"
+                      value={placementId}
+                      onChange={(event) => {
+                        setPlacementId(event.target.value);
+                        setContactId("");
+                      }}
+                      disabled={!canWrite}
+                    >
+                      <option value="">Select placement</option>
+                      {readyPlacements.map((item) => (
+                        <option value={item.id} key={item.id} title={`${displayBrandName(item.brandName)} → ${displayName(item.businessName)}`}>
+                          {displayBrandName(item.brandName)} → {displayName(item.businessName)}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Buyer contact">
+                    <Select
+                      required
+                      controlSize="compact"
+                      value={contactId}
+                      onChange={(event) => setContactId(event.target.value)}
+                      disabled={!canWrite || !placementId}
+                    >
+                      <option value="">
+                        {!placementId
+                          ? "Select a placement first"
+                          : placementContacts.length === 0
+                            ? "No contacts for this buyer"
+                            : "Select contact"}
+                      </option>
+                      {placementContacts.map((item) => (
+                        <option value={item.id} key={item.id} title={displayNameTitle(item.name) ?? displayAddressTitle(item.email)}>
+                          {displayName(item.name)}{item.email ? ` · ${displayAddress(item.email)}` : ""}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Channel">
+                    <Select
+                      controlSize="compact"
+                      value={channel}
+                      onChange={(event) => {
+                        const next = event.target.value as "email" | "social";
+                        setChannel(next);
+                        const selectedTemplate = templates.find((item) => shown(item.versionId) === templateVersionId);
+                        if (selectedTemplate && shown(selectedTemplate.channel) !== next) {
+                          setTemplateVersionId("");
+                        }
+                      }}
+                      disabled={!canWrite}
+                    >
+                      <option value="email">Email</option>
+                      <option value="social">Social</option>
+                    </Select>
+                  </Field>
+                  <Field label="From">
+                    <Input controlSize="compact" value={senderAddress} disabled />
+                  </Field>
+                  <Field label="Template" className="ry-outreach-prepare-span">
+                    <Select
+                      controlSize="compact"
+                      value={templateVersionId}
+                      onChange={(event) => applyTemplate(event.target.value)}
+                      disabled={!canWrite}
+                    >
+                      <option value="">No template</option>
+                      {templates.filter((item) => item.channel === channel).map((item) => (
+                        <option key={shown(item.versionId)} value={shown(item.versionId)} title={displayNameTitle(item.name)}>
+                          {displayName(item.name)} · v{shown(item.currentVersion)}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Subject" className="ry-outreach-prepare-span">
+                    <Input controlSize="compact" value={subject} onChange={(event) => setSubject(event.target.value)} disabled={!canWrite} />
+                  </Field>
+                  <Field label="Message" className="ry-outreach-prepare-span">
+                    <TextArea required rows={3} value={body} onChange={(event) => setBody(event.target.value)} disabled={!canWrite} />
+                  </Field>
+                </div>
+                <div className="ry-outreach-prepare-footer">
+                  <button
+                    type="button"
+                    className={`ry-outreach-advanced-toggle${claimsOpen ? " is-open" : ""}`}
+                    aria-expanded={claimsOpen}
+                    aria-controls="outreach-claims-fields"
+                    onClick={() => setClaimsOpen((open) => !open)}
+                  >
+                    Supporting details & attachments
+                  </button>
+                  <div className="ry-outreach-prepare-actions">
+                    <Button type="submit" loading={saving} disabled={!canWrite || placementProducts.length === 0}>
+                      Create draft
+                    </Button>
+                    {readyPlacements.length === 0 ? (
+                      <p className="ry-outreach-prepare-hint">No placements are ready for outreach yet.</p>
+                    ) : null}
+                  </div>
+                  {claimsOpen ? (
+                    <div id="outreach-claims-fields" className="ry-outreach-advanced-fields">
+                      <Field label="Product claim" hint="Leave blank when you are not stating a product fact.">
+                        <Input controlSize="compact" value={claimText} onChange={(event) => setClaimText(event.target.value)} disabled={!canWrite} />
+                      </Field>
+                      <Field label="Supporting evidence" hint="Optional evidence reference when a claim is included.">
+                        <Input controlSize="compact" value={evidenceId} onChange={(event) => setEvidenceId(event.target.value)} disabled={!canWrite} />
+                      </Field>
+                      <Field label="Attachments" hint="Document references, comma-separated.">
+                        <Input controlSize="compact" value={attachmentIds} onChange={(event) => setAttachmentIds(event.target.value)} disabled={!canWrite} />
+                      </Field>
+                    </div>
+                  ) : null}
+                </div>
               </form>
             </section>
           </div>
 
-          <section className="panel" aria-label="Log a call">
-            <header className="ry-outreach-section-heading">
-              <p className="eyebrow">Human call workflow</p>
-              <h2>Log a call</h2>
-            </header>
-            <form className="ry-outreach-call-form" onSubmit={(event) => void logCall(event)}>
-              <Field label="Objective"><Input required value={callObjective} onChange={(event) => setCallObjective(event.target.value)} disabled={!canWrite} /></Field>
-              <Field label="Outcome"><Input required value={callOutcome} onChange={(event) => setCallOutcome(event.target.value)} disabled={!canWrite} /></Field>
-              <Field label="Notes"><TextArea required value={callNotes} onChange={(event) => setCallNotes(event.target.value)} disabled={!canWrite} /></Field>
-              <Button type="submit" loading={saving} disabled={!canWrite || !placementId || !contactId}>Log human-placed call</Button>
-            </form>
-          </section>
-
           <section className="ry-register-surface" aria-label="Outreach messages">
             <header className="ry-outreach-section-heading">
-              <p className="eyebrow">Exact artifacts</p>
               <h2>Messages</h2>
+              <p>Drafts, approvals, sends, and replies.</p>
             </header>
             <div className="ry-register-commandbar">
               <RegisterSavedViews
@@ -390,7 +532,13 @@ export function OutreachWorkspacePage() {
               <RegisterFilterSheet open={filterOpen} onOpen={() => setFilterOpen(true)} onClose={() => setFilterOpen(false)}>
                 <FilterBar>
                   <Field label="Search Buyer or subject">
-                    <SearchInput label="Search Buyer or subject" controlSize="compact" value={String(filters.query ?? "")} onChange={(event) => updateFilter("query", event.target.value)} onClear={() => updateFilter("query", "")} />
+                    <SearchInput
+                      label="Search Buyer or subject"
+                      controlSize="compact"
+                      value={String(filters.query ?? "")}
+                      onChange={(event) => updateFilter("query", event.target.value)}
+                      onClear={() => updateFilter("query", "")}
+                    />
                   </Field>
                   <Field label="Status">
                     <Select controlSize="compact" value={String(filters.status ?? "")} onChange={(event) => updateFilter("status", event.target.value)}>
@@ -428,9 +576,15 @@ export function OutreachWorkspacePage() {
             </div>
             {sortedMessages.length === 0 ? (
               <EmptyState
+                compact
+                className="ry-outreach-empty"
                 title={activeFilters.length ? "No messages match these filters" : undefined}
-                description={activeFilters.length ? "Clear one or more filters to return to the Outreach message register." : "No drafts, sends, or replies."}
-                action={activeFilters.length ? <Button variant="secondary" onClick={() => setFilters(initialFilters)}>Clear filters</Button> : undefined}
+                description={activeFilters.length
+                  ? "Clear one or more filters to return to your messages."
+                  : "No drafts, sends, or replies yet."}
+                action={activeFilters.length
+                  ? <Button variant="secondary" onClick={() => setFilters(initialFilters)}>Clear filters</Button>
+                  : (canWrite ? <Button variant="secondary" onClick={scrollToPrepare}>Prepare message</Button> : undefined)}
               />
             ) : (
               <>
@@ -441,17 +595,28 @@ export function OutreachWorkspacePage() {
                       {visibleColumns.has("channel") ? <SortableHeader field="channel" label="Channel" sort={sort} onSort={setSort} /> : null}
                       {visibleColumns.has("subject") ? <SortableHeader field="subject" label="Subject" sort={sort} onSort={setSort} /> : null}
                       {visibleColumns.has("status") ? <SortableHeader field="status" label="Status" sort={sort} onSort={setSort} /> : null}
-                      <th scope="col" className="ry-register-cell-actions"><span className="sr-only">Review</span></th>
+                      <th scope="col" className="ry-register-cell-actions"><span className="sr-only">Open</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {sortedMessages.map((item) => (
                       <DataRow key={item.id}>
-                        {visibleColumns.has("buyer") ? <td><strong>{shown(item.businessName)}</strong><small>{shown(item.contactName)}</small></td> : null}
-                        {visibleColumns.has("channel") ? <td>{shown(item.channel)}</td> : null}
-                        {visibleColumns.has("subject") ? <td>{shown(item.subject, "(no subject)")}</td> : null}
-                        {visibleColumns.has("status") ? <td><StatusLabel value={messageStatus(item)} /></td> : null}
-                        <td className="ry-register-cell-actions"><Link to={`/outreach/${item.id}`}>Review</Link></td>
+                        {visibleColumns.has("buyer") ? (
+                          <td>
+                            <strong title={displayNameTitle(item.businessName)}>{displayName(item.businessName)}</strong>
+                            <small title={displayNameTitle(item.contactName)}>{displayName(item.contactName)}</small>
+                          </td>
+                        ) : null}
+                        {visibleColumns.has("channel") ? <td>{readable(shown(item.channel))}</td> : null}
+                        {visibleColumns.has("subject") ? (
+                          <td title={displayNameTitle(item.subject)}>{displayName(item.subject, "(no subject)")}</td>
+                        ) : null}
+                        {visibleColumns.has("status") ? <td><StatusLabel value={messageStatus(item)} tone={messageStatusTone(messageStatus(item))} /></td> : null}
+                        <td className="ry-register-cell-actions">
+                          <Link className="ry-outreach-open" to={`/outreach/${item.id}`}>
+                            Open <span aria-hidden="true">→</span>
+                          </Link>
+                        </td>
                       </DataRow>
                     ))}
                   </tbody>
@@ -460,11 +625,11 @@ export function OutreachWorkspacePage() {
                   {sortedMessages.map((item) => (
                     <RegisterMobileRow
                       key={item.id}
-                      title={`${shown(item.businessName)} · ${shown(item.contactName)}`}
-                      meta={`${shown(item.channel)} · ${shown(item.subject, "(no subject)")}`}
-                      status={<StatusLabel value={messageStatus(item)} />}
+                      title={`${displayName(item.businessName)} · ${displayName(item.contactName)}`}
+                      meta={`${readable(shown(item.channel))} · ${displayName(item.subject, "(no subject)")}`}
+                      status={<StatusLabel value={messageStatus(item)} tone={messageStatusTone(messageStatus(item))} />}
                       onOpen={() => void navigate(`/outreach/${item.id}`)}
-                      openLabel={`Review ${shown(item.subject, "message")}`}
+                      openLabel={`Open ${displayName(item.subject, "message")}`}
                     />
                   ))}
                 </RegisterMobileList>
@@ -473,6 +638,71 @@ export function OutreachWorkspacePage() {
           </section>
         </>
       )}
+
+      <Drawer
+        open={callOpen}
+        title="Log call"
+        description="Record a completed call against the selected placement and contact."
+        onClose={() => { if (!saving) setCallOpen(false); }}
+        size="standard"
+      >
+        <form className="ry-outreach-call-form" onSubmit={(event) => void logCall(event)}>
+          <Field label="Placement">
+            <Select
+              required
+              controlSize="compact"
+              value={placementId}
+              onChange={(event) => {
+                setPlacementId(event.target.value);
+                setContactId("");
+              }}
+              disabled={!canWrite || saving}
+            >
+              <option value="">Select placement</option>
+              {readyPlacements.map((item) => (
+                <option value={item.id} key={item.id} title={`${displayBrandName(item.brandName)} → ${displayName(item.businessName)}`}>
+                  {displayBrandName(item.brandName)} → {displayName(item.businessName)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Buyer contact">
+            <Select
+              required
+              controlSize="compact"
+              value={contactId}
+              onChange={(event) => setContactId(event.target.value)}
+              disabled={!canWrite || saving || !placementId}
+            >
+              <option value="">
+                {!placementId
+                  ? "Select a placement first"
+                  : placementContacts.length === 0
+                    ? "No contacts for this buyer"
+                    : "Select contact"}
+              </option>
+              {placementContacts.map((item) => (
+                <option value={item.id} key={item.id} title={displayNameTitle(item.name) ?? displayAddressTitle(item.email)}>
+                  {displayName(item.name)}{item.email ? ` · ${displayAddress(item.email)}` : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Objective">
+            <Input required controlSize="compact" value={callObjective} onChange={(event) => setCallObjective(event.target.value)} disabled={!canWrite || saving} />
+          </Field>
+          <Field label="Outcome">
+            <Input required controlSize="compact" value={callOutcome} onChange={(event) => setCallOutcome(event.target.value)} disabled={!canWrite || saving} />
+          </Field>
+          <Field label="Notes">
+            <TextArea required rows={4} value={callNotes} onChange={(event) => setCallNotes(event.target.value)} disabled={!canWrite || saving} />
+          </Field>
+          <div className="ry-outreach-call-actions">
+            <Button type="button" variant="secondary" disabled={saving} onClick={() => setCallOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={saving} disabled={!canWrite || !placementId || !contactId}>Save call</Button>
+          </div>
+        </form>
+      </Drawer>
     </div>
   );
 }

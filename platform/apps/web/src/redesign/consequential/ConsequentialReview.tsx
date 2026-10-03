@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import React, { useId, type ReactNode } from "react";
 import { StatusLabel } from "../../design-system";
 import { classes } from "../../design-system/shared";
 
@@ -13,7 +13,7 @@ export type ValidationCheck = {
 };
 
 const readinessLabels: Record<ReviewReadiness, string> = {
-  ready: "Ready for human decision",
+  ready: "Ready for decision",
   blocked: "Blocked",
   requires_review: "Requires review",
   completed: "Decision recorded",
@@ -31,10 +31,12 @@ export function ConsequentialReviewLayout({
   className?: string;
 }) {
   return (
-    <div className={classes("ry-consequential-layout", className)}>
-      <aside className="ry-consequential-rail" aria-label="Decision readiness and context">
-        {readiness}
-      </aside>
+    <div className={classes("ry-consequential-layout", !readiness && "ry-consequential-layout-solo", className)}>
+      {readiness ? (
+        <aside className="ry-consequential-rail" aria-label="Decision readiness and context">
+          {readiness}
+        </aside>
+      ) : null}
       <div className="ry-consequential-main">{children}</div>
     </div>
   );
@@ -49,7 +51,7 @@ export function ReadinessSummary({
 }: {
   state: ReviewReadiness;
   title?: string;
-  description: ReactNode;
+  description?: ReactNode;
   blockers?: ReactNode[];
   context?: ReactNode;
 }) {
@@ -57,10 +59,9 @@ export function ReadinessSummary({
   return (
     <section className={classes("ry-readiness-summary", `ry-readiness-${state}`)} aria-labelledby={titleId}>
       <div>
-        <p className="eyebrow">Decision readiness</p>
         <h2 id={titleId}>{title ?? readinessLabels[state]}</h2>
         <StatusLabel value={state} label={readinessLabels[state]} />
-        <div>{description}</div>
+        {description ? <div>{description}</div> : null}
       </div>
       {blockers.length ? (
         <div>
@@ -83,20 +84,32 @@ export function ValidationSummary({
   description?: ReactNode;
 }) {
   const titleId = useId();
+  const stateCopy: Record<ValidationState, string> = {
+    passed: "Complete",
+    failed: "Failed",
+    requires_review: "Requires review"
+  };
   return (
     <section className="ry-validation-summary" aria-labelledby={titleId}>
       <header>
-        <p className="eyebrow">Current checks</p>
         <h2 id={titleId}>{title}</h2>
         {description ? <div>{description}</div> : null}
       </header>
-      <ul>
-        {checks.map((check) => (
-          <li key={check.id}>
-            <StatusLabel value={check.state} />
-            <div><strong>{check.label}</strong><span>{check.detail}</span></div>
-          </li>
-        ))}
+      <ul className="ry-validation-checks">
+        {checks.map((check) => {
+          const complete = check.state === "passed";
+          return (
+            <li key={check.id} data-state={complete ? "complete" : "incomplete"}>
+              <span className="ry-validation-check-mark" aria-hidden="true">{complete ? "✓" : "–"}</span>
+              <span className="ry-validation-check-label">
+                <span className="ry-validation-check-name">{check.label}</span>
+                <span className="ry-validation-check-sep" aria-hidden="true"> — </span>
+                <span className="ry-validation-check-status">{check.detail}</span>
+              </span>
+              <span className="sr-only">{stateCopy[check.state]}</span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -111,22 +124,22 @@ export function ExactArtifact({
   className
 }: {
   title: string;
-  description: ReactNode;
-  version: ReactNode;
+  description?: ReactNode;
+  version?: ReactNode;
   children: ReactNode;
   code?: boolean;
   className?: string;
 }) {
   const titleId = useId();
+  const showVersion = version != null && version !== "";
   return (
     <section className={classes("ry-exact-artifact", className)} aria-labelledby={titleId}>
       <header>
         <div>
-          <p className="eyebrow">Exact item under review</p>
           <h2 id={titleId}>{title}</h2>
-          <div>{description}</div>
+          {description ? <div>{description}</div> : null}
         </div>
-        <span className="ry-artifact-version">Version {version}</span>
+        {showVersion ? <span className="ry-artifact-version">Version {version}</span> : null}
       </header>
       {code
         ? <pre tabIndex={0} aria-label={`${title} exact content`}><code>{children}</code></pre>
@@ -148,10 +161,10 @@ export function ReviewSection({
   children: ReactNode;
   className?: string;
 }) {
+  void eyebrow;
   return (
     <section className={classes("ry-review-section", className)}>
       <header>
-        {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
         <h2>{title}</h2>
         {description ? <div>{description}</div> : null}
       </header>
@@ -175,7 +188,6 @@ export function ReviewOutcome({
   return (
     <section className="ry-review-outcome" aria-labelledby={titleId}>
       <div>
-        <p className="eyebrow">Audited outcome</p>
         <h2 id={titleId}>{title}</h2>
         <StatusLabel value={status} />
       </div>

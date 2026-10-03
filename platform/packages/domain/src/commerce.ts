@@ -2,6 +2,7 @@ import type { Database, Transaction } from "../../database/src/index.js";
 import { oneOrNone, withTransaction } from "../../database/src/index.js";
 import { AppError, newId } from "../../shared/src/index.js";
 import { recordAudit } from "./audit.js";
+import { displayFacingReason } from "./displayCopy.js";
 import { publicDigest } from "./crypto.js";
 import { enqueueJob } from "./jobs.js";
 import { validateCurrentAuthority } from "./representation.js";
@@ -518,7 +519,7 @@ export async function createOrder(
     await commercialEvent(transaction, {
       workspaceId: input.workspaceId, subjectType: "order", subjectId: orderId,
       eventType: "order.recorded", actorUserId: input.actorUserId,
-      reason: "Order saved for human verification", requestId: input.requestId,
+      reason: "Order saved for verification", requestId: input.requestId,
       after: snapshot, metadata: { documentDigest: document.sha256 }
     });
     await auditCommercial(transaction, {
@@ -694,7 +695,7 @@ async function createInitialReorder(
        last_order_date,average_order_size,currency,status,account_health,health_rationale,
        next_action,recommendation_origin,recommended_follow_up,estimate_explanation)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'projected','unknown',
-            'Account health requires human review','Set a responsible reorder window after service review',
+            'Account health requires review','Set a responsible reorder window after service review',
             'system_rule','Review actual delivery, sell-through and Buyer need before follow-up',
             'No reorder window is inferred from a single Order')`,
     [reorderId, input.workspaceId, input.accountId, input.protectedAccountId ?? null,
@@ -777,7 +778,7 @@ export async function confirmOrder(
             (id,workspace_id,brand_id,business_id,representative_user_id,owner_user_id,
              agreement_id,placement_opportunity_id,status,health,health_rationale,opened_at)
            VALUES($1,$2,$3,$4,$5,$5,$6,$7,'onboarding','unknown',
-                  'Opening Order verified; health awaits human account review',now())`,
+                  'Opening Order verified; health awaits account review',now())`,
           [accountId, input.workspaceId, order.brand_id, order.business_id,
             input.actorUserId, order.agreement_id, order.placement_opportunity_id]
         );
@@ -817,7 +818,7 @@ export async function confirmOrder(
           workspaceId: input.workspaceId, subjectType: "protected_account",
           subjectId: protectedAccountId, eventType: "protection.review_created",
           actorUserId: input.actorUserId, origin: "system",
-          reason: "Agreement contains a possible protection basis; exact term requires human review",
+          reason: "Agreement contains a possible protection basis; exact term requires review",
           requestId: input.requestId, after: rights
         });
       } else if (!existingAccount) {
@@ -955,6 +956,7 @@ export async function listProtectedAccounts(
   const result = await database.query<Record<string, unknown>>(
     `SELECT pa.id,pa.account_id AS "accountId",pa.brand_id AS "brandId",
             pa.business_id AS "businessId",pa.agreement_id AS "agreementId",
+            pa.placement_opportunity_id AS "placementOpportunityId",
             pa.origin_order_id AS "originOrderId",pa.origin_date AS "originDate",
             pa.approval_date AS "approvalDate",pa.approved_by AS "approvedBy",
             pa.scope_summary AS "scopeSummary",pa.product_ids AS "productIds",
@@ -1053,7 +1055,7 @@ export async function createProtectedAccountDraft(
     await commercialEvent(transaction, {
       workspaceId: input.workspaceId, subjectType: "protected_account", subjectId: id,
       eventType: "protection.registration_started", actorUserId: input.actorUserId,
-      reason: "Documented account-rights basis submitted for overlap and human review",
+      reason: "Documented account-rights basis submitted for overlap and review",
       requestId: input.requestId, after: artifact
     });
     await auditCommercial(transaction, {
@@ -1202,7 +1204,7 @@ export async function updateProtectedAccountDraft(
     await commercialEvent(transaction, {
       workspaceId: input.workspaceId, subjectType: "protected_account",
       subjectId: input.protectedAccountId, eventType: "protection.draft_updated",
-      actorUserId: input.actorUserId, reason: "Human-reviewed rights draft updated",
+      actorUserId: input.actorUserId, reason: "Reviewed rights draft updated",
       requestId: input.requestId, before, after: changed.rows[0]
     });
     await auditCommercial(transaction, {
@@ -1241,7 +1243,7 @@ export async function requestProtectedAccountApproval(
           conflict_notes=concat_ws(E'\\n',NULLIF(conflict_notes,''),$3),
           version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
         [input.workspaceId, input.protectedAccountId,
-          `Blocking overlap requires human resolution: ${overlaps.map((item) => item.id).join(", ")}`]
+          `Blocking overlap requires resolution: ${overlaps.map((item) => item.id).join(", ")}`]
       );
       throw new AppError(409, "protected_account_overlap", "Protection overlaps another pending or active claim. Resolve the conflict before approval.");
     }
@@ -1264,7 +1266,7 @@ export async function requestProtectedAccountApproval(
     await commercialEvent(transaction, {
       workspaceId: input.workspaceId, subjectType: "protected_account",
       subjectId: input.protectedAccountId, eventType: "protection.approval_requested",
-      actorUserId: input.actorUserId, reason: "Exact documentary rights submitted for human approval",
+      actorUserId: input.actorUserId, reason: "Exact documentary rights submitted for approval",
       requestId: input.requestId, after: { approvalId, artifactDigest }
     });
     return { id: approvalId, artifactDigest, status: "requested" };
@@ -1432,7 +1434,7 @@ export async function updateAccount(
         [input.workspaceId, before.agreement_id]
       );
       if (!agreement || agreement.status !== "active") {
-        throw new AppError(409, "account_reactivation_authority_missing", "Reactivation requires a current active Agreement and human review.");
+        throw new AppError(409, "account_reactivation_authority_missing", "Reactivation requires a current active Agreement and review.");
       }
     }
     const changed = await transaction.query<Record<string, unknown>>(
@@ -1674,7 +1676,7 @@ export async function transitionCommission(
       throw new AppError(422, "commission_due_date_required", "Payable Commission requires a due date.");
     }
     if (input.toStatus === "paid" && (!input.paidAmount || !input.paymentDate)) {
-      throw new AppError(422, "commission_payment_evidence_required", "Paid requires amount, date, source, and human confirmation.");
+      throw new AppError(422, "commission_payment_evidence_required", "Paid requires amount, date, source, and confirmation.");
     }
     if (input.toStatus === "clawed_back" && !input.clawbackAmount) {
       throw new AppError(422, "clawback_amount_required", "Clawback requires an amount and documented reason.");
@@ -1763,6 +1765,7 @@ export async function listReorders(
             r.recommendation_origin AS "recommendationOrigin",
             r.defer_or_close_reason AS "deferOrCloseReason",r.version,
             b.public_name AS "brandName",bu.name AS "businessName",a.status AS "accountStatus",
+            a.placement_opportunity_id AS "placementOpportunityId",
             pa.status AS "protectionStatus",o.order_number AS "priorOrderNumber"
        FROM reorders r JOIN accounts a ON a.workspace_id=r.workspace_id AND a.id=r.account_id
        JOIN brands b ON b.workspace_id=a.workspace_id AND b.id=a.brand_id
@@ -1872,6 +1875,7 @@ export async function listCommissionDisputes(
             d.resolution_amount::text AS "resolutionAmount",d.resolution,
             d.resolution_date AS "resolutionDate",d.version,
             d.created_at AS "createdAt",d.updated_at AS "updatedAt",
+            c.account_id AS "accountId",c.protected_account_id AS "protectedAccountId",
             b.public_name AS "brandName",bu.name AS "businessName",o.order_number AS "orderNumber"
        FROM commission_disputes d
        JOIN commissions c ON c.workspace_id=d.workspace_id AND c.id=d.commission_id
@@ -1882,7 +1886,10 @@ export async function listCommissionDisputes(
       WHERE ${clauses.join(" AND ")} ORDER BY d.updated_at DESC`,
     values
   );
-  return result.rows;
+  return result.rows.map((row) => ({
+    ...row,
+    reason: displayFacingReason(typeof row.reason === "string" ? row.reason : "")
+  }));
 }
 
 export async function getCommissionDispute(
@@ -1894,7 +1901,8 @@ export async function getCommissionDispute(
     database,
     `SELECT d.*,c.expected_amount::text AS "expectedAmount",
             c.approved_amount::text AS "approvedAmount",c.paid_amount::text AS "paidAmount",
-            c.status AS "commissionStatus",o.order_number AS "orderNumber"
+            c.status AS "commissionStatus",c.account_id AS "accountId",
+            c.protected_account_id AS "protectedAccountId",o.order_number AS "orderNumber"
        FROM commission_disputes d
        JOIN commissions c ON c.workspace_id=d.workspace_id AND c.id=d.commission_id
        JOIN orders o ON o.workspace_id=d.workspace_id AND o.id=d.order_id
@@ -1916,7 +1924,15 @@ export async function getCommissionDispute(
       WHERE l.workspace_id=$1 AND l.subject_type='commission_dispute' AND l.subject_id=$2
       ORDER BY l.linked_at DESC`, [workspaceId, disputeId])
   ]);
-  return { dispute, events: events.rows, notes: notes.rows, documents: documents.rows };
+  return {
+    dispute: {
+      ...dispute,
+      reason: displayFacingReason(typeof dispute.reason === "string" ? dispute.reason : "")
+    },
+    events: events.rows,
+    notes: notes.rows,
+    documents: documents.rows
+  };
 }
 
 export async function openCommissionDispute(
@@ -2088,7 +2104,7 @@ export async function resolveCommissionDispute(
         AND owner_user_id=$3 AND status='issued'`,
       [input.workspaceId, input.finalDecisionId, input.actorUserId]
     );
-    if (!decision) throw new AppError(422, "human_decision_required", "Resolution requires a fresh issued human Decision.");
+    if (!decision) throw new AppError(422, "human_decision_required", "Resolution requires a fresh issued Decision.");
     const changed = await transaction.query<Record<string, unknown>>(
       `UPDATE commission_disputes SET status='resolved',resolution_amount=$4,
         resolution=$5,resolution_date=$6,resolved_by=$7,final_decision_id=$8,

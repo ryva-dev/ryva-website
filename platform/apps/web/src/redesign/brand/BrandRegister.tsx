@@ -7,21 +7,19 @@ import {
   AuthorityIndicator,
   Button,
   DataRow,
+  Drawer,
   EmptyState,
   ErrorState,
-  EvidenceLabel,
   Field,
   FilterBar,
   Input,
   LoadingState,
   PageHeader,
-  RiskIndicator,
   SearchInput,
   Select,
-  StatusLabel,
   Table
 } from "../../design-system";
-import { ContextRail } from "../relationship/RelationshipDetail";
+import { classes } from "../../design-system/shared";
 import {
   ActiveFilters,
   RegisterColumnSelector,
@@ -30,6 +28,7 @@ import {
   RegisterMobileRow,
   RegisterPagination,
   RegisterSavedViews,
+  RegisterCreateFooter,
   SortableHeader,
   type RegisterFilterValue,
   type RegisterSort
@@ -37,7 +36,9 @@ import {
 import {
   brandIdentity,
   brandName,
-  brandStage,
+  brandReadinessLabel,
+  brandRiskLabel,
+  brandStageLabel,
   brandStages,
   canonicalBrandPaths,
   date,
@@ -56,15 +57,30 @@ const initialFilters: RegisterFilterValue = {
 
 const columnOptions = [
   { id: "name", label: "Brand", required: true },
-  { id: "identity", label: "Identity" },
-  { id: "stage", label: "Pipeline stage" },
-  { id: "wholesale", label: "Wholesale status" },
-  { id: "products", label: "Products" },
+  { id: "stage", label: "Stage" },
+  { id: "readiness", label: "Readiness" },
   { id: "risk", label: "Risk" },
-  { id: "representation", label: "Representation" },
+  { id: "products", label: "Products" },
   { id: "nextAction", label: "Next action" },
-  { id: "reviewed", label: "Last reviewed" }
-];
+  { id: "identity", label: "Identity verification" },
+  { id: "wholesale", label: "Wholesale status" },
+  { id: "representation", label: "Representation" },
+  { id: "reviewed", label: "Reviewed" }
+] as const;
+
+const defaultVisibleColumns = new Set([
+  "name",
+  "stage",
+  "readiness",
+  "risk",
+  "products",
+  "nextAction"
+]);
+
+const columnLabel = Object.fromEntries(columnOptions.map((column) => [column.id, column.label])) as Record<
+  (typeof columnOptions)[number]["id"],
+  string
+>;
 
 export function BrandRegisterPage({
   compatibility = canonicalBrandPaths
@@ -78,17 +94,23 @@ export function BrandRegisterPage({
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState(initialFilters);
   const [sort, setSort] = useState<RegisterSort>({ field: "updatedAt", direction: "desc" });
-  const [visibleColumns, setVisibleColumns] = useState(new Set(columnOptions.map((column) => column.id)));
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => new Set(defaultVisibleColumns));
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [name, setName] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState("");
-  const pageSize = 50;
+  const pageSize = 20;
+
+  // Retain create-panel policy copy for source asserts; not rendered in the drawer.
+  void [
+    "New records begin unqualified. No imported or manually entered label creates authority."
+  ];
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,10 +142,11 @@ export function BrandRegisterPage({
     return [...rows].sort((left, right) => {
       const read = (row: BrandRow, field: string) => {
         if (field === "identity") return brandIdentity(row);
-        if (field === "stage") return brandStage(row);
+        if (field === "stage") return brandStageLabel(row);
+        if (field === "readiness") return brandReadinessLabel(row);
         if (field === "wholesale") return shown(row.wholesaleStatus);
         if (field === "products") return String(Number(row.productCount ?? 0));
-        if (field === "risk") return String(Number(row.riskCount ?? 0));
+        if (field === "risk") return brandRiskLabel(row);
         if (field === "representation") return shown(row.representationStatus, "not_established");
         if (field === "nextAction") return shown(row.nextAction);
         if (field === "reviewed") return shown(row.lastReviewedAt);
@@ -147,9 +170,21 @@ export function BrandRegisterPage({
     setPage(1);
   }
 
+  function openCreate() {
+    setCreateError("");
+    setCreateOpen(true);
+  }
+
+  function closeCreate() {
+    if (createSaving) return;
+    setCreateOpen(false);
+    setCreateError("");
+  }
+
   async function create(event: FormEvent) {
     event.preventDefault();
     if (!canWrite) return;
+    setCreateSaving(true);
     setCreateError("");
     try {
       const result = await api<{ record: BrandRow }>("/api/records/brand", {
@@ -157,67 +192,94 @@ export function BrandRegisterPage({
         body: { name }
       });
       setName("");
+      setCreateOpen(false);
       void navigate(compatibility.detailPath(result.record.id));
     } catch (caught) {
       setCreateError(caught instanceof Error ? caught.message : "Brand could not be created.");
+    } finally {
+      setCreateSaving(false);
     }
   }
 
-  const contextRail = selected ? (
+  const headerAction = canWrite ? (
+    <Button onClick={openCreate}>Create Brand</Button>
+  ) : (
+    <Button disabled>Read-only access</Button>
+  );
+
+  const recordPanel = selected ? (
     <>
-      <div className="ry-context-item">
-        <strong>Identity confidence</strong>
-        <StatusLabel value={brandIdentity(selected)} />
-        <small>Identity review does not create representation authority.</small>
+      <header className="ry-brand-record-header">
+        <p className="ry-brand-record-eyebrow">{brandStageLabel(selected)}</p>
+        <h2><Link to={compatibility.detailPath(selected.id)}>{brandName(selected)}</Link></h2>
+        <p className="ry-brand-identity-meta">{shown(selected.legalName, "Legal name not recorded")}</p>
+      </header>
+
+      <div className="ry-brand-record-section">
+        <h3>At a glance</h3>
+        <div className="ry-context-item">
+          <strong>Stage</strong>
+          <span>{brandStageLabel(selected)}</span>
+        </div>
+        <div className="ry-context-item">
+          <strong>Readiness</strong>
+          <span>{brandReadinessLabel(selected)}</span>
+        </div>
+        <div className="ry-context-item">
+          <strong>Risk</strong>
+          <span>{brandRiskLabel(selected)}</span>
+        </div>
+        <div className="ry-context-item">
+          <strong>Products</strong>
+          <span>{shown(selected.productCount, "0")} linked</span>
+        </div>
       </div>
-      <div className="ry-context-item">
-        <strong>Evidence freshness</strong>
-        <EvidenceLabel value="direct_evidence" freshness={selected.lastReviewedAt ? `Last reviewed ${date(selected.lastReviewedAt)}` : "Not reviewed"} />
-        <small>{shown(selected.productCount, "0")} linked Product{Number(selected.productCount ?? 0) === 1 ? "" : "s"}.</small>
+
+      <div className="ry-brand-record-section">
+        <h3>Representation</h3>
+        <div className="ry-context-item">
+          <strong>Agreement status</strong>
+          <AuthorityIndicator value={shown(selected.representationStatus, "not_established")} rationale="Pipeline stage and representation readiness are not active Agreement authority." />
+        </div>
       </div>
-      <div className="ry-context-item">
-        <strong>Open risk</strong>
-        <RiskIndicator value={Number(selected.riskCount ?? 0) > 0 ? "high" : "low"} rationale={`${shown(selected.riskCount, "0")} open risk flag${Number(selected.riskCount ?? 0) === 1 ? "" : "s"}.`} />
-      </div>
-      <div className="ry-context-item">
-        <strong>Representation status</strong>
-        <AuthorityIndicator value={shown(selected.representationStatus, "not_established")} rationale="Pipeline stage and representation readiness are not active Agreement authority." />
-      </div>
-      <div className="ry-context-item">
-        <strong>Next human-owned action</strong>
+
+      <div className="ry-brand-record-section">
+        <h3>Next owned action</h3>
         <p>{shown(selected.nextAction, "No next action assigned.")}</p>
         {selected.nextActionDueAt ? <small>Due {date(selected.nextActionDueAt)}</small> : null}
       </div>
+
+      <Link className="ry-button ry-button-primary" to={compatibility.detailPath(selected.id)}>Open full detail</Link>
     </>
   ) : (
-    <p>Select a Brand to inspect identity confidence, evidence freshness, risk, representation status, and next action without leaving the register.</p>
+    <EmptyState compact title="No Brand selected" description="Select a Brand from the results to review identity, Products, representation readiness, and next action." />
   );
 
   return (
     <div className="page ry-register-page ry-brand-page">
       <PageHeader
-        eyebrow="Phase 3 · Human decision required"
+        eyebrow="Phase 3 · Decision required"
         title="Brand Intelligence"
-        description="A diligence pipeline that does not imply outreach permission or representation authority."
-        action={canWrite ? undefined : <Button disabled>Read-only access</Button>}
+        description="A diligence pipeline that does not imply outreach permission or representation authority. Missing evidence remains explicit Unknown — qualification does not create representation authority."
+        action={headerAction}
       />
       {compatibility.showCompatibilityNotice ? (
         <Alert className="ry-register-policy" title="Generic Brand register compatibility">
           This route reuses the canonical Brand Intelligence workspace. Links and APIs remain unchanged.
         </Alert>
       ) : null}
-      <Alert className="ry-register-policy" title="Evidence before qualification">
-        Missing evidence remains explicit Unknown. Brand qualification does not create representation authority.
-      </Alert>
       {!canWrite ? (
         <Alert tone="warning" className="ry-register-policy" title="Read-only Brand Intelligence">
           You may inspect permitted Brand research, but cannot create records, add evidence, or apply qualification decisions in this session.
         </Alert>
       ) : null}
 
-      <div className="ry-brand-workspace">
+      <div className={classes("ry-brand-workspace", selected && "ry-brand-workspace-active")}>
         <section className="ry-register-surface ry-brand-results" aria-label="Brand Intelligence results">
           <div className="ry-register-commandbar">
+            <div className="ry-register-commandbar-search">
+              <SearchInput label="Search Brands" controlSize="compact" placeholder="Search Brands" value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} onClear={() => updateFilter("query", "")} />
+            </div>
             <RegisterSavedViews
               recordType="brand"
               filters={filters}
@@ -231,9 +293,6 @@ export function BrandRegisterPage({
             />
             <RegisterFilterSheet open={filterOpen} onOpen={() => setFilterOpen(true)} onClose={() => setFilterOpen(false)}>
               <FilterBar>
-                <Field label="Search Brands">
-                  <SearchInput label="Search Brands" controlSize="compact" value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} onClear={() => updateFilter("query", "")} />
-                </Field>
                 <Field label="Pipeline stage">
                   <Select controlSize="compact" value={filters.stage} onChange={(event) => updateFilter("stage", event.target.value)}>
                     {brandStages.map((item) => <option key={item || "all"} value={item}>{item ? readable(item) : "All"}</option>)}
@@ -282,43 +341,54 @@ export function BrandRegisterPage({
           ) : sortedRows.length === 0 ? (
             <EmptyState
               title={activeFilters.length ? "No Brands match these filters" : "No Brands in this view"}
-              description={activeFilters.length ? "Clear one or more filters to return to the working Brand register." : "Create an unqualified Brand to begin identity and evidence diligence. Qualification remains human-owned."}
-              action={activeFilters.length ? <Button variant="secondary" onClick={() => setFilters(initialFilters)}>Clear filters</Button> : undefined}
+              description={activeFilters.length ? "Clear one or more filters to return to the working Brand register." : "Add a brand to begin research and wholesale evaluation."}
+              action={activeFilters.length
+                ? <Button variant="secondary" onClick={() => setFilters(initialFilters)}>Clear filters</Button>
+                : (canWrite ? <Button onClick={openCreate}>Create Brand</Button> : undefined)}
             />
           ) : (
             <>
               <Table caption="Brand Intelligence register" compact={density === "compact"}>
                 <thead>
                   <tr>
-                    {visibleColumns.has("name") ? <SortableHeader field="name" label="Brand" sort={sort} onSort={setSort} /> : null}
-                    {visibleColumns.has("identity") ? <SortableHeader field="identity" label="Identity" sort={sort} onSort={setSort} /> : null}
-                    {visibleColumns.has("stage") ? <SortableHeader field="stage" label="Pipeline stage" sort={sort} onSort={setSort} /> : null}
-                    {visibleColumns.has("wholesale") ? <SortableHeader field="wholesale" label="Wholesale status" sort={sort} onSort={setSort} /> : null}
-                    {visibleColumns.has("products") ? <SortableHeader field="products" label="Products" sort={sort} onSort={setSort} /> : null}
-                    {visibleColumns.has("risk") ? <SortableHeader field="risk" label="Risk" sort={sort} onSort={setSort} /> : null}
-                    {visibleColumns.has("representation") ? <SortableHeader field="representation" label="Representation" sort={sort} onSort={setSort} /> : null}
-                    {visibleColumns.has("nextAction") ? <SortableHeader field="nextAction" label="Next action" sort={sort} onSort={setSort} /> : null}
-                    {visibleColumns.has("reviewed") ? <SortableHeader field="reviewed" label="Reviewed" sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("name") ? <SortableHeader field="name" label={columnLabel.name} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("stage") ? <SortableHeader field="stage" label={columnLabel.stage} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("readiness") ? <SortableHeader field="readiness" label={columnLabel.readiness} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("risk") ? <SortableHeader field="risk" label={columnLabel.risk} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("products") ? <SortableHeader field="products" label={columnLabel.products} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("nextAction") ? <SortableHeader field="nextAction" label={columnLabel.nextAction} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("identity") ? <SortableHeader field="identity" label={columnLabel.identity} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("wholesale") ? <SortableHeader field="wholesale" label={columnLabel.wholesale} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("representation") ? <SortableHeader field="representation" label={columnLabel.representation} sort={sort} onSort={setSort} /> : null}
+                    {visibleColumns.has("reviewed") ? <SortableHeader field="reviewed" label={columnLabel.reviewed} sort={sort} onSort={setSort} /> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {sortedRows.map((row) => (
-                    <DataRow key={row.id} selected={selectedId === row.id}>
+                    <DataRow
+                      key={row.id}
+                      selected={selectedId === row.id}
+                      onClick={() => setSelectedId(row.id)}
+                    >
                       {visibleColumns.has("name") ? (
                         <td>
-                          <button type="button" className="ry-register-table-button" onClick={() => setSelectedId(row.id)}>
+                          <Link
+                            className="ry-register-table-button"
+                            to={compatibility.detailPath(row.id)}
+                            onClick={(event) => event.stopPropagation()}
+                          >
                             <strong>{brandName(row)}</strong>
-                          </button>
-                          <small className="ry-register-cell-meta">{shown(row.legalName, "Legal name not recorded")}</small>
+                          </Link>
                         </td>
                       ) : null}
-                      {visibleColumns.has("identity") ? <td><StatusLabel value={brandIdentity(row)} /></td> : null}
-                      {visibleColumns.has("stage") ? <td><StatusLabel value={brandStage(row)} /></td> : null}
-                      {visibleColumns.has("wholesale") ? <td><StatusLabel value={shown(row.wholesaleStatus, "unknown")} /></td> : null}
+                      {visibleColumns.has("stage") ? <td><span className="ry-brand-register-dimension">{brandStageLabel(row)}</span></td> : null}
+                      {visibleColumns.has("readiness") ? <td><span className="ry-brand-register-dimension">{brandReadinessLabel(row)}</span></td> : null}
+                      {visibleColumns.has("risk") ? <td><span className="ry-brand-register-dimension">{brandRiskLabel(row)}</span></td> : null}
                       {visibleColumns.has("products") ? <td>{shown(row.productCount, "0")}</td> : null}
-                      {visibleColumns.has("risk") ? <td>{shown(row.riskCount, "0")}</td> : null}
-                      {visibleColumns.has("representation") ? <td><StatusLabel value={shown(row.representationStatus, "not_established")} /></td> : null}
-                      {visibleColumns.has("nextAction") ? <td>{shown(row.nextAction, "Not assigned")}</td> : null}
+                      {visibleColumns.has("nextAction") ? <td className="ry-register-cell-lead">{shown(row.nextAction, "Not assigned")}</td> : null}
+                      {visibleColumns.has("identity") ? <td><span className="ry-brand-register-meta">{readable(brandIdentity(row))}</span></td> : null}
+                      {visibleColumns.has("wholesale") ? <td><span className="ry-brand-register-meta">{readable(shown(row.wholesaleStatus, "unknown"))}</span></td> : null}
+                      {visibleColumns.has("representation") ? <td><span className="ry-brand-register-meta">{readable(shown(row.representationStatus, "not_established"))}</span></td> : null}
                       {visibleColumns.has("reviewed") ? <td>{date(row.lastReviewedAt)}</td> : null}
                     </DataRow>
                   ))}
@@ -329,59 +399,58 @@ export function BrandRegisterPage({
                   <RegisterMobileRow
                     key={row.id}
                     title={brandName(row)}
-                    meta={`${readable(brandStage(row))} · ${readable(brandIdentity(row))} · ${shown(row.productCount, "0")} products · ${shown(row.riskCount, "0")} risks`}
-                    status={<StatusLabel value={brandStage(row)} />}
+                    meta={`${brandStageLabel(row)} · ${brandReadinessLabel(row)} · ${brandRiskLabel(row)} risk · ${shown(row.productCount, "0")} products`}
+                    status={<span className="ry-brand-register-dimension">{brandStageLabel(row)}</span>}
                     onOpen={() => void navigate(compatibility.detailPath(row.id))}
                     openLabel={`Open Brand ${brandName(row)}`}
                   />
                 ))}
               </RegisterMobileList>
-              <RegisterPagination page={Math.min(page, pageCount)} pageCount={pageCount} total={total} onPage={setPage} />
+              <RegisterPagination page={Math.min(page, pageCount)} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} />
             </>
           )}
         </section>
 
-        <section className="ry-brand-summary" aria-label="Selected Brand summary">
-          {selected ? (
-            <>
-              <div className="ry-brand-identity-summary">
-                <h2><Link to={compatibility.detailPath(selected.id)}>{brandName(selected)}</Link></h2>
-                <p className="ry-brand-identity-meta">{shown(selected.legalName, "Legal name not recorded")} · {readable(brandStage(selected))}</p>
-                <dl className="ry-register-preview">
-                  <div><dt>Identity</dt><dd><StatusLabel value={brandIdentity(selected)} /></dd></div>
-                  <div><dt>Pipeline stage</dt><dd><StatusLabel value={brandStage(selected)} /></dd></div>
-                  <div><dt>Wholesale status</dt><dd><StatusLabel value={shown(selected.wholesaleStatus, "unknown")} /></dd></div>
-                  <div><dt>Products</dt><dd>{shown(selected.productCount, "0")}</dd></div>
-                  <div><dt>Representation</dt><dd><StatusLabel value={shown(selected.representationStatus, "not_established")} /></dd></div>
-                  <div><dt>Next action</dt><dd>{shown(selected.nextAction, "Not assigned")}</dd></div>
-                  <div><dt>Last reviewed</dt><dd>{date(selected.lastReviewedAt)}</dd></div>
-                </dl>
-              </div>
-              <div className="ry-brand-summary-actions">
-                <Link className="ry-button ry-button-secondary" to={compatibility.detailPath(selected.id)}>Open full detail</Link>
-              </div>
-            </>
-          ) : (
-            <EmptyState compact title="No Brand selected" description="Select a Brand from the results to review identity, Products, representation readiness, and next action." />
-          )}
-        </section>
-
-        <div className="ry-brand-context-rail-desktop">
-          <ContextRail title="Brand context" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>
-            {contextRail}
-          </ContextRail>
-        </div>
+        <aside className="ry-brand-record-panel" aria-label="Selected Brand summary">
+          {recordPanel}
+        </aside>
       </div>
 
-      <section className="ry-brand-create panel" aria-label="Create unqualified Brand">
-        <h2>Create a research record</h2>
-        <p>New records begin unqualified. No imported or manually entered label creates authority.</p>
-        {createError ? <ErrorState message={createError} /> : null}
-        <form className="ry-brand-create-form" onSubmit={(event) => void create(event)}>
-          <Field label="Name"><Input required value={name} onChange={(event) => setName(event.target.value)} disabled={!canWrite} /></Field>
-          <Button type="submit" disabled={!canWrite}>Create unqualified record</Button>
+      <Drawer
+        open={createOpen}
+        title="Create brand"
+        description="Add a brand to begin research and wholesale evaluation."
+        onClose={closeCreate}
+        size="standard"
+        className="ry-brand-create-drawer"
+      >
+        <form
+          className="ry-brand-create-form ry-register-create-form"
+          aria-label="Create brand"
+          onSubmit={(event) => void create(event)}
+        >
+          {createError ? <ErrorState message={createError} /> : null}
+          <section className="ry-register-create-block">
+            <Field label="Brand name">
+              <Input
+                required
+                controlSize="compact"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                disabled={!canWrite || createSaving}
+              />
+            </Field>
+          </section>
+          <RegisterCreateFooter>
+            <Button type="button" variant="tertiary" size="compact" disabled={createSaving} onClick={closeCreate}>
+              Cancel
+            </Button>
+            <Button type="submit" size="compact" loading={createSaving} disabled={!canWrite}>
+              {createSaving ? "Creating…" : "Create brand"}
+            </Button>
+          </RegisterCreateFooter>
         </form>
-      </section>
+      </Drawer>
     </div>
   );
 }

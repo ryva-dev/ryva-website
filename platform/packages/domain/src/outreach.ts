@@ -688,7 +688,7 @@ export async function processOutreachSend(
     return { id: prepared.message.id, status: "suppressed", reason: prepared.reason };
   }
   if (prepared.message.channel !== "email") {
-    throw new AppError(409, "manual_channel_required", "Social outreach must be sent and confirmed by a human.");
+    throw new AppError(409, "manual_channel_required", "Social outreach must be sent and confirmed manually.");
   }
   const result = await provider.send({
     idempotencyKey: `outreach:${prepared.message.id}:${prepared.digest}`,
@@ -819,7 +819,7 @@ export async function confirmManualOutreach(
         (id,workspace_id,activity_type,actor_user_id,subject_type,subject_id,
          summary,status,occurred_at,metadata)
        VALUES($1,$2,'social_sent',$3,'placement_opportunity',$4,
-              'Human confirmed approved social outreach','completed',$5,$6)`,
+              'Confirmed approved social outreach','completed',$5,$6)`,
       [activityId, input.workspaceId, input.actorUserId, message.placementOpportunityId,
         input.occurredAt, { outreachMessageId: message.id, confirmation: input.confirmation }]
     );
@@ -1058,6 +1058,116 @@ export async function createOutreachTemplate(
       outcome: "succeeded", after: template.rows[0]
     });
     return { ...template.rows[0], versionId };
+  });
+}
+
+export async function createOutreachTemplateVersion(
+  database: Database,
+  input: {
+    workspaceId: string;
+    actorUserId: string;
+    requestId: string;
+    templateId: string;
+    name: string;
+    channel: "email" | "social" | "call" | "voicemail" | "objection" | "follow_up";
+    purpose: string;
+    subject: string;
+    body: string;
+    requiredVariables: string[];
+    requiredComplianceBlocks: string[];
+  }
+): Promise<Record<string, unknown>> {
+  return withTransaction(database, async (transaction) => {
+    const existing = await oneOrNone<{ id: string; currentVersion: number }>(
+      transaction,
+      `SELECT id, current_version AS "currentVersion"
+         FROM outreach_templates
+        WHERE workspace_id=$1 AND id=$2 AND status<>'archived'
+        FOR UPDATE`,
+      [input.workspaceId, input.templateId]
+    );
+    if (!existing) throw new AppError(404, "template_not_found", "Template not found.");
+
+    const nextVersion = Number(existing.currentVersion) + 1;
+    const versionId = newId();
+    const template = await transaction.query<Record<string, unknown>>(
+      `UPDATE outreach_templates
+          SET name=$3,
+              channel=$4,
+              purpose=$5,
+              current_version=$6,
+              updated_at=now()
+        WHERE workspace_id=$1 AND id=$2
+        RETURNING id,name,channel,purpose,status,current_version AS "currentVersion"`,
+      [input.workspaceId, input.templateId, input.name, input.channel, input.purpose, nextVersion]
+    );
+    if (!template.rows[0]) throw new AppError(409, "template_update_failed", "Template could not be updated.");
+
+    await transaction.query(
+      `INSERT INTO outreach_template_versions
+        (id,workspace_id,template_id,version,subject,body,required_variables,
+         required_compliance_blocks,change_reason,created_by)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,'Edited template',$9)`,
+      [
+        versionId,
+        input.workspaceId,
+        input.templateId,
+        nextVersion,
+        input.subject,
+        input.body,
+        input.requiredVariables,
+        input.requiredComplianceBlocks,
+        input.actorUserId
+      ]
+    );
+    await recordAudit(transaction, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      actorType: "user",
+      action: "outreach_template.version_created",
+      targetType: "outreach_template",
+      targetId: input.templateId,
+      origin: "api",
+      requestId: input.requestId,
+      outcome: "succeeded",
+      after: template.rows[0],
+      metadata: { versionId, version: nextVersion }
+    });
+    return { ...template.rows[0], versionId };
+  });
+}
+
+export async function archiveOutreachTemplate(
+  database: Database,
+  input: {
+    workspaceId: string;
+    actorUserId: string;
+    requestId: string;
+    templateId: string;
+  }
+): Promise<Record<string, unknown>> {
+  return withTransaction(database, async (transaction) => {
+    const archived = await transaction.query<Record<string, unknown>>(
+      `UPDATE outreach_templates
+          SET status='archived', updated_at=now()
+        WHERE workspace_id=$1 AND id=$2 AND status<>'archived'
+        RETURNING id,name,channel,purpose,status,current_version AS "currentVersion"`,
+      [input.workspaceId, input.templateId]
+    );
+    if (!archived.rows[0]) throw new AppError(404, "template_not_found", "Template not found.");
+    await recordAudit(transaction, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      actorType: "user",
+      action: "outreach_template.archived",
+      targetType: "outreach_template",
+      targetId: input.templateId,
+      origin: "api",
+      requestId: input.requestId,
+      outcome: "succeeded",
+      after: archived.rows[0]
+    });
+    return archived.rows[0];
   });
 }
 
@@ -1521,7 +1631,7 @@ export async function classifyOutreachResponse(
           (id,workspace_id,subject_type,subject_id,title,owner_user_id,status,priority,
            created_reason,due_at,mandatory_gate)
          VALUES($1,$2,'placement_opportunity',$3,$4,$5,'open','high',
-                'Human-classified Buyer response',$6,false)`,
+                'Classified Buyer response',$6,false)`,
         [newId(), input.workspaceId, message.placementId, input.nextActionTitle,
           input.actorUserId, input.nextActionDueAt ?? null]
       );

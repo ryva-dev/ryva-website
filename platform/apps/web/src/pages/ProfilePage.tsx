@@ -7,6 +7,8 @@ import { useLoad } from "../hooks";
 type Profile = {
   userId: string;
   workspaceId: string;
+  firstName: string;
+  lastName: string;
   name: string;
   email: string;
   timeZone: string;
@@ -43,6 +45,8 @@ export function ProfilePage() {
     const profile = state.data?.profile;
     if (!profile) return;
     setForm({
+      firstName: profile.firstName ?? "",
+      lastName: profile.lastName ?? "",
       name: profile.name,
       timeZone: profile.timeZone,
       locale: profile.locale,
@@ -76,6 +80,8 @@ export function ProfilePage() {
         method: "PUT",
         body: {
           version: state.data.profile.version,
+          firstName: form.firstName ?? "",
+          lastName: form.lastName ?? "",
           name: form.name ?? "",
           timeZone: form.timeZone ?? "",
           locale: form.locale ?? "",
@@ -112,7 +118,9 @@ export function ProfilePage() {
       {error ? <ErrorPanel message={error} /> : null}
       {state.data ? (
         <form className="panel form-grid" onSubmit={(event) => void submit(event)}>
-          <Field label="Full name"><input required maxLength={120} autoComplete="name" {...field("name")} /></Field>
+          <Field label="First name"><input required maxLength={80} autoComplete="given-name" {...field("firstName")} /></Field>
+          <Field label="Last name"><input required maxLength={80} autoComplete="family-name" {...field("lastName")} /></Field>
+          <Field label="Display name"><input required maxLength={120} autoComplete="nickname" {...field("name")} /></Field>
           <Field label="Email" hint="Verified account email cannot be changed here.">
             <input value={state.data.profile.email} disabled />
           </Field>

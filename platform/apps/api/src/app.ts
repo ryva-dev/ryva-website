@@ -12,6 +12,7 @@ import type { Database } from "../../../packages/database/src/index.js";
 import { oneOrNone, withTransaction } from "../../../packages/database/src/index.js";
 import {
   createLogger,
+  beginStaffMfaEnrollment,
   createBuyerCategoryRecommendation,
   createCoreRecord,
   createDecision,
@@ -42,10 +43,14 @@ import {
   listBusinessIntelligence,
   listProductIntelligence,
   publicDigest,
+  reconcileProgramCheckoutFailure,
+  reconcileProgramPurchase,
+  reconcileSubscriptionCheckout,
   reconcileBillingEvent,
   reconcileCredentialEvent,
   recordAudit,
   searchWorkspace,
+  secureDigest,
   duplicateCandidates,
   enqueueJob,
   retryDeadJob,
@@ -63,6 +68,7 @@ import {
   decideBuyerCategoryRecommendation,
   decideProductBusinessMatch,
   decideProductComparison,
+  hashPassword,
   verifyPassword
 } from "../../../packages/domain/src/index.js";
 import type {
@@ -97,6 +103,29 @@ import { registerPhase6Routes } from "./phase6Routes.js";
 import { registerPhase7Routes } from "./phase7Routes.js";
 import { registerPhase8Routes } from "./phase8Routes.js";
 import { registerPhase9Routes } from "./phase9Routes.js";
+import { registerIdentityRoutes, staffMfaSetupCookie } from "./identityRoutes.js";
+import { registerProgramRoutes } from "./programRoutes.js";
+import { ryvaProgram, type ProgramDefinition } from "../../../packages/program-content/src/index.js";
+
+const programCheckoutConsentSchema = z.object({
+  termsAccepted: z.literal(true),
+  refundPolicyAccepted: z.literal(true),
+  nonRefundableAcknowledged: z.literal(true),
+  commercialDisclaimerAcknowledged: z.literal(true),
+  termsVersion: z.string().trim().min(1).max(120),
+  refundPolicyVersion: z.string().trim().min(1).max(120),
+  disclaimerVersion: z.string().trim().min(1).max(120)
+});
+
+const subscriptionCheckoutConsentSchema = z.object({
+  termsAccepted: z.literal(true),
+  recurringBillingAccepted: z.literal(true),
+  cancellationTermsAccepted: z.literal(true),
+  termsVersion: z.string().trim().min(1).max(120),
+  priceCents: z.literal(2000),
+  currency: z.literal("usd"),
+  billingCadence: z.literal("month")
+});
 
 type Dependencies = {
   database: Database;
@@ -105,6 +134,8 @@ type Dependencies = {
   objectStorage?: ObjectStorage;
   aiProvider?: AiProvider;
   logger?: Logger;
+  program?: ProgramDefinition;
+  stripe?: Stripe;
 };
 
 const loginSchema = z.object({
@@ -113,9 +144,21 @@ const loginSchema = z.object({
   mfaCode: z.string().regex(/^\d{6}$/).optional()
 });
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword: z.string().min(14).max(256)
+});
+
+const changeEmailSchema = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newEmail: emailSchema
+});
+
 const profileSchema = z.object({
   version: z.number().int().positive(),
-  name: z.string().trim().min(1).max(120),
+  firstName: z.string().trim().max(80),
+  lastName: z.string().trim().max(80),
+  name: z.string().trim().max(120),
   timeZone: z.string().trim().min(1).max(100),
   locale: z.string().trim().min(2).max(20),
   professionalTitle: z.string().trim().max(120),
@@ -127,6 +170,11 @@ const profileSchema = z.object({
   geographicPreferences: z.array(z.string().trim().min(1).max(120)).max(100),
   experienceLevel: z.string().trim().min(1).max(40),
   workingHours: z.record(z.string(), z.unknown())
+}).superRefine((value, context) => {
+  const display = value.name.trim() || [value.firstName, value.lastName].filter(Boolean).join(" ");
+  if (!display) {
+    context.addIssue({ code: "custom", message: "A display name is required.", path: ["name"] });
+  }
 });
 
 const settingsSchema = z.object({
@@ -253,7 +301,12 @@ const productIntelligenceChanges = z.object({
   inventoryNotes: z.string().trim().max(4000).optional(),
   fulfillmentNotes: z.string().trim().max(4000).optional(),
   returnsNotes: z.string().trim().max(4000).optional(),
-  monitoringStatus: z.enum(["not_monitored", "active", "paused", "source_unavailable"]).optional()
+  monitoringStatus: z.enum(["not_monitored", "active", "paused", "source_unavailable"]).optional(),
+  wholesalePrice: z.union([z.number().nonnegative(), z.string().trim().max(100)]).nullable().optional(),
+  moq: z.string().trim().max(200).nullable().optional(),
+  leadTime: z.string().trim().max(200).nullable().optional(),
+  casePack: z.string().trim().max(200).nullable().optional(),
+  paymentTerms: z.string().trim().max(200).nullable().optional()
 });
 
 const brandIntelligenceChanges = z.object({
@@ -393,6 +446,68 @@ function stripeEventToEntitlement(event: Stripe.Event): BillingEntitlementEvent 
   };
 }
 
+function stripeEventToProgramPurchase(event: Stripe.Event) {
+  if (![
+    "checkout.session.completed",
+    "checkout.session.async_payment_succeeded"
+  ].includes(event.type)) return null;
+  const checkout = event.data.object as Stripe.Checkout.Session;
+  if (checkout.metadata?.ryvaPurchaseKind !== "program") return null;
+  const userId = checkout.metadata.ryvaUserId;
+  if (!userId) return null;
+  return {
+    eventId: event.id,
+    eventType: event.type as "checkout.session.completed" | "checkout.session.async_payment_succeeded",
+    providerCheckoutSessionId: checkout.id,
+    userId,
+    providerCustomerId: typeof checkout.customer === "string" ? checkout.customer : checkout.customer?.id ?? null,
+    providerPaymentIntentId: typeof checkout.payment_intent === "string"
+      ? checkout.payment_intent
+      : checkout.payment_intent?.id ?? null,
+    paymentStatus: checkout.payment_status,
+    amountTotal: checkout.amount_total,
+    currency: checkout.currency
+  };
+}
+
+function stripeEventToSubscriptionCheckout(event: Stripe.Event) {
+  if (![
+    "checkout.session.completed",
+    "checkout.session.async_payment_failed",
+    "checkout.session.expired"
+  ].includes(event.type)) return null;
+  const checkout = event.data.object as Stripe.Checkout.Session;
+  if (checkout.metadata?.ryvaPurchaseKind !== "ryva_pro") return null;
+  const userId = checkout.metadata.ryvaUserId;
+  if (!userId) return null;
+  return {
+    eventId: event.id,
+    eventType: event.type as "checkout.session.completed" | "checkout.session.async_payment_failed" | "checkout.session.expired",
+    providerCheckoutSessionId: checkout.id,
+    providerSubscriptionId: typeof checkout.subscription === "string"
+      ? checkout.subscription
+      : checkout.subscription?.id ?? null,
+    userId
+  };
+}
+
+function stripeEventToProgramFailure(event: Stripe.Event) {
+  if (![
+    "checkout.session.async_payment_failed",
+    "checkout.session.expired"
+  ].includes(event.type)) return null;
+  const checkout = event.data.object as Stripe.Checkout.Session;
+  if (checkout.metadata?.ryvaPurchaseKind !== "program") return null;
+  const userId = checkout.metadata.ryvaUserId;
+  if (!userId) return null;
+  return {
+    eventId: event.id,
+    eventType: event.type as "checkout.session.async_payment_failed" | "checkout.session.expired",
+    providerCheckoutSessionId: checkout.id,
+    userId
+  };
+}
+
 export function createApp(dependencies: Dependencies): express.Express {
   const { database, configuration } = dependencies;
   const logger = dependencies.logger ?? createLogger(configuration);
@@ -411,7 +526,8 @@ export function createApp(dependencies: Dependencies): express.Express {
         directives: {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
           imgSrc: ["'self'", "data:"],
           connectSrc: ["'self'"],
           frameAncestors: ["'none'"],
@@ -444,7 +560,7 @@ export function createApp(dependencies: Dependencies): express.Express {
       if (!configuration.STRIPE_SECRET_KEY || !configuration.STRIPE_WEBHOOK_SECRET) {
         throw new AppError(503, "billing_not_configured", "Billing webhook is not configured.");
       }
-      const stripe = new Stripe(configuration.STRIPE_SECRET_KEY);
+      const stripe = dependencies.stripe ?? new Stripe(configuration.STRIPE_SECRET_KEY);
       let event: Stripe.Event;
       try {
         event = stripe.webhooks.constructEvent(
@@ -455,9 +571,18 @@ export function createApp(dependencies: Dependencies): express.Express {
       } catch {
         throw new AppError(401, "webhook_signature_invalid", "Webhook signature is invalid.");
       }
-      const mapped = stripeEventToEntitlement(event);
-      if (mapped) await reconcileBillingEvent(database, mapped, request.requestId);
-      response.status(200).json({ received: true, processed: Boolean(mapped) });
+      const programPurchase = stripeEventToProgramPurchase(event);
+      const programFailure = stripeEventToProgramFailure(event);
+      const subscriptionCheckout = stripeEventToSubscriptionCheckout(event);
+      const subscription = stripeEventToEntitlement(event);
+      if (programPurchase) await reconcileProgramPurchase(database, programPurchase, request.requestId);
+      else if (programFailure) await reconcileProgramCheckoutFailure(database, programFailure, request.requestId);
+      else if (subscriptionCheckout) await reconcileSubscriptionCheckout(database, subscriptionCheckout, request.requestId);
+      else if (subscription) await reconcileBillingEvent(database, subscription, request.requestId);
+      response.status(200).json({
+        received: true,
+        processed: Boolean(programPurchase || programFailure || subscriptionCheckout || subscription)
+      });
     })
   );
 
@@ -554,6 +679,13 @@ export function createApp(dependencies: Dependencies): express.Express {
   app.use(cookieParser());
   app.use(enforceOrigin(configuration));
 
+  registerIdentityRoutes({
+    app,
+    database,
+    configuration,
+    rateLimit: (input) => databaseRateLimit(database, input)
+  });
+
   app.get("/healthz", (_request, response) => response.status(200).json({ status: "ok" }));
   app.get(
     "/readyz",
@@ -608,11 +740,16 @@ export function createApp(dependencies: Dependencies): express.Express {
       const staffRequiresMfa = user.role === "admin" || user.role === "support";
       if (staffRequiresMfa) {
         if (!user.mfa_secret_ciphertext || !configuration.FIELD_ENCRYPTION_KEY) {
-          throw new AppError(
-            403,
-            "mfa_setup_required",
-            "This staff account requires multi-factor setup before access."
-          );
+          const enrollment = await beginStaffMfaEnrollment(database, configuration, user.id);
+          response.cookie(staffMfaSetupCookie, enrollment.token, {
+            httpOnly: true,
+            secure: configuration.NODE_ENV === "production",
+            sameSite: "strict",
+            path: "/",
+            expires: enrollment.expiresAt
+          });
+          response.status(202).json({ mfaSetupRequired: true });
+          return;
         }
         if (!input.mfaCode) {
           response.status(202).json({ mfaRequired: true });
@@ -695,7 +832,292 @@ export function createApp(dependencies: Dependencies): express.Express {
     })
   );
 
+  app.post(
+    "/api/auth/password",
+    authenticated,
+    csrf,
+    requireCapability(database, "profile:write"),
+    databaseRateLimit(database, {
+      prefix: "password_change",
+      limit: Math.min(configuration.RATE_LIMIT_LOGIN_MAX, 10),
+      windowSeconds: configuration.RATE_LIMIT_WINDOW_SECONDS
+    }),
+    asyncRoute(async (request, response) => {
+      const input = changePasswordSchema.parse(request.body);
+      if (input.currentPassword === input.newPassword) {
+        throw new AppError(400, "password_unchanged", "Choose a new password that differs from the current one.");
+      }
+      const user = await oneOrNone<{ id: string; password_hash: string }>(
+        database,
+        `SELECT id, password_hash FROM users WHERE id=$1 AND status='active'`,
+        [request.identity!.userId]
+      );
+      if (!user) throw new AppError(404, "user_not_found", "Account not found.");
+      const currentValid = await verifyPassword(
+        input.currentPassword,
+        user.password_hash,
+        configuration.SESSION_PEPPER
+      );
+      if (!currentValid) {
+        await recordAudit(database, {
+          workspaceId: request.identity!.workspaceId,
+          actorUserId: request.identity!.userId,
+          actorType: "user",
+          action: "account.password_change_failed",
+          targetType: "user",
+          targetId: user.id,
+          origin: "api",
+          requestId: request.requestId,
+          outcome: "denied",
+          metadata: { category: "invalid_current_password" }
+        });
+        throw new AppError(401, "invalid_credentials", "Current password is incorrect.");
+      }
+      let passwordHash: string;
+      try {
+        passwordHash = await hashPassword(input.newPassword, configuration.SESSION_PEPPER);
+      } catch {
+        throw new AppError(
+          400,
+          "weak_password",
+          "Password must be between 14 and 256 characters."
+        );
+      }
+      await database.query(
+        `UPDATE users SET password_hash=$2, version=version+1, updated_at=now() WHERE id=$1`,
+        [user.id, passwordHash]
+      );
+      await recordAudit(database, {
+        workspaceId: request.identity!.workspaceId,
+        actorUserId: request.identity!.userId,
+        actorType: "user",
+        action: "account.password_changed",
+        targetType: "user",
+        targetId: user.id,
+        origin: "api",
+        requestId: request.requestId,
+        outcome: "succeeded"
+      });
+      response.status(204).end();
+    })
+  );
+
+  app.post(
+    "/api/auth/email",
+    authenticated,
+    csrf,
+    requireCapability(database, "profile:write"),
+    databaseRateLimit(database, {
+      prefix: "email_change",
+      limit: Math.min(configuration.RATE_LIMIT_LOGIN_MAX, 10),
+      windowSeconds: configuration.RATE_LIMIT_WINDOW_SECONDS
+    }),
+    asyncRoute(async (request, response) => {
+      const input = changeEmailSchema.parse(request.body);
+      const newEmail = input.newEmail.trim().toLowerCase();
+      const user = await oneOrNone<{ id: string; email: string; password_hash: string }>(
+        database,
+        `SELECT id, email, password_hash FROM users WHERE id=$1 AND status='active'`,
+        [request.identity!.userId]
+      );
+      if (!user) throw new AppError(404, "user_not_found", "Account not found.");
+      if (user.email.toLowerCase() === newEmail) {
+        throw new AppError(400, "email_unchanged", "Choose a different email address.");
+      }
+      const currentValid = await verifyPassword(
+        input.currentPassword,
+        user.password_hash,
+        configuration.SESSION_PEPPER
+      );
+      if (!currentValid) {
+        await recordAudit(database, {
+          workspaceId: request.identity!.workspaceId,
+          actorUserId: request.identity!.userId,
+          actorType: "user",
+          action: "account.email_change_failed",
+          targetType: "user",
+          targetId: user.id,
+          origin: "api",
+          requestId: request.requestId,
+          outcome: "denied",
+          metadata: { category: "invalid_current_password" }
+        });
+        throw new AppError(401, "invalid_credentials", "Current password is incorrect.");
+      }
+      const conflict = await oneOrNone<{ id: string }>(
+        database,
+        `SELECT id FROM users WHERE lower(email)=lower($1) AND status<>'deleted' AND id<>$2`,
+        [newEmail, user.id]
+      );
+      if (conflict) {
+        throw new AppError(409, "email_in_use", "That email is already used by another account.");
+      }
+      await database.query(
+        `UPDATE users SET email=$2, email_verified_at=NULL, version=version+1, updated_at=now()
+          WHERE id=$1`,
+        [user.id, newEmail]
+      );
+      await recordAudit(database, {
+        workspaceId: request.identity!.workspaceId,
+        actorUserId: request.identity!.userId,
+        actorType: "user",
+        action: "account.email_changed",
+        targetType: "user",
+        targetId: user.id,
+        origin: "api",
+        requestId: request.requestId,
+        outcome: "succeeded",
+        metadata: {
+          previousEmailDigest: publicDigest(user.email.toLowerCase()),
+          nextEmailDigest: publicDigest(newEmail)
+        }
+      });
+      response.status(200).json({ email: newEmail });
+    })
+  );
+
   app.get("/api/access", authenticated, (request, response) => response.json({ access: request.access }));
+  app.post(
+    "/api/program/checkout",
+    authenticated,
+    csrf,
+    asyncRoute(async (request, response) => {
+      const consent = programCheckoutConsentSchema.parse(request.body);
+      if (
+        consent.termsVersion !== configuration.TERMS_DOCUMENT_VERSION ||
+        consent.refundPolicyVersion !== configuration.REFUND_POLICY_DOCUMENT_VERSION ||
+        consent.disclaimerVersion !== configuration.DISCLAIMER_DOCUMENT_VERSION
+      ) {
+        throw new AppError(409, "legal_documents_changed", "The legal documents changed. Review them again.");
+      }
+      if (request.identity!.role !== "representative") {
+        throw new AppError(403, "program_purchase_unavailable", "Program purchase is available for customer accounts.");
+      }
+      if (!configuration.STRIPE_SECRET_KEY || !configuration.STRIPE_PROGRAM_PRICE_ID) {
+        throw new AppError(503, "program_checkout_not_configured", "Program checkout is temporarily unavailable.");
+      }
+      const stripe = dependencies.stripe ?? new Stripe(configuration.STRIPE_SECRET_KEY);
+      const programPrice = await stripe.prices.retrieve(configuration.STRIPE_PROGRAM_PRICE_ID);
+      if (
+        !programPrice.active ||
+        programPrice.type !== "one_time" ||
+        programPrice.unit_amount !== configuration.PROGRAM_PRICE_CENTS ||
+        programPrice.currency.toLowerCase() !== configuration.PROGRAM_PRICE_CURRENCY
+      ) {
+        throw new AppError(503, "program_price_invalid", "Program checkout is temporarily unavailable because its price is misconfigured.");
+      }
+      const result = await withTransaction(database, async (transaction) => {
+        await transaction.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`program-checkout:${request.identity!.userId}`]);
+        const entitlement = await oneOrNone<{ id: string }>(
+          transaction,
+          "SELECT id FROM program_entitlements WHERE user_id=$1 AND status='active'",
+          [request.identity!.userId]
+        );
+        if (entitlement) {
+          throw new AppError(409, "program_already_owned", "This account already owns The Ryva Program.");
+        }
+        const existing = await oneOrNone<{ checkout_url: string | null }>(
+          transaction,
+          `SELECT checkout_url FROM program_checkout_sessions
+            WHERE user_id=$1 AND status='created' ORDER BY created_at DESC LIMIT 1`,
+          [request.identity!.userId]
+        );
+        if (existing?.checkout_url) return { url: existing.checkout_url, reused: true };
+
+        const checkoutRecordId = newId();
+        const checkout = await stripe.checkout.sessions.create({
+          mode: "payment",
+          customer_email: request.identity!.email,
+          line_items: [{ price: configuration.STRIPE_PROGRAM_PRICE_ID, quantity: 1 }],
+          success_url: `${configuration.APP_URL}/checkout?checkout=success`,
+          cancel_url: `${configuration.APP_URL}/checkout?checkout=canceled`,
+          metadata: {
+            ryvaUserId: request.identity!.userId,
+            ryvaPurchaseKind: "program"
+          },
+          payment_intent_data: {
+            metadata: {
+              ryvaUserId: request.identity!.userId,
+              ryvaPurchaseKind: "program"
+            }
+          }
+        }, { idempotencyKey: `program-checkout:${checkoutRecordId}` });
+        if (!checkout.url) throw new AppError(502, "checkout_failed", "Program checkout did not return a URL.");
+        await transaction.query(
+          `INSERT INTO program_checkout_sessions
+            (id,user_id,workspace_id,provider_checkout_session_id,checkout_url,price_id,amount_total,currency,status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'created')`,
+          [
+            checkoutRecordId,
+            request.identity!.userId,
+            request.identity!.workspaceId,
+            checkout.id,
+            checkout.url,
+            configuration.STRIPE_PROGRAM_PRICE_ID,
+            configuration.PROGRAM_PRICE_CENTS,
+            configuration.PROGRAM_PRICE_CURRENCY
+          ]
+        );
+        const occurredAt = new Date();
+        const ipHash = request.ip
+          ? secureDigest(request.ip, configuration.SESSION_PEPPER)
+          : null;
+        const userAgent = request.get("user-agent")?.slice(0, 500) ?? null;
+        await transaction.query(
+          `INSERT INTO legal_acceptances
+            (id,user_id,workspace_id,document_type,document_version,acceptance_action,
+             acceptance_context,associated_record_type,associated_record_id,ip_hash,user_agent,
+             acceptance_metadata,occurred_at)
+           VALUES
+            ($1,$2,$3,'terms_of_use',$4,'accepted','program_purchase','stripe_checkout_session',$5,$6,$7,$8,$9),
+            ($10,$2,$3,'refund_policy',$11,'accepted','program_purchase','stripe_checkout_session',$5,$6,$7,$12,$9),
+            ($13,$2,$3,'commercial_disclaimer',$14,'acknowledged','program_purchase','stripe_checkout_session',$5,$6,$7,$15,$9)`,
+          [
+            newId(), request.identity!.userId, request.identity!.workspaceId,
+            consent.termsVersion, checkout.id, ipHash, userAgent,
+            { checkoutRecordId }, occurredAt,
+            newId(), consent.refundPolicyVersion,
+            { checkoutRecordId, nonRefundableDigitalPurchase: true },
+            newId(), consent.disclaimerVersion,
+            { checkoutRecordId, noEmploymentIncomeOrCommercialOutcomeGuarantee: true }
+          ]
+        );
+        await recordAudit(transaction, {
+          workspaceId: request.identity!.workspaceId,
+          actorUserId: request.identity!.userId,
+          actorType: "user",
+          action: "program.checkout_created",
+          targetType: "checkout_session",
+          targetId: checkout.id,
+          origin: "api",
+          requestId: request.requestId,
+          outcome: "succeeded",
+          metadata: {
+            termsVersion: consent.termsVersion,
+            refundPolicyVersion: consent.refundPolicyVersion,
+            disclaimerVersion: consent.disclaimerVersion
+          }
+        });
+        return { url: checkout.url, reused: false };
+      });
+      response.status(result.reused ? 200 : 201).json({ url: result.url, reused: result.reused });
+    })
+  );
+  registerProgramRoutes({
+    app,
+    database,
+    configuration,
+    program: dependencies.program ?? ryvaProgram,
+    authenticated,
+    csrf,
+    read: requireCapability(database, "program:read"),
+    write: requireCapability(database, "program:progress.write"),
+    mutationRateLimit: databaseRateLimit(database, {
+      prefix: "program-learning",
+      limit: 120,
+      windowSeconds: 60
+    })
+  });
   app.get(
     "/api/home",
     authenticated,
@@ -738,12 +1160,42 @@ export function createApp(dependencies: Dependencies): express.Express {
             ORDER BY p.last_meaningful_action_at LIMIT 12`,[workspaceId]
         ),
         database.query(
-          `SELECT action,target_type AS "targetType",target_id AS "targetId",
-                  occurred_at AS "occurredAt",outcome
-             FROM audit_events WHERE workspace_id=$1 AND
-              target_type IN ('representation_agreement','representation_opportunity',
+          `SELECT a.action,
+                  CASE
+                    WHEN a.target_type='authority_evaluation'
+                      AND coalesce(e.context->>'placementId','') ~* '^[0-9a-f-]{36}$'
+                      THEN 'placement_opportunity'
+                    WHEN a.target_type='authority_evaluation'
+                      AND coalesce(e.context->>'messageId','') ~* '^[0-9a-f-]{36}$'
+                      THEN 'outreach_message'
+                    WHEN a.target_type='authority_evaluation' AND e.agreement_id IS NOT NULL
+                      THEN 'representation_agreement'
+                    WHEN a.target_type='authority_evaluation' AND e.brand_id IS NOT NULL
+                      THEN 'brand'
+                    ELSE a.target_type
+                  END AS "targetType",
+                  CASE
+                    WHEN a.target_type='authority_evaluation'
+                      AND coalesce(e.context->>'placementId','') ~* '^[0-9a-f-]{36}$'
+                      THEN e.context->>'placementId'
+                    WHEN a.target_type='authority_evaluation'
+                      AND coalesce(e.context->>'messageId','') ~* '^[0-9a-f-]{36}$'
+                      THEN e.context->>'messageId'
+                    WHEN a.target_type='authority_evaluation' AND e.agreement_id IS NOT NULL
+                      THEN e.agreement_id::text
+                    WHEN a.target_type='authority_evaluation' AND e.brand_id IS NOT NULL
+                      THEN e.brand_id::text
+                    ELSE a.target_id::text
+                  END AS "targetId",
+                  a.occurred_at AS "occurredAt",a.outcome
+             FROM audit_events a
+             LEFT JOIN authority_evaluations e
+               ON e.workspace_id=a.workspace_id AND e.id::text=a.target_id
+              AND a.target_type='authority_evaluation'
+            WHERE a.workspace_id=$1 AND
+              a.target_type IN ('representation_agreement','representation_opportunity',
                               'placement_opportunity','authority_evaluation')
-            ORDER BY occurred_at DESC LIMIT 12`,[workspaceId]
+            ORDER BY a.occurred_at DESC LIMIT 12`,[workspaceId]
         ),
         getHomeCommandCenter(database,workspaceId,request.identity!.userId)
       ]);
@@ -763,6 +1215,9 @@ export function createApp(dependencies: Dependencies): express.Express {
     "/api/certification",
     authenticated,
     asyncRoute(async (request, response) => {
+      if (!["admin", "support"].includes(request.identity!.role)) {
+        throw new AppError(404, "legacy_credential_unavailable", "This legacy record is not available.");
+      }
       response.json({
         credential: await getCredential(database, request.identity!.userId),
         access: request.access
@@ -774,6 +1229,9 @@ export function createApp(dependencies: Dependencies): express.Express {
     authenticated,
     csrf,
     asyncRoute(async (request, response) => {
+      if (!["admin", "support"].includes(request.identity!.role)) {
+        throw new AppError(404, "legacy_credential_unavailable", "This legacy record is not available.");
+      }
       const current = await getCredential(database, request.identity!.userId);
       if (!current) {
         throw new AppError(
@@ -798,7 +1256,13 @@ export function createApp(dependencies: Dependencies): express.Express {
     asyncRoute(async (request, response) => {
       response.json({
         subscription: await getSubscription(database, request.identity!.userId),
-        access: request.access
+        access: request.access,
+        offer: {
+          priceCents: configuration.RYVA_PRO_PRICE_CENTS,
+          currency: configuration.RYVA_PRO_PRICE_CURRENCY,
+          billingCadence: "month",
+          termsVersion: configuration.TERMS_DOCUMENT_VERSION
+        }
       });
     })
   );
@@ -807,16 +1271,15 @@ export function createApp(dependencies: Dependencies): express.Express {
     authenticated,
     csrf,
     asyncRoute(async (request, response) => {
-      const credential = await getCredential(database, request.identity!.userId);
       if (
-        !credential ||
-        !["active", "expiring"].includes(credential.status) ||
-        (credential.expiresAt && credential.expiresAt <= new Date())
+        request.identity!.role !== "representative" ||
+        !request.access?.canAccessProgram ||
+        !request.access.isProgramCompleted
       ) {
         throw new AppError(
           403,
-          "eligible_credential_required",
-          "An active eligible certification is required before subscription activation."
+          "program_completion_required",
+          "Complete The Ryva Program before activating Ryva Pro."
         );
       }
       if (!configuration.STRIPE_SECRET_KEY || !configuration.STRIPE_PRICE_ID) {
@@ -826,29 +1289,83 @@ export function createApp(dependencies: Dependencies): express.Express {
           "Subscription checkout is not available until the billing provider is configured."
         );
       }
-      const stripe = new Stripe(configuration.STRIPE_SECRET_KEY);
-      const checkout = await stripe.checkout.sessions.create({
-        mode: "subscription",
-        customer_email: request.identity!.email,
-        line_items: [{ price: configuration.STRIPE_PRICE_ID, quantity: 1 }],
-        success_url: `${configuration.APP_URL}/subscription?checkout=success`,
-        cancel_url: `${configuration.APP_URL}/subscription/activate?checkout=canceled`,
-        metadata: { ryvaUserId: request.identity!.userId },
-        subscription_data: { metadata: { ryvaUserId: request.identity!.userId } }
+      const consent = subscriptionCheckoutConsentSchema.parse(request.body);
+      if (
+        consent.termsVersion !== configuration.TERMS_DOCUMENT_VERSION ||
+        consent.priceCents !== configuration.RYVA_PRO_PRICE_CENTS ||
+        consent.currency !== configuration.RYVA_PRO_PRICE_CURRENCY
+      ) {
+        throw new AppError(409, "subscription_terms_changed", "The Ryva Pro subscription terms changed. Review them again.");
+      }
+      const stripe = dependencies.stripe ?? new Stripe(configuration.STRIPE_SECRET_KEY);
+      const price = await stripe.prices.retrieve(configuration.STRIPE_PRICE_ID);
+      if (
+        !price.active || price.type !== "recurring" || price.unit_amount !== configuration.RYVA_PRO_PRICE_CENTS ||
+        price.currency.toLowerCase() !== configuration.RYVA_PRO_PRICE_CURRENCY || price.recurring?.interval !== "month"
+      ) {
+        throw new AppError(503, "subscription_price_invalid", "Ryva Pro checkout is temporarily unavailable because its price is misconfigured.");
+      }
+      const result = await withTransaction(database, async (transaction) => {
+        await transaction.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`subscription-checkout:${request.identity!.userId}`]);
+        const existing = await oneOrNone<{ checkout_url: string | null }>(
+          transaction,
+          `SELECT checkout_url FROM subscription_checkout_sessions
+            WHERE user_id=$1 AND status='created' ORDER BY created_at DESC LIMIT 1`,
+          [request.identity!.userId]
+        );
+        if (existing?.checkout_url) return { url: existing.checkout_url, reused: true };
+        const checkoutRecordId = newId();
+        const checkout = await stripe.checkout.sessions.create({
+          mode: "subscription",
+          customer_email: request.identity!.email,
+          line_items: [{ price: configuration.STRIPE_PRICE_ID, quantity: 1 }],
+          success_url: `${configuration.APP_URL}/subscription?checkout=success`,
+          cancel_url: `${configuration.APP_URL}/subscription/activate?checkout=canceled`,
+          metadata: { ryvaUserId: request.identity!.userId, ryvaPurchaseKind: "ryva_pro" },
+          subscription_data: { metadata: { ryvaUserId: request.identity!.userId } }
+        }, { idempotencyKey: `subscription-checkout:${checkoutRecordId}` });
+        if (!checkout.url) throw new AppError(502, "checkout_failed", "Billing checkout did not return a URL.");
+        await transaction.query(
+          `INSERT INTO subscription_checkout_sessions
+            (id,user_id,workspace_id,provider_checkout_session_id,checkout_url,price_id,
+             amount_total,currency,billing_interval,status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'month','created')`,
+          [checkoutRecordId, request.identity!.userId, request.identity!.workspaceId, checkout.id,
+           checkout.url, configuration.STRIPE_PRICE_ID, configuration.RYVA_PRO_PRICE_CENTS,
+           configuration.RYVA_PRO_PRICE_CURRENCY]
+        );
+        const occurredAt = new Date();
+        const ipHash = request.ip ? secureDigest(request.ip, configuration.SESSION_PEPPER) : null;
+        const userAgent = request.get("user-agent")?.slice(0, 500) ?? null;
+        await transaction.query(
+          `INSERT INTO legal_acceptances
+            (id,user_id,workspace_id,document_type,document_version,acceptance_action,
+             acceptance_context,associated_record_type,associated_record_id,ip_hash,user_agent,
+             acceptance_metadata,occurred_at)
+           VALUES
+            ($1,$2,$3,'terms_of_use',$4,'accepted','ryva_pro_subscription','stripe_checkout_session',$5,$6,$7,$8,$9),
+            ($10,$2,$3,'recurring_billing',$11,'accepted','ryva_pro_subscription','stripe_checkout_session',$5,$6,$7,$12,$9)`,
+          [newId(), request.identity!.userId, request.identity!.workspaceId, consent.termsVersion,
+           checkout.id, ipHash, userAgent, { checkoutRecordId }, occurredAt, newId(),
+           `${consent.priceCents}-${consent.currency}-${consent.billingCadence}`,
+           { checkoutRecordId, priceCents: consent.priceCents, currency: consent.currency,
+             billingCadence: consent.billingCadence, cancellationStopsFutureRenewal: true }]
+        );
+        await recordAudit(transaction, {
+          workspaceId: request.identity!.workspaceId,
+          actorUserId: request.identity!.userId,
+          actorType: "user",
+          action: "subscription.checkout_created",
+          targetType: "checkout_session",
+          targetId: checkout.id,
+          origin: "api",
+          requestId: request.requestId,
+          outcome: "succeeded",
+          metadata: { priceCents: consent.priceCents, currency: consent.currency, billingCadence: consent.billingCadence }
+        });
+        return { url: checkout.url, reused: false };
       });
-      if (!checkout.url) throw new AppError(502, "checkout_failed", "Billing checkout did not return a URL.");
-      await recordAudit(database, {
-        workspaceId: request.identity!.workspaceId,
-        actorUserId: request.identity!.userId,
-        actorType: "user",
-        action: "subscription.checkout_created",
-        targetType: "checkout_session",
-        targetId: checkout.id,
-        origin: "api",
-        requestId: request.requestId,
-        outcome: "succeeded"
-      });
-      response.status(201).json({ url: checkout.url });
+      response.status(result.reused ? 200 : 201).json(result);
     })
   );
   app.post(
@@ -864,7 +1381,7 @@ export function createApp(dependencies: Dependencies): express.Express {
       if (!subscription?.provider_customer_id || !configuration.STRIPE_SECRET_KEY) {
         throw new AppError(409, "billing_portal_unavailable", "No managed billing account is available.");
       }
-      const stripe = new Stripe(configuration.STRIPE_SECRET_KEY);
+      const stripe = dependencies.stripe ?? new Stripe(configuration.STRIPE_SECRET_KEY);
       const portal = await stripe.billingPortal.sessions.create({
         customer: subscription.provider_customer_id,
         return_url: `${configuration.APP_URL}/subscription`
@@ -1031,7 +1548,7 @@ export function createApp(dependencies: Dependencies): express.Express {
         q: z.string().trim().max(200).optional(),
         wholesaleStatus: z.enum(["unknown","not_offered","inquiry_required","available","restricted"]).optional(),
         risk: z.enum(["low","medium","high","critical"]).optional(),
-        limit: z.coerce.number().int().min(1).max(100).default(50),
+        limit: z.coerce.number().int().min(1).max(100).default(20),
         offset: z.coerce.number().int().min(0).default(0)
       }).parse(request.query);
       response.json(await listBrandIntelligence(database, {
@@ -1788,15 +2305,82 @@ export function createApp(dependencies: Dependencies): express.Express {
     asyncRoute(async (request, response) => {
       const status = typeof request.query.status === "string" ? request.query.status : null;
       const result = await database.query<Record<string, unknown>>(
-        `SELECT id,subject_type AS "subjectType",subject_id AS "subjectId",title,status,
-                priority,due_at AS "dueAt",blocker,mandatory_gate AS "mandatoryGate",
-                completion_evidence AS "completionEvidence",version,created_at AS "createdAt"
-           FROM tasks WHERE workspace_id=$1 AND owner_user_id=$2
-             AND ($3::text IS NULL OR status=$3)
-          ORDER BY completed_at NULLS FIRST,due_at NULLS LAST,created_at DESC LIMIT 250`,
+        `SELECT t.id,t.subject_type AS "subjectType",t.subject_id AS "subjectId",t.title,t.status,
+                t.priority,t.due_at AS "dueAt",t.blocker,t.mandatory_gate AS "mandatoryGate",
+                t.completion_evidence AS "completionEvidence",t.version,t.created_at AS "createdAt",
+                t.completed_at AS "completedAt",t.updated_at AS "updatedAt",
+                COALESCE(
+                  bus.name,
+                  br.public_name,
+                  prod.name,
+                  place_bus.name,
+                  place_br.public_name,
+                  rep_br.public_name,
+                  agree_br.public_name,
+                  acct_bus.name,
+                  pa_bus.name,
+                  NULLIF(om.subject, '')
+                ) AS "subjectName"
+           FROM tasks t
+           LEFT JOIN businesses bus
+             ON t.subject_type='business' AND bus.workspace_id=t.workspace_id AND bus.id=t.subject_id
+           LEFT JOIN brands br
+             ON t.subject_type='brand' AND br.workspace_id=t.workspace_id AND br.id=t.subject_id
+           LEFT JOIN products prod
+             ON t.subject_type='product' AND prod.workspace_id=t.workspace_id AND prod.id=t.subject_id
+           LEFT JOIN placement_opportunities po
+             ON t.subject_type='placement_opportunity' AND po.workspace_id=t.workspace_id AND po.id=t.subject_id
+           LEFT JOIN businesses place_bus
+             ON place_bus.workspace_id=po.workspace_id AND place_bus.id=po.business_id
+           LEFT JOIN brands place_br
+             ON place_br.workspace_id=po.workspace_id AND place_br.id=po.brand_id
+           LEFT JOIN representation_opportunities ro
+             ON t.subject_type='representation_opportunity' AND ro.workspace_id=t.workspace_id AND ro.id=t.subject_id
+           LEFT JOIN brands rep_br
+             ON rep_br.workspace_id=ro.workspace_id AND rep_br.id=ro.brand_id
+           LEFT JOIN representation_agreements ra
+             ON t.subject_type='representation_agreement' AND ra.workspace_id=t.workspace_id AND ra.id=t.subject_id
+           LEFT JOIN brands agree_br
+             ON agree_br.workspace_id=ra.workspace_id AND agree_br.id=ra.brand_id
+           LEFT JOIN accounts acct
+             ON t.subject_type='account' AND acct.workspace_id=t.workspace_id AND acct.id=t.subject_id
+           LEFT JOIN businesses acct_bus
+             ON acct_bus.workspace_id=acct.workspace_id AND acct_bus.id=acct.business_id
+           LEFT JOIN protected_accounts pa
+             ON t.subject_type='protected_account' AND pa.workspace_id=t.workspace_id AND pa.id=t.subject_id
+           LEFT JOIN businesses pa_bus
+             ON pa_bus.workspace_id=pa.workspace_id AND pa_bus.id=pa.business_id
+           LEFT JOIN outreach_messages om
+             ON t.subject_type IN ('outreach_message','outreach') AND om.workspace_id=t.workspace_id AND om.id=t.subject_id
+          WHERE t.workspace_id=$1 AND t.owner_user_id=$2
+             AND ($3::text IS NULL OR t.status=$3)
+          ORDER BY t.completed_at NULLS FIRST,t.due_at NULLS LAST,t.created_at DESC LIMIT 250`,
         [request.identity!.workspaceId, request.identity!.userId, status]
       );
       response.json({ tasks: result.rows });
+    })
+  );
+  app.get(
+    "/api/tasks/:taskId/activities",
+    authenticated,
+    requireCapability(database, "operational:read"),
+    asyncRoute(async (request, response) => {
+      const taskId = uuidSchema.parse(request.params.taskId);
+      const owned = await database.query(
+        `SELECT id FROM tasks WHERE workspace_id=$1 AND owner_user_id=$2 AND id=$3`,
+        [request.identity!.workspaceId, request.identity!.userId, taskId]
+      );
+      if (!owned.rows[0]) {
+        throw new AppError(404, "task_not_found", "Task not found.");
+      }
+      const result = await database.query<Record<string, unknown>>(
+        `SELECT id,activity_type AS "activityType",summary,occurred_at AS "occurredAt"
+           FROM activities
+          WHERE workspace_id=$1 AND metadata->>'taskId'=$2
+          ORDER BY occurred_at DESC LIMIT 20`,
+        [request.identity!.workspaceId, taskId]
+      );
+      response.json({ activities: result.rows });
     })
   );
   app.patch(
@@ -2009,8 +2593,8 @@ export function createApp(dependencies: Dependencies): express.Express {
           "An import cannot verify a Contact or Business Buyer.",
           "An import cannot move a Brand to Contact Ready, Authorized, or Active.",
           "Imported Agreement terms remain unverified candidates and cannot activate authority.",
-          "Imported protected-account or house-account text cannot create rights without a written original and human approval.",
-          "Duplicate candidates require human review and are never auto-merged."
+          "Imported protected-account or house-account text cannot create rights without a written original and recorded approval.",
+          "Duplicate candidates require review and are never auto-merged."
         ]
       };
       const stored = await database.query<{ id: string }>(
@@ -2436,7 +3020,7 @@ export function createApp(dependencies: Dependencies): express.Express {
           context.addIssue({
             code: "custom",
             path: ["authorityEvidenceId"],
-            message: "Decision or purchasing authority requires a linked Evidence Record and a human-readable explanation."
+            message: "Decision or purchasing authority requires a linked Evidence Record and a clear explanation."
           });
         }
         if (value.verificationStatus === "verified" && !value.authorityEvidenceId) {
@@ -2827,7 +3411,8 @@ export function createApp(dependencies: Dependencies): express.Express {
       });
       if (target.url) return response.redirect(302, target.url);
       response.type(document.media_type);
-      response.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(document.name)}`);
+      const disposition = document.media_type === "application/pdf" ? "inline" : "attachment";
+      response.setHeader("content-disposition", `${disposition}; filename*=UTF-8''${encodeURIComponent(document.name)}`);
       return response.send(target.content);
     })
   );

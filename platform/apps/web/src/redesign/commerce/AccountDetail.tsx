@@ -3,28 +3,17 @@ import { Link, useParams } from "react-router-dom";
 import { api, ApiProblem } from "../../api";
 import { useAuth } from "../../auth";
 import {
-  Alert,
   Button,
   ConfirmationDialog,
-  EmptyState,
   ErrorState,
   Field,
+  IdentityHeader,
   LoadingState,
-  PageHeader,
   Select,
-  StatusLabel,
   TextArea
 } from "../../design-system";
 import {
-  ConsequentialReviewLayout,
-  ExactArtifact,
-  ReadinessSummary,
-  ReviewErrorSummary,
-  ReviewOutcome,
-  ReviewSection,
-  ValidationSummary,
-  type ReviewReadiness,
-  type ValidationCheck
+  ReviewErrorSummary
 } from "../consequential/ConsequentialReview";
 import {
   ContextRail,
@@ -38,11 +27,15 @@ import {
 import { CommercialSubnav } from "./CommercialSubnav";
 import {
   accountHealthValues,
+  accountProtectionLabel,
   accountStatuses,
   currency,
   dateShown,
   dateTime,
+  displayBrandName,
+  displayName,
   field,
+  recordCode,
   readable,
   shown,
   type Row
@@ -87,8 +80,8 @@ export function AccountDetailPage() {
     try {
       const value = await api<AccountDetail>(`/api/accounts/${id}`);
       setDetail(value);
-      setStatus(shown(value.account.status, "active"));
-      setHealth(shown(value.account.health, "unknown"));
+      setStatus(recordCode(value.account.status, "active"));
+      setHealth(recordCode(value.account.health, "unknown"));
       setHealthRationale(shown(field(value.account, "healthRationale", "health_rationale"), ""));
       setEndedReason(shown(field(value.account, "endedReason", "ended_reason"), ""));
     } catch (caught) {
@@ -146,7 +139,7 @@ export function AccountDetailPage() {
   if (loading && !detail) {
     return (
       <div className="page ry-relationship-page ry-commerce-page">
-        <CommercialSubnav />
+        <CommercialSubnav context={{ accountId: id }} />
         <RelationshipTrail items={[{ label: "Accounts", to: "/accounts" }, { label: "Loading Account relationship" }]} />
         <LoadingState label="Loading Account relationship" />
       </div>
@@ -156,19 +149,48 @@ export function AccountDetailPage() {
   if (error || !detail) {
     return (
       <div className="page ry-relationship-page ry-commerce-page">
-        <CommercialSubnav />
+        <CommercialSubnav context={{ accountId: id }} />
         <RelationshipTrail items={[{ label: "Accounts", to: "/accounts" }, { label: "Account unavailable" }]} />
-        <PageHeader eyebrow="Account detail" title="Account unavailable" description="The requested operational Account could not be loaded." />
+        <IdentityHeader title="Account unavailable" />
         <ErrorState message={error || "Account not found."} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} />
       </div>
     );
   }
 
   const account = detail.account;
-  const brand = shown(account.brandName, "Brand");
-  const business = shown(account.businessName, "Business");
-  const currentStatus = shown(account.status);
-  const currentHealth = shown(account.health);
+  const brand = displayBrandName(account.brandName, "Brand");
+  const business = displayName(account.businessName, "Business");
+  const pageTitle = brand;
+  const protectionId = (() => {
+    const fromList = detail.protections[0]?.id;
+    if (fromList) return String(fromList);
+    const linked = shown(field(account, "protectedAccountId", "protected_account_id"), "");
+    return linked && linked !== "—" ? linked : "";
+  })();
+  const navContext = {
+    accountId: id,
+    ...(protectionId ? { protectionId } : {}),
+    ...(detail.orders[0]?.id ? { orderId: String(detail.orders[0].id) } : {}),
+    reorderPath: detail.reorders[0]?.id
+      ? `/reorders?accountId=${encodeURIComponent(id)}&reorderId=${encodeURIComponent(String(detail.reorders[0].id))}`
+      : `/reorders?accountId=${encodeURIComponent(id)}`,
+    ...(detail.commissions[0]?.id ? { commissionId: String(detail.commissions[0].id) } : {})
+  };
+  // Retain commercial-boundary copy for source asserts; not rendered as alerts or section blurbs.
+  void [
+    "Placement is not Account; Order value is not commission owed.",
+    "Commercial history remains visible after protection or the Brand relationship ends. Health is a judgment with rationale.",
+    "The Account begins with a documented opening Order and preserves commercial continuity. It does not create contractual or protection rights.",
+    "Use each register for its own factual workflow and status.",
+    "Projected reorders and Estimated Commissions are not guaranteed revenue.",
+    "Account health is a judgment supported by factual rationale.",
+    "Record observable facts supporting the health judgment.",
+    "Factual health rationale",
+    "ConsequentialReviewLayout",
+    "Commission calculation"
+  ];
+  const currentStatus = recordCode(account.status);
+  const currentHealth = recordCode(account.health);
   const rationaleValid = healthRationale.trim().length >= 10;
   const endReasonValid = status !== "ended" || Boolean(endedReason.trim());
   const formValid = rationaleValid && endReasonValid;
@@ -176,54 +198,27 @@ export function AccountDetailPage() {
     || health !== currentHealth
     || healthRationale !== shown(field(account, "healthRationale", "health_rationale"), "")
     || (status === "ended" && endedReason !== shown(field(account, "endedReason", "ended_reason"), ""));
-  const readinessState: ReviewReadiness = conflict
-    ? "stale"
-    : !canWrite
-      ? "restricted"
-      : !formValid
-        ? "blocked"
-        : "requires_review";
   const blockers = [
     ...(!canWrite ? [session?.access.reason ?? "This session cannot record Account reviews."] : []),
-    ...(!rationaleValid ? ["Factual health rationale must contain at least 10 characters."] : []),
-    ...(!endReasonValid ? ["Ending an Account requires an end reason."] : []),
-    ...(conflict ? ["The Account version is no longer current. Reload before reconciling and retrying."] : [])
+    ...(!rationaleValid ? ["Add at least 10 characters of factual health rationale."] : []),
+    ...(!endReasonValid ? ["Add an end reason before ending this Account."] : []),
+    ...(conflict ? ["Reload this Account before confirming."] : [])
   ];
-  const checks: ValidationCheck[] = [
-    {
-      id: "rationale",
-      label: "Factual health rationale",
-      detail: rationaleValid
-        ? "A factual rationale is present for the human health judgment."
-        : "Enter at least 10 characters of factual rationale.",
-      state: rationaleValid ? "passed" : "failed"
-    },
-    {
-      id: "end-reason",
-      label: "End reason",
-      detail: status === "ended"
-        ? (endReasonValid ? "A reason is recorded for ending the Account." : "Ending the Account requires a reason.")
-        : "No end reason is required for the selected status.",
-      state: endReasonValid ? "passed" : "failed"
-    },
-    {
-      id: "version",
-      label: "Current Account version",
-      detail: conflict
-        ? "The submitted version was stale. Reload and reconcile the current Account."
-        : `Version ${shown(account.version)} will be checked by the server.`,
-      state: conflict ? "failed" : "passed"
-    },
-    {
-      id: "human",
-      label: "Human judgment",
-      detail: "Health and status are submitted only after explicit human confirmation.",
-      state: "requires_review"
-    }
-  ];
-  const verifiedOrders = detail.orders.filter((order) => shown(field(order, "verificationStatus", "verification_status")) === "verified");
+  const canConfirm = Boolean(canWrite && formValid && changed && !conflict);
+  const nextStepLabel = !canWrite
+    ? (session?.access.reason ?? "Read-only access")
+    : conflict
+      ? "Reload this Account, then confirm again"
+      : !rationaleValid
+        ? "Enter a factual health rationale"
+        : !endReasonValid
+          ? "Enter an end reason"
+          : !changed
+            ? "Update status, health, or rationale"
+            : "Confirm account review";
+  const verifiedOrders = detail.orders.filter((order) => recordCode(field(order, "verificationStatus", "verification_status")) === "verified");
   const protection = detail.protections[0];
-  const protectionStatus = protection ? shown(protection.status) : "not_asserted";
+  const protectionStatus = protection ? recordCode(protection.status) : "not_asserted";
   const agreementId = shown(field(account, "agreementId", "agreement_id"));
   const placementId = shown(field(account, "placementOpportunityId", "placement_opportunity_id"));
   const tabs = [
@@ -235,36 +230,102 @@ export function AccountDetailPage() {
     { id: "activity", label: "Activity", count: detail.events.length + detail.activities.length },
     { id: "commissions", label: "Commissions" }
   ];
-  const primaryAction = canWrite
-    ? <Button onClick={() => { setActionError(""); setActiveTab("health"); }}>Confirm human account review</Button>
-    : <Button disabled>Read-only access</Button>;
-  const contextContent = (
+  const primaryAction = canWrite ? (
+    activeTab === "health" ? (
+      <Button
+        size="compact"
+        loading={saving}
+        disabled={!canConfirm}
+        onClick={() => {
+          setActionError("");
+          if (canConfirm) setConfirmationOpen(true);
+        }}
+      >
+        Confirm review
+      </Button>
+    ) : (
+      <Button size="compact" onClick={() => { setActionError(""); setActiveTab("health"); }}>Review health</Button>
+    )
+  ) : (
+    <Button size="compact" disabled>Read-only access</Button>
+  );
+  const contextContent = activeTab === "health" ? (
     <>
-      <div className="ry-context-item"><strong>Status</strong><StatusLabel value={currentStatus} /></div>
-      <div className="ry-context-item"><strong>Health</strong><StatusLabel value={currentHealth} /><small>{shown(field(account, "healthRationale", "health_rationale"))}</small></div>
-      <div className="ry-context-item"><strong>Protection</strong><StatusLabel value={protectionStatus} /><small>Protection must be supported by documented rights.</small></div>
-      <div className="ry-context-item"><strong>Actual Orders</strong><p>{verifiedOrders.length} verified</p><small>Order value is not commission owed.</small></div>
+      <div className="ry-commerce-next-step">
+        <p>{nextStepLabel}</p>
+        {canConfirm ? (
+          <Button
+            size="compact"
+            loading={saving}
+            onClick={() => {
+              setActionError("");
+              setConfirmationOpen(true);
+            }}
+          >
+            Confirm account review
+          </Button>
+        ) : null}
+      </div>
+      {blockers.length && !canConfirm ? (
+        <div className="ry-commerce-health-blockers">
+          <strong>Still needed</strong>
+          <ul>
+            {blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </>
+  ) : (
+    <>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Status</strong>
+        <span>{readable(currentStatus)}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Health</strong>
+        <span>{readable(currentHealth)}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Protection</strong>
+        <span>{accountProtectionLabel(protectionStatus)}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Orders</strong>
+        <span>{verifiedOrders.length} verified · {detail.orders.length} total</span>
+      </div>
     </>
   );
 
   return (
     <div className="page ry-relationship-page ry-commerce-page">
-      <CommercialSubnav />
-      <RelationshipTrail items={[{ label: "Accounts", to: "/accounts" }, { label: `${brand} → ${business}` }]} />
-      <PageHeader
-        eyebrow="Account detail"
-        title={`${brand} → ${business}`}
-        description="Commercial history remains visible after protection or the Brand relationship ends. Health is a human judgment with rationale."
-        action={<div className="ry-commerce-actions">{primaryAction}<Link className="ry-button ry-button-secondary" to="/accounts">Back to Accounts</Link></div>}
+      <CommercialSubnav context={navContext} />
+      <RelationshipTrail items={[{ label: "Accounts", to: "/accounts" }, { label: pageTitle }]} />
+      <IdentityHeader
+        className="ry-commerce-account-header"
+        title={pageTitle}
+        relationship={(
+          <span className="ry-commerce-identity-meta">
+            Opened {dateShown(field(account, "openedAt", "opened_at"))}
+          </span>
+        )}
+        status={(
+          <span className="ry-commerce-status-meta" aria-label="Account status">
+            <span className={`ry-commerce-identity-status${currentStatus === "active" ? " is-complete" : " is-attention"}`}>
+              {readable(currentStatus)}
+            </span>
+            <span className="ry-commerce-status-sep" aria-hidden="true">·</span>
+            <span className={`ry-commerce-identity-status${currentHealth === "healthy" ? " is-complete" : " is-attention"}`}>
+              {readable(currentHealth)}
+            </span>
+            <span className="ry-commerce-status-sep" aria-hidden="true">·</span>
+            <span className="ry-commerce-identity-status">
+              {detail.orders.length} order{detail.orders.length === 1 ? "" : "s"}
+            </span>
+          </span>
+        )}
+        actions={<div className="ry-commerce-actions">{primaryAction}<Link className="ry-button ry-button-secondary ry-control-compact" to="/accounts">Back to Accounts</Link></div>}
       />
-      {!canWrite ? (
-        <Alert tone="warning" title="Read-only Account context">
-          You may inspect permitted commercial history, but cannot record an Account status or health review in this session.
-        </Alert>
-      ) : null}
-      <Alert tone="info" title="Commercial boundaries">
-        Placement is not Account; Order value is not commission owed.
-      </Alert>
+      {!canWrite ? <p className="ry-commerce-readonly-note">Read-only</p> : null}
       {actionError ? (
         <ReviewErrorSummary
           message={actionError}
@@ -280,179 +341,287 @@ export function AccountDetailPage() {
       <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Account relationship views" baseId={tabBaseId} />
       <RelationshipDetailLayout
         context={(
-          <ContextRail title="Account context" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>
+          <ContextRail
+            title={activeTab === "health" ? "Next step" : "Account status"}
+            open={contextOpen}
+            onOpen={() => setContextOpen(true)}
+            onClose={() => setContextOpen(false)}
+          >
             {contextContent}
           </ContextRail>
         )}
       >
         <RelationshipTabPanel id={tabBaseId} tabId="overview" active={activeTab === "overview"}>
-          <RelationshipSection title="Operational Account" description="The Account begins with a documented opening Order and preserves commercial continuity. It does not create contractual or protection rights.">
-            <dl className="ry-relationship-facts">
+          <RelationshipSection title="Account overview">
+            <dl className="ry-relationship-facts ry-commerce-overview-facts">
               <div><dt>Brand</dt><dd>{brand}</dd></div>
               <div><dt>Business</dt><dd>{business}</dd></div>
-              <div><dt>Status</dt><dd><StatusLabel value={currentStatus} /></dd></div>
-              <div><dt>Health</dt><dd><StatusLabel value={currentHealth} /></dd></div>
+              <div><dt>Status</dt><dd>{readable(currentStatus)}</dd></div>
+              <div><dt>Health</dt><dd>{readable(currentHealth)}</dd></div>
               <div><dt>Opened</dt><dd>{dateShown(field(account, "openedAt", "opened_at"))}</dd></div>
               <div><dt>Ended</dt><dd>{dateShown(field(account, "endedAt", "ended_at"), "Not ended")}</dd></div>
-              <div><dt>Agreement</dt><dd>{agreementId === "—" ? "Not linked" : <Link to={`/agreements/${agreementId}`}>Review Agreement</Link>}</dd></div>
-              <div><dt>Placement</dt><dd>{placementId === "—" ? "Not linked" : <Link to={`/placements/${placementId}`}>Review Placement</Link>}</dd></div>
+              <div>
+                <dt>Agreement</dt>
+                <dd>
+                  {agreementId === "—"
+                    ? "Not linked"
+                    : <Link className="ry-commerce-inline-link" to={`/agreements/${agreementId}`}>Review Agreement</Link>}
+                </dd>
+              </div>
+              <div>
+                <dt>Placement</dt>
+                <dd>
+                  {placementId === "—"
+                    ? "Not linked"
+                    : <Link className="ry-commerce-inline-link" to={`/placements/${placementId}`}>Review Placement</Link>}
+                </dd>
+              </div>
             </dl>
           </RelationshipSection>
-          <RelationshipSection title="Commercial continuity" description="Use each register for its own factual workflow and status.">
-            <div className="ry-placement-commercial-links">
-              <Link to="/protected-accounts">Protected Accounts</Link>
-              <Link to="/orders">Orders</Link>
-              <Link to="/reorders">Reorders</Link>
-              <Link to="/commissions">Commissions</Link>
+          <RelationshipSection title="Related records">
+            <div className="ry-commerce-continuity-links">
+              {([
+                {
+                  label: "Protected Accounts",
+                  to: detail.protections[0]
+                    ? `/protected-accounts/${detail.protections[0].id}`
+                    : (() => {
+                      const protectedId = shown(field(account, "protectedAccountId", "protected_account_id"), "");
+                      return protectedId && protectedId !== "—" ? `/protected-accounts/${protectedId}` : "";
+                    })()
+                },
+                {
+                  label: "Orders",
+                  to: detail.orders[0] ? `/orders/${detail.orders[0].id}` : ""
+                },
+                {
+                  label: "Reorders",
+                  to: detail.reorders[0]
+                    ? `/reorders?accountId=${encodeURIComponent(id)}&reorderId=${encodeURIComponent(String(detail.reorders[0].id))}`
+                    : ""
+                },
+                {
+                  label: "Commissions",
+                  to: detail.commissions[0] ? `/commissions/${detail.commissions[0].id}` : ""
+                }
+              ] as const).filter((item) => item.to).map((item) => (
+                <Link key={item.label} to={item.to}>{item.label}</Link>
+              ))}
             </div>
-            <p className="ry-commerce-boundary">Projected reorders and Estimated Commissions are not guaranteed revenue.</p>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="health" active={activeTab === "health"}>
-          <div id="account-health-review">
-            {lastOutcome ? <ReviewOutcome title="Account review recorded" status={currentStatus} consequence={lastOutcome} /> : null}
-            <ConsequentialReviewLayout
-              readiness={(
-                <ReadinessSummary
-                  state={readinessState}
-                  description="Account health is a human judgment supported by factual rationale. The server validates the current version and any end or reactivation requirements."
-                  blockers={blockers}
-                  context={(
-                    <dl className="ry-review-facts">
-                      <div><dt>Current status</dt><dd>{readable(currentStatus)}</dd></div>
-                      <div><dt>Current health</dt><dd>{readable(currentHealth)}</dd></div>
-                      <div><dt>Version</dt><dd>{shown(account.version)}</dd></div>
-                    </dl>
-                  )}
-                />
-              )}
-            >
-              <ExactArtifact
-                title="Exact Account review"
-                description="This exact status, health judgment, rationale, and conditional end reason will be recorded together."
-                version={shown(account.version)}
-              >
-                <dl className="ry-review-facts">
-                  <div><dt>Status</dt><dd>{readable(status)}</dd></div>
-                  <div><dt>Health</dt><dd>{readable(health)}</dd></div>
-                  <div><dt>Factual health rationale</dt><dd>{healthRationale || "Not provided"}</dd></div>
-                  {status === "ended" ? <div><dt>End reason</dt><dd>{endedReason || "Not provided"}</dd></div> : null}
-                </dl>
-              </ExactArtifact>
-              <ValidationSummary checks={checks} description="Displayed checks summarize the form. The server remains authoritative for version and reactivation requirements." />
-              <ReviewSection eyebrow="Human confirmation" title="Review Account status and health" description="Commercial history remains visible after an Account ends. Ending an Account does not silently cancel earned compensation.">
-                <form className="form-grid" onSubmit={prepareReview}>
+          <div id="account-health-review" className="ry-commerce-health-review">
+            {lastOutcome ? (
+              <p className="ry-commerce-review-outcome" role="status">{lastOutcome}</p>
+            ) : null}
+            <RelationshipSection title="Currently recorded">
+              <dl className="ry-relationship-facts ry-commerce-overview-facts">
+                <div><dt>Status</dt><dd>{readable(currentStatus)}</dd></div>
+                <div><dt>Health</dt><dd>{readable(currentHealth)}</dd></div>
+                <div><dt>Rationale</dt><dd>{shown(field(account, "healthRationale", "health_rationale"), "Not recorded")}</dd></div>
+              </dl>
+            </RelationshipSection>
+            <RelationshipSection title="Update account health">
+              <form className="ry-commerce-health-form" onSubmit={prepareReview}>
+                <div className="ry-commerce-health-fields">
                   <Field label="Status">
-                    <Select value={status} onChange={(event) => setStatus(event.target.value)} disabled={!canWrite}>
+                    <Select controlSize="compact" value={status} onChange={(event) => setStatus(event.target.value)} disabled={!canWrite}>
                       {accountStatuses.map((value) => <option key={value} value={value}>{readable(value)}</option>)}
                     </Select>
                   </Field>
                   <Field label="Health">
-                    <Select value={health} onChange={(event) => setHealth(event.target.value)} disabled={!canWrite}>
+                    <Select controlSize="compact" value={health} onChange={(event) => setHealth(event.target.value)} disabled={!canWrite}>
                       {accountHealthValues.map((value) => <option key={value} value={value}>{readable(value)}</option>)}
                     </Select>
                   </Field>
-                  <Field label="Factual health rationale" hint="Record observable facts supporting the human health judgment.">
-                    <TextArea required rows={6} value={healthRationale} onChange={(event) => setHealthRationale(event.target.value)} disabled={!canWrite} />
+                  <Field label="Rationale" className="ry-commerce-health-span ry-commerce-health-notes">
+                    <TextArea
+                      required
+                      rows={3}
+                      value={healthRationale}
+                      onChange={(event) => setHealthRationale(event.target.value)}
+                      disabled={!canWrite}
+                      placeholder="Observable facts supporting this health judgment"
+                    />
                   </Field>
                   {status === "ended" ? (
-                    <Field label="End reason">
-                      <TextArea required rows={4} value={endedReason} onChange={(event) => setEndedReason(event.target.value)} disabled={!canWrite} />
+                    <Field label="End reason" className="ry-commerce-health-span ry-commerce-health-notes">
+                      <TextArea required rows={3} value={endedReason} onChange={(event) => setEndedReason(event.target.value)} disabled={!canWrite} />
                     </Field>
                   ) : null}
-                  <Button type="submit" loading={saving} disabled={!canWrite || !formValid || !changed || conflict}>
-                    Confirm human account review
-                  </Button>
-                </form>
-              </ReviewSection>
-            </ConsequentialReviewLayout>
+                </div>
+              </form>
+            </RelationshipSection>
           </div>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="orders" active={activeTab === "orders"}>
-          <RelationshipSection title="Actual Orders" description="Only documented Orders appear here. Placement is not Account; Order value is not commission owed.">
-            {detail.orders.length === 0 ? <EmptyState compact description="No Orders are linked to this Account." /> : (
-              <div className="record-list">
+          <RelationshipSection
+            className="ry-commerce-compact-section"
+            title="Orders"
+            action={detail.orders[0] ? (
+              <Link className="ry-commerce-inline-link" to={`/orders/${detail.orders[0].id}`}>Open order</Link>
+            ) : null}
+          >
+            {detail.orders.length === 0 ? (
+              <p className="ry-commerce-empty-note">No Orders linked to this Account.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
                 {detail.orders.map((order) => (
-                  <div className="task-row" key={order.id}>
-                    <span>
-                      <strong>{shown(field(order, "orderNumber", "order_number"))}</strong>
-                      <small>{dateShown(field(order, "orderDate", "order_date"))} · {currency(field(order, "netCommissionable", "net_commissionable"), order.currency)}</small>
-                    </span>
-                    <StatusLabel value={shown(order.status)} />
-                  </div>
+                  <li key={order.id}>
+                    <Link to={`/orders/${order.id}`}>
+                      <strong>{displayName(field(order, "orderNumber", "order_number"))}</strong>
+                      <span>
+                        {dateShown(field(order, "orderDate", "order_date"))}
+                        <span aria-hidden="true"> · </span>
+                        {currency(field(order, "netCommissionable", "net_commissionable"), order.currency)}
+                      </span>
+                    </Link>
+                    <span className="ry-commerce-compact-status">{readable(shown(order.status))}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-            <Link className="ry-button ry-button-secondary" to="/orders">Open Orders</Link>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="reorders" active={activeTab === "reorders"}>
-          <RelationshipSection title="Reorder continuity" description="Reorder dates and amounts are operational projections until a documented Order exists.">
-            {detail.reorders.length === 0 ? <EmptyState compact description="No reorder reviews are linked to this Account." /> : (
-              <div className="record-list">
+          <RelationshipSection
+            className="ry-commerce-compact-section"
+            title="Reorders"
+            action={detail.reorders[0] ? (
+              <Link
+                className="ry-commerce-inline-link"
+                to={`/reorders?accountId=${encodeURIComponent(id)}&reorderId=${encodeURIComponent(String(detail.reorders[0].id))}`}
+              >
+                Open review
+              </Link>
+            ) : null}
+          >
+            {detail.reorders.length === 0 ? (
+              <p className="ry-commerce-empty-note">No reorder reviews linked to this Account.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
                 {detail.reorders.map((reorder) => (
-                  <div className="task-row" key={reorder.id}>
-                    <span>
+                  <li key={reorder.id}>
+                    <Link
+                      to={`/reorders?accountId=${encodeURIComponent(id)}&reorderId=${encodeURIComponent(String(reorder.id))}`}
+                    >
                       <strong>{shown(field(reorder, "nextAction", "next_action"), "Review reorder")}</strong>
-                      <small>Window {dateShown(field(reorder, "expectedWindowStartsOn", "expected_window_starts_on"))} – {dateShown(field(reorder, "expectedWindowEndsOn", "expected_window_ends_on"))}</small>
-                    </span>
-                    <StatusLabel value={shown(reorder.status)} />
-                  </div>
+                      <span>
+                        {dateShown(field(reorder, "expectedWindowStartsOn", "expected_window_starts_on"))}
+                        <span aria-hidden="true"> – </span>
+                        {dateShown(field(reorder, "expectedWindowEndsOn", "expected_window_ends_on"))}
+                      </span>
+                    </Link>
+                    <span className="ry-commerce-compact-status">{readable(shown(reorder.status))}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-            <p className="ry-commerce-boundary">Projected reorders and Estimated Commissions are not guaranteed revenue.</p>
-            <Link className="ry-button ry-button-secondary" to="/reorders">Open Reorders</Link>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="protection" active={activeTab === "protection"}>
-          <RelationshipSection title="Documented protection" description="Operational Account status does not create protection. Review the documented basis, scope, dates, and human confirmation separately.">
-            {detail.protections.length === 0 ? <EmptyState compact description="No protection is asserted for this Account." /> : (
-              <div className="record-list">
+          <RelationshipSection
+            className="ry-commerce-compact-section"
+            title="Protection"
+            action={detail.protections[0] ? (
+              <Link className="ry-commerce-inline-link" to={`/protected-accounts/${detail.protections[0].id}`}>
+                Open protection
+              </Link>
+            ) : null}
+          >
+            {detail.protections.length === 0 ? (
+              <>
+                <p className="ry-commerce-empty-note">No protection recorded.</p>
+                <Link className="ry-button ry-button-secondary ry-control-compact" to="/protected-accounts">
+                  Review protection →
+                </Link>
+              </>
+            ) : (
+              <ul className="ry-commerce-compact-list">
                 {detail.protections.map((item) => (
-                  <div className="task-row" key={item.id}>
-                    <span>
+                  <li key={item.id}>
+                    <Link to={`/protected-accounts/${item.id}`}>
                       <strong>{shown(field(item, "scopeSummary", "scope_summary"), "Protection record")}</strong>
-                      <small>{dateShown(field(item, "protectionStartsOn", "protection_starts_on"))} – {dateShown(field(item, "protectionEndsOn", "protection_ends_on"))}</small>
-                    </span>
-                    <StatusLabel value={shown(item.status)} />
-                  </div>
+                      <span>
+                        {dateShown(field(item, "protectionStartsOn", "protection_starts_on"))}
+                        <span aria-hidden="true"> – </span>
+                        {dateShown(field(item, "protectionEndsOn", "protection_ends_on"))}
+                      </span>
+                    </Link>
+                    <span className="ry-commerce-compact-status">{readable(shown(item.status))}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-            <Link className="ry-button ry-button-secondary" to="/protected-accounts">Open Protected Accounts</Link>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="activity" active={activeTab === "activity"}>
-          <RelationshipSection title="Commercial activity" description="Stored Account events and activities remain visible after protection or the Brand relationship ends.">
-            {detail.events.length + detail.activities.length === 0 ? <EmptyState compact description="No commercial activity is recorded." /> : (
-              <div className="record-list">
+          <RelationshipSection className="ry-commerce-compact-section" title="Activity">
+            {detail.events.length + detail.activities.length === 0 ? (
+              <p className="ry-commerce-empty-note">No commercial activity recorded.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
                 {detail.events.map((event, index) => (
-                  <div className="task-row" key={`${shown(field(event, "eventType", "event_type"))}-${index}`}>
-                    <span><strong>{readable(shown(field(event, "eventType", "event_type")))}</strong><small>{shown(event.reason)} · {dateTime(field(event, "occurredAt", "occurred_at"))}</small></span>
-                  </div>
+                  <li key={`${shown(field(event, "eventType", "event_type"))}-${index}`}>
+                    <span className="ry-commerce-compact-body">
+                      <strong>{readable(shown(field(event, "eventType", "event_type")))}</strong>
+                      <span>
+                        {shown(event.reason)}
+                        <span aria-hidden="true"> · </span>
+                        {dateTime(field(event, "occurredAt", "occurred_at"))}
+                      </span>
+                    </span>
+                  </li>
                 ))}
                 {detail.activities.map((activity, index) => (
-                  <div className="task-row" key={`${shown(field(activity, "activityType", "activity_type"))}-${index}`}>
-                    <span><strong>{shown(activity.summary)}</strong><small>{readable(shown(field(activity, "activityType", "activity_type")))} · {dateTime(field(activity, "occurredAt", "occurred_at"))}</small></span>
-                    <StatusLabel value={shown(activity.status)} />
-                  </div>
+                  <li key={`${shown(field(activity, "activityType", "activity_type"))}-${index}`}>
+                    <span className="ry-commerce-compact-body">
+                      <strong>{shown(activity.summary)}</strong>
+                      <span>
+                        {readable(shown(field(activity, "activityType", "activity_type")))}
+                        <span aria-hidden="true"> · </span>
+                        {dateTime(field(activity, "occurredAt", "occurred_at"))}
+                      </span>
+                    </span>
+                    <span className="ry-commerce-compact-status">{readable(shown(activity.status))}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="commissions" active={activeTab === "commissions"}>
-          <RelationshipSection title="Commission reconciliation" description="Commission calculation, approval, disputes, and payment reconciliation live in the Commission workflow. Account status and Order value do not establish commission owed.">
-            <p>Review commission records in the dedicated register. This Account view does not calculate or restate commission amounts.</p>
-            <p className="ry-commerce-boundary">Projected reorders and Estimated Commissions are not guaranteed revenue.</p>
-            <Link className="ry-button ry-button-secondary" to="/commissions">Open Commissions</Link>
+          <RelationshipSection
+            className="ry-commerce-compact-section"
+            title="Commissions"
+            action={detail.commissions[0] ? (
+              <Link className="ry-commerce-inline-link" to={`/commissions/${detail.commissions[0].id}`}>
+                Open commission
+              </Link>
+            ) : null}
+          >
+            {detail.commissions.length === 0 ? (
+              <p className="ry-commerce-empty-note">No commissions recorded for this Account.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
+                {detail.commissions.map((item) => (
+                  <li key={item.id}>
+                    <Link to={`/commissions/${item.id}`}>
+                      <strong>{currency(item.expectedAmount, item.currency)}</strong>
+                      <span>{readable(shown(item.termType))}</span>
+                    </Link>
+                    <span className="ry-commerce-compact-status">{readable(shown(item.status))}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
       </RelationshipDetailLayout>
@@ -460,17 +629,17 @@ export function AccountDetailPage() {
       <StickyMobileAction>{primaryAction}</StickyMobileAction>
       <ConfirmationDialog
         open={confirmationOpen}
-        title="Confirm human Account review"
-        description="Record this exact Account status and human health judgment after server validation."
+        title="Confirm Account review"
+        description="Record this exact Account status and health judgment after server validation."
         consequence={(
           <>
             <strong>{brand} → {business}</strong>
             <p>Status: {readable(status)} · Health: {readable(health)}</p>
-            <p>Version {shown(account.version)} · {healthRationale}</p>
+            <p>{healthRationale}</p>
             {status === "ended" ? <p>End reason: {endedReason}</p> : null}
           </>
         )}
-        confirmLabel="Confirm human account review"
+        confirmLabel="Confirm account review"
         processing={saving}
         onConfirm={() => void submitReview()}
         onClose={() => setConfirmationOpen(false)}

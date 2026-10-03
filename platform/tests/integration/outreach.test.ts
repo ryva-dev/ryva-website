@@ -132,7 +132,7 @@ before(async () => {
       (id,workspace_id,subject_type,subject_id,question,scope,outcome,rationale,confidence,
        owner_user_id,decided_at,next_action,status)
      VALUES($1,$2,'business',$3,'Proceed?','Synthetic Phase 5 fixture','Proceed',
-            'Human-owned synthetic decision.','supported',$4,now(),'Prepare outreach','issued')`,
+            'Synthetic decision.','supported',$4,now(),'Prepare outreach','issued')`,
     [decisionId, workspaceId, business.id, userId]
   );
   const opportunityId = newId();
@@ -288,10 +288,10 @@ describe("Phase 5 Outreach Center", () => {
     });
     assert.equal(template.status, 201, template.text);
     const sequence = await agent.post("/api/outreach/sequences").set("x-csrf-token", csrf).send({
-      name: "Synthetic Human Sequence", purpose: "Test stop rules",
+      name: "Synthetic Review Sequence", purpose: "Test stop rules",
       steps: [{ stepType: "email", delayMinutes: 60,
         templateVersionId: template.body.template.versionId,
-        instructions: "Human review and exact approval required." }]
+        instructions: "Review and exact approval required." }]
     });
     assert.equal(sequence.status, 201, sequence.text);
     const enrollment = await agent.post(`/api/outreach/sequences/${sequence.body.sequence.id}/enroll`)
@@ -348,14 +348,33 @@ describe("Phase 5 Outreach Center", () => {
     await database.query("UPDATE evidence_records SET status='current' WHERE id=$1", [fixture.evidenceId]);
   });
 
-  it("OUT-003 suppresses queued work when credential access changes before execution", async () => {
+  it("OUT-003 suppresses queued work when Ryva Pro access changes before execution", async () => {
     const { agent, csrf, workspaceId, userId } = await login();
     const messageId = await makeDraft(agent, csrf);
     await approve(agent, csrf, messageId);
     const queued = await agent.post(`/api/outreach/${messageId}/send`).set("x-csrf-token", csrf).send();
     assert.equal(queued.status, 202, queued.text);
+    const entitlement = await database.query<{
+      pro_trial_started_at: Date | null;
+      pro_trial_ends_at: Date | null;
+    }>(
+      `SELECT pro_trial_started_at,pro_trial_ends_at
+         FROM program_entitlements
+        WHERE user_id=$1`,
+      [userId]
+    );
+    assert.equal(entitlement.rowCount, 1);
     await database.query(
-      `UPDATE certification_credentials SET status='suspended',suspension_read_only_allowed=true
+      "UPDATE program_entitlements SET pro_trial_ends_at=now()-interval '1 minute' WHERE user_id=$1",
+      [userId]
+    );
+    const subscription = await database.query<{ status: string; current_period_end: Date | null }>(
+      "SELECT status,current_period_end FROM subscription_entitlements WHERE user_id=$1",
+      [userId]
+    );
+    await database.query(
+      `UPDATE subscription_entitlements
+          SET status='canceled',current_period_end=now()-interval '1 minute'
         WHERE user_id=$1`,
       [userId]
     );
@@ -374,10 +393,17 @@ describe("Phase 5 Outreach Center", () => {
     );
     assert.deepEqual(stored.rows[0], { status: "suppressed", provider_status: "suppressed" });
     await database.query(
-      `UPDATE certification_credentials SET status='active',suspension_read_only_allowed=false
+      `UPDATE program_entitlements
+          SET pro_trial_started_at=$2,pro_trial_ends_at=$3
         WHERE user_id=$1`,
-      [userId]
+      [userId, entitlement.rows[0]!.pro_trial_started_at, entitlement.rows[0]!.pro_trial_ends_at]
     );
+    if (subscription.rows[0]) {
+      await database.query(
+        `UPDATE subscription_entitlements SET status=$2,current_period_end=$3 WHERE user_id=$1`,
+        [userId, subscription.rows[0].status, subscription.rows[0].current_period_end]
+      );
+    }
   });
 
   it("OUT-006/009 persists mobile-safe call logging and makes follow-up tasks visible", async () => {

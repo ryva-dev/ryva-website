@@ -56,6 +56,8 @@ export async function getSubscription(
 export type ProfileView = {
   userId: string;
   workspaceId: string;
+  firstName: string;
+  lastName: string;
   name: string;
   email: string;
   timeZone: string;
@@ -72,6 +74,10 @@ export type ProfileView = {
   version: number;
 };
 
+export function defaultDisplayName(firstName: string, lastName: string): string {
+  return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+}
+
 export async function getProfile(
   database: Database,
   userId: string,
@@ -79,7 +85,8 @@ export async function getProfile(
 ): Promise<ProfileView | null> {
   return oneOrNone<ProfileView>(
     database,
-    `SELECT u.id AS "userId", p.workspace_id AS "workspaceId", u.name, u.email,
+    `SELECT u.id AS "userId", p.workspace_id AS "workspaceId",
+            u.first_name AS "firstName", u.last_name AS "lastName", u.name, u.email,
             u.time_zone AS "timeZone", u.locale, p.professional_title AS "professionalTitle",
             p.outreach_name AS "outreachName", p.outreach_signature AS "outreachSignature",
             p.currency, p.category_interests AS "categoryInterests",
@@ -100,6 +107,8 @@ export async function updateProfile(
     workspaceId: string;
     requestId: string;
     version: number;
+    firstName: string;
+    lastName: string;
     name: string;
     timeZone: string;
     locale: string;
@@ -114,9 +123,15 @@ export async function updateProfile(
     workingHours: Record<string, unknown>;
   }
 ): Promise<ProfileView> {
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  const displayName = input.name.trim() || defaultDisplayName(firstName, lastName);
+  if (!displayName) {
+    throw new AppError(400, "invalid_profile", "A display name is required.");
+  }
   await withTransaction(database, async (transaction) => {
     const before = await transaction.query(
-      `SELECT u.name, u.time_zone, u.locale, p.* FROM users u
+      `SELECT u.name, u.first_name, u.last_name, u.time_zone, u.locale, p.* FROM users u
        JOIN user_profiles p ON p.user_id=u.id
        WHERE u.id=$1 AND p.workspace_id=$2 FOR UPDATE`,
       [input.userId, input.workspaceId]
@@ -131,9 +146,10 @@ export async function updateProfile(
       );
     }
     await transaction.query(
-      `UPDATE users SET name=$2, time_zone=$3, locale=$4, version=version+1, updated_at=now()
+      `UPDATE users SET first_name=$2, last_name=$3, name=$4, time_zone=$5, locale=$6,
+              version=version+1, updated_at=now()
         WHERE id=$1`,
-      [input.userId, input.name, input.timeZone, input.locale]
+      [input.userId, firstName, lastName, displayName, input.timeZone, input.locale]
     );
     const update = await transaction.query(
       `UPDATE user_profiles SET professional_title=$3, outreach_name=$4,

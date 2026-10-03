@@ -1,7 +1,35 @@
 /* Ryva Standard Register — UI Redesign Increment 4. */
 
-.ry-register-page { width: min(100%, var(--width-workspace-max)); }
-.ry-register-page .ry-page-header { margin-bottom: var(--space-6); }
+.page.ry-register-page {
+  width: min(100%, var(--width-workspace-max));
+  padding-block-start: var(--space-4);
+}
+
+.ry-register-page .ry-page-header { margin-bottom: var(--space-5); }
+
+.ry-register-page .ry-page-header:has(+ .ry-tabs),
+.ry-register-page .ry-page-header:has(+ .ry-register-policy + .ry-tabs),
+.ry-register-page .ry-page-header:has(+ .ry-alert + .ry-tabs) {
+  margin-bottom: var(--space-2);
+}
+
+.ry-register-page .ry-page-header:has(+ .ry-tabs) h1,
+.ry-register-page .ry-page-header:has(+ .ry-register-policy + .ry-tabs) h1,
+.ry-register-page .ry-page-header:has(+ .ry-alert + .ry-tabs) h1 {
+  margin-block-end: var(--space-1);
+}
+
+.ry-register-page .ry-page-header h1 {
+  font-size: var(--font-size-30);
+  line-height: var(--line-height-38);
+  font-family: var(--font-family-sans);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-register-page .ry-tabs {
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-0);
+}
 
 .ry-register-policy {
   margin-bottom: var(--space-5);
@@ -10,34 +38,138 @@
 
 .ry-register-surface {
   min-width: var(--size-0);
-  border-block: var(--border-width-1) solid var(--color-border-strong);
-  background: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-0);
+  background: transparent;
+  box-shadow: none;
 }
 
 .ry-register-commandbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-width-1) solid var(--color-border);
+  gap: var(--space-2) var(--space-3);
+  padding-block: var(--space-0) var(--space-1);
+  border: none;
+  font-family: var(--font-family-sans);
 }
 
-.ry-register-commandbar .ry-saved-view { min-width: var(--size-0); }
+.ry-register-commandbar .ry-saved-view {
+  flex: 0 0 auto;
+  min-width: var(--size-0);
+  padding-block: var(--space-0);
+  align-self: center;
+}
+
+.ry-register-commandbar .ry-saved-view-summary {
+  min-height: calc(var(--control-height-compact) - var(--length-0-125rem));
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-12);
+}
+
+.ry-register-commandbar .ry-saved-view-summary:hover,
+.ry-register-commandbar .ry-saved-view[open] > .ry-saved-view-summary {
+  color: var(--color-text-default);
+}
+
+.ry-register-commandbar .ry-saved-view-save {
+  height: calc(var(--control-height-compact) - var(--length-0-125rem));
+  min-height: calc(var(--control-height-compact) - var(--length-0-125rem));
+  padding-block: var(--space-0);
+  padding-inline: var(--space-3);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-16);
+}
+
+/* Match dashboard control chrome: shorter, softer, quieter labels. */
+.ry-register-commandbar .ry-input,
+.ry-register-commandbar .ry-select,
+.ry-register-commandbar input,
+.ry-register-commandbar select {
+  height: calc(var(--control-height-compact) - var(--length-0-125rem));
+  min-height: calc(var(--control-height-compact) - var(--length-0-125rem));
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-default);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: var(--color-surface);
+  box-shadow: none;
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-16);
+}
+
+.ry-register-commandbar .ry-input:hover,
+.ry-register-commandbar .ry-select:hover,
+.ry-register-commandbar input:hover,
+.ry-register-commandbar select:hover {
+  border-color: var(--color-border-strong);
+}
+
+.ry-register-commandbar .ry-input:focus-visible,
+.ry-register-commandbar .ry-select:focus-visible,
+.ry-register-commandbar input:focus-visible,
+.ry-register-commandbar select:focus-visible {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.ry-register-commandbar .ry-field-label {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+  letter-spacing: var(--length-0-01em);
+}
+
+.ry-register-commandbar .ry-field,
+.ry-register-commandbar .field {
+  gap: var(--space-1);
+  margin-bottom: var(--space-0);
+  font-weight: var(--font-weight-regular);
+}
+
 .ry-register-view-read-only input,
 .ry-register-view-read-only button { display: none; }
 
 .ry-register-filter-inline {
   flex: 1 0 100%;
-  padding: var(--space-4);
-  border-bottom: var(--border-width-1) solid var(--color-border);
-  background: var(--color-surface-subtle);
+  padding-block: var(--space-2) var(--space-0);
+  border-top: var(--border-width-1) solid var(--color-border);
+  background: transparent;
 }
 
-.ry-register-filter-inline .ry-filter-bar { justify-content: flex-start; }
-.ry-register-filter-inline .ry-field { min-width: var(--width-drawer-narrow); margin: var(--space-0); }
-.ry-register-filter-inline .ry-field:first-child { flex: 1 1 var(--width-reading); }
+/* Single horizontal filter row — beats legacy .filter-panel / .field stacking. */
+.ry-register-filter-inline .ry-filter-bar,
+.ry-register-filter-inline .filter-panel {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: end;
+  gap: var(--space-2);
+  margin: var(--space-0);
+}
+
+.ry-register-filter-inline .ry-field,
+.ry-register-filter-inline .field {
+  flex: 0 1 var(--length-8-5rem);
+  width: auto;
+  min-width: var(--length-7rem);
+  max-width: var(--length-10rem);
+  margin: var(--space-0);
+  margin-bottom: var(--space-0);
+  gap: var(--space-1);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-regular);
+}
+
+.ry-register-filter-inline .ry-field:first-child,
+.ry-register-filter-inline .field:first-child {
+  flex: 1 1 var(--length-14rem);
+  max-width: none;
+}
+
 .ry-register-filter-trigger { display: none; }
 
 .ry-register-active-filters {
@@ -45,8 +177,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-width-1) solid var(--color-border);
+  padding-block: var(--space-2);
+  border: none;
 }
 
 .ry-register-active-filters > button:not(.ry-button) {
@@ -65,31 +197,118 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  min-height: var(--control-height-touch);
-  padding: var(--space-2) var(--space-4);
+  min-height: var(--control-height-compact);
+  margin-block-start: var(--space-1);
+  padding-block: var(--space-1);
   color: var(--color-text-muted);
   border-bottom: var(--border-width-1) solid var(--color-border);
   font-size: var(--font-size-12);
 }
 
-.ry-register-options { position: relative; }
-.ry-register-options > summary {
-  min-height: var(--control-height-compact);
-  padding: var(--space-2) var(--space-3);
-  color: var(--color-accent-text);
-  cursor: pointer;
+.ry-register-page .ry-register-resultbar {
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding-inline: var(--space-0);
+  width: 100%;
+}
+
+/* Empty register: stay airy, but do not reserve table-height space. */
+.ry-register-surface-empty .ry-register-resultbar {
+  margin-block-end: var(--space-0);
+  padding-block-end: var(--space-1);
+  border-bottom-color: transparent;
+}
+
+.ry-register-surface > .ry-empty-state,
+.ry-register-surface > .empty-state {
+  gap: var(--space-2);
+  place-items: start;
+  justify-items: start;
+  min-height: var(--size-0);
+  margin: var(--space-0);
+  padding: var(--space-3) var(--space-0) var(--space-4);
+  text-align: start;
+}
+
+.ry-register-surface-empty > .ry-empty-state,
+.ry-register-surface-empty > .empty-state,
+.ry-register-surface-empty > .ry-empty-state-compact {
+  margin-block-start: var(--space-0);
+  padding: var(--space-1) var(--space-0) var(--space-3);
+}
+
+.ry-register-surface > .ry-empty-state .ry-empty-state-icon {
+  width: auto;
+  height: auto;
+  color: var(--color-chart-olive);
+}
+
+.ry-register-surface > .ry-empty-state strong {
+  color: var(--color-text-default);
+  font-size: var(--font-size-14);
   font-weight: var(--font-weight-semibold);
+}
+
+.ry-register-surface > .ry-empty-state p {
+  max-width: var(--length-28rem);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+}
+
+.ry-register-surface > .ry-state,
+.ry-register-surface > .state-panel {
+  justify-content: flex-start;
+  min-height: var(--size-0);
+  padding-block: var(--space-3);
+}
+
+.ry-register-options { position: relative; }
+
+.ry-register-options > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-height-compact);
+  padding: var(--space-0);
+  color: var(--color-chart-blue);
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-18);
+  user-select: none;
+}
+
+.ry-register-options > summary::-webkit-details-marker { display: none; }
+.ry-register-options > summary::marker { content: ""; }
+
+.ry-register-options > summary:hover,
+.ry-register-options[open] > summary {
+  color: color-mix(in srgb, var(--color-chart-blue) 78%, var(--color-text-strong));
+}
+
+.ry-register-options-icon {
+  flex: 0 0 auto;
+  width: var(--icon-size-small);
+  height: var(--icon-size-small);
+  color: currentColor;
+}
+
+.ry-register-options > summary:hover .ry-register-options-icon,
+.ry-register-options[open] > summary .ry-register-options-icon {
+  color: currentColor;
 }
 
 .ry-register-options > div {
   position: absolute;
   z-index: var(--z-dropdown);
-  inset-block-start: 100%;
+  inset-block-start: calc(100% + var(--space-1));
   inset-inline-end: var(--space-0);
-  width: var(--width-drawer-narrow);
-  padding: var(--space-4);
-  border: var(--border-width-1) solid var(--color-border-strong);
-  border-radius: var(--radius-2);
+  width: min(var(--length-16rem), 100vw - var(--space-8));
+  padding: var(--space-3);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-1);
   background: var(--color-surface);
   box-shadow: var(--elevation-menu);
 }
@@ -98,10 +317,12 @@
 .ry-register-sort {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-1);
   min-height: var(--control-height-compact);
   padding: var(--space-0);
   color: inherit;
   border: var(--border-width-0);
+  border-radius: var(--radius-1);
   background: transparent;
   font: inherit;
   letter-spacing: inherit;
@@ -109,7 +330,25 @@
   cursor: pointer;
 }
 
+.ry-register-sort:hover,
+.ry-register-sort:focus-visible {
+  color: var(--color-text-default);
+  background: var(--color-surface-hover);
+}
+
+.ry-register-sort-active {
+  color: var(--color-text-default);
+}
+
+.ry-register-sort-indicator {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+}
+
 .ry-register-table-button {
+  display: inline;
   padding: var(--space-0);
   color: var(--color-text-strong);
   border: var(--border-width-0);
@@ -117,12 +356,344 @@
   font: inherit;
   font-weight: var(--font-weight-semibold);
   text-align: start;
+  cursor: inherit;
+}
+.ry-register-cell-meta { color: var(--color-text-muted); }
+td.ry-register-cell-lead { color: var(--color-text-default); font-weight: var(--font-weight-medium); }
+.ry-register-cell-actions {
+  width: 1%;
+  text-align: end;
+  white-space: nowrap;
+}
+
+.ry-register-complete {
+  min-width: auto;
+  min-height: var(--length-1-625rem);
+  height: var(--length-1-625rem);
+  padding: 0 var(--space-2);
+  border-color: var(--color-accent);
+  border-radius: var(--radius-1);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: 1;
+}
+
+.ry-register-page .ry-register-sort {
+  font-weight: inherit;
+}
+
+.ry-register-page .ry-register-sort:hover,
+.ry-register-page .ry-register-sort:focus-visible {
+  color: var(--color-text-default);
+}
+
+.ry-tasks-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.ry-register-surface .ry-table-wrap:has(.ry-tasks-table) {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  padding-inline-end: var(--space-2);
+  box-sizing: border-box;
+}
+
+.ry-tasks-table .ry-tasks-row {
   cursor: pointer;
 }
 
-.ry-register-table-button:hover { color: var(--color-accent-text); }
-.ry-register-cell-meta { color: var(--color-text-muted); }
-.ry-register-cell-actions { text-align: end; white-space: nowrap; }
+.ry-tasks-table .ry-tasks-row:hover {
+  background: color-mix(in srgb, var(--color-surface-canvas) 72%, var(--color-border-base));
+}
+
+.ry-tasks-table .ry-tasks-row:focus-visible {
+  outline: var(--border-width-2) solid color-mix(in srgb, var(--color-chart-blue) 55%, transparent);
+  outline-offset: var(--length-neg-2px);
+}
+
+.ry-tasks-table .ry-tasks-row .ry-register-complete,
+.ry-tasks-table .ry-tasks-row .ry-tasks-origin-link {
+  cursor: pointer;
+}
+
+.ry-tasks-table thead {
+  border-bottom: var(--border-width-1) solid var(--color-border-strong);
+}
+
+.ry-tasks-table th {
+  border-bottom: var(--border-width-0);
+}
+
+.ry-tasks-col-task {
+  width: auto;
+  min-width: 0;
+}
+
+.ry-tasks-col-due {
+  width: var(--length-5-25rem);
+}
+
+.ry-tasks-col-priority {
+  width: var(--length-5-75rem);
+}
+
+.ry-tasks-col-status {
+  width: var(--length-5-5rem);
+}
+
+.ry-tasks-col-origin {
+  width: 22%;
+  min-width: 0;
+}
+
+.ry-tasks-col-action,
+.ry-tasks-col-action.ry-register-cell-actions {
+  width: var(--length-6-75rem);
+  min-width: var(--length-6-75rem);
+  max-width: var(--length-6-75rem);
+  padding-inline-start: var(--space-2);
+  padding-inline-end: var(--space-3);
+  text-align: end;
+  white-space: nowrap;
+}
+
+/* Task detail drawer — narrower + denser header so the register stays visible. */
+.ry-tasks-drawer.ry-drawer-narrow {
+  width: min(100%, var(--length-24rem));
+}
+
+.ry-tasks-drawer .ry-drawer-header {
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.ry-tasks-drawer .ry-drawer-header .eyebrow {
+  display: none;
+}
+
+.ry-tasks-drawer .ry-drawer-header h2 {
+  margin-block: var(--space-0) var(--space-2);
+  font-size: var(--font-size-18);
+  line-height: var(--line-height-24);
+}
+
+.ry-tasks-drawer .ry-drawer-meta {
+  margin-block-end: var(--space-0);
+}
+
+.ry-tasks-drawer .ry-drawer-body {
+  padding: var(--space-4);
+}
+
+.ry-tasks-drawer-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ry-task-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+  text-transform: capitalize;
+}
+
+.ry-task-status-dot {
+  flex: 0 0 auto;
+  width: var(--length-0-375rem);
+  height: var(--length-0-375rem);
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.ry-task-status-open,
+.ry-task-status-in_progress { color: var(--color-success); }
+.ry-task-status-blocked { color: var(--color-accent); }
+.ry-task-status-completed { color: var(--color-chart-olive); }
+.ry-task-status-canceled { color: var(--color-text-subtle); }
+
+.ry-tasks-drawer .ry-tasks-origin-value {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+}
+
+.ry-tasks-drawer .ry-tasks-origin-value .ry-register-cell-meta,
+.ry-tasks-drawer .ry-register-preview .ry-register-cell-meta {
+  display: block;
+  margin-top: var(--space-0);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-16);
+}
+
+.ry-tasks-drawer .ry-task-priority-medium {
+  color: var(--color-chart-olive);
+}
+
+.ry-tasks-drawer-actions {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-start: var(--space-1);
+}
+
+.ry-tasks-drawer-history {
+  display: grid;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+  padding-block-start: var(--space-3);
+  border-top: var(--border-width-1) solid color-mix(in srgb, var(--color-border-base) 55%, transparent);
+}
+
+.ry-tasks-drawer-history h3 {
+  margin: var(--space-0);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--length-0-04em);
+  line-height: var(--line-height-16);
+  text-transform: uppercase;
+}
+
+.ry-tasks-drawer-history ol {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-tasks-drawer-history li {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ry-tasks-drawer-history li span {
+  color: var(--color-text-default);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-18);
+}
+
+.ry-tasks-drawer-history time {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  line-height: var(--line-height-16);
+}
+
+.ry-tasks-drawer-complete {
+  width: 100%;
+}
+
+.ry-tasks-drawer-origin-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  justify-self: start;
+  color: var(--color-chart-blue);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-18);
+  text-decoration: none;
+}
+
+.ry-tasks-drawer-origin-action:hover,
+.ry-tasks-drawer-origin-action:focus-visible {
+  color: color-mix(in srgb, var(--color-chart-blue) 78%, var(--color-text-strong));
+  text-decoration: underline;
+}
+
+.ry-tasks-col-task .ry-register-table-button {
+  display: inline;
+  max-width: 100%;
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-18);
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.ry-tasks-origin-link {
+  display: block;
+  max-width: 100%;
+  color: var(--color-text-default);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+  text-decoration: none;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+.ry-tasks-origin-link:hover,
+.ry-tasks-origin-link:focus-visible {
+  color: var(--color-accent-text);
+  text-decoration: underline;
+}
+
+.ry-tasks-col-origin .ry-register-cell-meta,
+.ry-tasks-col-task .ry-register-cell-meta {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-16);
+}
+
+.ry-task-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-chart-olive);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-16);
+  text-transform: capitalize;
+}
+
+.ry-task-priority-dot {
+  flex: 0 0 auto;
+  width: var(--length-0-375rem);
+  height: var(--length-0-375rem);
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.ry-task-priority-low { color: var(--color-text-muted); }
+.ry-task-priority-medium { color: var(--color-chart-olive); }
+.ry-task-priority-high { color: var(--color-chart-pink); }
+.ry-task-priority-critical { color: var(--color-accent); }
+
+.ry-tasks-col-due,
+.ry-tasks-col-status {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  white-space: nowrap;
+}
+
+.ry-tasks-due-overdue {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-tasks-due-today {
+  color: var(--color-text-default);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-tasks-col-status .ry-status-label,
+.ry-tasks-col-status .status {
+  text-transform: capitalize !important;
+  letter-spacing: normal;
+}
 .ry-register-pagination {
   display: flex;
   align-items: center;
@@ -134,11 +705,6 @@
 
 .ry-register-pagination p { margin: var(--space-0); color: var(--color-text-muted); font-size: var(--font-size-12); }
 .ry-register-mobile-list { display: none; }
-
-.ry-tabs button.active {
-  color: var(--color-text-on-accent);
-  background: var(--color-accent);
-}
 
 .ry-register-notification-list { display: grid; }
 .ry-register-notification {
@@ -167,39 +733,282 @@
 
 .ry-register-preview {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-3);
+  margin: var(--space-0);
+  min-width: var(--size-0);
 }
 
-.ry-register-preview dl { display: grid; gap: var(--space-0); margin: var(--space-0); }
-.ry-register-preview dl > div {
+dl.ry-register-preview,
+.ry-register-preview > dl {
   display: grid;
-  grid-template-columns: minmax(var(--size-0), 2fr) minmax(var(--size-0), 3fr);
-  gap: var(--space-4);
-  padding-block: var(--space-3);
-  border-top: var(--border-width-1) solid var(--color-border);
+  gap: var(--space-0);
+  margin: var(--space-0);
 }
-.ry-register-preview dt { color: var(--color-text-muted); font-size: var(--font-size-12); font-weight: var(--font-weight-semibold); }
-.ry-register-preview dd { min-width: var(--size-0); margin: var(--space-0); overflow-wrap: anywhere; }
-.ry-register-preview-section { display: grid; gap: var(--space-3); }
-.ry-register-preview-section h3 { margin: var(--space-0); }
+
+/* Compact label | value rows — Salesforce / Apollo density. */
+dl.ry-register-preview > div,
+.ry-register-preview > dl > div {
+  display: grid;
+  grid-template-columns: minmax(var(--length-5-75rem), 36%) minmax(var(--size-0), 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+  padding-block: var(--space-3);
+  border-top: var(--border-width-1) solid color-mix(in srgb, var(--color-border-base) 55%, transparent);
+}
+
+dl.ry-register-preview > div:first-child,
+.ry-register-preview > dl > div:first-child {
+  border-top: var(--border-width-0);
+  padding-block-start: var(--space-0);
+}
+
+dl.ry-register-preview dt,
+.ry-register-preview > dl dt {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-18);
+}
+
+dl.ry-register-preview dd,
+.ry-register-preview > dl dd {
+  min-width: var(--size-0);
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-18);
+  overflow-wrap: anywhere;
+}
+
+.ry-register-preview-section { display: grid; gap: var(--space-2); }
+.ry-register-preview-section h3 { margin: var(--space-0); font-size: var(--font-size-14); }
 
 @media (max-width: 64rem) {
-  .ry-register-filter-inline .ry-field { min-width: var(--size-0); flex: 1 1 var(--width-drawer-narrow); }
+  .ry-register-filter-inline .ry-field,
+  .ry-register-filter-inline .field {
+    flex: 0 1 var(--length-7-5rem);
+    min-width: var(--length-6-5rem);
+  }
+
+  .ry-register-filter-inline .ry-field:first-child,
+  .ry-register-filter-inline .field:first-child {
+    flex: 1 1 var(--length-10rem);
+  }
+}
+
+/* Shared create / entry forms — Representation register pattern */
+.ry-register-create {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border: var(--border-width-1) solid color-mix(in srgb, var(--color-chart-olive) 55%, var(--color-border-base));
+  border-radius: var(--radius-2);
+  background: transparent;
+}
+
+.ry-register-create > .ry-register-section-heading,
+.ry-register-create > .ry-representation-section-heading {
+  margin-block-start: 0;
+  padding-block-start: 0;
+}
+
+.ry-register-create-form {
+  display: grid;
+  gap: 0;
+  width: 100%;
+}
+
+.ry-register-create-progress {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--length-5rem), 1fr));
+  gap: var(--space-2);
+  margin-block-end: var(--space-2);
+}
+
+.ry-register-create-step {
+  display: grid;
+  place-items: center;
+  min-height: var(--length-1-75rem);
+  padding-inline: var(--space-2);
+  border: var(--border-width-1) solid var(--color-border-base);
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--length-0-02em);
+  text-transform: uppercase;
+}
+
+.ry-register-create-step.is-active {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border-base));
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
+  color: var(--color-accent);
+}
+
+.ry-register-create-step.is-complete {
+  border-color: color-mix(in srgb, var(--color-accent) 25%, var(--color-border-base));
+  color: var(--color-text-default);
+}
+
+.ry-register-create-block {
+  display: grid;
+  gap: var(--space-3);
+  padding-block: var(--space-5);
+  border-top: var(--border-width-1) solid var(--color-border-base);
+}
+
+.ry-register-create-block:first-of-type {
+  padding-top: var(--space-2);
+  border-top: none;
+}
+
+.ry-register-create-block.is-revealed {
+  animation: ry-register-create-reveal 180ms ease-out;
+}
+
+@keyframes ry-register-create-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(var(--length-0-35rem));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ry-register-create-block-header {
+  display: grid;
+  gap: var(--space-1);
+  max-width: var(--length-36rem);
+}
+
+.ry-register-create-block-header h3 {
+  margin: 0;
+  color: var(--color-text-default);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-20);
+}
+
+.ry-register-create-block-header p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+}
+
+.ry-register-create-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+}
+
+.ry-register-create-hint-link {
+  color: var(--color-chart-blue);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.ry-register-create-hint-link:hover,
+.ry-register-create-hint-link:focus-visible {
+  color: color-mix(in srgb, var(--color-chart-blue) 78%, var(--color-text-strong));
+  text-decoration: underline;
+}
+
+.ry-register-create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.ry-register-create-grid-span {
+  grid-column: 1 / -1;
+}
+
+.ry-register-create-form .ry-field,
+.ry-register-create-form .field {
+  gap: var(--space-1);
+  margin: 0;
+  min-width: 0;
+}
+
+.ry-register-create-form .ry-field-label {
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+}
+
+.ry-register-create-form .ry-select,
+.ry-register-create-form select,
+.ry-register-create-form .ry-input,
+.ry-register-create-form input[type="search"],
+.ry-register-create-form input:not([type="checkbox"]):not([type="radio"]),
+.ry-register-create-form textarea,
+.ry-register-create-form .ry-textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.ry-register-create-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+  padding-block: var(--space-4) var(--space-2);
+  border-top: var(--border-width-1) solid var(--color-border-base);
+}
+
+.ry-register-create-footer .ry-button-primary {
+  min-width: var(--length-9-5rem);
+}
+
+.ry-drawer .ry-register-create-form {
+  gap: var(--space-0);
+}
+
+.ry-drawer .ry-register-create-block:first-of-type {
+  padding-top: var(--space-0);
+}
+
+@media (max-width: 48rem) {
+  .ry-register-create-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ry-register-create-footer {
+    justify-content: stretch;
+  }
+
+  .ry-register-create-footer .ry-button {
+    flex: 1 1 auto;
+  }
 }
 
 @media (max-width: 48rem) {
   .ry-register-page .ry-page-header { margin-bottom: var(--space-5); }
+  .ry-register-page .ry-page-header:has(+ .ry-tabs),
+  .ry-register-page .ry-page-header:has(+ .ry-register-policy + .ry-tabs),
+  .ry-register-page .ry-page-header:has(+ .ry-alert + .ry-tabs) {
+    margin-bottom: var(--space-2);
+  }
   .ry-register-page .ry-tabs { display: grid; grid-template-columns: repeat(2, minmax(var(--size-0), 1fr)); overflow: visible; }
   .ry-register-page .ry-tabs button { width: 100%; }
   .ry-register-page .page-action .ry-button { width: 100%; }
   .ry-register-surface { margin-inline: calc(var(--layout-page-gutter) * -1); }
   .ry-register-commandbar { align-items: stretch; flex-direction: column; }
-  .ry-register-commandbar .ry-saved-view { display: grid; grid-template-columns: minmax(var(--size-0), 1fr); }
-  .ry-register-commandbar .ry-saved-view label,
-  .ry-register-commandbar .ry-saved-view input,
-  .ry-register-commandbar .ry-saved-view select { width: 100%; }
-  .ry-register-commandbar .ry-saved-view-name,
-  .ry-register-commandbar .ry-saved-view-save { display: none; }
+  .ry-register-commandbar .ry-saved-view {
+    width: 100%;
+  }
+  .ry-register-commandbar .ry-saved-view-panel {
+    position: static;
+    width: 100%;
+    margin-block-start: var(--space-1);
+  }
   .ry-register-filter-trigger { display: inline-flex; width: 100%; }
   .ry-register-filter-inline { display: none; }
   .ry-register-filter-drawer .ry-filter-bar { display: grid; grid-template-columns: minmax(var(--size-0), 1fr); align-items: stretch; }
@@ -231,7 +1040,191 @@
   .ry-register-mobile-actions .ry-button { flex: 1 1 auto; }
   .ry-register-pagination { align-items: stretch; flex-direction: column; }
   .ry-register-pagination .ry-button-group { display: grid; grid-template-columns: repeat(2, minmax(var(--size-0), 1fr)); }
-  .ry-register-preview dl > div { grid-template-columns: 1fr; gap: var(--space-1); }
+  dl.ry-register-preview > div,
+  .ry-register-preview > dl > div {
+    grid-template-columns: minmax(var(--length-5-75rem), 36%) minmax(var(--size-0), 1fr);
+    gap: var(--space-3);
+  }
+}
+
+.ry-documents-security {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-1) solid color-mix(in srgb, var(--color-chart-olive) 40%, var(--color-border));
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--color-chart-olive) 6%, var(--color-surface));
+}
+
+.ry-documents-security-copy {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ry-documents-security-copy strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-16);
+}
+
+.ry-documents-security-copy p,
+.ry-documents-security-details p {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-20, 1.4);
+}
+
+.ry-documents-security-details {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-documents-security-details summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-chart-blue);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  list-style: none;
+}
+
+.ry-documents-security-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.ry-documents-security-details[open] summary {
+  margin-bottom: var(--space-2);
+}
+
+.ry-documents-upload-form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ry-documents-upload-field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ry-documents-dropzone {
+  position: relative;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: var(--border-width-1) dashed color-mix(in srgb, var(--color-chart-olive) 50%, var(--color-border));
+  border-radius: var(--radius-2);
+  background: transparent;
+}
+
+.ry-documents-dropzone.is-active {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--color-chart-olive) 70%, var(--color-border));
+  background: color-mix(in srgb, var(--color-chart-olive) 6%, transparent);
+}
+
+.ry-documents-dropzone.has-file {
+  border-style: solid;
+}
+
+.ry-documents-dropzone-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ry-documents-dropzone-title {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-20);
+}
+
+.ry-documents-dropzone-or {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-16);
+}
+
+.ry-documents-browse-link {
+  appearance: none;
+  padding: var(--space-0);
+  color: var(--color-chart-blue);
+  border: var(--border-width-0);
+  background: transparent;
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.ry-documents-browse-link:hover,
+.ry-documents-browse-link:focus-visible {
+  color: var(--color-text-strong);
+  outline: none;
+  text-decoration: underline;
+}
+
+.ry-documents-browse-link:disabled {
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.ry-documents-dropzone-meta {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-16);
+}
+
+.ry-documents-selected-file {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width-1) solid color-mix(in srgb, var(--color-chart-olive) 35%, var(--color-border));
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--color-chart-olive) 5%, var(--color-surface));
+}
+
+.ry-documents-selected-file-copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: var(--size-0);
+}
+
+.ry-documents-selected-file-copy strong {
+  overflow: hidden;
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-documents-selected-file-copy span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-documents-page .ry-alert.ry-tone-info {
+  border-inline-start-color: color-mix(in srgb, var(--color-chart-olive) 65%, var(--color-border));
+  background: color-mix(in srgb, var(--color-chart-olive) 7%, var(--color-surface));
+}
+
+.ry-documents-page .ry-alert.ry-tone-info > div > :first-child {
+  color: var(--color-text-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {

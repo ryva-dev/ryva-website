@@ -3,6 +3,7 @@ import { withTransaction } from "../../database/src/index.js";
 import { AppError, newId } from "../../shared/src/index.js";
 import { publicDigest } from "./crypto.js";
 import { recordAudit } from "./audit.js";
+import { displayFacingReason } from "./displayCopy.js";
 import { enqueueJob } from "./jobs.js";
 
 export type MetricDefinition = {
@@ -73,7 +74,7 @@ export const metricDictionary: MetricDefinition[] = [
   metric("cancellations","Cancellations","Sum of cancellations on verified Orders.",["order"],{currencyBehavior:separateCurrency,valueStatus:"verified"}),
   metric("net_commissionable_value","Net commissionable value","Gross minus discounts, returns, and cancellations from the current verified Order revision.",["order","order_revision"],{currencyBehavior:separateCurrency,valueStatus:"verified"}),
   metric("expected_commission","Expected commission","Sum of latest explainable Commission calculation results.",["commission","commission_calculation"],{currencyBehavior:separateCurrency,valueStatus:"estimated"}),
-  metric("approved_commission","Approved commission","Sum of human-approved Commission amounts.",["commission"],{currencyBehavior:separateCurrency,valueStatus:"actual"}),
+  metric("approved_commission","Approved commission","Sum of approved Commission amounts.",["commission"],{currencyBehavior:separateCurrency,valueStatus:"actual"}),
   metric("payable_commission","Payable commission","Approved amounts for Commissions currently Payable.",["commission"],{currencyBehavior:separateCurrency,valueStatus:"actual"}),
   metric("paid_commission","Paid commission","Sum of evidence-confirmed paid Commission amounts.",["commission"],{currencyBehavior:separateCurrency,valueStatus:"actual"}),
   metric("disputed_commission","Disputed commission","Sum of open Commission Dispute amounts.",["commission_dispute"],{currencyBehavior:separateCurrency,valueStatus:"actual"}),
@@ -86,8 +87,8 @@ export const metricDictionary: MetricDefinition[] = [
   metric("next_action_coverage","Next-action coverage","Open Placement Opportunities with a current open next-action Task ÷ all open Placement Opportunities.",["placement_opportunity","task"]),
   metric("active_products","Active products","Current represented Products.",["product","representation_agreement"]),
   metric("buyer_matches","Buyer matches","Current Product-to-Business match reviews.",["product_business_match"]),
-  metric("qualified_businesses","Qualified businesses","Business records with a current human-owned Qualified decision.",["business"]),
-  metric("active_representation_relationships","Active representation relationships","Human-approved active Representation Agreements.",["representation_agreement"]),
+  metric("qualified_businesses","Qualified businesses","Business records with a current Qualified decision.",["business"]),
+  metric("active_representation_relationships","Active representation relationships","Active Representation Agreements.",["representation_agreement"]),
   metric("products_represented","Products represented","Distinct Products in active Agreement scope.",["representation_agreement","product"]),
   metric("accounts_opened","Accounts opened","Accounts created from verified opening Orders.",["account","order"],{valueStatus:"verified"}),
   metric("commission_payment_reliability","Commission payment reliability","Paid Commissions on or before due date ÷ paid Commissions with a documented due date.",["commission"]),
@@ -311,6 +312,7 @@ export async function getAnalyticsDashboard(
       `SELECT b.id,b.public_name AS name,
          coalesce(authority.active_agreements,0)::int AS active_agreements,
          coalesce(account_totals.active_accounts,0)::int AS active_accounts,
+         coalesce(commercial.opening_orders,0)::int AS opening_orders,
          coalesce(commercial.verified_orders,0)::int AS verified_orders,
          coalesce(commercial.verified_value,0)::text AS verified_value,
          coalesce(commission_totals.overdue_commissions,0)::int AS overdue_commissions,
@@ -327,7 +329,10 @@ export async function getAnalyticsDashboard(
           WHERE ac.workspace_id=b.workspace_id AND ac.brand_id=b.id AND ac.archived_at IS NULL
        ) account_totals ON true
        LEFT JOIN LATERAL (
-         SELECT count(*) FILTER (WHERE o.verification_status='verified')::int AS verified_orders,
+         SELECT count(*) FILTER (
+                  WHERE o.verification_status='verified' AND o.order_type='opening_order'
+                )::int AS opening_orders,
+                count(*) FILTER (WHERE o.verification_status='verified')::int AS verified_orders,
                 coalesce(sum(o.net_commissionable) FILTER (WHERE o.verification_status='verified'),0) AS verified_value
            FROM orders o
           WHERE o.workspace_id=b.workspace_id AND o.brand_id=b.id AND o.archived_at IS NULL
@@ -486,7 +491,12 @@ function hrefFor(type: string, id: string): string {
     account: `/accounts/${id}`,
     order: `/orders/${id}`
   };
-  return paths[type] ?? "/search";
+  return paths[type] ?? `/records/${type}/${id}`;
+}
+
+function periodPercentChange(current: number, previous: number): number | null {
+  if (previous <= 0) return null;
+  return Math.round(((current - previous) / previous) * 100);
 }
 
 export async function getHomeCommandCenter(
@@ -500,7 +510,7 @@ export async function getHomeCommandCenter(
       WHERE workspace_id=$1 AND user_id=$2`, [workspaceId,userId]
   );
   const changedSince = state.rows[0]?.last ?? new Date(Date.now()-7*86_400_000).toISOString();
-  const [tasks, agreements, placements, reorders, commissions, disputes, messages, evidence, risks, protections, actions, changes, analytics] =
+  const [tasks, agreements, placements, reorders, commissions, disputes, messages, evidence, risks, protections, actions, changes, analytics, pipelinePeriodCounts] =
     await Promise.all([
       database.query<CountRow>(
         `SELECT id,title,priority,due_at AS "dueAt",mandatory_gate AS "mandatoryGate",
@@ -576,20 +586,87 @@ export async function getHomeCommandCenter(
           ORDER BY item_type,item_id,created_at DESC`, [workspaceId,userId]
       ),
       database.query<CountRow>(
-        `SELECT action,target_type AS "targetType",target_id AS "targetId",
-                occurred_at AS "occurredAt",outcome
-           FROM audit_events WHERE workspace_id=$1 AND occurred_at>$2
-            AND outcome='succeeded'
-            AND target_type IN (
+        `SELECT a.action,
+                CASE
+                  WHEN a.target_type='authority_evaluation'
+                    AND coalesce(e.context->>'placementId','') ~* '^[0-9a-f-]{36}$'
+                    THEN 'placement_opportunity'
+                  WHEN a.target_type='authority_evaluation'
+                    AND coalesce(e.context->>'messageId','') ~* '^[0-9a-f-]{36}$'
+                    THEN 'outreach_message'
+                  WHEN a.target_type='authority_evaluation' AND e.agreement_id IS NOT NULL
+                    THEN 'representation_agreement'
+                  WHEN a.target_type='authority_evaluation' AND e.brand_id IS NOT NULL
+                    THEN 'brand'
+                  ELSE a.target_type
+                END AS "targetType",
+                CASE
+                  WHEN a.target_type='authority_evaluation'
+                    AND coalesce(e.context->>'placementId','') ~* '^[0-9a-f-]{36}$'
+                    THEN e.context->>'placementId'
+                  WHEN a.target_type='authority_evaluation'
+                    AND coalesce(e.context->>'messageId','') ~* '^[0-9a-f-]{36}$'
+                    THEN e.context->>'messageId'
+                  WHEN a.target_type='authority_evaluation' AND e.agreement_id IS NOT NULL
+                    THEN e.agreement_id::text
+                  WHEN a.target_type='authority_evaluation' AND e.brand_id IS NOT NULL
+                    THEN e.brand_id::text
+                  ELSE a.target_id::text
+                END AS "targetId",
+                a.occurred_at AS "occurredAt",a.outcome
+           FROM audit_events a
+           LEFT JOIN authority_evaluations e
+             ON e.workspace_id=a.workspace_id AND e.id::text=a.target_id
+            AND a.target_type='authority_evaluation'
+          WHERE a.workspace_id=$1 AND a.occurred_at>$2
+            AND a.outcome='succeeded'
+            AND a.target_type IN (
               'outreach_message','placement_opportunity','representation_agreement',
               'authority_evaluation','order','commission','commission_dispute',
               'account','evidence_record','ai_suggestion'
             )
-            AND action !~ '(viewed|listed|searched|session)'
-          ORDER BY occurred_at DESC LIMIT 50`, [workspaceId,changedSince]
+            AND a.action !~ '(viewed|listed|searched|session)'
+          ORDER BY a.occurred_at DESC LIMIT 50`, [workspaceId,changedSince]
       ),
-      getAnalyticsDashboard(database,workspaceId,{})
+      getAnalyticsDashboard(database,workspaceId,{}),
+      database.query<{
+        month_current: number; month_previous: number;
+        quarter_current: number; quarter_previous: number;
+        ytd_current: number; ytd_previous: number;
+      }>(
+        `SELECT
+           count(*) FILTER (
+             WHERE placements.created_at >= date_trunc('month', current_date)
+           )::int AS month_current,
+           count(*) FILTER (
+             WHERE placements.created_at >= date_trunc('month', current_date) - interval '1 month'
+               AND placements.created_at < date_trunc('month', current_date)
+           )::int AS month_previous,
+           count(*) FILTER (
+             WHERE placements.created_at >= date_trunc('quarter', current_date)
+           )::int AS quarter_current,
+           count(*) FILTER (
+             WHERE placements.created_at >= date_trunc('quarter', current_date) - interval '3 months'
+               AND placements.created_at < date_trunc('quarter', current_date)
+           )::int AS quarter_previous,
+           count(*) FILTER (
+             WHERE placements.created_at >= date_trunc('year', current_date)
+           )::int AS ytd_current,
+           count(*) FILTER (
+             WHERE placements.created_at >= date_trunc('year', current_date) - interval '1 year'
+               AND placements.created_at < date_trunc('year', current_date)
+           )::int AS ytd_previous
+         FROM placement_opportunities AS placements
+         WHERE placements.workspace_id=$1 AND placements.archived_at IS NULL`,
+        [workspaceId]
+      )
     ]);
+  const periodCounts = pipelinePeriodCounts.rows[0];
+  const pipelineComparison = {
+    month: periodPercentChange(Number(periodCounts?.month_current ?? 0), Number(periodCounts?.month_previous ?? 0)),
+    quarter: periodPercentChange(Number(periodCounts?.quarter_current ?? 0), Number(periodCounts?.quarter_previous ?? 0)),
+    ytd: periodPercentChange(Number(periodCounts?.ytd_current ?? 0), Number(periodCounts?.ytd_previous ?? 0))
+  };
   const now = Date.now();
   const items: PriorityItem[] = [];
   const add = (item: Omit<PriorityItem,"key"|"href">) => items.push({
@@ -602,7 +679,7 @@ export async function getHomeCommandCenter(
       itemType:"task",itemId:String(row.id),targetType:String(row.subjectType),
       targetId:String(row.subjectId),title:String(row.title),reason:String(row.reason),
       explanation:[
-        row.mandatoryGate ? "This is a mandatory human-controlled gate." : "This is an owned commitment.",
+        row.mandatoryGate ? "This is a mandatory gate." : "This is an owned commitment.",
         overdueDays ? `It is ${overdueDays} day${overdueDays===1?"":"s"} overdue.` : due ? "Its due date is approaching." : "It has no due date."
       ],
       baseRank:row.mandatoryGate?5:overdueDays?15:35,priority:String(row.priority),
@@ -616,7 +693,7 @@ export async function getHomeCommandCenter(
     reason:`Agreement is ${String(row.status).replaceAll("_"," ")}; legal ambiguity is ${String(row.ambiguity).replaceAll("_"," ")}.`,
     explanation:["Authority and trust blockers take precedence over commercial work."],
     baseRank:2,priority:"critical",dueAt:row.dueAt?String(row.dueAt):null,
-    nextAction:"Review the Agreement and human authority decision.",blocking:true
+    nextAction:"Review the Agreement and authority decision.",blocking:true
   });
   for (const row of placements.rows) {
     const stalled = !row.taskId || (row.dueAt && new Date(String(row.dueAt)).getTime()<now) ||
@@ -628,7 +705,7 @@ export async function getHomeCommandCenter(
       reason:row.conflict==="blocked"?"An unresolved conflict blocks progress.":"The opportunity is stalled or lacks a current next action.",
       explanation:[row.conflict==="blocked"?"Conflict protection is a mandatory gate.":"No meaningful movement or next-action coverage is visible."],
       baseRank:row.conflict==="blocked"?3:60,priority:row.conflict==="blocked"?"critical":"medium",
-      dueAt:row.dueAt?String(row.dueAt):null,nextAction:"Review the Placement and record the next human-owned action.",
+      dueAt:row.dueAt?String(row.dueAt):null,nextAction:"Review the Placement and record the next action.",
       blocking:row.conflict==="blocked"
     });
   }
@@ -643,22 +720,22 @@ export async function getHomeCommandCenter(
     itemType:"commission",itemId:String(row.id),targetType:"commission",targetId:String(row.id),
     title:`Commission ${String(row.status).replaceAll("_"," ")}`,
     reason:`${row.currency} ${row.amount} has reached or passed its documented due date.`,
-    explanation:["The amount comes from the current explainable Phase 6 record.","Payment state requires documentary human confirmation."],
+    explanation:["The amount comes from the current explainable Phase 6 record.","Payment state requires documentary confirmation."],
     baseRank:30,priority:"high",dueAt:row.dueAt?String(row.dueAt):null,
     nextAction:"Review payment evidence or open/update a dispute.",blocking:false
   });
   for (const row of disputes.rows) add({
     itemType:"commission_dispute",itemId:String(row.id),targetType:"commission_dispute",targetId:String(row.id),
-    title:"Open Commission dispute",reason:String(row.reason),
-    explanation:["Unresolved disputes preserve chronology and require a named human next action."],
+    title:"Open Commission dispute",reason:displayFacingReason(String(row.reason)),
+    explanation:["Unresolved disputes preserve chronology and require a named next action."],
     baseRank:12,priority:"critical",dueAt:row.dueAt?String(row.dueAt):null,
     nextAction:String(row.nextAction),blocking:true
   });
   for (const row of messages.rows) add({
     itemType:"outreach_message",itemId:String(row.id),targetType:"outreach_message",targetId:String(row.id),
-    title:row.direction==="inbound"?"Buyer reply needs classification":"Message awaits human approval",
+    title:row.direction==="inbound"?"Buyer reply needs classification":"Message awaits approval",
     reason:row.direction==="inbound"?"The provider-linked reply is not classified.":"No external send can occur until the exact message is approved.",
-    explanation:["A time-sensitive human response is waiting."],baseRank:20,priority:"high",
+    explanation:["A time-sensitive response is waiting."],baseRank:20,priority:"high",
     dueAt:row.dueAt?String(row.dueAt):null,nextAction:row.direction==="inbound"?"Classify the reply.":"Review the exact recipient and content.",
     blocking:false
   });
@@ -671,7 +748,7 @@ export async function getHomeCommandCenter(
   for (const row of risks.rows) add({
     itemType:"risk_flag",itemId:String(row.id),targetType:"risk_flag",targetId:String(row.id),
     title:`${String(row.severity)} risk: ${String(row.risk_type).replaceAll("_"," ")}`,
-    reason:String(row.description),explanation:["An unresolved recorded risk requires human review."],
+    reason:String(row.description),explanation:["An unresolved recorded risk requires review."],
     baseRank:["critical","high"].includes(String(row.severity))?8:65,priority:String(row.severity),
     dueAt:row.dueAt?String(row.dueAt):null,nextAction:"Review the risk and mitigation evidence.",
     blocking:row.severity==="critical"
@@ -704,6 +781,8 @@ export async function getHomeCommandCenter(
     today:visible.filter((item)=>item.dueAt && new Date(item.dueAt).getTime()<=now+86_400_000),
     changes:changes.rows,
     pipeline:analytics.metrics,
+    stageDistribution:analytics.stageDistribution,
+    pipelineComparison,
     commercial:analytics.currencyTotals,
     emptyWorkspace:items.length===0 && changes.rows.length===0
   };
@@ -850,27 +929,6 @@ export async function refreshAnalyticsAlerts(
           AND grouping_key='phase8:outreach-health' AND status NOT IN ('resolved','archived','dismissed')
        )`,[newId(),input.workspaceId,input.userId,
         `${health.bounced} of ${health.sent} recent accepted messages bounced; ${health.complaints} complaint event(s) are recorded.`]
-    );
-    created+=result.rowCount??0;
-  }
-  const credential=await database.query<{status:string;expiresAt:string|null}>(
-    `SELECT status,expires_at AS "expiresAt" FROM certification_credentials
-      WHERE user_id=$1 ORDER BY verified_at DESC NULLS LAST LIMIT 1`,[input.userId]
-  );
-  const credentialRow=credential.rows[0];
-  if(credentialRow && (credentialRow.status!=="active" ||
-    (credentialRow.expiresAt && new Date(credentialRow.expiresAt).getTime()<Date.now()+60*86_400_000))) {
-    const result=await database.query(
-      `INSERT INTO notifications
-        (id,workspace_id,user_id,notification_type,severity,title,reason,grouping_key,status,blocking,due_at)
-       SELECT $1,$2,$3,'credential_access','critical','Certification access needs attention',
-              $4,'phase8:credential-access','unread',true,$5
-       WHERE NOT EXISTS (
-         SELECT 1 FROM notifications WHERE workspace_id=$2 AND user_id=$3
-          AND grouping_key='phase8:credential-access' AND status NOT IN ('resolved','archived')
-       )`,[newId(),input.workspaceId,input.userId,
-        `Credential status is ${credentialRow.status}; access controls remain authoritative.`,
-        timestampValue(credentialRow.expiresAt)]
     );
     created+=result.rowCount??0;
   }

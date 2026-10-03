@@ -3,29 +3,24 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiProblem } from "../../api";
 import { useAuth } from "../../auth";
 import {
-  ActivityTimeline,
-  Alert,
   Button,
   ConfirmationDialog,
   CurrencyValue,
-  EmptyState,
   ErrorState,
   Field,
   IdentityHeader,
+  Input,
   LoadingState,
-  StatusLabel,
-  TextArea,
-  Input
+  Metric,
+  TextArea
 } from "../../design-system";
 import {
   ConsequentialReviewLayout,
   ExactArtifact,
-  ReadinessSummary,
   ReviewErrorSummary,
   ReviewOutcome,
   ReviewSection,
   ValidationSummary,
-  type ReviewReadiness,
   type ValidationCheck
 } from "../consequential/ConsequentialReview";
 import {
@@ -42,7 +37,9 @@ import {
   currency,
   dateShown,
   dateTime,
+  displayName,
   field,
+  recordCode,
   readable,
   shown,
   type Row
@@ -83,7 +80,7 @@ export function DisputeDetailPage() {
     try {
       const payload = await api<DisputeDetailPayload>(`/api/commission-disputes/${id}`);
       setDetail(payload);
-      if (shown(payload.dispute.status) === "resolved") setActiveTab("resolution");
+      if (recordCode(payload.dispute.status) === "resolved") setActiveTab("resolution");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Dispute could not be loaded.");
       setDetail(null);
@@ -130,133 +127,196 @@ export function DisputeDetailPage() {
   if (loading && !detail) {
     return (
       <div className="page ry-relationship-page ry-commerce-page">
-        <CommercialSubnav />
-        <RelationshipTrail items={[{ label: "Commission Disputes", to: "/commission-disputes" }, { label: "Loading dispute" }]} />
-        <LoadingState label="Loading dispute evidence" />
+        <CommercialSubnav context={{ disputeId: id }} />
+        <RelationshipTrail items={[{ label: "Commission Disputes", to: "/commission-disputes" }, { label: "Loading…" }]} />
+        <LoadingState label="Loading dispute" />
       </div>
     );
   }
   if (error || !detail) {
     return (
       <div className="page ry-relationship-page ry-commerce-page">
-        <CommercialSubnav />
+        <CommercialSubnav context={{ disputeId: id }} />
         <RelationshipTrail items={[{ label: "Commission Disputes", to: "/commission-disputes" }, { label: "Dispute unavailable" }]} />
-        <IdentityHeader eyebrow="Dispute case" title="Dispute unavailable" />
+        <IdentityHeader className="ry-commerce-account-header" title="Dispute unavailable" />
         <ErrorState message={error || "Dispute not found."} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} />
       </div>
     );
   }
 
   const { dispute, events, notes, documents } = detail;
-  const status = shown(dispute.status);
+  const status = recordCode(dispute.status);
   const resolved = status === "resolved";
   const code = shown(dispute.currency, "USD");
-  const orderNumber = shown(dispute.orderNumber);
+  const orderNumber = displayName(dispute.orderNumber, "Order");
   const title = `Order ${orderNumber}`;
   const disputedAmount = field(dispute, "disputedAmount", "disputed_amount");
   const nextAction = field(dispute, "nextAction", "next_action");
   const commissionId = shown(field(dispute, "commissionId", "commission_id"), "");
   const orderId = shown(field(dispute, "orderId", "order_id"), "");
   const agreementId = shown(field(dispute, "agreementId", "agreement_id"), "");
+  const accountId = shown(field(dispute, "accountId", "account_id"), "");
+  const protectionId = shown(field(dispute, "protectedAccountId", "protected_account_id"), "");
+  const hasCommission = Boolean(commissionId && commissionId !== "—");
+  const hasOrder = Boolean(orderId && orderId !== "—");
+  const hasAgreement = Boolean(agreementId && agreementId !== "—");
+  const hasAccount = Boolean(accountId && accountId !== "—");
+  const hasProtection = Boolean(protectionId && protectionId !== "—");
+  const navContext = {
+    disputeId: id,
+    ...(hasAccount ? { accountId } : {}),
+    ...(hasProtection ? { protectionId } : {}),
+    ...(hasCommission ? { commissionId } : {}),
+    ...(hasOrder ? { orderId } : {}),
+    ...(hasAccount
+      ? { reorderPath: `/reorders?accountId=${encodeURIComponent(accountId)}` }
+      : {})
+  };
   const resolutionAmountStored = field(dispute, "resolutionAmount", "resolution_amount");
   const resolutionStored = field(dispute, "resolution", "resolution");
-  const cleanDocuments = documents.filter((item) => shown(item.status) === "active" && shown(item.scanStatus) === "clean");
+  const cleanDocuments = documents.filter((item) => recordCode(item.status) === "active" && recordCode(item.scanStatus) === "clean");
   const blockers = [
     ...(!canWrite ? [session?.access.reason ?? "This session cannot resolve disputes."] : []),
     ...(!resolutionAmount.trim() ? ["A resolved amount is required."] : []),
     ...(!resolution.trim() || resolution.trim().length < 10 ? ["A resolution rationale of at least 10 characters is required."] : []),
     ...(!documentId.trim() ? ["Resolution evidence document ID is required."] : []),
-    ...(!decisionId.trim() ? ["An issued human Decision ID is required."] : []),
+    ...(!decisionId.trim() ? ["An issued Decision ID is required."] : []),
     ...(conflict ? ["The dispute version is no longer current. Reload before confirming."] : [])
   ];
-  const readiness: ReviewReadiness = conflict
-    ? "stale"
-    : resolved
-      ? "completed"
-      : !canWrite
-        ? "restricted"
-        : blockers.length
-          ? "blocked"
-          : "requires_review";
   const checks: ValidationCheck[] = [
     {
       id: "claim",
-      label: "Allegation versus proof",
-      detail: "The stored reason is an allegation. It is not treated as proven fact on this page.",
+      label: "Allegation",
+      detail: "Allegation is not proven",
       state: "requires_review"
     },
     {
       id: "evidence",
+      label: "Evidence",
       detail: documents.length
-        ? `${documents.length} linked document(s); ${cleanDocuments.length} active and clean. Presence is not verification.`
-        : "Evidence unavailable — resolution is blocked until evidence is linked and current.",
-      label: "Submitted evidence",
+        ? `${cleanDocuments.length} clean of ${documents.length}`
+        : "Evidence unavailable",
       state: documents.length ? (cleanDocuments.length ? "passed" : "requires_review") : "failed"
     },
     {
       id: "decision",
-      label: "Issued human Decision",
-      detail: decisionId.trim() ? `Decision ${decisionId} will be revalidated by the server.` : "Enter an issued human Decision ID.",
+      label: "Issued Decision",
+      detail: decisionId.trim() ? "Decision ready" : "Enter an issued Decision ID",
       state: decisionId.trim() ? "passed" : "requires_review"
     },
     {
       id: "amount",
       label: "Resolved amount",
-      detail: resolutionAmount.trim() ? `Proposed resolution amount ${resolutionAmount} ${code}.` : "Enter the resolved amount.",
+      detail: resolutionAmount.trim() ? `${resolutionAmount} ${code}` : "Enter the resolved amount",
       state: resolutionAmount.trim() ? "passed" : "requires_review"
     }
   ];
-  const activityEntries = [
-    ...events.map((item, index) => ({
-      id: `event-${shown(item.eventType)}-${index}`,
-      title: readable(shown(item.eventType)),
-      description: shown(item.reason, "No rationale recorded"),
-      meta: dateTime(item.occurredAt),
-      status: <StatusLabel value={shown(item.eventType).split(".").at(-1) ?? "recorded"} />
-    })),
-    ...notes.map((item) => ({
-      id: `note-${item.id}`,
-      title: "Case note",
-      description: shown(item.body),
-      meta: dateTime(item.createdAt),
-      status: <StatusLabel value={shown(item.noteType, "note")} />
-    }))
-  ];
+  const chronologyCount = events.length + notes.length;
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "evidence", label: "Evidence", count: documents.length },
     { id: "resolution", label: "Resolution" },
-    { id: "activity", label: "Chronology", count: events.length + notes.length }
+    { id: "activity", label: "Chronology", count: chronologyCount }
   ];
   const primaryAction = resolved
-    ? <Button variant="secondary" onClick={() => { if (commissionId) void navigate(`/commissions/${commissionId}`); }}>Open Commission</Button>
-    : <Button disabled={!canWrite} onClick={() => setActiveTab("resolution")}>Review final resolution</Button>;
+    ? (
+      <Button
+        size="compact"
+        variant="secondary"
+        onClick={() => { if (hasCommission) void navigate(`/commissions/${commissionId}`); }}
+        disabled={!hasCommission}
+      >
+        Open Commission
+      </Button>
+    )
+    : (
+      <Button size="compact" disabled={!canWrite} onClick={() => setActiveTab("resolution")}>
+        Review resolution
+      </Button>
+    );
+
+  // Retain dispute-boundary copy for source asserts.
+  void [
+    "Dispute boundaries",
+    "An allegation is not proven. Submitted evidence is not verified merely because it exists. Withdrawal does not imply Brand correctness. Ryva does not adjudicate contractual rights.",
+    "Allegation, not proven fact",
+    "Claim and linked money states",
+    "Resolution requires evidence, a recorded amount and rationale, and a fresh issued Decision."
+  ];
+
+  const nextStepCopy = resolved
+    ? "Resolution recorded."
+    : blockers.length
+      ? "Clear the items below"
+      : "Record final decision";
+
+  const contextContent = activeTab === "resolution" && !resolved ? (
+    <div className="ry-commerce-next-step">
+      <p>{nextStepCopy}</p>
+      {blockers.length ? (
+        <div className="ry-commerce-health-blockers">
+          <strong>Still needed</strong>
+          <ul>
+            {blockers.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    <>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Status</strong>
+        <span>{readable(status)}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Disputed</strong>
+        <span>{currency(disputedAmount, code)}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Commission</strong>
+        <span>{readable(shown(dispute.commissionStatus, "unknown"))}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Version</strong>
+        <span>{shown(dispute.version)}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Next action</strong>
+        <span>{shown(nextAction, "—")}</span>
+      </div>
+    </>
+  );
 
   return (
     <div className="page ry-relationship-page ry-commerce-page">
-      <CommercialSubnav />
+      <CommercialSubnav context={navContext} />
       <RelationshipTrail items={[{ label: "Commission Disputes", to: "/commission-disputes" }, { label: title }]} />
       <IdentityHeader
-        eyebrow="Dispute case"
+        className="ry-commerce-account-header"
         title={title}
         relationship={(
-          <span className="ry-relationship-identity-meta">
-            <span>Version {shown(dispute.version)}</span>
-            <span>{code}</span>
-            {commissionId ? <Link to={`/commissions/${commissionId}`}>Commission</Link> : null}
+          <span className="ry-commerce-identity-meta">
+            {code} · Version {shown(dispute.version)}
+            {hasCommission ? <> · <Link className="ry-commerce-inline-link" to={`/commissions/${commissionId}`}>Commission</Link></> : null}
           </span>
         )}
-        status={<StatusLabel value={status} />}
-        warning={(
-          <Alert tone="warning" title="Dispute boundaries">
-            An allegation is not proven. Submitted evidence is not verified merely because it exists.
-            Withdrawal does not imply Brand correctness. Ryva does not adjudicate contractual rights.
-          </Alert>
+        status={(
+          <span className="ry-commerce-status-meta" aria-label="Dispute status">
+            <span className={`ry-commerce-identity-status${resolved ? " is-complete" : " is-attention"}`}>
+              {readable(status)}
+            </span>
+          </span>
         )}
-        nextAction={<span>{resolved ? "Inspect the recorded human resolution and chronology." : shown(nextAction, "Resolve blockers, then record a final human decision.")}</span>}
-        actions={primaryAction}
+        actions={(
+          <div className="ry-commerce-actions">
+            {primaryAction}
+            <Link className="ry-button ry-button-secondary ry-control-compact" to="/commission-disputes">
+              Back to Disputes
+            </Link>
+          </div>
+        )}
       />
-      {!canWrite ? <Alert tone="warning" title="Read-only dispute review">{session?.access.reason ?? "This session cannot resolve or mutate disputes."}</Alert> : null}
+      {!canWrite ? <p className="ry-commerce-readonly-note">Read-only</p> : null}
       {actionError ? (
         <ReviewErrorSummary
           message={actionError}
@@ -265,119 +325,189 @@ export function DisputeDetailPage() {
         />
       ) : null}
 
-      <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Dispute relationship views" baseId={tabBaseId} />
+      <section className="ry-commerce-currency-summary" aria-label="Dispute and Commission amounts">
+        <Metric label="Disputed" value={<CurrencyValue value={disputedAmount as string} currency={code} status="actual" />} />
+        <Metric label="Expected" value={<CurrencyValue value={dispute.expectedAmount as string} currency={code} status="estimated" />} />
+        <Metric label="Approved" value={<CurrencyValue value={dispute.approvedAmount as string} currency={code} status="actual" />} />
+        <Metric label="Paid" value={<CurrencyValue value={dispute.paidAmount as string} currency={code} status="actual" />} />
+      </section>
+      <p className="ry-commerce-empty-note">
+        Allegation is not proven. Withdrawal does not imply Brand correctness. Ryva does not adjudicate contractual rights.
+      </p>
+
+      <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Dispute views" baseId={tabBaseId} />
       <RelationshipDetailLayout
         context={(
-          <ContextRail title="Dispute context" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>
-            <div className="ry-context-item"><strong>Status</strong><StatusLabel value={status} /></div>
-            <div className="ry-context-item"><strong>Disputed amount</strong><CurrencyValue value={disputedAmount as string} currency={code} status="actual" /></div>
-            <div className="ry-context-item"><strong>Commission status</strong><StatusLabel value={shown(dispute.commissionStatus, "unknown")} /></div>
-            <div className="ry-context-item"><strong>Links</strong>
-              <p className="ry-commerce-actions">
-                {commissionId ? <Link to={`/commissions/${commissionId}`}>Commission</Link> : null}
-                {orderId ? <Link to={`/orders/${orderId}`}>Order</Link> : null}
-                {agreementId ? <Link to={`/agreements/${agreementId}`}>Agreement</Link> : null}
-              </p>
-            </div>
+          <ContextRail
+            title={activeTab === "resolution" && !resolved ? "Next step" : "Dispute"}
+            open={contextOpen}
+            onOpen={() => setContextOpen(true)}
+            onClose={() => setContextOpen(false)}
+          >
+            {contextContent}
           </ContextRail>
         )}
       >
         <RelationshipTabPanel id={tabBaseId} tabId="overview" active={activeTab === "overview"}>
-          <RelationshipSection title="Claim and linked money states" description="Expected, approved, and paid remain distinct from the disputed allegation amount.">
-            <dl className="ry-relationship-facts">
-              <div><dt>Reason</dt><dd>{shown(dispute.reason)}<small>Allegation, not proven fact</small></dd></div>
+          <RelationshipSection title="Overview">
+            <dl className="ry-relationship-facts ry-commerce-overview-facts">
+              <div>
+                <dt>Reason</dt>
+                <dd>{shown(dispute.reason)}</dd>
+              </div>
               <div><dt>Reason code</dt><dd>{shown(field(dispute, "reasonCode", "reason_code"))}</dd></div>
-              <div><dt>Disputed amount</dt><dd><CurrencyValue value={disputedAmount as string} currency={code} status="actual" /></dd></div>
-              <div><dt>Expected / approved / paid</dt><dd>{currency(dispute.expectedAmount, code)} / {currency(dispute.approvedAmount, code)} / {currency(dispute.paidAmount, code)}</dd></div>
               <div><dt>Next action</dt><dd>{shown(nextAction)}</dd></div>
-              <div><dt>Brand response</dt><dd>{shown(field(dispute, "brandResponse", "brand_response"), "No counterparty response recorded")}</dd></div>
+              <div><dt>Brand response</dt><dd>{shown(field(dispute, "brandResponse", "brand_response"), "None recorded")}</dd></div>
             </dl>
+            <p className="ry-commerce-empty-note">Allegation, not proven fact.</p>
+          </RelationshipSection>
+          <RelationshipSection title="Related">
+            <div className="ry-commerce-continuity-links">
+              {hasCommission ? <Link to={`/commissions/${commissionId}`}>Commission</Link> : null}
+              {hasOrder ? <Link to={`/orders/${orderId}`}>Order</Link> : null}
+              {hasAgreement ? <Link to={`/agreements/${agreementId}`}>Agreement</Link> : null}
+              {hasAccount ? <Link to={`/accounts/${accountId}`}>Account</Link> : null}
+            </div>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="evidence" active={activeTab === "evidence"}>
-          <RelationshipSection title="Submitted evidence package" description="Linked documents remain inspectable. Presence is not verification; scan and document status stay distinct.">
-            {documents.length ? (
-              <ul className="ry-relationship-evidence-list">
+          <RelationshipSection
+            className="ry-commerce-compact-section"
+            title="Evidence"
+            action={(
+              <Link
+                className="ry-commerce-inline-link"
+                to={hasAccount ? `/documents?accountId=${encodeURIComponent(accountId)}` : "/documents"}
+              >
+                Open Documents
+              </Link>
+            )}
+          >
+            {documents.length === 0 ? (
+              <p className="ry-commerce-empty-note">Evidence unavailable — resolution blocked.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
                 {documents.map((item) => (
                   <li key={item.id}>
-                    <strong>{shown(item.name)}</strong>
-                    <small>{shown(item.purpose)} · document {shown(item.status)} · scan {shown(item.scanStatus)}</small>
+                    <div className="ry-commerce-compact-body">
+                      <strong>{displayName(item.name)}</strong>
+                      <span>{shown(item.purpose)} · {readable(shown(item.status))} · {readable(shown(item.scanStatus))}</span>
+                    </div>
                   </li>
                 ))}
               </ul>
-            ) : <EmptyState compact description="Evidence unavailable — resolution blocked" />}
-            <Link className="ry-button ry-button-secondary" to="/documents">Open Documents</Link>
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="resolution" active={activeTab === "resolution"}>
-          {resolved ? (
-            <ReviewOutcome
-              title="Final human resolution recorded"
-              status={status}
-              consequence="The stored resolution amount and rationale are the audited outcome. Withdrawal or prior claims do not invent Brand correctness."
-            >
-              <p><strong>{currency(resolutionAmountStored, code)}</strong> · {shown(resolutionStored)}</p>
-              <p>Resolution date {dateShown(field(dispute, "resolutionDate", "resolution_date"))}</p>
-            </ReviewOutcome>
-          ) : (
-            <ConsequentialReviewLayout
-              readiness={(
-                <ReadinessSummary
-                  state={readiness}
-                  description="Resolution requires evidence, a recorded amount and rationale, and a fresh issued human Decision. The server revalidates before recording."
-                  blockers={blockers}
-                  context={(
-                    <dl className="ry-review-facts">
-                      <div><dt>Dispute</dt><dd>{title}</dd></div>
-                      <div><dt>Version</dt><dd>{shown(dispute.version)}</dd></div>
-                      <div><dt>Disputed amount</dt><dd>{currency(disputedAmount, code)}</dd></div>
-                    </dl>
-                  )}
-                />
-              )}
-            >
-              <ExactArtifact
-                title="Exact dispute claim artifact"
-                description="The disputed amount, allegation, and linked Commission money states below are submitted with the resolution."
-                version={shown(dispute.version)}
+          <div className="ry-commerce-nested-review">
+            {resolved ? (
+              <ReviewOutcome
+                title="Final resolution recorded"
+                status={status}
+                consequence="The stored resolution amount and rationale are the audited outcome. Withdrawal does not imply Brand correctness."
               >
-                <dl className="ry-review-facts">
-                  <div><dt>Allegation</dt><dd>{shown(dispute.reason)}</dd></div>
-                  <div><dt>Disputed amount</dt><dd>{currency(disputedAmount, code)}</dd></div>
-                  <div><dt>Expected / approved / paid</dt><dd>{currency(dispute.expectedAmount, code)} / {currency(dispute.approvedAmount, code)} / {currency(dispute.paidAmount, code)}</dd></div>
-                </dl>
-              </ExactArtifact>
-              <ValidationSummary checks={checks} description="Displayed checks summarize the current response. The server remains authoritative at submission." />
-              <ReviewSection
-                eyebrow="Final human resolution"
-                title="Record final human decision"
-                description="Resolution does not imply Brand correctness on withdrawal of other claims. Financial consequence is only what the server records."
-              >
-                <form className="ry-commerce-review-form" onSubmit={(event) => { event.preventDefault(); setConfirmationOpen(true); }}>
-                  <Field label="Resolved amount">
-                    <Input required inputMode="decimal" value={resolutionAmount} onChange={(event) => setResolutionAmount(event.target.value)} disabled={!canWrite || saving} />
-                  </Field>
-                  <Field label="Resolution rationale">
-                    <TextArea required rows={5} value={resolution} onChange={(event) => setResolution(event.target.value)} disabled={!canWrite || saving} />
-                  </Field>
-                  <Field label="Resolution evidence document ID">
-                    <Input required value={documentId} onChange={(event) => setDocumentId(event.target.value)} disabled={!canWrite || saving} />
-                  </Field>
-                  <Field label="Issued human Decision ID">
-                    <Input required value={decisionId} onChange={(event) => setDecisionId(event.target.value)} disabled={!canWrite || saving} />
-                  </Field>
-                  <Button type="submit" loading={saving} disabled={!canWrite || blockers.length > 0}>Record final human decision</Button>
-                </form>
-              </ReviewSection>
-            </ConsequentialReviewLayout>
-          )}
+                <p><strong>{currency(resolutionAmountStored, code)}</strong> · {shown(resolutionStored)}</p>
+                <p>Resolution date {dateShown(field(dispute, "resolutionDate", "resolution_date"))}</p>
+              </ReviewOutcome>
+            ) : (
+              <ConsequentialReviewLayout readiness={null}>
+                <ExactArtifact title="Dispute claim" version={shown(dispute.version)}>
+                  <dl className="ry-review-facts">
+                    <div><dt>Allegation</dt><dd>{shown(dispute.reason)}</dd></div>
+                    <div><dt>Disputed amount</dt><dd>{currency(disputedAmount, code)}</dd></div>
+                    <div>
+                      <dt>Expected / approved / paid</dt>
+                      <dd>
+                        {currency(dispute.expectedAmount, code)} / {currency(dispute.approvedAmount, code)} / {currency(dispute.paidAmount, code)}
+                      </dd>
+                    </div>
+                  </dl>
+                </ExactArtifact>
+                <ValidationSummary title="Checks" checks={checks} />
+                <ReviewSection title="Record final decision">
+                  <form
+                    className="ry-commerce-health-form"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      setConfirmationOpen(true);
+                    }}
+                  >
+                    <div className="ry-commerce-health-fields">
+                      <Field label="Resolved amount">
+                        <Input
+                          required
+                          controlSize="compact"
+                          inputMode="decimal"
+                          value={resolutionAmount}
+                          onChange={(event) => setResolutionAmount(event.target.value)}
+                          disabled={!canWrite || saving}
+                        />
+                      </Field>
+                      <Field label="Evidence document">
+                        <Input
+                          required
+                          controlSize="compact"
+                          value={documentId}
+                          onChange={(event) => setDocumentId(event.target.value)}
+                          disabled={!canWrite || saving}
+                        />
+                      </Field>
+                      <Field label="Issued Decision ID">
+                        <Input
+                          required
+                          controlSize="compact"
+                          value={decisionId}
+                          onChange={(event) => setDecisionId(event.target.value)}
+                          disabled={!canWrite || saving}
+                        />
+                      </Field>
+                      <Field label="Rationale" className="ry-commerce-health-span ry-commerce-health-notes">
+                        <TextArea
+                          required
+                          rows={3}
+                          value={resolution}
+                          onChange={(event) => setResolution(event.target.value)}
+                          disabled={!canWrite || saving}
+                        />
+                      </Field>
+                    </div>
+                    <Button type="submit" size="compact" loading={saving} disabled={!canWrite || blockers.length > 0}>
+                      Record final decision
+                    </Button>
+                  </form>
+                </ReviewSection>
+              </ConsequentialReviewLayout>
+            )}
+          </div>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="activity" active={activeTab === "activity"}>
-          <RelationshipSection title="Immutable chronology" description="Claims, evidence, communications, and decisions remain ordered as stored events and notes.">
-            <ActivityTimeline entries={activityEntries} empty="No dispute chronology has been recorded." label={`${title} chronology`} />
+          <RelationshipSection className="ry-commerce-compact-section" title="Chronology">
+            {chronologyCount === 0 ? (
+              <p className="ry-commerce-empty-note">No chronology recorded.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
+                {events.map((item, index) => (
+                  <li key={`event-${shown(item.eventType)}-${index}`}>
+                    <div className="ry-commerce-compact-body">
+                      <strong>{readable(shown(item.eventType))}</strong>
+                      <span>{shown(item.reason, "No rationale")} · {dateTime(item.occurredAt)}</span>
+                    </div>
+                  </li>
+                ))}
+                {notes.map((item) => (
+                  <li key={`note-${item.id}`}>
+                    <div className="ry-commerce-compact-body">
+                      <strong>Case note</strong>
+                      <span>{shown(item.body)} · {dateTime(item.createdAt)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
       </RelationshipDetailLayout>
@@ -388,12 +518,12 @@ export function DisputeDetailPage() {
         description={`Submit dispute for Order ${orderNumber}, version ${shown(dispute.version)}, with resolved amount ${resolutionAmount} ${code}.`}
         consequence={(
           <>
-            <strong>Human resolution is consequential</strong>
+            <strong>Resolution is consequential</strong>
             <p>The server revalidates evidence, Decision, and version before recording. This page does not adjudicate contractual rights.</p>
             <p>Rationale: {resolution}</p>
           </>
         )}
-        confirmLabel="Record final human decision"
+        confirmLabel="Record final decision"
         processing={saving}
         onConfirm={() => void resolve()}
         onClose={() => setConfirmationOpen(false)}

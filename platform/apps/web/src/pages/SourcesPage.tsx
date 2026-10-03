@@ -192,7 +192,7 @@ export function SourcesPage() {
               </DataRow>)}</tbody>
             </Table>
             <RegisterMobileList label="Evidence Sources">{visibleItems.map((source) => <RegisterMobileRow key={source.id} title={source.reference} meta={`${source.sourceType.replaceAll("_", " ")} · ${source.ownerOrProvider} · ${source.rightsClassification.replaceAll("_", " ")}`} status={<StatusLabel value={source.status} />} onOpen={() => setSelected(source)} openLabel={`Review Source ${source.reference}`} />)}</RegisterMobileList>
-            <RegisterPagination page={Math.min(page, pageCount)} pageCount={pageCount} total={filtered.length} onPage={setPage} />
+            <RegisterPagination page={Math.min(page, pageCount)} pageCount={pageCount} total={filtered.length} pageSize={pageSize} onPage={setPage} />
           </>
         )}
       </section>

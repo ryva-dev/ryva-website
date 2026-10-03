@@ -14,7 +14,8 @@ const ids = {
   canceledPaid: "10000000-0000-4000-8000-000000000008",
   canceledEnded: "10000000-0000-4000-8000-000000000009",
   admin: "10000000-0000-4000-8000-000000000010",
-  support: "10000000-0000-4000-8000-000000000011"
+  support: "10000000-0000-4000-8000-000000000011",
+  mentor: "10000000-0000-4000-8000-000000000012"
 } as const;
 
 export const syntheticPassword = "Synthetic!Passphrase2026";
@@ -23,7 +24,7 @@ type SeedUser = {
   id: string;
   email: string;
   name: string;
-  role: "representative" | "admin" | "support";
+  role: "representative" | "mentor" | "admin" | "support";
   credential?: {
     status: "active" | "expired" | "suspended" | "revoked";
     expiresAt: Date;
@@ -32,6 +33,11 @@ type SeedUser = {
   subscription?: {
     status: "active" | "canceled";
     currentPeriodEnd: Date;
+  };
+  program?: {
+    status: "active";
+    completedAt?: Date;
+    trialEndsAt?: Date;
   };
 };
 
@@ -55,6 +61,7 @@ export async function seedSynthetic(): Promise<void> {
       email: "active@synthetic.ryva.test",
       name: "Avery Active",
       role: "representative",
+      program: { status: "active", completedAt: days(-60), trialEndsAt: days(-30) },
       credential: { status: "active", expiresAt: days(365) },
       subscription: { status: "active", currentPeriodEnd: days(30) }
     },
@@ -63,6 +70,7 @@ export async function seedSynthetic(): Promise<void> {
       email: "uncertified@synthetic.ryva.test",
       name: "Uma Uncertified",
       role: "representative",
+      // A stray recurring entitlement must not bypass Program completion.
       subscription: { status: "active", currentPeriodEnd: days(30) }
     },
     {
@@ -70,30 +78,31 @@ export async function seedSynthetic(): Promise<void> {
       email: "grace@synthetic.ryva.test",
       name: "Gale Grace",
       role: "representative",
-      credential: { status: "expired", expiresAt: days(-5) },
-      subscription: { status: "active", currentPeriodEnd: days(30) }
+      program: { status: "active" },
+      credential: { status: "expired", expiresAt: days(-5) }
     },
     {
       id: ids.expired,
       email: "expired@synthetic.ryva.test",
       name: "Evan Expired",
       role: "representative",
-      credential: { status: "expired", expiresAt: days(-45) },
-      subscription: { status: "active", currentPeriodEnd: days(30) }
+      program: { status: "active", completedAt: days(-5), trialEndsAt: days(25) },
+      credential: { status: "expired", expiresAt: days(-45) }
     },
     {
       id: ids.suspendedRead,
       email: "suspended-read@synthetic.ryva.test",
       name: "Sage Suspended",
       role: "representative",
-      credential: { status: "suspended", expiresAt: days(180), readOnly: true },
-      subscription: { status: "active", currentPeriodEnd: days(30) }
+      program: { status: "active", completedAt: days(-5), trialEndsAt: days(25) },
+      credential: { status: "suspended", expiresAt: days(180), readOnly: true }
     },
     {
       id: ids.suspendedBlock,
       email: "suspended-blocked@synthetic.ryva.test",
       name: "Blake Blocked",
       role: "representative",
+      program: { status: "active", completedAt: days(-60), trialEndsAt: days(-30) },
       credential: { status: "suspended", expiresAt: days(180), readOnly: false },
       subscription: { status: "active", currentPeriodEnd: days(30) }
     },
@@ -102,6 +111,7 @@ export async function seedSynthetic(): Promise<void> {
       email: "revoked@synthetic.ryva.test",
       name: "Riley Revoked",
       role: "representative",
+      program: { status: "active", completedAt: days(-60), trialEndsAt: days(-30) },
       credential: { status: "revoked", expiresAt: days(180) },
       subscription: { status: "active", currentPeriodEnd: days(30) }
     },
@@ -110,6 +120,7 @@ export async function seedSynthetic(): Promise<void> {
       email: "canceled-paid@synthetic.ryva.test",
       name: "Casey Paid Through",
       role: "representative",
+      program: { status: "active", completedAt: days(-60), trialEndsAt: days(-30) },
       credential: { status: "active", expiresAt: days(365) },
       subscription: { status: "canceled", currentPeriodEnd: days(10) }
     },
@@ -118,6 +129,7 @@ export async function seedSynthetic(): Promise<void> {
       email: "canceled-ended@synthetic.ryva.test",
       name: "Cameron Ended",
       role: "representative",
+      program: { status: "active", completedAt: days(-60), trialEndsAt: days(-30) },
       credential: { status: "active", expiresAt: days(365) },
       subscription: { status: "canceled", currentPeriodEnd: days(-45) }
     },
@@ -132,6 +144,12 @@ export async function seedSynthetic(): Promise<void> {
       email: "support@synthetic.ryva.test",
       name: "Sam Support",
       role: "support"
+    },
+    {
+      id: ids.mentor,
+      email: "mentor-readonly@synthetic.ryva.test",
+      name: "Morgan Mentor",
+      role: "mentor"
     }
   ];
 
@@ -139,17 +157,23 @@ export async function seedSynthetic(): Promise<void> {
     for (const user of users) {
       const workspaceId = user.id.replace(/^1/, "2");
       const membershipId = user.id.replace(/^1/, "3");
+      const nameParts = user.name.trim().split(/\s+/).filter(Boolean);
+      const firstName = nameParts[0] ?? "";
+      const lastName = nameParts.slice(1).join(" ");
       await transaction.query(
         `INSERT INTO users
-          (id,email,email_verified_at,password_hash,name,status,mfa_secret_ciphertext)
-         VALUES ($1,$2,now(),$3,$4,'active',$5)
+          (id,email,email_verified_at,password_hash,first_name,last_name,name,status,mfa_secret_ciphertext)
+         VALUES ($1,$2,now(),$3,$4,$5,$6,'active',$7)
          ON CONFLICT (id) DO UPDATE SET email=excluded.email, password_hash=excluded.password_hash,
-           name=excluded.name, status='active', mfa_secret_ciphertext=excluded.mfa_secret_ciphertext,
+           first_name=excluded.first_name, last_name=excluded.last_name, name=excluded.name,
+           status='active', mfa_secret_ciphertext=excluded.mfa_secret_ciphertext,
            updated_at=now()`,
         [
           user.id,
           user.email,
           passwordHash,
+          firstName,
+          lastName,
           user.name,
           user.role === "admin"
             ? encryptSecret(adminMfaSecret, fieldKey)
@@ -218,6 +242,31 @@ export async function seedSynthetic(): Promise<void> {
             user.subscription.currentPeriodEnd
           ]
         );
+      } else {
+        await transaction.query("DELETE FROM subscription_entitlements WHERE user_id=$1", [user.id]);
+      }
+      if (user.program) {
+        await transaction.query(
+          `INSERT INTO program_entitlements
+            (id,user_id,status,entitlement_source,granted_at,completed_at,
+             pro_trial_started_at,pro_trial_ends_at)
+           VALUES ($1,$2,$3,'synthetic',$4,$5,$5,$6)
+           ON CONFLICT (user_id) DO UPDATE SET status=excluded.status,
+             entitlement_source='synthetic',granted_at=excluded.granted_at,
+             completed_at=excluded.completed_at,
+             pro_trial_started_at=excluded.pro_trial_started_at,
+             pro_trial_ends_at=excluded.pro_trial_ends_at,updated_at=now()`,
+          [
+            user.id.replace(/^1/, "6"),
+            user.id,
+            user.program.status,
+            days(-90),
+            user.program.completedAt ?? null,
+            user.program.trialEndsAt ?? null
+          ]
+        );
+      } else {
+        await transaction.query("DELETE FROM program_entitlements WHERE user_id=$1", [user.id]);
       }
     }
 
@@ -291,8 +340,7 @@ export async function seedSynthetic(): Promise<void> {
     [
       "Synthetic Ryva Pro fixtures are ready.",
       `Representative login: active@synthetic.ryva.test / ${syntheticPassword}`,
-      `Synthetic admin TOTP secret: ${adminMfaSecret}`,
-      `Synthetic support TOTP secret: ${supportMfaSecret}`,
+      "Synthetic staff MFA secrets were generated and encrypted in the test database.",
       "These identities are synthetic and must never be used in production."
     ].join("\n") + "\n"
   );

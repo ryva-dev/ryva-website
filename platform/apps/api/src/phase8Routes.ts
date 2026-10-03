@@ -175,7 +175,7 @@ export function registerPhase8Routes({
       contract:{
         input:["authorized records","evidence IDs","source freshness","data-lineage versions"],
         output:["model version","model inference classification","confidence","explanation","limitations"],
-        governance:["human review status","monitoring references","rollback control","training-data permitted use"]
+        governance:["review status","monitoring references","rollback control","training-data permitted use"]
       }
     });
   });

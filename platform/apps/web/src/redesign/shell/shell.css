@@ -9,6 +9,7 @@
   grid-template-columns: var(--width-sidebar-expanded) minmax(var(--size-0), 1fr);
   color: var(--color-text-default);
   background: var(--color-surface-canvas);
+  border-top: var(--border-width-0);
   transition: grid-template-columns var(--duration-standard) var(--ease-standard);
 }
 
@@ -19,11 +20,347 @@
 .ry-shell-canvas {
   min-width: var(--size-0);
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--color-surface-canvas);
 }
 
 .ry-shell-canvas > .banner {
   margin: var(--space-4) var(--layout-page-gutter) var(--space-0);
+}
+
+/* Workspace chrome — search + notifications, wired to existing routes. */
+.ry-workspace-topbar {
+  position: sticky;
+  top: var(--size-0);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--layout-page-gutter) var(--space-2);
+  background: var(--color-surface-canvas);
+}
+
+.ry-workspace-search {
+  position: relative;
+  flex: 1;
+  min-width: var(--size-0);
+  max-width: var(--length-30rem);
+  min-height: var(--control-height-default);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-inline: auto;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-muted);
+  background: var(--color-surface-subtle);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-14);
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.ry-workspace-search:hover,
+.ry-workspace-search:focus-within,
+.ry-workspace-search-open {
+  color: var(--color-text-default);
+  background: var(--color-surface-hover);
+}
+
+.ry-workspace-search-input {
+  flex: 1;
+  min-width: var(--size-0);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  color: var(--color-text-default);
+  background: transparent;
+  border: var(--border-width-0);
+  outline: none;
+  font: inherit;
+  line-height: var(--line-height-20);
+}
+
+.ry-workspace-search-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.ry-workspace-search-input::-webkit-search-cancel-button,
+.ry-workspace-search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.ry-workspace-search-results {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  top: calc(100% + var(--space-2));
+  left: var(--space-0);
+  right: var(--space-0);
+  display: grid;
+  gap: var(--space-0);
+  margin: var(--space-0);
+  padding: var(--space-2);
+  list-style: none;
+  max-height: min(70vh, var(--length-22rem));
+  overflow: auto;
+  color: var(--color-text-default);
+  background: var(--color-surface);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-3);
+  box-shadow: var(--elevation-menu);
+}
+
+.ry-workspace-search-result {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  margin: var(--space-0);
+  padding: var(--space-2) var(--space-3);
+  color: inherit;
+  text-align: start;
+  background: transparent;
+  border: var(--border-width-0);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+}
+
+.ry-workspace-search-results li.is-active .ry-workspace-search-result,
+.ry-workspace-search-result:hover {
+  background: var(--color-surface-hover);
+}
+
+.ry-workspace-search-result-title {
+  overflow: hidden;
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-18);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-workspace-search-result-meta {
+  overflow: hidden;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  line-height: var(--line-height-16);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.ry-workspace-search-status {
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+}
+
+.ry-workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.ry-workspace-actions .ry-shell-icon-button {
+  position: relative;
+  color: var(--color-text-muted);
+}
+
+.ry-workspace-actions .ry-shell-icon-button:hover {
+  color: var(--color-text-strong);
+  background: var(--color-surface-hover);
+}
+
+.ry-workspace-actions .ry-notification-count {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  min-width: var(--size-5);
+  height: var(--size-5);
+  padding: 0;
+  font-size: var(--font-size-11);
+  line-height: 1;
+}
+
+.ry-notifications-menu {
+  position: relative;
+}
+
+.ry-notifications-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.ry-notifications-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ry-notifications-menu-toolbar > summary,
+.ry-notifications-menu-mobile > summary {
+  position: relative;
+}
+
+.ry-notifications-popover {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  top: calc(100% + var(--space-2));
+  right: var(--space-0);
+  width: min(100vw - var(--space-8), var(--width-drawer-narrow));
+  display: grid;
+  gap: var(--space-0);
+  max-height: min(70vh, var(--length-28rem));
+  overflow: auto;
+  padding: var(--space-0);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-3);
+  box-shadow: var(--elevation-menu);
+}
+
+.ry-notifications-menu-sidebar .ry-notifications-popover {
+  top: auto;
+  bottom: calc(100% + var(--space-2));
+  right: auto;
+  left: var(--space-0);
+  width: var(--width-context-rail);
+}
+
+.ry-notifications-menu-mobile .ry-notifications-popover {
+  right: var(--space-0);
+  left: auto;
+}
+
+.ry-notifications-popover > header,
+.ry-notifications-popover > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ry-notifications-popover > header {
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-notifications-popover > header strong {
+  font-size: var(--font-size-14);
+}
+
+.ry-notifications-popover > header small,
+.ry-notifications-empty,
+.ry-notifications-error,
+.ry-notifications-item-meta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+}
+
+.ry-notifications-popover > footer {
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-notifications-popover > footer a {
+  color: var(--color-accent-text);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.ry-notifications-empty,
+.ry-notifications-error {
+  margin: var(--space-0);
+  padding: var(--space-4);
+}
+
+.ry-notifications-error {
+  color: var(--color-danger);
+}
+
+.ry-notifications-list {
+  display: grid;
+  gap: var(--space-0);
+  margin: var(--space-0);
+  padding: var(--space-0);
+  list-style: none;
+}
+
+.ry-notifications-list > li {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-notifications-list > li:last-child {
+  border-bottom: var(--border-width-0);
+}
+
+.ry-notifications-list > li.is-unread {
+  background: var(--color-surface-subtle);
+}
+
+.ry-notifications-list a {
+  display: grid;
+  gap: var(--space-1);
+  min-width: var(--size-0);
+  color: inherit;
+  text-decoration: none;
+}
+
+.ry-notifications-item-title {
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-18);
+  overflow-wrap: anywhere;
+}
+
+.ry-notifications-item-reason {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-16);
+  overflow-wrap: anywhere;
+}
+
+.ry-notifications-mark {
+  justify-self: start;
+  min-height: var(--control-height-compact);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-accent-text);
+  border: var(--border-width-1) solid var(--color-border-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.ry-notifications-mark:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.ry-sidebar .ry-notifications-menu-sidebar {
+  width: 100%;
+}
+
+.ry-sidebar .ry-notifications-menu-sidebar > summary.ry-shell-utility-link {
+  position: relative;
+  width: 100%;
+}
+
+.ry-mobile-topbar .ry-notifications-menu-mobile {
+  justify-self: end;
+}
+
+.ry-mobile-topbar .ry-notifications-menu-mobile > summary {
+  color: var(--color-shell-text);
+}
+
+@media (max-width: 63.999rem) {
+  .ry-workspace-topbar { display: none; }
 }
 
 .ry-sidebar {
@@ -38,12 +375,100 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3);
+  padding: var(--space-4) var(--space-3) var(--space-4) var(--space-5);
   overflow: visible;
-  color: var(--color-text-default);
-  background: var(--color-surface);
-  border-right: var(--border-width-1) solid var(--color-border);
+  color: var(--color-shell-text-muted);
+  background: var(--color-shell-bg);
+  border-right: var(--border-width-0);
+  box-shadow: var(--shell-edge-shadow);
   transition: width var(--duration-standard) var(--ease-standard);
+}
+
+/* Dark instrument-panel shell: sidebar, mobile top bar, and the mobile menu
+   sheet are a deliberately different material from the light workspace
+   canvas they surround. */
+.ry-sidebar,
+.ry-mobile-topbar,
+.ry-mobile-menu {
+  color-scheme: dark;
+}
+
+.ry-sidebar .ry-shell-brand,
+.ry-mobile-menu .ry-shell-brand {
+  color: var(--color-shell-wordmark);
+}
+
+.ry-sidebar .ry-shell-wordmark,
+.ry-mobile-topbar .ry-shell-wordmark,
+.ry-mobile-menu .ry-shell-wordmark {
+  color: var(--color-shell-wordmark);
+}
+
+.ry-sidebar .ry-shell-nav-group h2,
+.ry-sidebar .ry-shell-admin h2,
+.ry-mobile-utilities h2 {
+  color: var(--color-shell-text-faint);
+  text-transform: lowercase;
+}
+
+.ry-sidebar .ry-shell-link,
+.ry-sidebar .ry-shell-utility-link,
+.ry-sidebar .ry-shell-nested > summary,
+.ry-mobile-utilities a {
+  color: var(--color-shell-text-muted);
+}
+
+.ry-sidebar .ry-shell-link:hover,
+.ry-sidebar .ry-shell-utility-link:hover,
+.ry-sidebar .ry-shell-nested > summary:hover,
+.ry-mobile-utilities a:hover {
+  color: var(--color-shell-text);
+  background: var(--color-shell-bg-hover);
+}
+
+.ry-sidebar .ry-shell-link.active {
+  color: var(--color-shell-text);
+  background: var(--color-shell-bg-active);
+  box-shadow: inset var(--border-width-2) var(--size-0) var(--color-accent);
+}
+
+.ry-sidebar .ry-shell-icon-button {
+  color: var(--color-shell-text-muted);
+}
+
+.ry-sidebar .ry-shell-icon-button:hover {
+  color: var(--color-shell-text);
+  background: var(--color-shell-bg-hover);
+}
+
+.ry-sidebar .ry-profile-menu > summary {
+  color: var(--color-shell-text);
+}
+
+.ry-sidebar .ry-profile-menu > summary:hover {
+  background: var(--color-shell-bg-hover);
+}
+
+.ry-sidebar .ry-profile-summary strong {
+  color: var(--color-shell-text);
+}
+
+.ry-sidebar .ry-profile-summary small {
+  color: var(--color-shell-text-faint);
+}
+
+.ry-sidebar .ry-sidebar-footer,
+.ry-shell-collapsed .ry-sidebar .ry-shell-nav-group,
+.ry-shell-collapsed .ry-sidebar .ry-shell-admin {
+  border-color: var(--color-shell-border);
+}
+
+.ry-mobile-menu footer strong {
+  color: var(--color-shell-text);
+}
+
+.ry-mobile-menu footer small {
+  color: var(--color-shell-text-faint);
 }
 
 .ry-shell-collapsed .ry-sidebar {
@@ -58,9 +483,88 @@
 }
 
 .ry-sidebar > header {
-  min-height: var(--control-height-touch);
+  min-height: var(--line-height-38);
   justify-content: space-between;
+  align-items: center;
   gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* Dense sidebar body — keep brand/collapse header sizing unchanged. */
+.ry-sidebar {
+  gap: var(--space-1);
+  padding-block-end: var(--space-3);
+}
+
+.ry-sidebar .ry-shell-navigation {
+  gap: var(--space-3);
+}
+
+.ry-sidebar .ry-shell-nav-group,
+.ry-sidebar .ry-shell-admin,
+.ry-sidebar .ry-shell-nav-group > div,
+.ry-sidebar .ry-shell-nested-items {
+  gap: var(--space-0);
+}
+
+.ry-sidebar .ry-shell-nav-group h2,
+.ry-sidebar .ry-shell-admin h2 {
+  padding: var(--space-0) var(--space-3) var(--length-0-125rem);
+  line-height: var(--line-height-16);
+}
+
+.ry-sidebar .ry-shell-link,
+.ry-sidebar .ry-shell-utility-link,
+.ry-sidebar .ry-shell-nested > summary {
+  min-height: var(--length-1-875rem);
+  gap: var(--space-2);
+  padding: var(--length-0-2rem) var(--space-3);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-16);
+}
+
+.ry-sidebar .ry-shell-link .ry-shell-icon,
+.ry-sidebar .ry-shell-utility-link .ry-shell-icon,
+.ry-sidebar .ry-shell-nested > summary > .ry-shell-icon:first-of-type {
+  width: var(--icon-size-small);
+  height: var(--icon-size-small);
+  flex-basis: var(--icon-size-small);
+}
+
+.ry-sidebar .ry-shell-nested-items {
+  padding: var(--space-0) var(--space-0) var(--space-0) var(--space-5);
+}
+
+.ry-sidebar .ry-shell-admin {
+  margin-top: var(--space-2);
+}
+
+.ry-sidebar .ry-sidebar-footer {
+  gap: var(--space-0);
+  padding-top: var(--space-1);
+}
+
+.ry-sidebar .ry-profile-menu > summary {
+  min-height: var(--control-height-compact);
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+}
+
+.ry-sidebar .ry-profile-initials {
+  width: var(--length-1-625rem);
+  height: var(--length-1-625rem);
+  flex-basis: var(--length-1-625rem);
+  font-size: var(--font-size-11);
+}
+
+.ry-sidebar .ry-profile-summary strong {
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-16);
+}
+
+.ry-sidebar .ry-profile-summary small {
+  font-size: var(--font-size-11);
+  line-height: var(--line-height-16);
 }
 
 .ry-shell-brand {
@@ -68,43 +572,22 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--color-text-strong);
+  color: var(--color-shell-wordmark);
   text-decoration: none;
-}
-
-.ry-shell-monogram {
-  width: var(--control-height-default);
-  height: var(--control-height-default);
-  flex: 0 0 var(--control-height-default);
-  display: inline-grid;
-  place-items: center;
-  color: var(--color-text-on-accent);
-  background: var(--color-accent);
-  border-radius: var(--radius-2);
-  font-size: var(--font-size-16);
-  font-weight: var(--font-weight-bold);
 }
 
 .ry-shell-wordmark {
   min-width: var(--size-0);
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  white-space: nowrap;
-}
-
-.ry-shell-wordmark strong {
-  font-size: var(--font-size-18);
-  line-height: var(--line-height-24);
-  letter-spacing: var(--letter-spacing-tight);
-}
-
-.ry-shell-wordmark small {
-  color: var(--color-text-subtle);
-  font-size: var(--font-size-11);
+  color: var(--color-shell-wordmark);
+  font-family: var(--font-family-serif);
+  font-optical-sizing: auto;
+  font-size: var(--font-size-36);
   font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-16);
-  letter-spacing: var(--letter-spacing-wide);
+  line-height: var(--line-height-38);
+  letter-spacing: var(--length-neg-0-035em);
+  font-feature-settings: "kern" 1, "liga" 1;
+  text-transform: lowercase;
+  white-space: nowrap;
 }
 
 .ry-shell-icon {
@@ -140,6 +623,13 @@
   background: var(--color-surface-hover);
 }
 
+.ry-sidebar .ry-collapse-button {
+  width: var(--line-height-38);
+  height: var(--line-height-38);
+  flex: 0 0 var(--line-height-38);
+  align-self: center;
+}
+
 .ry-shell-collapsed .ry-collapse-button .ry-shell-icon {
   transform: rotate(180deg);
 }
@@ -161,7 +651,7 @@
 }
 
 .ry-shell-navigation {
-  gap: var(--space-4);
+  gap: var(--space-6);
 }
 
 .ry-shell-nav-group,
@@ -180,10 +670,10 @@
   padding: var(--space-1) var(--space-3);
   color: var(--color-text-subtle);
   font-size: var(--font-size-11);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   line-height: var(--line-height-16);
-  letter-spacing: var(--letter-spacing-wide);
-  text-transform: uppercase;
+  letter-spacing: var(--length-0-04em);
+  text-transform: lowercase;
 }
 
 .ry-shell-link,
@@ -284,7 +774,7 @@
   border-radius: var(--radius-pill);
   font-size: var(--font-size-11);
   font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-16);
+  line-height: 1;
 }
 
 .ry-profile-menu {
@@ -406,7 +896,6 @@
   background: var(--color-surface-hover);
 }
 
-.ry-shell-collapsed .ry-shell-wordmark,
 .ry-shell-collapsed .ry-shell-link-label,
 .ry-shell-collapsed .ry-shell-nav-group h2,
 .ry-shell-collapsed .ry-shell-admin h2,
@@ -416,8 +905,24 @@
   display: none;
 }
 
+.ry-shell-collapsed .ry-shell-wordmark {
+  font-size: var(--font-size-20);
+  line-height: var(--line-height-24);
+  letter-spacing: var(--length-neg-0-03em);
+}
+
 .ry-shell-collapsed .ry-sidebar > header {
   flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.ry-shell-collapsed .ry-collapse-button {
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
+  flex: 0 0 var(--control-height-compact);
 }
 
 .ry-shell-collapsed .ry-shell-brand,
@@ -511,7 +1016,6 @@
     box-shadow: var(--elevation-dialog);
   }
 
-  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-wordmark,
   .ry-shell:not(.ry-shell-tablet-open) .ry-shell-link-label,
   .ry-shell:not(.ry-shell-tablet-open) .ry-shell-nav-group h2,
   .ry-shell:not(.ry-shell-tablet-open) .ry-shell-admin h2,
@@ -521,8 +1025,24 @@
     display: none;
   }
 
+  .ry-shell:not(.ry-shell-tablet-open) .ry-shell-wordmark {
+    font-size: var(--font-size-20);
+    line-height: var(--line-height-24);
+    letter-spacing: var(--length-neg-0-03em);
+  }
+
   .ry-shell:not(.ry-shell-tablet-open) .ry-sidebar > header {
     flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+
+  .ry-shell:not(.ry-shell-tablet-open) .ry-collapse-button {
+    width: var(--control-height-compact);
+    height: var(--control-height-compact);
+    flex: 0 0 var(--control-height-compact);
   }
 
   .ry-shell:not(.ry-shell-tablet-open) .ry-shell-brand,
@@ -682,17 +1202,23 @@
       calc(var(--layout-page-gutter) + env(safe-area-inset-right))
       var(--space-2)
       calc(var(--layout-page-gutter) + env(safe-area-inset-left));
-    background: var(--color-surface);
-    border-bottom: var(--border-width-1) solid var(--color-border);
+    background: var(--color-shell-bg);
+    border-bottom: var(--border-width-1) solid var(--color-shell-border);
   }
 
   .ry-mobile-topbar .ry-shell-wordmark {
-    display: none;
+    display: inline;
+    color: var(--color-shell-wordmark);
+    font-family: var(--font-family-serif);
+    font-size: var(--font-size-24);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-28);
+    letter-spacing: var(--length-neg-0-035em);
   }
 
   .ry-mobile-topbar > strong {
     overflow: hidden;
-    color: var(--color-text-strong);
+    color: var(--color-shell-text);
     font-size: var(--font-size-14);
     font-weight: var(--font-weight-semibold);
     text-align: center;
@@ -700,15 +1226,26 @@
     white-space: nowrap;
   }
 
-  .ry-mobile-topbar > a:last-child {
+  .ry-mobile-topbar > a:last-child,
+  .ry-mobile-topbar .ry-notifications-menu-mobile,
+  .ry-mobile-topbar .ry-notifications-menu-mobile > summary {
     position: relative;
     width: var(--control-height-touch);
     height: var(--control-height-touch);
     display: inline-grid;
     place-items: center;
     justify-self: end;
-    color: var(--color-text-muted);
+    color: var(--color-shell-text-muted);
     border-radius: var(--radius-2);
+  }
+
+  .ry-mobile-topbar .ry-notifications-menu-mobile > summary {
+    width: 100%;
+    height: 100%;
+    margin: var(--space-0);
+    padding: var(--space-0);
+    border: none;
+    background: transparent;
   }
 
   .ry-mobile-topbar .ry-notification-count {
@@ -810,7 +1347,7 @@
     max-height: 100dvh;
     display: flex;
     flex-direction: column;
-    background: var(--color-surface);
+    background: var(--color-shell-bg);
     animation: ry-mobile-menu-enter var(--duration-standard) var(--ease-standard);
   }
 
@@ -823,7 +1360,7 @@
       calc(var(--layout-page-gutter) + env(safe-area-inset-right))
       var(--space-3)
       calc(var(--layout-page-gutter) + env(safe-area-inset-left));
-    border-bottom: var(--border-width-1) solid var(--color-border);
+    border-bottom: var(--border-width-1) solid var(--color-shell-border);
   }
 
   .ry-mobile-menu > header p,
@@ -832,7 +1369,7 @@
   }
 
   .ry-mobile-menu > header h2 {
-    color: var(--color-text-strong);
+    color: var(--color-shell-text);
     font-size: var(--font-size-18);
     line-height: var(--line-height-24);
   }
@@ -868,7 +1405,7 @@
     gap: var(--space-1);
     margin-top: var(--space-5);
     padding-top: var(--space-5);
-    border-top: var(--border-width-1) solid var(--color-border);
+    border-top: var(--border-width-1) solid var(--color-shell-border);
   }
 
   .ry-mobile-utilities a .status-label {
@@ -881,7 +1418,7 @@
     gap: var(--space-3);
     margin-top: var(--space-5);
     padding-top: var(--space-5);
-    border-top: var(--border-width-1) solid var(--color-border);
+    border-top: var(--border-width-1) solid var(--color-shell-border);
   }
 
   .ry-mobile-menu footer > span:nth-child(2) {

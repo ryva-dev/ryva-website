@@ -1,5 +1,5 @@
 import type { AppConfig } from "../../config/src/index.js";
-import type { Database } from "../../database/src/index.js";
+import type { Database, Transaction } from "../../database/src/index.js";
 import { oneOrNone } from "../../database/src/index.js";
 import { newId } from "../../shared/src/index.js";
 import { randomToken, secureDigest } from "./crypto.js";
@@ -92,7 +92,7 @@ export async function revokeSession(
 }
 
 export async function revokeUserSessions(
-  database: Database,
+  database: Database | Transaction,
   userId: string,
   reason: string
 ): Promise<number> {

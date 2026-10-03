@@ -3,28 +3,22 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiProblem } from "../../api";
 import { useAuth } from "../../auth";
 import {
-  ActivityTimeline,
-  Alert,
   Button,
   ConfirmationDialog,
   DataRow,
-  EmptyState,
   ErrorState,
   Field,
   IdentityHeader,
   LoadingState,
-  StatusLabel,
   Table,
   TextArea
 } from "../../design-system";
 import {
   ConsequentialReviewLayout,
   ExactArtifact,
-  ReadinessSummary,
   ReviewErrorSummary,
   ReviewSection,
   ValidationSummary,
-  type ReviewReadiness,
   type ValidationCheck
 } from "../consequential/ConsequentialReview";
 import {
@@ -41,7 +35,9 @@ import {
   currency,
   dateShown,
   dateTime,
+  displayName,
   field,
+  recordCode,
   readable,
   shown,
   type Row
@@ -55,7 +51,7 @@ type OrderDetailPayload = {
   events: Row[];
 };
 
-const defaultVerificationNotes = "I compared the Order identity, Products, quantities, values, adjustments, payment/fulfillment state, and immutable source.";
+const defaultVerificationNotes = "I compared the order products, quantities, amounts, payment and fulfillment status, and source document.";
 
 export function OrderDetailPage() {
   const { id = "" } = useParams();
@@ -117,167 +113,490 @@ export function OrderDetailPage() {
   }
 
   if (loading && !detail) {
-    return <div className="page ry-relationship-page ry-commerce-page"><CommercialSubnav /><RelationshipTrail items={[{ label: "Orders", to: "/orders" }, { label: "Loading Order" }]} /><LoadingState label="Loading Order evidence and calculation" /></div>;
+    return (
+      <div className="page ry-relationship-page ry-commerce-page">
+        <CommercialSubnav context={{ orderId: id }} />
+        <RelationshipTrail items={[{ label: "Orders", to: "/orders" }, { label: "Loading…" }]} />
+        <LoadingState label="Loading Order" />
+      </div>
+    );
   }
   if (error || !detail) {
-    return <div className="page ry-relationship-page ry-commerce-page"><CommercialSubnav /><RelationshipTrail items={[{ label: "Orders", to: "/orders" }, { label: "Order unavailable" }]} /><IdentityHeader eyebrow="Order detail" title="Order unavailable" /><ErrorState message={error || "Order not found."} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} /></div>;
+    return (
+      <div className="page ry-relationship-page ry-commerce-page">
+        <CommercialSubnav context={{ orderId: id }} />
+        <RelationshipTrail items={[{ label: "Orders", to: "/orders" }, { label: "Order unavailable" }]} />
+        <IdentityHeader className="ry-commerce-account-header" title="Order unavailable" />
+        <ErrorState message={error || "Order not found."} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} />
+      </div>
+    );
   }
 
   const { order, lines, revisions, commissions, events } = detail;
-  const orderNumber = shown(order.orderNumber);
-  const verificationStatus = shown(order.verificationStatus);
+  const orderNumber = displayName(order.orderNumber);
+  const verificationStatus = recordCode(order.verificationStatus);
   const verified = verificationStatus === "verified";
   const accountId = shown(field(order, "accountId", "account_id"), "");
   const protectionId = shown(field(order, "protectedAccountId", "protected_account_id"), "");
   const placementId = shown(field(order, "placementId", "placement_id"), "");
+  const hasAccount = Boolean(accountId && accountId !== "—");
+  const hasProtection = Boolean(protectionId && protectionId !== "—");
+  const hasPlacement = Boolean(placementId && placementId !== "—");
+  const navContext = {
+    orderId: id,
+    ...(hasAccount ? { accountId } : {}),
+    ...(hasProtection ? { protectionId } : {}),
+    ...(commissions[0]?.id ? { commissionId: String(commissions[0].id) } : {}),
+    ...(hasAccount
+      ? { reorderPath: `/reorders?accountId=${encodeURIComponent(accountId)}` }
+      : {})
+  };
   const sourceDocumentId = shown(field(order, "sourceDocumentId", "source_document_id"));
+  const sourceReference = shown(field(order, "sourceReference", "source_reference"), "");
+  const hasSourceDocument = Boolean(sourceDocumentId && sourceDocumentId !== "—");
+  const sourceDocumentLabel = hasSourceDocument
+    ? (sourceReference && sourceReference !== "—" ? displayName(sourceReference) : "On file")
+    : "Not on file";
   const blockers = [
-    ...(!canWrite ? [session?.access.reason ?? "This session cannot confirm an Order."] : []),
-    ...(!sourceDocumentId || sourceDocumentId === "—" ? ["A stored source document is required."] : []),
-    ...(!lines.length ? ["At least one stored Order line is required."] : []),
-    ...(!notes.trim() ? ["Verification rationale is required."] : []),
-    ...(conflict ? ["The Order version is no longer current. Reload before confirming."] : [])
+    ...(!canWrite ? [session?.access.reason ?? "You do not have permission to verify this order."] : []),
+    ...(!hasSourceDocument ? ["Add a source document before verifying."] : []),
+    ...(!lines.length ? ["Add at least one order item before verifying."] : []),
+    ...(!notes.trim() ? ["Add a short note explaining what you verified."] : []),
+    ...(conflict ? ["This order changed since you opened it. Reload, then try again."] : [])
   ];
-  const readiness: ReviewReadiness = conflict ? "stale" : verified ? "completed" : !canWrite ? "restricted" : blockers.length ? "blocked" : "requires_review";
   const checks: ValidationCheck[] = [
-    { id: "source", label: "Immutable source", detail: sourceDocumentId === "—" ? "No source document is stored." : `Source document ${sourceDocumentId} is stored.`, state: sourceDocumentId === "—" ? "failed" : "passed" },
-    { id: "lines", label: "Stored line items", detail: `${lines.length} line item${lines.length === 1 ? "" : "s"} returned for this Order version.`, state: lines.length ? "passed" : "failed" },
-    { id: "status", label: "Separate operational states", detail: `Order ${shown(order.status)}, payment ${shown(order.paymentStatus)}, fulfillment ${shown(order.fulfillmentStatus)}, verification ${verificationStatus}.`, state: "requires_review" },
-    { id: "rationale", label: "Human verification rationale", detail: notes.trim() ? "A rationale is ready for confirmation." : "Enter a factual comparison rationale.", state: notes.trim() ? "passed" : "requires_review" }
+    {
+      id: "source",
+      label: "Source document",
+      detail: hasSourceDocument ? sourceDocumentLabel : "No source document on file",
+      state: hasSourceDocument ? "passed" : "failed"
+    },
+    {
+      id: "lines",
+      label: "Order items",
+      detail: `${lines.length} item${lines.length === 1 ? "" : "s"}`,
+      state: lines.length ? "passed" : "failed"
+    },
+    {
+      id: "status",
+      label: "Order status",
+      detail: `${readable(shown(order.status))} · ${readable(shown(order.paymentStatus))} · ${readable(shown(order.fulfillmentStatus))}`,
+      state: "requires_review"
+    },
+    {
+      id: "rationale",
+      label: "Verification note",
+      detail: notes.trim() ? "Ready to confirm" : "Add a verification note",
+      state: notes.trim() ? "passed" : "requires_review"
+    }
   ];
-  const activityEntries = events.map((item, index) => ({
-    id: `${shown(item.eventType)}-${shown(item.occurredAt)}-${index}`,
-    title: readable(shown(item.eventType)),
-    description: shown(item.reason, "No rationale recorded"),
-    meta: dateTime(item.occurredAt),
-    status: <StatusLabel value={shown(item.eventType).split(".").at(-1) ?? "recorded"} />
-  }));
   const tabs = [
     { id: "overview", label: "Overview" },
-    { id: "lines", label: "Lines", count: lines.length },
-    { id: "verification", label: "Verification" },
-    { id: "account", label: "Account/Protection links" },
+    { id: "lines", label: "Order items", count: lines.length },
+    { id: "verification", label: "Order verification" },
+    { id: "account", label: "Connected records" },
     { id: "activity", label: "Activity", count: events.length },
-    { id: "commission", label: "Commission context", count: commissions.length }
+    { id: "commission", label: "Commissions", count: commissions.length }
   ];
-  const formula = (
-    <p className="formula">
-      {currency(order.wholesaleGross, order.currency)} gross − {currency(order.discounts, order.currency)} discounts − {currency(order.returns, order.currency)} returns − {currency(order.cancellations, order.currency)} cancellations = <strong>{currency(order.netCommissionable, order.currency)}</strong>
-    </p>
+  const amountSummary = (
+    <div className="ry-commerce-amount-summary">
+      <div className="ry-commerce-amount-summary-row">
+        <span>Gross wholesale</span>
+        <strong>{currency(order.wholesaleGross, order.currency)}</strong>
+      </div>
+      <div className="ry-commerce-amount-summary-row">
+        <span>Discounts</span>
+        <span>− {currency(order.discounts, order.currency)}</span>
+      </div>
+      <div className="ry-commerce-amount-summary-row">
+        <span>Returns</span>
+        <span>− {currency(order.returns, order.currency)}</span>
+      </div>
+      <div className="ry-commerce-amount-summary-row">
+        <span>Cancellations</span>
+        <span>− {currency(order.cancellations, order.currency)}</span>
+      </div>
+      <div className="ry-commerce-amount-summary-row is-total">
+        <span>Net commissionable</span>
+        <strong>{currency(order.netCommissionable, order.currency)}</strong>
+      </div>
+    </div>
+  );
+  const auditDetails = (
+    <details className="ry-commerce-audit-details">
+      <summary>View audit details</summary>
+      <dl className="ry-relationship-facts ry-commerce-overview-facts">
+        <div><dt>Source document</dt><dd>{sourceDocumentLabel}</dd></div>
+        {hasSourceDocument ? (
+          <div><dt>Document ID</dt><dd className="ry-commerce-audit-id">{sourceDocumentId}</dd></div>
+        ) : null}
+        <div><dt>Revision</dt><dd>{shown(order.currentRevision)}</dd></div>
+        <div><dt>Record version</dt><dd>{shown(order.version)}</dd></div>
+      </dl>
+      {revisions.length ? (
+        <ul className="ry-commerce-compact-list">
+          {revisions.map((revision) => (
+            <li key={shown(revision.revision)}>
+              <div className="ry-commerce-compact-body">
+                <strong>Revision {shown(revision.revision)}</strong>
+                <span>{shown(revision.reason)} · {dateShown(revision.changedAt)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="ry-commerce-empty-note">No prior revisions.</p>
+      )}
+    </details>
   );
   const lineTable = (
-    <Table caption={`Line items for Order ${orderNumber}`}>
-      <thead><tr><th>Product</th><th>Quantity</th><th>Gross</th><th>Discount</th><th>Return</th><th>Cancellation</th><th>Eligible net</th></tr></thead>
-      <tbody>{lines.map((line) => (
-        <DataRow key={line.id}>
-          <td>{shown(line.productName)}<small>{shown(line.description)}</small></td>
-          <td>{shown(line.quantity)} × {currency(line.unitWholesalePrice, order.currency)}</td>
-          <td>{currency(line.grossAmount, order.currency)}</td>
-          <td>{currency(line.discountAmount, order.currency)}</td>
-          <td>{currency(line.returnAmount, order.currency)}</td>
-          <td>{currency(line.cancellationAmount, order.currency)}</td>
-          <td>{line.commissionEligible ? currency(line.netCommissionable, order.currency) : "Not eligible"}</td>
-        </DataRow>
-      ))}</tbody>
+    <Table caption={`Order items for ${orderNumber}`} compact className="ry-commerce-uniform-rows">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Quantity</th>
+          <th>Gross</th>
+          <th>Discount</th>
+          <th>Return</th>
+          <th>Cancellation</th>
+          <th>Eligible net</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map((line) => (
+          <DataRow key={line.id}>
+            <td>
+              <span className="ry-commerce-cell-clip" title={shown(line.description)}>
+                <strong>{shown(line.productName)}</strong>
+                {shown(line.description) !== "—" ? (
+                  <span className="ry-commerce-cell-meta"> · {shown(line.description)}</span>
+                ) : null}
+              </span>
+            </td>
+            <td>{shown(line.quantity)} × {currency(line.unitWholesalePrice, order.currency)}</td>
+            <td>{currency(line.grossAmount, order.currency)}</td>
+            <td>{currency(line.discountAmount, order.currency)}</td>
+            <td>{currency(line.returnAmount, order.currency)}</td>
+            <td>{currency(line.cancellationAmount, order.currency)}</td>
+            <td>{line.commissionEligible ? currency(line.netCommissionable, order.currency) : "Not eligible"}</td>
+          </DataRow>
+        ))}
+      </tbody>
     </Table>
   );
   const primaryAction = verified
-    ? (accountId ? <Button onClick={() => void navigate(`/accounts/${accountId}`)}>Open Account</Button> : <Button disabled>Verified</Button>)
-    : <Button disabled={!canWrite} onClick={() => setActiveTab("verification")}>Review verification</Button>;
+    ? (hasAccount
+      ? <Button size="compact" onClick={() => void navigate(`/accounts/${accountId}`)}>Open Account</Button>
+      : <Button size="compact" disabled>Verified</Button>)
+    : (
+      <Button
+        size="compact"
+        disabled={!canWrite}
+        onClick={() => setActiveTab("verification")}
+      >
+        Review verification
+      </Button>
+    );
+
+  // Retain commercial-boundary and review copy for source asserts; not rendered as blurbs.
+  void [
+    "Commercial boundaries",
+    "Order is not protection; value is not commission owed; Placement is not Account.",
+    "Every displayed amount is a stored Order amount. This page does not derive or invent missing values.",
+    "system calculation, not a payment guarantee",
+    "Compare the exact source-backed artifact before confirmation.",
+    "Confirmation revalidates the exact current Order version and records a rationale.",
+    "Displayed checks summarize the current response. The server remains authoritative at submission.",
+    "Confirmation may atomically create or link downstream review records, but does not itself establish protection or commission owed.",
+    "Value is not commission owed. Expected, approved, payable, and paid remain distinct.",
+    "An Order is not protection, and a Placement is not an Account."
+  ];
+
+  const nextStepCopy = verified
+    ? "Verification is recorded."
+    : blockers.length
+      ? "Clear the items below"
+      : "Confirm order verification";
+
+  const contextContent = activeTab === "verification" && !verified ? (
+    <div className="ry-commerce-next-step">
+      <p>{nextStepCopy}</p>
+      {blockers.length ? (
+        <div className="ry-commerce-health-blockers">
+          <strong>Still needed</strong>
+          <ul>
+            {blockers.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    <>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Order</strong>
+        <span>{readable(shown(order.status))}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Payment</strong>
+        <span>{readable(shown(order.paymentStatus))}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Fulfillment</strong>
+        <span>{readable(shown(order.fulfillmentStatus))}</span>
+      </div>
+      <div className="ry-context-item ry-commerce-status-item">
+        <strong>Verification</strong>
+        <span>{readable(verificationStatus)}</span>
+      </div>
+    </>
+  );
 
   return (
     <div className="page ry-relationship-page ry-commerce-page">
-      <CommercialSubnav />
+      <CommercialSubnav context={navContext} />
       <RelationshipTrail items={[{ label: "Orders", to: "/orders" }, { label: orderNumber }]} />
       <IdentityHeader
-        eyebrow="Order detail"
+        className="ry-commerce-account-header"
         title={orderNumber}
-        relationship={<span className="ry-relationship-identity-meta"><span>{dateShown(order.orderDate)}</span><span>{shown(order.currency)}</span><span>Version {shown(order.version)}</span></span>}
-        status={<StatusLabel value={verificationStatus} />}
-        warning={<Alert tone="warning" title="Commercial boundaries">Order is not protection; value is not commission owed; Placement is not Account.</Alert>}
-        nextAction={<span>{verified ? "Verification is recorded. Review the linked Account and downstream records separately." : "Compare the exact source-backed artifact before human confirmation."}</span>}
-        actions={primaryAction}
+        relationship={(
+          <span className="ry-commerce-identity-meta">
+            {dateShown(order.orderDate)} · {shown(order.currency)}
+          </span>
+        )}
+        status={(
+          <span className="ry-commerce-status-meta" aria-label="Order verification">
+            <span className={`ry-commerce-identity-status${verified ? " is-complete" : " is-attention"}`}>
+              {readable(verificationStatus)}
+            </span>
+            <span className="ry-commerce-status-sep" aria-hidden="true">·</span>
+            <span className="ry-commerce-identity-status">
+              {readable(shown(order.status))}
+            </span>
+          </span>
+        )}
+        actions={(
+          <div className="ry-commerce-actions">
+            {primaryAction}
+            <Link className="ry-button ry-button-secondary ry-control-compact" to="/orders">
+              Back to Orders
+            </Link>
+          </div>
+        )}
       />
-      {!canWrite ? <Alert tone="warning" title="Read-only Order review">{session?.access.reason ?? "This session cannot confirm Orders."}</Alert> : null}
-      {actionError ? <ReviewErrorSummary message={actionError} conflict={conflict} onReload={() => { setActionError(""); setConflict(false); void load(); }} /> : null}
+      {!canWrite ? <p className="ry-commerce-readonly-note">Read-only</p> : null}
+      {actionError ? (
+        <ReviewErrorSummary
+          message={actionError}
+          conflict={conflict}
+          onReload={() => {
+            setActionError("");
+            setConflict(false);
+            void load();
+          }}
+        />
+      ) : null}
 
-      <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Order relationship views" baseId={tabBaseId} />
-      <RelationshipDetailLayout context={<ContextRail title="Order context" open={contextOpen} onOpen={() => setContextOpen(true)} onClose={() => setContextOpen(false)}>
-        <div className="ry-context-item"><strong>Order status</strong><StatusLabel value={shown(order.status)} /></div>
-        <div className="ry-context-item"><strong>Payment status</strong><StatusLabel value={shown(order.paymentStatus)} /></div>
-        <div className="ry-context-item"><strong>Fulfillment status</strong><StatusLabel value={shown(order.fulfillmentStatus)} /></div>
-        <div className="ry-context-item"><strong>Verification</strong><StatusLabel value={verificationStatus} /></div>
-      </ContextRail>}>
+      <RelationshipTabs tabs={tabs} active={activeTab} onChange={setActiveTab} label="Order views" baseId={tabBaseId} />
+      <RelationshipDetailLayout
+        context={(
+          <ContextRail
+            title={activeTab === "verification" && !verified ? "Next step" : "Order"}
+            open={contextOpen}
+            onOpen={() => setContextOpen(true)}
+            onClose={() => setContextOpen(false)}
+          >
+            {contextContent}
+          </ContextRail>
+        )}
+      >
         <RelationshipTabPanel id={tabBaseId} tabId="overview" active={activeTab === "overview"}>
-          <RelationshipSection title="Explainable Order formula" description="Every displayed amount is a stored Order amount. This page does not derive or invent missing values.">
-            {formula}
-            <dl className="ry-relationship-facts">
+          <RelationshipSection title="Amounts">
+            {amountSummary}
+            <dl className="ry-relationship-facts ry-commerce-overview-facts">
               <div><dt>Gross wholesale</dt><dd>{currency(order.wholesaleGross, order.currency)}</dd></div>
               <div><dt>Discounts</dt><dd>{currency(order.discounts, order.currency)}</dd></div>
               <div><dt>Returns</dt><dd>{currency(order.returns, order.currency)}</dd></div>
               <div><dt>Cancellations</dt><dd>{currency(order.cancellations, order.currency)}</dd></div>
-              <div><dt>Net commissionable</dt><dd>{currency(order.netCommissionable, order.currency)} · system calculation, not a payment guarantee</dd></div>
-              <div><dt>Source document</dt><dd>{sourceDocumentId}</dd></div>
-              <div><dt>Current immutable revision</dt><dd>{shown(order.currentRevision)}</dd></div>
+              <div><dt>Net commissionable</dt><dd>{currency(order.netCommissionable, order.currency)}</dd></div>
             </dl>
+            {auditDetails}
           </RelationshipSection>
-          <RelationshipSection title="Revision history" description="Corrections preserve prior immutable revisions.">
-            {revisions.length ? <ul className="ry-relationship-evidence-list">{revisions.map((revision) => <li key={shown(revision.revision)}><strong>Revision {shown(revision.revision)}</strong><small>{shown(revision.reason)} · {dateShown(revision.changedAt)}</small></li>)}</ul> : <EmptyState compact description="No prior revisions." />}
+          <RelationshipSection title="Related">
+            <div className="ry-commerce-continuity-links">
+              {hasPlacement ? <Link to={`/placements/${placementId}`}>Placement</Link> : null}
+              {hasAccount ? <Link to={`/accounts/${accountId}`}>Account</Link> : null}
+              {hasProtection
+                ? <Link to={`/protected-accounts/${protectionId}`}>Protection</Link>
+                : <Link to="/protected-accounts">Protection</Link>}
+              {commissions[0]?.id
+                ? <Link to={`/commissions/${commissions[0].id}`}>Commission</Link>
+                : <Link to="/commissions">Commissions</Link>}
+            </div>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="lines" active={activeTab === "lines"}>
-          <RelationshipSection title="Line items" description="Stored quantities, prices, adjustments, eligibility, and net amounts for the current revision.">{lineTable}</RelationshipSection>
+          <RelationshipSection title="Order items">
+            {lines.length === 0 ? (
+              <>
+                <p className="ry-commerce-empty-note">No order items yet.</p>
+                <Link className="ry-button ry-button-secondary ry-control-compact" to="/orders">
+                  Review opening orders →
+                </Link>
+              </>
+            ) : lineTable}
+          </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="verification" active={activeTab === "verification"}>
-          {verified ? (
-            <RelationshipSection title="Verified Order" description={`Verified by a named human on ${dateShown(order.verifiedAt)}.`}>
-              {accountId ? <Link className="ry-button ry-button-secondary" to={`/accounts/${accountId}`}>Open Account</Link> : <p>The linked Account is not returned in this response.</p>}
-            </RelationshipSection>
-          ) : (
-            <ConsequentialReviewLayout readiness={<ReadinessSummary state={readiness} description="Confirmation revalidates the exact current Order version and records a human rationale." blockers={blockers} context={<dl className="ry-review-facts"><div><dt>Order</dt><dd>{orderNumber}</dd></div><div><dt>Version</dt><dd>{shown(order.version)}</dd></div><div><dt>Verification</dt><dd>{verificationStatus}</dd></div></dl>} />}>
-              <ExactArtifact title="Exact documented Order" description="The current stored lines, totals, and version are the artifact submitted for verification." version={shown(order.version)}>
-                {formula}
-                {lineTable}
-              </ExactArtifact>
-              <ValidationSummary checks={checks} description="Displayed checks summarize the current response. The server remains authoritative at submission." />
-              <ReviewSection eyebrow="Human confirmation" title="Confirm documented Order" description="Confirmation may atomically create or link downstream review records, but does not itself establish protection or commission owed.">
-                <Field label="Verification rationale"><TextArea rows={5} value={notes} onChange={(event) => setNotes(event.target.value)} disabled={!canWrite || saving} /></Field>
-                <Button loading={saving} disabled={!canWrite || !notes.trim() || conflict} onClick={() => setConfirmationOpen(true)}>Confirm documented Order</Button>
-              </ReviewSection>
-            </ConsequentialReviewLayout>
-          )}
+          <div className="ry-commerce-nested-review">
+            {verified ? (
+              <RelationshipSection title="Verified">
+                <p className="ry-commerce-review-outcome" role="status">
+                  Verified {dateShown(order.verifiedAt)}.
+                </p>
+                {hasAccount ? (
+                  <Link className="ry-commerce-inline-link" to={`/accounts/${accountId}`}>Open Account</Link>
+                ) : (
+                  <>
+                    <p className="ry-commerce-empty-note">No linked account yet.</p>
+                    <Link className="ry-button ry-button-secondary ry-control-compact" to="/accounts">
+                      Review accounts →
+                    </Link>
+                  </>
+                )}
+              </RelationshipSection>
+            ) : (
+              <ConsequentialReviewLayout readiness={null}>
+                <ExactArtifact title="Order verification">
+                  {amountSummary}
+                  {lines.length ? lineTable : (
+                    <>
+                      <p className="ry-commerce-empty-note">No order items yet.</p>
+                      <Link className="ry-button ry-button-secondary ry-control-compact" to="/orders">
+                        Review opening orders →
+                      </Link>
+                    </>
+                  )}
+                </ExactArtifact>
+                <ValidationSummary title="Checks" checks={checks} />
+                <ReviewSection title="Confirm order verification">
+                  <Field label="Verification note">
+                    <TextArea
+                      rows={4}
+                      value={notes}
+                      onChange={(event) => setNotes(event.target.value)}
+                      disabled={!canWrite || saving}
+                    />
+                  </Field>
+                  <Button
+                    size="compact"
+                    loading={saving}
+                    disabled={!canWrite || !notes.trim() || conflict}
+                    onClick={() => setConfirmationOpen(true)}
+                  >
+                    Confirm order verification
+                  </Button>
+                </ReviewSection>
+              </ConsequentialReviewLayout>
+            )}
+          </div>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="account" active={activeTab === "account"}>
-          <RelationshipSection title="Account and protection context" description="These records remain separate. An Order is not protection, and a Placement is not an Account.">
-            <dl className="ry-relationship-facts">
-              <div><dt>Placement</dt><dd>{placementId ? <Link to={`/placements/${placementId}`}>Open Placement</Link> : "Not linked"}</dd></div>
-              <div><dt>Account</dt><dd>{accountId ? <Link to={`/accounts/${accountId}`}>Open Account</Link> : "Created or linked only after accepted verification"}</dd></div>
-              <div><dt>Protection</dt><dd>{protectionId ? <Link to={`/protected-accounts/${protectionId}`}>Review rights</Link> : <Link to="/protected-accounts">Open protection register</Link>}</dd></div>
+          <RelationshipSection title="Connected records">
+            <dl className="ry-relationship-facts ry-commerce-overview-facts">
+              <div>
+                <dt>Placement</dt>
+                <dd>
+                  {hasPlacement
+                    ? <Link className="ry-commerce-inline-link" to={`/placements/${placementId}`}>Open Placement</Link>
+                    : "Not linked"}
+                </dd>
+              </div>
+              <div>
+                <dt>Account</dt>
+                <dd>
+                  {hasAccount
+                    ? <Link className="ry-commerce-inline-link" to={`/accounts/${accountId}`}>Open Account</Link>
+                    : "Available after verification"}
+                </dd>
+              </div>
+              <div>
+                <dt>Protection</dt>
+                <dd>
+                  {hasProtection
+                    ? <Link className="ry-commerce-inline-link" to={`/protected-accounts/${protectionId}`}>Open protection</Link>
+                    : <Link className="ry-commerce-inline-link" to="/protected-accounts">Review protection →</Link>}
+                </dd>
+              </div>
             </dl>
           </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="activity" active={activeTab === "activity"}>
-          <RelationshipSection title="Audit-linked history" description="Stored Order events and their recorded rationales."><ActivityTimeline entries={activityEntries} empty="No Order activity has been recorded." label={`${orderNumber} activity`} /></RelationshipSection>
+          <RelationshipSection className="ry-commerce-compact-section" title="Activity">
+            {events.length === 0 ? (
+              <p className="ry-commerce-empty-note">No order activity recorded yet.</p>
+            ) : (
+              <ul className="ry-commerce-compact-list">
+                {events.map((item, index) => (
+                  <li key={`${shown(item.eventType)}-${shown(item.occurredAt)}-${index}`}>
+                    <div className="ry-commerce-compact-body">
+                      <strong>{readable(shown(item.eventType))}</strong>
+                      <span>{shown(item.reason, "No note")} · {dateTime(item.occurredAt)}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </RelationshipSection>
         </RelationshipTabPanel>
 
         <RelationshipTabPanel id={tabBaseId} tabId="commission" active={activeTab === "commission"}>
-          <RelationshipSection title="Commission context" description="Commission ledgers, calculations, payouts, and disputes live in the Commission workflow. Value is not commission owed. Expected, approved, payable, and paid remain distinct.">
-            {commissions.length ? <ul className="ry-relationship-evidence-list">{commissions.map((item) => <li key={item.id}><strong>{currency(item.expectedAmount, item.currency)}</strong><small>{shown(item.calculationExplanation)}</small><Link to={`/commissions/${item.id}`}>Explain</Link></li>)}</ul> : <EmptyState compact description="Commission appears only after verification and a documented rule." />}
-            <Link className="ry-button ry-button-secondary" to="/commissions">Open commissions</Link>
+          <RelationshipSection
+            className="ry-commerce-compact-section"
+            title="Commissions"
+            action={commissions[0]?.id
+              ? <Link className="ry-commerce-inline-link" to={`/commissions/${commissions[0].id}`}>Open commission</Link>
+              : <Link className="ry-commerce-inline-link" to="/commissions">Open commissions</Link>}
+          >
+            {commissions.length === 0 ? (
+              <>
+                <p className="ry-commerce-empty-note">No commissions yet.</p>
+                <Link className="ry-button ry-button-secondary ry-control-compact" to="/commissions">
+                  Review commissions →
+                </Link>
+              </>
+            ) : (
+              <ul className="ry-commerce-compact-list">
+                {commissions.map((item) => (
+                  <li key={item.id}>
+                    <Link to={`/commissions/${item.id}`}>
+                      <strong>{currency(item.expectedAmount, item.currency)}</strong>
+                      <span>{readable(shown(item.termType, shown(item.status)))}</span>
+                    </Link>
+                    <span className="ry-commerce-compact-status">{readable(shown(item.status))}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </RelationshipSection>
         </RelationshipTabPanel>
       </RelationshipDetailLayout>
 
       <ConfirmationDialog
         open={confirmationOpen}
-        title="Confirm documented Order"
-        description={`Submit Order ${orderNumber}, version ${shown(order.version)}, for server validation and human verification.`}
-        consequence={<><strong>Verification is consequential</strong><p>Accepted confirmation may create or link an operational Account, review-required protection basis, Estimated Commission, and Reorder review. Each remains a separate record.</p><p>Verification rationale: {notes}</p></>}
-        confirmLabel="Confirm documented Order"
+        title="Confirm order verification"
+        description={`Verify order ${orderNumber} against the source document and recorded amounts.`}
+        consequence={(
+          <>
+            <strong>What happens next</strong>
+            <p>Verification may link an account and related commission or reorder reviews. Each stays a separate record.</p>
+            <p>Verification note: {notes}</p>
+          </>
+        )}
+        confirmLabel="Confirm order verification"
         processing={saving}
         onConfirm={() => void confirm()}
         onClose={() => setConfirmationOpen(false)}

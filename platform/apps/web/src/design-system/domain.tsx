@@ -1,7 +1,11 @@
-import type { ReactNode } from "react";
-import { classes, type SemanticTone } from "./shared";
+import React, { type ReactNode } from "react";
+import { classes, platformCopy, type SemanticTone } from "./shared";
 import { StatusLabel } from "./data";
 import { SectionHeader } from "./structure";
+
+function timelineCopy(value: ReactNode): ReactNode {
+  return typeof value === "string" ? platformCopy(value) : value;
+}
 
 export function IdentityHeader({
   eyebrow,
@@ -13,8 +17,8 @@ export function IdentityHeader({
   actions,
   className
 }: {
-  eyebrow: string;
-  title: string;
+  eyebrow?: string;
+  title: ReactNode;
   relationship?: ReactNode;
   status?: ReactNode;
   warning?: ReactNode;
@@ -25,13 +29,16 @@ export function IdentityHeader({
   return (
     <header className={classes("ry-identity-header", className)}>
       <div>
-        <p className="eyebrow">{eyebrow}</p>
-        <h1>{title}</h1>
+        {eyebrow ? <p className="ry-identity-eyebrow">{eyebrow}</p> : null}
+        <div className="ry-identity-heading">
+          <h1>{title}</h1>
+          {status}
+        </div>
         {relationship ? <p>{relationship}</p> : null}
         {warning ? <div className="ry-identity-warning">{warning}</div> : null}
         {nextAction ? <div className="ry-identity-next-action"><strong>Next action</strong>{nextAction}</div> : null}
       </div>
-      <div className="ry-identity-actions">{status}{actions}</div>
+      {actions ? <div className="ry-identity-actions">{actions}</div> : null}
     </header>
   );
 }
@@ -98,8 +105,8 @@ export function ActivityTimeline({
       {entries.map((entry) => (
         <li key={entry.id}>
           <div>
-            <strong>{entry.title}</strong>
-            {entry.description ? <p>{entry.description}</p> : null}
+            <strong>{timelineCopy(entry.title)}</strong>
+            {entry.description ? <p>{timelineCopy(entry.description)}</p> : null}
             {entry.meta ? <small>{entry.meta}</small> : null}
           </div>
           {entry.status}
@@ -244,7 +251,7 @@ export function AIRecommendation({
 }) {
   return (
     <article className="ry-ai-recommendation">
-      <SectionHeader eyebrow="AI-assisted · human review required" title={title} action={<StatusLabel value={status} tone="ai" />} />
+      <SectionHeader eyebrow="AI-assisted · review required" title={title} action={<span className="ry-plain-status">{status.replaceAll("_", " ")}</span>} />
       <div className="ry-ai-content">{children}</div>
       {evidence ? <section aria-label="Supporting evidence"><strong>Supporting evidence</strong>{evidence}</section> : null}
       {limitations ? <section aria-label="Known limitations"><strong>Known limitations</strong>{limitations}</section> : null}
@@ -272,7 +279,7 @@ export function ApprovalPanel({
 }) {
   return (
     <section className="ry-approval-panel" aria-busy={processing || undefined}>
-      <SectionHeader eyebrow="Human decision" title={title} />
+      <SectionHeader eyebrow="Decision" title={title} />
       <div><strong>Readiness</strong>{readiness}</div>
       <div><strong>Exact consequence</strong>{consequence}</div>
       {rationale ? <div><strong>Required rationale</strong>{rationale}</div> : null}

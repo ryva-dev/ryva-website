@@ -1,7 +1,6 @@
 import http from "node:http";
 import { config } from "../../../packages/config/src/index.js";
 import { createDatabase } from "../../../packages/database/src/index.js";
-import { migrate } from "../../../packages/database/src/migrate.js";
 import { createLogger } from "../../../packages/domain/src/index.js";
 import { createApp } from "./app.js";
 
@@ -9,7 +8,6 @@ const configuration = config();
 const logger = createLogger(configuration);
 const database = createDatabase(configuration);
 
-await migrate(database);
 const app = createApp({ database, configuration, logger });
 const server = http.createServer(app);
 

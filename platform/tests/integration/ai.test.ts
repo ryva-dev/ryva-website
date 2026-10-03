@@ -90,7 +90,7 @@ class SyntheticAiProvider implements AiProvider {
         confidence: "supported",
         confidenceSubject: "Locating the displayed commission candidate",
         limitations: ["No legal interpretation was made."],
-        missingEvidence: ["Human confirmation of the executed document is required."],
+        missingEvidence: ["Confirmation of the executed document is required."],
         contraryEvidence: [],
         statements: [{
           text: "The document contains a candidate commission rate.",
@@ -260,7 +260,7 @@ describe("Phase 7 Responsible AI Assistance", () => {
       .set("x-csrf-token", csrf).send({
         version: 1,
         action: "edited",
-        finalContent: "Human-edited review that keeps the uncertainty visible.",
+        finalContent: "Edited review that keeps the uncertainty visible.",
         reasonCategory: "clarity",
         note: "Removed language that could imply a conclusion.",
         selectedFields: []

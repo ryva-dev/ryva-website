@@ -1,15 +1,23 @@
 export type AccessDecision = {
   mode:
     | "full"
-    | "read_only"
-    | "certification_required"
-    | "subscription_required"
+    | "account_only"
+    | "program_only"
+    | "pro_required"
     | "restricted"
     | "blocked";
   reason: string;
-  credentialStatus: string | null;
+  canAccessProgram: boolean;
+  isProgramCompleted: boolean;
+  canAccessOperatingPlatform: boolean;
+  isProTrialActive: boolean;
+  isProActive: boolean;
+  programStatus: string | null;
+  programCompletedAt: string | null;
+  proTrialStartedAt: string | null;
+  proTrialEndsAt: string | null;
+  proAccessState: string;
   subscriptionStatus: string | null;
-  graceEndsAt: string | null;
   capabilities: string[];
 };
 
@@ -67,7 +75,7 @@ export async function api<T>(
   }
   const method = options.method?.toUpperCase() ?? "GET";
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
-    const csrf = cookie("ryva_csrf");
+    const csrf = cookie("ryva_csrf") ?? cookie("ryva_public_csrf");
     if (csrf) headers.set("x-csrf-token", decodeURIComponent(csrf));
   }
   const requestOptions: RequestInit = {

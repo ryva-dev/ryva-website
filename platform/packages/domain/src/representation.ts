@@ -48,6 +48,7 @@ const agreementSelect = `
   a.legal_ambiguity_status AS "legalAmbiguityStatus",
   a.legal_ambiguity_notes AS "legalAmbiguityNotes",a.approval_id AS "approvalId",
   a.authority_digest AS "authorityDigest",a.approved_by AS "approvedBy",
+  approver.name AS "approvedByName",
   a.approved_at AS "approvedAt",a.suspended_reason AS "suspendedReason",
   a.ended_reason AS "endedReason",a.ended_at AS "endedAt",a.version,
   a.created_at AS "createdAt",a.updated_at AS "updatedAt"`;
@@ -95,6 +96,7 @@ async function agreementSnapshot(
     `SELECT ${agreementSelect} FROM representation_agreements a
       JOIN brands b ON b.workspace_id=a.workspace_id AND b.id=a.brand_id
       LEFT JOIN documents d ON d.workspace_id=a.workspace_id AND d.id=a.source_document_id
+      LEFT JOIN users approver ON approver.id=a.approved_by
      WHERE a.workspace_id=$1 AND a.id=$2 AND a.archived_at IS NULL`,
     [workspaceId, agreementId]
   );
@@ -272,7 +274,7 @@ export async function createRepresentationOpportunity(
         AND subject_type='brand' AND subject_id=$3 AND owner_user_id=$4 AND status='issued'`,
       [input.workspaceId, input.decisionId, input.brandId, input.actorUserId]
     );
-    if (!decision.rows[0]) throw new AppError(422, "human_decision_required", "An issued human Brand decision is required.");
+    if (!decision.rows[0]) throw new AppError(422, "human_decision_required", "An issued Brand decision is required.");
     const task = await transaction.query(
       `SELECT id FROM tasks WHERE workspace_id=$1 AND id=$2
         AND subject_type='brand' AND subject_id=$3 AND owner_user_id=$4`,
@@ -318,7 +320,7 @@ export async function createRepresentationOpportunity(
     await transaction.query(
       `INSERT INTO representation_opportunity_events
        (id,workspace_id,opportunity_id,to_stage,reason,decision_id,actor_user_id)
-       VALUES($1,$2,$3,'identified','Human opened representation review',$4,$5)`,
+       VALUES($1,$2,$3,'identified','Opened representation review',$4,$5)`,
       [newId(), input.workspaceId, id, input.decisionId, input.actorUserId]
     );
     await recordAudit(transaction, {
@@ -360,7 +362,7 @@ export async function transitionRepresentationOpportunity(
       [input.workspaceId, input.decisionId, before.brand_id, input.actorUserId]
     );
     if (!decision.rows[0]) {
-      throw new AppError(422, "human_decision_required", "An issued human Brand decision is required.");
+      throw new AppError(422, "human_decision_required", "An issued Brand decision is required.");
     }
     if (input.toStage !== "rejected" && !input.nextActionTaskId) {
       throw new AppError(422, "next_action_required", "A next action is required.");
@@ -426,6 +428,7 @@ export async function listAgreements(
      FROM representation_agreements a
      JOIN brands b ON b.workspace_id=a.workspace_id AND b.id=a.brand_id
      LEFT JOIN documents d ON d.workspace_id=a.workspace_id AND d.id=a.source_document_id
+     LEFT JOIN users approver ON approver.id=a.approved_by
      WHERE ${where.join(" AND ")} ORDER BY a.updated_at DESC LIMIT 250`,
     values
   );
@@ -506,10 +509,14 @@ export async function getAgreement(
     [workspaceId, agreementId]
   );
   const versions = await database.query(
-    `SELECT id,version,snapshot_digest AS "snapshotDigest",reason,changed_by AS "changedBy",
-            changed_at AS "changedAt"
-       FROM representation_agreement_versions WHERE workspace_id=$1 AND agreement_id=$2
-      ORDER BY version DESC`,
+    `SELECT v.id,v.version,v.snapshot_digest AS "snapshotDigest",v.reason,
+            v.changed_by AS "changedBy",
+            coalesce(nullif(u.name, ''), v.changed_by::text) AS "changedByName",
+            v.changed_at AS "changedAt"
+       FROM representation_agreement_versions v
+       LEFT JOIN users u ON u.id=v.changed_by
+      WHERE v.workspace_id=$1 AND v.agreement_id=$2
+      ORDER BY v.version DESC`,
     [workspaceId, agreementId]
   );
   return { agreement: snapshot.agreement, products: snapshot.products, restrictions: snapshot.restrictions,
@@ -572,7 +579,7 @@ export async function updateAgreement(
     }
     const digest = await appendAgreementVersion(transaction, {
       workspaceId: input.workspaceId, agreementId: input.agreementId,
-      actorUserId: input.actorUserId, reason: "Material terms edited by a human"
+      actorUserId: input.actorUserId, reason: "Material terms edited"
     });
     await recordAudit(transaction, {
       workspaceId: input.workspaceId, actorUserId: input.actorUserId, actorType: "user",
@@ -671,7 +678,7 @@ export async function reviewTermCandidate(
       }
       await appendAgreementVersion(transaction, {
         workspaceId: input.workspaceId, agreementId: String(candidate.agreement_id),
-        actorUserId: input.actorUserId, reason: `Human confirmed extracted ${String(candidate.field_name)}`
+        actorUserId: input.actorUserId, reason: `Confirmed extracted ${String(candidate.field_name)}`
       });
     }
     const reviewed = await transaction.query<Record<string, unknown>>(
@@ -995,7 +1002,7 @@ export async function decideAndActivateAgreement(
     }
     await appendAgreementVersion(transaction, {
       workspaceId: input.workspaceId, agreementId: input.agreementId,
-      actorUserId: input.actorUserId, reason: "Human approved representation authority"
+      actorUserId: input.actorUserId, reason: "Approved representation authority"
     });
     await recordAudit(transaction, {
       workspaceId: input.workspaceId, actorUserId: input.actorUserId, actorType: "user",
@@ -1088,7 +1095,7 @@ export async function changeAgreementStatus(
            priority,created_reason,due_at,mandatory_gate)
          VALUES($1,$2,'representation_agreement',$3,
                 'Review surviving account and commission rights',$4,'open','high',
-                'Agreement authority ended or suspended; existing rights require human review',
+                'Agreement authority ended or suspended; existing rights require review',
                 now(),true)`,
         [newId(), input.workspaceId, input.agreementId, input.actorUserId]
       );
@@ -1127,6 +1134,7 @@ export async function listPlacements(
             p.business_id AS "businessId",b.name AS "businessName",p.stage,p.match_thesis AS "matchThesis",
             p.buyer_value_basis AS "buyerValueBasis",p.evidence_confidence AS "evidenceConfidence",
             p.conflict_status AS "conflictStatus",p.next_action_task_id AS "nextActionTaskId",
+            a.status AS "agreementStatus",
             t.title AS "nextAction",t.due_at AS "nextActionDueAt",p.last_meaningful_action_at AS "lastMeaningfulActionAt",
             (p.snoozed_until IS NULL OR p.snoozed_until<=now()) AND
              (t.id IS NULL OR (t.status NOT IN ('completed','canceled') AND t.due_at<now()) OR
@@ -1135,6 +1143,7 @@ export async function listPlacements(
        FROM placement_opportunities p
        JOIN brands br ON br.workspace_id=p.workspace_id AND br.id=p.brand_id
        JOIN businesses b ON b.workspace_id=p.workspace_id AND b.id=p.business_id
+       LEFT JOIN representation_agreements a ON a.workspace_id=p.workspace_id AND a.id=p.agreement_id
        LEFT JOIN tasks t ON t.workspace_id=p.workspace_id AND t.id=p.next_action_task_id
       WHERE ${where.join(" AND ")} ORDER BY p.updated_at DESC LIMIT 250`,
     values
@@ -1204,14 +1213,14 @@ export async function createPlacement(
       [input.workspaceId, input.businessId, input.productIds]
     );
     if (qualifiedMatches.rowCount !== new Set(input.productIds).size) {
-      throw new AppError(422, "qualified_match_required", "Every Product–Business match requires a human qualified or conditional review.");
+      throw new AppError(422, "qualified_match_required", "Every Product–Business match requires a qualified or conditional review.");
     }
     const decision = await transaction.query(
       `SELECT id FROM decision_records WHERE workspace_id=$1 AND id=$2
         AND subject_type='business' AND subject_id=$3 AND owner_user_id=$4 AND status='issued'`,
       [input.workspaceId, input.decisionId, input.businessId, input.actorUserId]
     );
-    if (!decision.rows[0]) throw new AppError(422, "human_decision_required", "An issued human placement decision is required.");
+    if (!decision.rows[0]) throw new AppError(422, "human_decision_required", "An issued placement decision is required.");
     const id = newId();
     const created = await transaction.query<Record<string, unknown>>(
       `INSERT INTO placement_opportunities
@@ -1248,7 +1257,7 @@ export async function createPlacement(
     await transaction.query(
       `INSERT INTO placement_stage_events
        (id,workspace_id,placement_opportunity_id,to_stage,reason,decision_id,actor_user_id)
-       VALUES($1,$2,$3,'identified','Human created evidence-supported placement',$4,$5)`,
+       VALUES($1,$2,$3,'identified','Created evidence-supported placement',$4,$5)`,
       [newId(), input.workspaceId, id, input.decisionId, input.actorUserId]
     );
     await recordAudit(transaction, {
@@ -1269,22 +1278,152 @@ export async function getPlacement(
   const placement = await oneOrNone<Record<string, unknown>>(
     database,
     `SELECT p.*,br.public_name AS "brandName",b.name AS "businessName",t.title AS "nextAction",
-            t.due_at AS "nextActionDueAt"
+            t.due_at AS "nextActionDueAt",
+            a.status AS "agreementStatus",
+            a.channels AS "agreementChannels",
+            a.territory_scope AS "agreementTerritoryScope",
+            p.authority_channel AS "authorityChannel"
        FROM placement_opportunities p
        JOIN brands br ON br.workspace_id=p.workspace_id AND br.id=p.brand_id
        JOIN businesses b ON b.workspace_id=p.workspace_id AND b.id=p.business_id
+       LEFT JOIN representation_agreements a ON a.workspace_id=p.workspace_id AND a.id=p.agreement_id
        LEFT JOIN tasks t ON t.workspace_id=p.workspace_id AND t.id=p.next_action_task_id
       WHERE p.workspace_id=$1 AND p.id=$2 AND p.archived_at IS NULL`,
     [workspaceId, placementId]
   );
   if (!placement) throw new AppError(404, "placement_not_found", "Placement Opportunity not found.");
-  const [products, triangle, events, conflicts] = await Promise.all([
+  const [products, triangle, events, conflicts, commercial] = await Promise.all([
     database.query(`SELECT product_id AS "productId" FROM placement_opportunity_products WHERE workspace_id=$1 AND placement_opportunity_id=$2`, [workspaceId, placementId]),
     database.query(`SELECT * FROM relationship_triangle_reviews WHERE workspace_id=$1 AND placement_opportunity_id=$2 AND status='current'`, [workspaceId, placementId]),
     database.query(`SELECT from_stage AS "fromStage",to_stage AS "toStage",reason,decision_id AS "decisionId",evidence_ids AS "evidenceIds",occurred_at AS "occurredAt" FROM placement_stage_events WHERE workspace_id=$1 AND placement_opportunity_id=$2 ORDER BY occurred_at DESC`, [workspaceId, placementId]),
-    database.query(`SELECT * FROM placement_conflicts WHERE workspace_id=$1 AND placement_opportunity_id=$2 ORDER BY created_at DESC`, [workspaceId, placementId])
+    database.query(`SELECT * FROM placement_conflicts WHERE workspace_id=$1 AND placement_opportunity_id=$2 ORDER BY created_at DESC`, [workspaceId, placementId]),
+    database.query<{
+      orderId: string | null;
+      orderCount: number;
+      accountId: string | null;
+      accountCount: number;
+      reorderId: string | null;
+      reorderCount: number;
+      protectionId: string | null;
+      protectionCount: number;
+    }>(
+      `SELECT
+         (SELECT id::text FROM orders
+           WHERE workspace_id=$1 AND placement_opportunity_id=$2 AND archived_at IS NULL
+           ORDER BY updated_at DESC LIMIT 1) AS "orderId",
+         (SELECT count(*)::int FROM orders
+           WHERE workspace_id=$1 AND placement_opportunity_id=$2 AND archived_at IS NULL) AS "orderCount",
+         (SELECT id::text FROM accounts
+           WHERE workspace_id=$1 AND placement_opportunity_id=$2 AND archived_at IS NULL
+           ORDER BY updated_at DESC LIMIT 1) AS "accountId",
+         (SELECT count(*)::int FROM accounts
+           WHERE workspace_id=$1 AND placement_opportunity_id=$2 AND archived_at IS NULL) AS "accountCount",
+         (SELECT r.id::text FROM reorders r
+           JOIN accounts a ON a.workspace_id=r.workspace_id AND a.id=r.account_id
+          WHERE r.workspace_id=$1 AND a.placement_opportunity_id=$2 AND r.archived_at IS NULL
+            AND a.archived_at IS NULL
+          ORDER BY r.updated_at DESC LIMIT 1) AS "reorderId",
+         (SELECT count(*)::int FROM reorders r
+           JOIN accounts a ON a.workspace_id=r.workspace_id AND a.id=r.account_id
+          WHERE r.workspace_id=$1 AND a.placement_opportunity_id=$2 AND r.archived_at IS NULL
+            AND a.archived_at IS NULL) AS "reorderCount",
+         (SELECT id::text FROM protected_accounts
+           WHERE workspace_id=$1 AND placement_opportunity_id=$2 AND archived_at IS NULL
+           ORDER BY updated_at DESC LIMIT 1) AS "protectionId",
+         (SELECT count(*)::int FROM protected_accounts
+           WHERE workspace_id=$1 AND placement_opportunity_id=$2 AND archived_at IS NULL) AS "protectionCount"`,
+      [workspaceId, placementId]
+    )
   ]);
-  return { placement, products: products.rows, triangle: triangle.rows[0] ?? null, events: events.rows, conflicts: conflicts.rows };
+  return {
+    placement,
+    products: products.rows,
+    triangle: triangle.rows[0] ?? null,
+    events: events.rows,
+    conflicts: conflicts.rows,
+    commercial: commercial.rows[0] ?? {
+      orderId: null,
+      orderCount: 0,
+      accountId: null,
+      accountCount: 0,
+      reorderId: null,
+      reorderCount: 0,
+      protectionId: null,
+      protectionCount: 0
+    }
+  };
+}
+
+export async function recordPlacementValueAlignment(
+  database: Database,
+  input: {
+    workspaceId: string;
+    actorUserId: string;
+    requestId: string;
+    placementId: string;
+    buyerValue: string;
+    brandValue: string;
+    representativeValue: string;
+    allPartiesReceiveLegitimateValue: boolean;
+  }
+): Promise<Record<string, unknown>> {
+  if (!input.allPartiesReceiveLegitimateValue) {
+    throw new AppError(422, "relationship_triangle_value_required", "All three parties must receive legitimate value.");
+  }
+  return withTransaction(database, async (transaction) => {
+    const placement = await oneOrNone<Record<string, unknown>>(
+      transaction,
+      `SELECT id FROM placement_opportunities
+        WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL`,
+      [input.workspaceId, input.placementId]
+    );
+    if (!placement) throw new AppError(404, "placement_not_found", "Placement Opportunity not found.");
+    const existing = await oneOrNone<Record<string, unknown>>(
+      transaction,
+      `SELECT id FROM relationship_triangle_reviews
+        WHERE workspace_id=$1 AND placement_opportunity_id=$2 AND status='current'`,
+      [input.workspaceId, input.placementId]
+    );
+    if (existing) {
+      throw new AppError(409, "value_alignment_exists", "A current value alignment review is already recorded.");
+    }
+    const id = newId();
+    const blank = "";
+    await transaction.query(
+      `INSERT INTO relationship_triangle_reviews
+       (id,workspace_id,placement_opportunity_id,brand_value,brand_obligations,brand_risks,
+        brand_warning_signs,buyer_value,buyer_obligations,buyer_risks,buyer_warning_signs,
+        representative_value,representative_obligations,representative_risks,
+        representative_warning_signs,all_parties_receive_legitimate_value,reviewed_by,status)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'current')`,
+      [
+        id, input.workspaceId, input.placementId,
+        input.brandValue, blank, blank, blank,
+        input.buyerValue, blank, blank, blank,
+        input.representativeValue, blank, blank, blank,
+        input.allPartiesReceiveLegitimateValue, input.actorUserId
+      ]
+    );
+    const review = await oneOrNone<Record<string, unknown>>(
+      transaction,
+      `SELECT * FROM relationship_triangle_reviews WHERE workspace_id=$1 AND id=$2`,
+      [input.workspaceId, id]
+    );
+    await recordAudit(transaction, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      actorType: "user",
+      action: "placement_opportunity.value_alignment_recorded",
+      targetType: "placement_opportunity",
+      targetId: input.placementId,
+      origin: "api",
+      requestId: input.requestId,
+      outcome: "succeeded",
+      after: review,
+      metadata: {}
+    });
+    return review!;
+  });
 }
 
 const placementStages = [
@@ -1340,7 +1479,7 @@ export async function transitionPlacement(
         [input.workspaceId, input.placementId]
       );
       if (!contact.rows[0]) {
-        throw new AppError(409, "verified_outreach_required", "Contacted requires provider-accepted email or a human-confirmed call/social action.");
+        throw new AppError(409, "verified_outreach_required", "Contacted requires provider-accepted email or a confirmed call/social action.");
       }
     }
     if (input.toStage === "engaged") {
@@ -1383,7 +1522,7 @@ export async function transitionPlacement(
         AND owner_user_id=$3 AND status='issued'`,
       [input.workspaceId, input.decisionId, input.actorUserId]
     );
-    if (!decision.rows[0]) throw new AppError(422, "human_decision_required", "A fresh issued human decision is required.");
+    if (!decision.rows[0]) throw new AppError(422, "human_decision_required", "A fresh issued decision is required.");
     if (!terminal && !input.nextActionTaskId) throw new AppError(422, "next_action_required", "A next action is required.");
     const changed = await transaction.query<Record<string, unknown>>(
       `UPDATE placement_opportunities SET stage=$4,decision_id=$5,next_action_task_id=$6,

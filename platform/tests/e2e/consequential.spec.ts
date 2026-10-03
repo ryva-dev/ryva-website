@@ -18,9 +18,9 @@ async function captureIncrement6(page: Page, fileName: string, fullPage = false)
 async function signIn(page: Page, email = "active@synthetic.ryva.test"): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Your Ryva Pro access/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)|Your Ryva access/ })).toBeVisible();
 }
 
 async function identity(email: string): Promise<{ userId: string; workspaceId: string }> {
@@ -82,7 +82,7 @@ async function seedSuggestion(
          missing_evidence,contrary_evidence,status,generated_at,current_content,version)
        VALUES($1,$2,$3,$4,'next_best_action','workspace',$2::uuid::text,$5,
          'Review the documented relationship before choosing a next action.',
-         '{"fixture":true}'::jsonb,'limited','next human action',
+         '{"fixture":true}'::jsonb,'limited','next reviewer action',
          ARRAY['Synthetic fixture only; no commercial conclusion.'],
          ARRAY['Current authority decision'],ARRAY['No negative evidence is stored.'],$6,
          now()-interval '5 minutes','Review the documented relationship before choosing a next action.',1)`,
@@ -92,7 +92,7 @@ async function seedSuggestion(
       `INSERT INTO ai_suggestion_statements
         (id,workspace_id,suggestion_id,statement_text,classification,confidence,ordinal)
        VALUES
-        ($1,$2,$3,'One stored fact is available for human review.','direct_evidence','supported',1),
+        ($1,$2,$3,'One stored fact is available for review.','direct_evidence','supported',1),
         ($4,$2,$3,'The appropriate commercial outcome is unknown.','unknown','insufficient',2)`,
       [citedStatementId, owner.workspaceId, suggestionId, unknownStatementId]
     );
@@ -202,7 +202,7 @@ async function seedProtection(
         (id,workspace_id,subject_type,subject_id,question,scope,outcome,rationale,confidence,
          owner_user_id,decided_at,next_action,status)
        VALUES($1,$2,'business',$3,'Proceed to Order discussion?','Synthetic fixture','Proceed',
-         'Human documented Buyer value.','supported',$4,now(),'Verify Order','issued')`,
+         'Documented Buyer value.','supported',$4,now(),'Verify Order','issued')`,
       [decisionId, owner.workspaceId, businessId, owner.userId]
     );
     await database.query(
@@ -248,7 +248,7 @@ async function seedProtection(
          ARRAY[$13::uuid],ARRAY['independent_retail'],'{"countries":["US"]}',
          '2026-07-15','2027-07-15','One documented year','12% of eligible net wholesale.',
          'Reorders during the written term are commissionable.','Only written exclusions apply.',
-         'Release requires documented human action.',$14,$15,'documented',$16)`,
+         'Release requires documented reviewer action.',$14,$15,'documented',$16)`,
       [protectedAccountId, owner.workspaceId, accountId, brandId, businessId, owner.userId,
         agreementId, placementId, documentId, status === "active" ? "2026-07-21" : null,
         status === "active" ? owner.userId : null, status === "active" ? protectionApprovalId : null,
@@ -263,7 +263,7 @@ async function seedProtection(
       `INSERT INTO commercial_events
         (id,workspace_id,subject_type,subject_id,event_type,actor_user_id,origin,reason,request_id)
        VALUES($1,$2,'protected_account',$3,$4,$5,'user',$6,$7)`,
-      [randomUUID(), owner.workspaceId, protectedAccountId, status === "active" ? "protection.approved" : "protection.review_created", owner.userId, status === "active" ? "Human approved exact synthetic scope." : "Synthetic protection proposal created for review.", `e2e-${suffix}`]
+      [randomUUID(), owner.workspaceId, protectedAccountId, status === "active" ? "protection.approved" : "protection.review_created", owner.userId, status === "active" ? "Approved exact synthetic scope." : "Synthetic protection proposal created for review.", `e2e-${suffix}`]
     );
     return { protectedAccountId, title };
   } finally {
@@ -271,7 +271,7 @@ async function seedProtection(
   }
 }
 
-test("AI suggestion exposes exact artifact and records one explicit human disposition", async ({ page }, testInfo) => {
+test("AI suggestion exposes exact artifact and records one explicit disposition", async ({ page }, testInfo) => {
   const fixture = await seedSuggestion("active@synthetic.ryva.test", `decision-${testInfo.project.name}-${Date.now()}`);
   let submissions = 0;
   page.on("request", (request) => { if (request.url().includes(`/api/ai/suggestions/${fixture.suggestionId}/actions`) && request.method() === "POST") submissions += 1; });
@@ -291,10 +291,10 @@ test("AI suggestion exposes exact artifact and records one explicit human dispos
     await page.getByRole("button", { name: "Close", exact: true }).click();
   }
   await page.getByRole("radio", { name: "Accept stored artifact" }).check();
-  await page.getByLabel("Decision rationale").fill("Human reviewed the exact stored artifact, evidence gaps, and no-target-change boundary.");
+  await page.getByLabel("Decision rationale").fill("Reviewed the exact stored artifact, evidence gaps, and no-target-change boundary.");
   const reviewButton = page.getByRole("button", { name: "Review final consequence" });
   await reviewButton.click();
-  const dialog = page.getByRole("alertdialog", { name: "Confirm human disposition" });
+  const dialog = page.getByRole("alertdialog", { name: "Confirm disposition" });
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(dialog.getByRole("button", { name: "Confirm reviewed content" })).toBeFocused();
@@ -303,7 +303,7 @@ test("AI suggestion exposes exact artifact and records one explicit human dispos
   await reviewButton.click();
   await expect(dialog).toContainText("Review the documented relationship before choosing a next action.");
   await dialog.getByRole("button", { name: "Confirm reviewed content" }).dblclick();
-  await expect(page.getByRole("heading", { name: "Human disposition recorded" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Disposition recorded" })).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) await captureIncrement6(page, "ai-suggestion-completed-audit-desktop-1440x900.png");
   expect(submissions).toBe(1);
 });
@@ -322,16 +322,16 @@ test("AI suggestion retains loading identity and preserves input after recoverab
   await page.unroute(`**/api/ai/suggestions/${fixture.suggestionId}`);
   await expect(page.getByRole("heading", { name: fixture.title, level: 1 })).toBeVisible();
 
-  const revision = "Human revision retained after a recoverable server validation failure.";
+  const revision = "Revision retained after a recoverable server validation failure.";
   const rationale = "The reviewer must be able to correct the issue without re-entering this rationale.";
-  await page.getByLabel("Exact human revision").fill(revision);
-  await page.getByRole("radio", { name: "Save human revision" }).check();
+  await page.getByLabel("Exact revision").fill(revision);
+  await page.getByRole("radio", { name: "Save revision" }).check();
   await page.getByLabel("Decision rationale").fill(rationale);
   await page.route(`**/api/ai/suggestions/${fixture.suggestionId}/actions`, async (route) => { await route.fulfill({ status: 422, contentType: "application/problem+json", body: JSON.stringify({ title: "Review validation failed", detail: "Synthetic review validation requires correction." }) }); });
   await page.getByRole("button", { name: "Review final consequence" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Confirm reviewed content" }).click();
   await expect(page.locator("[data-review-error]")).toBeFocused();
-  await expect(page.getByLabel("Exact human revision")).toHaveValue(revision);
+  await expect(page.getByLabel("Exact revision")).toHaveValue(revision);
   await expect(page.getByLabel("Decision rationale")).toHaveValue(rationale);
 });
 
@@ -340,26 +340,26 @@ test("AI suggestion preserves revision and rationale when the loaded version is 
   const fixture = await seedSuggestion("active@synthetic.ryva.test", `conflict-${Date.now()}`);
   await signIn(page);
   await page.goto(`/copilot/${fixture.suggestionId}`);
-  const revision = "Human revision retained after an optimistic concurrency conflict.";
+  const revision = "Revision retained after an optimistic concurrency conflict.";
   const rationale = "Preserve this rationale while the reviewer reconciles the new server version.";
-  await page.getByLabel("Exact human revision").fill(revision);
-  await page.getByRole("radio", { name: "Save human revision" }).check();
+  await page.getByLabel("Exact revision").fill(revision);
+  await page.getByRole("radio", { name: "Save revision" }).check();
   await page.getByLabel("Decision rationale").fill(rationale);
   await bumpSuggestionVersion(fixture.suggestionId);
   await page.getByRole("button", { name: "Review final consequence" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Confirm reviewed content" }).click();
   await expect(page.locator("[data-review-error]")).toBeFocused();
-  await expect(page.getByLabel("Exact human revision")).toHaveValue(revision);
+  await expect(page.getByLabel("Exact revision")).toHaveValue(revision);
   await expect(page.getByLabel("Decision rationale")).toHaveValue(rationale);
 });
 
 test("AI suggestion retains identity in loading, error, completed, and restricted states", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes("mobile"), "State matrix is exercised once in desktop Chromium.");
   const completed = await seedSuggestion("active@synthetic.ryva.test", `completed-${Date.now()}`, "accepted");
-  const restricted = await seedSuggestion("grace@synthetic.ryva.test", `restricted-${Date.now()}`);
+  const restricted = await seedSuggestion("mentor-readonly@synthetic.ryva.test", `restricted-${Date.now()}`);
   await signIn(page);
   await page.goto(`/copilot/${completed.suggestionId}`);
-  await expect(page.getByRole("heading", { name: "Human disposition recorded" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Disposition recorded" })).toBeVisible();
   await expect(page.getByRole("radio", { name: "Accept stored artifact" })).toHaveCount(0);
 
   const failedId = randomUUID();
@@ -371,19 +371,20 @@ test("AI suggestion retains identity in loading, error, completed, and restricte
   await captureIncrement6(page, "ai-suggestion-error-desktop-1440x900.png");
 
   await page.context().clearCookies();
-  await signIn(page, "grace@synthetic.ryva.test");
+  await signIn(page, "mentor-readonly@synthetic.ryva.test");
   await page.goto(`/copilot/${restricted.suggestionId}`);
   await expect(page.getByText("Read-only consequential review")).toBeVisible();
   await expect(page.getByRole("radio", { name: "Accept stored artifact" })).toBeDisabled();
 });
 
-test("Protected Account proposal becomes active only after exact-scope human confirmation", async ({ page }, testInfo) => {
+test("Protected Account proposal becomes active only after exact-scope confirmation", async ({ page }, testInfo) => {
   const fixture = await seedProtection(`proposal-${testInfo.project.name}-${Date.now()}`);
   await signIn(page);
   await page.goto(`/protected-accounts/${fixture.protectedAccountId}`);
-  await expect(page.getByRole("heading", { name: fixture.title, level: 1 })).toBeVisible();
-  await expect(page.getByText("Pending scope is a review record only and creates no rights.")).toBeVisible();
-  await expect(page.getByText("The Agreement reference and relationship do not independently establish current authority on this page.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Juniper/i, level: 1 })).toBeVisible();
+  await page.getByRole("tab", { name: "Approval" }).click();
+  await expect(page.getByRole("heading", { name: /Proposed scope/i })).toBeVisible();
+  await expect(page.getByText(/authority is reviewed separately/i)).toBeVisible();
   if (testInfo.project.name.includes("mobile")) {
     await page.setViewportSize({ width: 390, height: 844 });
     await captureIncrement6(page, "protected-account-proposed-mobile-390x844.png", true);
@@ -391,16 +392,16 @@ test("Protected Account proposal becomes active only after exact-scope human con
     await page.setViewportSize({ width: 1440, height: 900 });
     await captureIncrement6(page, "protected-account-proposed-desktop-1440x900.png");
   }
-  await page.getByRole("button", { name: "Request exact-scope approval" }).click();
-  await expect(page.getByRole("heading", { name: "Record the human protection decision" })).toBeVisible();
-  await page.getByRole("radio", { name: "Approve exact scope" }).check();
-  await page.getByLabel("Decision rationale or conditions").fill("Human approves only the exact documentary scope and digest displayed in this review.");
-  await page.getByRole("button", { name: "Review final consequence" }).click();
-  const dialog = page.getByRole("alertdialog", { name: "Confirm documentary protection decision" });
-  await expect(dialog).toContainText("The server may activate only the exact displayed scope");
-  await dialog.getByRole("button", { name: "Confirm exact-scope approval" }).click();
-  await expect(page.getByRole("heading", { name: "Documentary protection activated" })).toBeVisible();
-  await expect(page.getByText("Ryva created no independent contractual right.")).toBeVisible();
+  await page.getByRole("button", { name: "Request approval" }).first().click();
+  await expect(page.getByRole("heading", { name: "Record decision" })).toBeVisible();
+  await page.getByRole("radio", { name: "Approve" }).check();
+  await page.getByLabel("Rationale or conditions").fill("Approves only the exact documentary scope and digest displayed in this review.");
+  await page.getByLabel("Approval").getByRole("button", { name: "Review decision" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Confirm protection decision" });
+  await expect(dialog).toContainText("The server may activate only the displayed scope");
+  await dialog.getByRole("button", { name: "Confirm approval" }).click();
+  await expect(page.getByRole("heading", { name: "Protection active" }).first()).toBeVisible();
+  await expect(page.getByText("Ryva created no independent contractual right.").first()).toBeVisible();
   if (!testInfo.project.name.includes("mobile")) await captureIncrement6(page, "protected-account-completed-audit-desktop-1440x900.png");
 });
 
@@ -409,9 +410,10 @@ test("completed Protected Account remains an auditable consequence, not inferred
   const fixture = await seedProtection(`active-${Date.now()}`, "active");
   await signIn(page);
   await page.goto(`/protected-accounts/${fixture.protectedAccountId}`);
-  await expect(page.getByRole("heading", { name: "Documentary protection activated" })).toBeVisible();
-  await expect(page.getByText("The Agreement reference and relationship do not independently establish current authority on this page.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Request exact-scope approval" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Protection active" }).first()).toBeVisible();
+  await page.getByRole("tab", { name: "Approval" }).click();
+  await expect(page.getByText(/authority is reviewed separately/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Request approval" })).toHaveCount(0);
 });
 
 test("Consequential Review reflows at all approved widths without clipped decisions", async ({ page }, testInfo) => {
@@ -435,7 +437,8 @@ test("Consequential Review reflows at all approved widths without clipped decisi
         const offenders = [];
         for (const element of document.querySelectorAll("#main-content *, .ry-mobile-bottom-nav > *")) {
           const rect = element.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0 && (rect.left < -0.5 || rect.right > width + 0.5)) offenders.push({ tag: element.tagName, className: String(element.className), text: String(element.textContent || "").trim().slice(0, 80), left: rect.left, right: rect.right });
+          const insideHorizontalScroller = Boolean(element.closest(".ry-relationship-tabs"));
+          if (!insideHorizontalScroller && rect.width > 0 && rect.height > 0 && (rect.left < -0.5 || rect.right > width + 0.5)) offenders.push({ tag: element.tagName, className: String(element.className), text: String(element.textContent || "").trim().slice(0, 80), left: rect.left, right: rect.right });
         }
         return { clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, offenders };
       })()`) as { clientWidth: number; scrollWidth: number; offenders: unknown[] };

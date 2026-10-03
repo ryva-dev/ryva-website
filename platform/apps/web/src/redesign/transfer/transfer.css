@@ -1,6 +1,6 @@
 .ry-transfer-page {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-4);
   min-width: var(--size-0);
   max-width: var(--width-consequential);
   margin-inline: auto;
@@ -11,10 +11,14 @@
   min-width: var(--size-0);
 }
 
-.ry-transfer-form,
-.ry-transfer-form .ry-field {
+.ry-transfer-form {
   display: grid;
   gap: var(--space-4);
+}
+
+.ry-transfer-form .ry-field {
+  display: grid;
+  gap: var(--space-2);
 }
 
 .ry-transfer-grid,
@@ -22,16 +26,125 @@
 .ry-transfer-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(var(--size-0), 1fr));
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: var(--size-0);
 }
 
 .ry-transfer-scope-grid {
   grid-template-columns: repeat(3, minmax(var(--size-0), 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+
+.ry-transfer-scope-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-1);
+}
+
+.ry-transfer-readonly-field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ry-transfer-readonly-field p {
+  margin: var(--space-0);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-14);
+  font-weight: var(--font-weight-medium);
 }
 
 .ry-transfer-metrics {
   grid-template-columns: repeat(3, minmax(var(--size-0), 1fr));
+}
+
+.ry-transfer-mapping {
+  display: grid;
+  gap: var(--space-2);
+  min-width: var(--size-0);
+}
+
+.ry-transfer-mapping-head,
+.ry-transfer-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(var(--size-0), 1fr) minmax(var(--size-0), 1.2fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.ry-transfer-mapping-head {
+  padding-inline: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-16);
+}
+
+.ry-transfer-mapping-action-head,
+.ry-transfer-mapping-spacer {
+  width: var(--size-11);
+  min-width: var(--size-11);
+}
+
+.ry-transfer-mapping-row {
+  padding: var(--space-3);
+  border: var(--border-width-1) solid color-mix(in srgb, var(--color-chart-olive) 35%, var(--color-border));
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--color-chart-olive) 4%, var(--color-surface));
+}
+
+.ry-transfer-mapping-row-add {
+  background: transparent;
+}
+
+.ry-transfer-mapping-field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: var(--size-0);
+}
+
+.ry-transfer-mapping-label {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-16);
+}
+
+.ry-transfer-mapping-required {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  font-weight: var(--font-weight-medium);
+}
+
+.ry-transfer-mapping-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.ry-transfer-csv-note,
+.ry-transfer-csv-summary {
+  margin: calc(var(--space-2) * -1) var(--space-0) var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-16);
+}
+
+.ry-transfer-csv-summary {
+  margin-top: var(--space-0);
+}
+
+.ry-transfer-primary-action {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.ry-transfer-primary-action p {
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-12);
+  line-height: var(--line-height-16);
 }
 
 .ry-transfer-review-facts {
@@ -70,5 +183,14 @@
   .ry-transfer-grid,
   .ry-transfer-scope-grid,
   .ry-transfer-metrics,
-  .ry-transfer-review-facts { grid-template-columns: minmax(var(--size-0), 1fr); }
+  .ry-transfer-review-facts,
+  .ry-transfer-mapping-head,
+  .ry-transfer-mapping-row {
+    grid-template-columns: minmax(var(--size-0), 1fr);
+  }
+
+  .ry-transfer-mapping-action-head,
+  .ry-transfer-mapping-spacer {
+    display: none;
+  }
 }

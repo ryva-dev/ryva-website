@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "../../api";
 import {
   Alert,
@@ -24,6 +24,7 @@ import {
   ValidationSummary,
   type ValidationCheck
 } from "../consequential/ConsequentialReview";
+
 type Preview = {
   id: string;
   summary: {
@@ -67,6 +68,35 @@ const initialMappings: Record<string, Record<string, string>> = {
   commission: { orderId: "orderId", agreementId: "agreementId", currency: "currency", expectedAmount: "expectedAmount" }
 };
 
+function ryvaFieldLabel(target: string): string {
+  if (target === "name") return "Name";
+  return target
+    .replaceAll("_", " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+/** Lightweight CSV shape for UI summary only — not used for validation or import. */
+function csvPasteSummary(csv: string, mapping: Record<string, string>): {
+  dataRows: number;
+  columns: number;
+  missingMappedHeaders: string[];
+} | null {
+  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (!lines.length) return null;
+  const headerLine = lines[0] ?? "";
+  const headers = headerLine.split(",").map((cell) => cell.trim().replace(/^"|"$/g, ""));
+  const headerSet = new Set(headers.map((header) => header.toLowerCase()));
+  const missingMappedHeaders = Object.values(mapping)
+    .map((source) => source.trim())
+    .filter((source) => source && !headerSet.has(source.toLowerCase()));
+  return {
+    dataRows: Math.max(0, lines.length - 1),
+    columns: headers.length,
+    missingMappedHeaders
+  };
+}
+
 export function ImportReviewPage() {
   const [recordType, setRecordType] = useState("brand");
   const [csv, setCsv] = useState("name\n");
@@ -82,6 +112,13 @@ export function ImportReviewPage() {
   const [committed, setCommitted] = useState<Record<string, number> | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [approving, setApproving] = useState(false);
+
+  const requiredTargets = useMemo(
+    () => new Set(Object.keys(initialMappings[recordType] ?? { name: "name" })),
+    [recordType]
+  );
+  const pasteSummary = useMemo(() => csvPasteSummary(csv, mapping), [csv, mapping]);
+  const availableOptionalFields = optionalFields[recordType]?.filter((item) => !(item in mapping)) ?? [];
 
   useEffect(() => {
     void api<{ sources: Source[] }>("/api/sources").then((result) => setSources(result.sources)).catch(() => setSources([]));
@@ -131,6 +168,22 @@ export function ImportReviewPage() {
     }
   }
 
+  function addFieldMapping() {
+    if (!optionalTarget || !optionalColumn.trim()) return;
+    setMapping((current) => ({ ...current, [optionalTarget]: optionalColumn.trim() }));
+    setOptionalTarget("");
+    setOptionalColumn("");
+  }
+
+  function removeFieldMapping(target: string) {
+    if (requiredTargets.has(target)) return;
+    setMapping((current) => {
+      const next = { ...current };
+      delete next[target];
+      return next;
+    });
+  }
+
   const validationChecks: ValidationCheck[] = preview ? [
     { id: "rows", label: "Valid rows", detail: `${preview.summary.valid} of ${preview.summary.total} rows passed validation.`, state: preview.summary.errors ? "failed" : "passed" },
     { id: "duplicates", label: "Duplicate review", detail: `${preview.summary.duplicateReviewRequired} row(s) require duplicate review.`, state: preview.summary.duplicates ? "requires_review" : "passed" },
@@ -140,45 +193,162 @@ export function ImportReviewPage() {
 
   return (
     <div className="page ry-transfer-page">
-      <PageHeader eyebrow="Controlled ingestion" title="Import and review" description="Map, validate, preview, and explicitly approve a transactional import." />
-      <ReviewSection eyebrow="Setup" title="Map source data" description="The preview is bound to the CSV, mapping, and source context below.">
+      <PageHeader
+        eyebrow="Data transfer"
+        title="Import data"
+        description="Map → Preview → Import. Nothing is written until you explicitly approve."
+      />
+      <ReviewSection
+        eyebrow="Setup"
+        title="Map source data"
+        description="Choose the record type and match your source columns to Ryva fields."
+      >
         <form className="ry-transfer-form" onSubmit={(event) => void submit(event)}>
-          <Field label="Record type"><Select value={recordType} onChange={(event) => { const next = event.target.value; setRecordType(next); setMapping(initialMappings[next] ?? {}); }}>
-            {Object.keys(initialMappings).map((type) => <option key={type} value={type}>{type.replaceAll("_", " ")}</option>)}
-          </Select></Field>
-          <div className="ry-transfer-grid">
-            {Object.entries(mapping).map(([target, source]) => <Field key={target} label={`${target} source column`}><Input required value={source} onChange={(event) => setMapping((current) => ({ ...current, [target]: event.target.value }))} /></Field>)}
+          <Field label="Record type">
+            <Select
+              value={recordType}
+              onChange={(event) => {
+                const next = event.target.value;
+                setRecordType(next);
+                setMapping(initialMappings[next] ?? {});
+                setOptionalTarget("");
+                setOptionalColumn("");
+              }}
+            >
+              {Object.keys(initialMappings).map((type) => (
+                <option key={type} value={type}>{type.replaceAll("_", " ")}</option>
+              ))}
+            </Select>
+          </Field>
+
+          <div className="ry-transfer-mapping" aria-label="Field mapping">
+            <div className="ry-transfer-mapping-head">
+              <span>Ryva field</span>
+              <span>Source column</span>
+              <span className="ry-transfer-mapping-action-head" aria-hidden="true" />
+            </div>
+            {Object.entries(mapping).map(([target, source]) => {
+              const locked = requiredTargets.has(target);
+              return (
+                <div className="ry-transfer-mapping-row" key={target}>
+                  <div className="ry-transfer-mapping-field">
+                    <span className="ry-transfer-mapping-label">{ryvaFieldLabel(target)}</span>
+                    {locked ? <span className="ry-transfer-mapping-required">Required</span> : null}
+                  </div>
+                  <Input
+                    required
+                    aria-label={`${ryvaFieldLabel(target)} source column`}
+                    value={source}
+                    onChange={(event) => setMapping((current) => ({ ...current, [target]: event.target.value }))}
+                  />
+                  {locked ? (
+                    <span className="ry-transfer-mapping-spacer" aria-hidden="true" />
+                  ) : (
+                    <Button type="button" variant="tertiary" size="compact" onClick={() => removeFieldMapping(target)}>
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+            {availableOptionalFields.length ? (
+              <div className="ry-transfer-mapping-row ry-transfer-mapping-row-add">
+                <Select
+                  aria-label="Ryva field"
+                  value={optionalTarget}
+                  onChange={(event) => setOptionalTarget(event.target.value)}
+                >
+                  <option value="">Select field…</option>
+                  {availableOptionalFields.map((item) => (
+                    <option key={item} value={item}>{ryvaFieldLabel(item)}</option>
+                  ))}
+                </Select>
+                <Input
+                  aria-label="Source column"
+                  value={optionalColumn}
+                  placeholder="Source column"
+                  onChange={(event) => setOptionalColumn(event.target.value)}
+                />
+                <span className="ry-transfer-mapping-spacer" aria-hidden="true" />
+              </div>
+            ) : null}
+            <div className="ry-transfer-mapping-actions">
+              <Button
+                type="button"
+                variant="tertiary"
+                size="compact"
+                disabled={!optionalTarget || !optionalColumn.trim() || !availableOptionalFields.length}
+                onClick={addFieldMapping}
+              >
+                + Add field mapping
+              </Button>
+            </div>
           </div>
+
           <div className="ry-transfer-grid">
-            <Field label="Evidence Source" hint="Optional for preview."><Select value={sourceId} onChange={(event) => setSourceId(event.target.value)}><option value="">Not linked yet</option>{sources.map((item) => <option key={item.id} value={item.id}>{item.reference}</option>)}</Select></Field>
-            <Field label="Source observed at"><Input type="datetime-local" value={observedAt} onChange={(event) => setObservedAt(event.target.value)} /></Field>
-            <Field label="Additional mapped field"><Select value={optionalTarget} onChange={(event) => setOptionalTarget(event.target.value)}><option value="">Select…</option>{optionalFields[recordType]?.filter((item) => !(item in mapping)).map((item) => <option key={item}>{item}</option>)}</Select></Field>
-            <Field label="CSV column"><Input value={optionalColumn} onChange={(event) => setOptionalColumn(event.target.value)} /></Field>
+            <Field
+              label="Evidence source"
+              hint="Optional. Link a source if these records came from a specific document or research record."
+            >
+              <Select value={sourceId} onChange={(event) => setSourceId(event.target.value)}>
+                <option value="">No source linked</option>
+                {sources.map((item) => (
+                  <option key={item.id} value={item.id}>{item.reference}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Observed date" hint="When this source information was observed.">
+              <Input type="datetime-local" value={observedAt} onChange={(event) => setObservedAt(event.target.value)} />
+            </Field>
           </div>
-          <Button type="button" variant="secondary" disabled={!optionalTarget || !optionalColumn} onClick={() => { setMapping((current) => ({ ...current, [optionalTarget]: optionalColumn })); setOptionalTarget(""); setOptionalColumn(""); }}>Add mapping</Button>
-          <Field label="CSV" hint="First row must contain mapped required columns. Up to 5,000 rows."><TextArea rows={10} required value={csv} onChange={(event) => setCsv(event.target.value)} /></Field>
-          <Button type="submit">Validate preview</Button>
+
+          <Field
+            label="Paste CSV data"
+            hint="Paste your CSV including the header row. Up to 5,000 rows. The first row must contain column headers. Required mapped fields must be present."
+          >
+            <TextArea
+              rows={8}
+              required
+              value={csv}
+              onChange={(event) => setCsv(event.target.value)}
+            />
+          </Field>
+          {pasteSummary ? (
+            <p className="ry-transfer-csv-summary" aria-live="polite">
+              Detected {pasteSummary.dataRows} data row{pasteSummary.dataRows === 1 ? "" : "s"}
+              {" · "}
+              {pasteSummary.columns} column{pasteSummary.columns === 1 ? "" : "s"}
+              {pasteSummary.missingMappedHeaders.length
+                ? ` · Missing mapped headers: ${pasteSummary.missingMappedHeaders.join(", ")}`
+                : " · Required mapped headers found"}
+            </p>
+          ) : null}
+
+          <div className="ry-transfer-primary-action">
+            <Button type="submit">Preview import</Button>
+            <p>Map → Preview → Import. Preview never writes records.</p>
+          </div>
         </form>
       </ReviewSection>
       {error ? <ErrorState message={error} /> : null}
       {preview ? (
-        <ConsequentialReviewLayout readiness={<ReadinessSummary state={committed ? "completed" : approvalBlocked ? "blocked" : "requires_review"} description="This import remains uncommitted until the exact preview receives explicit human approval." blockers={approvalBlocked && !committed ? ["Resolve validation errors and provide an approval rationale of at least 10 characters."] : []} context={<dl className="ry-review-facts"><div><dt>Preview</dt><dd>{preview.id}</dd></div><div><dt>Source</dt><dd>{preview.summary.provenance.origin}</dd></div></dl>} />}>
-          <ReviewSection title="Validation result" description="Validation distinguishes valid records from duplicate candidates before any commit.">
+        <ConsequentialReviewLayout readiness={<ReadinessSummary state={committed ? "completed" : approvalBlocked ? "blocked" : "requires_review"} description="This import remains uncommitted until the exact preview receives explicit approval." blockers={approvalBlocked && !committed ? ["Resolve validation errors and provide an approval rationale of at least 10 characters."] : []} context={<dl className="ry-review-facts"><div><dt>Preview</dt><dd>{preview.id}</dd></div><div><dt>Source</dt><dd>{preview.summary.provenance.origin}</dd></div></dl>} />}>
+          <ReviewSection title="Preview result" description="Validation distinguishes valid records from duplicate candidates before any commit.">
             <div className="ry-transfer-metrics"><Metric label="Rows" value={preview.summary.total} /><Metric label="Valid" value={preview.summary.valid} /><Metric label="Duplicate candidates" value={preview.summary.duplicates} /></div>
             <p><StatusLabel value="requires_review" label="awaiting explicit approval" /> {preview.summary.provenance.origin}, {preview.summary.provenance.verificationStatus}. {preview.summary.prospectiveCreates} prospective creates.</p>
-            {preview.summary.reviewOnly ? <Alert tone="warning" title="Review-only type">Valid rows will be staged for human adoption and will not create operational authority.</Alert> : null}
+            {preview.summary.reviewOnly ? <Alert tone="warning" title="Review-only type">Valid rows will be staged for adoption and will not create operational authority.</Alert> : null}
             <Table caption="Import preview rows"><thead><tr><th>Row</th><th>Name</th><th>Errors</th><th>Duplicates</th></tr></thead><tbody>{preview.rows.map((row) => <tr key={row.rowNumber}><td>{row.rowNumber}</td><td>{row.normalized.name}</td><td>{row.errors.join(", ") || "None"}</td><td>{row.duplicateCandidates.length}</td></tr>)}</tbody></Table>
           </ReviewSection>
           <ExactArtifact title="Exact import preview" description="This preview ID, CSV digest, row count, and mapping are revalidated when committed." version={preview.id} code>{csv}</ExactArtifact>
           <ValidationSummary checks={validationChecks} description="The server remains authoritative when the approval is submitted." />
           {committed ? <ReviewOutcome title="Import committed." status="completed" consequence="The approved preview has been committed and row outcomes are available for audit."><p>{Object.entries(committed).map(([key, value]) => `${key}: ${value}`).join(" · ")} · <a href={`/api/data-imports/${preview.id}/report`}>Download row outcome report</a></p></ReviewOutcome> : (
-            <ReviewSection eyebrow="Consequential review" title="Approve exact preview" description="Approval binds your rationale to the exact CSV preview.">
+            <ReviewSection eyebrow="Import" title="Approve exact preview" description="Approval binds your rationale to the exact CSV preview and commits the import.">
               <Field label="Approval rationale" hint="Explain why this exact preview should be committed." required><TextArea rows={3} value={approvalReason} onChange={(event) => setApprovalReason(event.target.value)} /></Field>
               <Button disabled={approvalBlocked} onClick={() => setConfirmOpen(true)}>Approve exact preview and commit</Button>
             </ReviewSection>
           )}
         </ConsequentialReviewLayout>
-      ) : <EmptyState compact description="Validate a mapped CSV to create an exact preview for review." />}
+      ) : <EmptyState compact description="Preview a mapped CSV to review the exact import before anything is written." />}
       <ConfirmationDialog open={confirmOpen} title="Confirm import commit" description={`Approve preview ${preview?.id ?? ""} with ${preview?.summary.total ?? 0} rows.`} consequence={<><p>This commits only the exact preview after the server recomputes its SHA-256 source digest and expected counts.</p><p>Rationale: {approvalReason}</p></>} confirmLabel="Approve exact preview and commit" processing={approving} onConfirm={() => void approve()} onClose={() => setConfirmOpen(false)} />
     </div>
   );

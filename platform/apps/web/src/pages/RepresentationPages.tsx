@@ -112,7 +112,7 @@ export function RepresentationPage() {
       <PageHeader
         eyebrow="Authority workspace"
         title="Representation"
-        description="Move from Brand diligence to written, human-approved authority without treating an uploaded agreement as permission."
+        description="Move from Brand diligence to written, approved authority without treating an uploaded agreement as permission."
       />
       {error ? <ErrorPanel message={error} /> : null}
       {loading ? <Loading label="Loading representation authority" /> : (
@@ -144,7 +144,7 @@ export function RepresentationPage() {
             )}
           </section>
           <section className="panel">
-            <p className="eyebrow">Human-owned decision</p><h2>Open a Representation Opportunity</h2>
+            <p className="eyebrow">Owned decision</p><h2>Open a Representation Opportunity</h2>
             <form className="form-grid" onSubmit={(event) => void create(event)}>
               <Field label="Contact Ready Brand"><select required value={brandId} onChange={(event) => setBrandId(event.target.value)}>
                 <option value="">Select Brand</option>{brands.filter((item) => item.pipelineStage === "contact_ready").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -289,7 +289,7 @@ export function RepresentationDetailPage() {
         <Field label="Stage"><select value={stage} onChange={(event) => setStage(event.target.value)}>
           {["contact_ready","contacted","conversation","reviewing_terms","agreement_draft","paused","rejected"].map((item) => <option key={item}>{item}</option>)}
         </select></Field>
-        <Field label="Human decision"><select required value={decisionId} onChange={(event) => setDecisionId(event.target.value)}>
+        <Field label="Decision"><select required value={decisionId} onChange={(event) => setDecisionId(event.target.value)}>
           <option value="">Select</option>{context?.decisions.filter((item) => item.status === "issued").map((item) => <option key={item.id} value={item.id}>{shown(item.outcome)}</option>)}
         </select></Field>
         <Field label="Next action"><select required={stage !== "rejected"} value={taskId} onChange={(event) => setTaskId(event.target.value)}>
@@ -373,7 +373,7 @@ export function AgreementDetailPage() {
     setSaving(true);
     try {
       await api(`/api/agreement-term-candidates/${item.id}`, { method: "PATCH", body: {
-        version: item.version, decision, reviewNotes: `Human ${decision} after comparing the cited original.`
+        version: item.version, decision, reviewNotes: `${decision} after comparing the cited original.`
       } });
       await load();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Candidate review failed."); }
@@ -407,7 +407,7 @@ export function AgreementDetailPage() {
     setSaving(true);
     try {
       await api(`/api/agreements/${id}/status`, {
-        method: "POST", body: { version: detail.agreement.version, status, reason: `Human recorded ${status} authority after reviewing current contractual status.` }
+        method: "POST", body: { version: detail.agreement.version, status, reason: `Recorded ${status} authority after reviewing current contractual status.` }
       });
       await load();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Agreement status could not be changed."); }
@@ -440,7 +440,7 @@ export function AgreementDetailPage() {
   if (!detail && !error) return <Loading label="Loading Agreement authority" />;
   const agreement = detail?.agreement;
   return <div className="page">
-    <PageHeader eyebrow="Representation Agreement" title={shown(agreement?.brandName, "Agreement")} description="Material terms are evidence-linked, editable, and non-authoritative until exact-artifact human approval." />
+    <PageHeader eyebrow="Representation Agreement" title={shown(agreement?.brandName, "Agreement")} description="Material terms are evidence-linked, editable, and non-authoritative until exact-artifact approval." />
     {error ? <ErrorPanel message={error} /> : null}
     {detail && agreement ? <>
       <section className="metric-row">
@@ -491,11 +491,11 @@ export function AgreementDetailPage() {
           <button className="secondary-button" disabled={saving}>Record candidate</button>
         </form> : null}
       </section>
-      <section className="panel"><p className="eyebrow">Human authority</p><h2>Approval and lifecycle</h2>
+      <section className="panel"><p className="eyebrow">Authority</p><h2>Approval and lifecycle</h2>
         <p>Digest: <code>{detail.authorityDigest}</code></p>
         <div className="button-row">
           {["draft","reviewing"].includes(String(agreement.status)) ? <button className="primary-button" disabled={saving} onClick={() => void requestApproval()}>Request exact-scope approval</button> : null}
-          {agreement.status === "pending_approval" ? <><input aria-label="Approval ID" placeholder="Approval ID from this review" value={approvalId} onChange={(event) => setApprovalId(event.target.value)} /><button className="primary-button" disabled={!approvalId || saving} onClick={() => void activate()}>Human approve and activate</button></> : null}
+          {agreement.status === "pending_approval" ? <><input aria-label="Approval ID" placeholder="Approval ID from this review" value={approvalId} onChange={(event) => setApprovalId(event.target.value)} /><button className="primary-button" disabled={!approvalId || saving} onClick={() => void activate()}>Approve and activate</button></> : null}
           {agreement.status === "active" ? <><button className="secondary-button" onClick={() => void end("suspended")}>Suspend authority</button><button className="danger-button" onClick={() => void end("ended")}>End authority</button></> : null}
         </div>
       </section>

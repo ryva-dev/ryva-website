@@ -1,32 +1,34 @@
 import type { Database, Transaction } from "../../database/src/index.js";
 import { oneOrNone } from "../../database/src/index.js";
+import {
+  deriveCustomerProductAccess,
+  type CustomerProductAccess,
+  type ProAccessState
+} from "./productAccess.js";
 
 export type Role = "representative" | "mentor" | "instructor" | "admin" | "support";
 export type AccessMode =
   | "full"
-  | "read_only"
-  | "certification_required"
-  | "subscription_required"
+  | "account_only"
+  | "program_only"
+  | "pro_required"
   | "restricted"
   | "blocked";
 
-export type AccessDecision = {
+export type AccessReason =
+  | "operating_access"
+  | "account_only"
+  | "program_incomplete"
+  | "pro_trial_active"
+  | "pro_subscription_active"
+  | "pro_subscription_paid_through"
+  | "pro_inactive"
+  | "staff"
+  | "account_blocked";
+
+export type AccessDecision = CustomerProductAccess & {
   mode: AccessMode;
-  reason:
-    | "eligible"
-    | "staff"
-    | "credential_missing"
-    | "credential_expired_grace"
-    | "credential_expired"
-    | "credential_suspended"
-    | "credential_revoked"
-    | "credential_surrendered"
-    | "subscription_missing"
-    | "subscription_read_only"
-    | "subscription_paid_through";
-  credentialStatus: string | null;
-  subscriptionStatus: string | null;
-  graceEndsAt: string | null;
+  reason: AccessReason;
   capabilities: string[];
 };
 
@@ -37,152 +39,122 @@ export type AccessRow = {
   workspace_status: string;
   role: Role;
   membership_status: string;
-  credential_status: string | null;
-  credential_expires_at: Date | null;
-  suspension_read_only_allowed: boolean | null;
+  program_status: string | null;
+  program_completed_at: Date | null;
+  pro_trial_started_at: Date | null;
+  pro_trial_ends_at: Date | null;
   subscription_status: string | null;
   current_period_end: Date | null;
   past_due_since: Date | null;
 };
 
-const operationalRead = ["profile:read", "settings:read", "operational:read", "export:request"];
-const operationalWrite = [
-  ...operationalRead,
-  "profile:write",
-  "settings:write",
-  "operational:write",
-  "external:approve"
-];
-const restricted = [
+const accountCapabilities = [
+  "account:read",
   "profile:read",
   "profile:write",
-  "certification:read",
-  "subscription:read",
+  "settings:read",
+  "settings:write",
+  "sessions:read",
+  "sessions:write",
   "support:request"
 ];
+const programCapabilities = [...accountCapabilities, "program:read", "program:progress.write"];
+const operatingReadCapabilities = [
+  ...programCapabilities,
+  "operational:read",
+  "export:request"
+];
+const operatingCapabilities = [
+  ...operatingReadCapabilities,
+  "operational:write",
+  "external:approve",
+];
 
-function full(
-  row: AccessRow,
-  reason: AccessDecision["reason"],
-  graceEndsAt: string | null = null
-): AccessDecision {
+function staffProductAccess(): CustomerProductAccess {
   return {
-    mode: "full",
-    reason,
-    credentialStatus: row.credential_status,
-    subscriptionStatus: row.subscription_status,
-    graceEndsAt,
-    capabilities: operationalWrite
+    canAccessProgram: false,
+    isProgramCompleted: false,
+    canAccessOperatingPlatform: false,
+    isProTrialActive: false,
+    isProActive: false,
+    programStatus: null,
+    programCompletedAt: null,
+    proTrialStartedAt: null,
+    proTrialEndsAt: null,
+    proAccessState: "staff",
+    subscriptionStatus: null
   };
 }
 
 function decision(
-  row: AccessRow,
   mode: AccessMode,
-  reason: AccessDecision["reason"],
+  reason: AccessReason,
   capabilities: string[],
-  graceEndsAt: Date | null = null
+  product: CustomerProductAccess
 ): AccessDecision {
-  return {
-    mode,
-    reason,
-    credentialStatus: row.credential_status,
-    subscriptionStatus: row.subscription_status,
-    graceEndsAt: graceEndsAt?.toISOString() ?? null,
-    capabilities
-  };
+  return { mode, reason, capabilities, ...product };
+}
+
+function reasonForProState(state: ProAccessState): AccessReason {
+  if (state === "trial_active") return "pro_trial_active";
+  if (state === "subscription_active") return "pro_subscription_active";
+  if (state === "paid_through") return "pro_subscription_paid_through";
+  return "operating_access";
 }
 
 export function decideAccess(row: AccessRow, at = new Date()): AccessDecision {
+  const product = deriveCustomerProductAccess({
+    programStatus: row.program_status,
+    programCompletedAt: row.program_completed_at,
+    proTrialStartedAt: row.pro_trial_started_at,
+    proTrialEndsAt: row.pro_trial_ends_at,
+    subscriptionStatus: row.subscription_status,
+    subscriptionPeriodEnd: row.current_period_end,
+    subscriptionPastDueSince: row.past_due_since
+  }, at);
+
   if (
     row.user_status !== "active" ||
     row.membership_status !== "active" ||
     row.workspace_status === "closed"
   ) {
-    return decision(row, "blocked", "credential_revoked", []);
+    return decision("blocked", "account_blocked", [], product);
   }
   if (row.role === "admin") {
-    return decision(row, "full", "staff", [
+    return decision("full", "staff", [
+      ...accountCapabilities,
       "admin:access",
       "audit:read",
+      "jobs:read",
       "jobs:manage",
       "support_grants:manage"
-    ]);
+    ], staffProductAccess());
   }
   if (row.role === "support") {
-    return decision(row, "full", "staff", ["support:access", "jobs:read"]);
+    return decision("full", "staff", [
+      ...accountCapabilities,
+      "support:access",
+      "jobs:read"
+    ], staffProductAccess());
   }
   if (row.role === "mentor" || row.role === "instructor") {
-    return decision(row, "restricted", "staff", ["sandbox:access", ...restricted]);
+    return decision("restricted", "staff", [
+      "sandbox:access",
+      ...accountCapabilities,
+      "operational:read",
+      "export:request"
+    ], staffProductAccess());
   }
-  if (!row.credential_status || row.credential_status === "pending") {
-    return decision(row, "certification_required", "credential_missing", restricted);
+  if (!product.canAccessProgram) {
+    return decision("account_only", "account_only", accountCapabilities, product);
   }
-  if (row.credential_status === "revoked") {
-    return decision(row, "blocked", "credential_revoked", ["certification:read", "support:request"]);
+  if (!product.isProgramCompleted) {
+    return decision("program_only", "program_incomplete", programCapabilities, product);
   }
-  if (row.credential_status === "suspended") {
-    return decision(
-      row,
-      row.suspension_read_only_allowed ? "read_only" : "blocked",
-      "credential_suspended",
-      row.suspension_read_only_allowed
-        ? operationalRead
-        : ["certification:read", "support:request"]
-    );
+  if (!product.canAccessOperatingPlatform) {
+    return decision("pro_required", "pro_inactive", programCapabilities, product);
   }
-  if (row.credential_status === "surrendered") {
-    return decision(row, "restricted", "credential_surrendered", restricted);
-  }
-
-  const expiry = row.credential_expires_at;
-  const isExpired =
-    row.credential_status === "expired" || (expiry !== null && expiry.getTime() <= at.getTime());
-  if (isExpired) {
-    const graceEnd = new Date((expiry ?? at).getTime() + 30 * 24 * 60 * 60 * 1000);
-    if (at < graceEnd) {
-      return decision(
-        row,
-        "read_only",
-        "credential_expired_grace",
-        [...operationalRead, "certification:read", "subscription:read"],
-        graceEnd
-      );
-    }
-    return decision(
-      row,
-      "restricted",
-      "credential_expired",
-      [...restricted, "export:request"],
-      graceEnd
-    );
-  }
-
-  const subscription = row.subscription_status ?? "none";
-  const periodEnd = row.current_period_end;
-  if (subscription === "trial" || subscription === "active") return full(row, "eligible");
-  if (subscription === "past_due") {
-    const retryEnd = new Date((row.past_due_since ?? at).getTime() + 7 * 24 * 60 * 60 * 1000);
-    if (at <= retryEnd) return full(row, "eligible", retryEnd.toISOString());
-  }
-  if (subscription === "canceled" && periodEnd && periodEnd > at) {
-    return full(row, "subscription_paid_through", periodEnd.toISOString());
-  }
-  if (["past_due", "retry_failed", "canceled", "ended"].includes(subscription)) {
-    const readOnlyEnd = new Date(
-      (periodEnd ?? row.past_due_since ?? at).getTime() + 30 * 24 * 60 * 60 * 1000
-    );
-    return decision(
-      row,
-      at <= readOnlyEnd ? "read_only" : "subscription_required",
-      "subscription_read_only",
-      at <= readOnlyEnd
-        ? [...operationalRead, "certification:read", "subscription:read"]
-        : [...restricted, "export:request"],
-      readOnlyEnd
-    );
-  }
-  return decision(row, "subscription_required", "subscription_missing", restricted);
+  return decision("full", reasonForProState(product.proAccessState), operatingCapabilities, product);
 }
 
 export async function getAccessDecision(
@@ -193,21 +165,18 @@ export async function getAccessDecision(
 ): Promise<AccessDecision | null> {
   const row = await oneOrNone<AccessRow>(
     database,
-    `SELECT u.id AS user_id, u.status AS user_status,
-            w.id AS workspace_id, w.status AS workspace_status,
-            wm.role, wm.status AS membership_status,
-            c.status AS credential_status, c.expires_at AS credential_expires_at,
-            c.suspension_read_only_allowed,
-            s.status AS subscription_status, s.current_period_end, s.past_due_since
+    `SELECT u.id AS user_id,u.status AS user_status,
+            w.id AS workspace_id,w.status AS workspace_status,
+            wm.role,wm.status AS membership_status,
+            pe.status AS program_status,pe.completed_at AS program_completed_at,
+            pe.pro_trial_started_at,pe.pro_trial_ends_at,
+            se.status AS subscription_status,se.current_period_end,se.past_due_since
        FROM users u
-       JOIN workspace_memberships wm ON wm.user_id = u.id AND wm.workspace_id = $2
-       JOIN workspaces w ON w.id = wm.workspace_id
-       LEFT JOIN LATERAL (
-         SELECT * FROM certification_credentials cc
-          WHERE cc.user_id = u.id ORDER BY cc.verified_at DESC LIMIT 1
-       ) c ON true
-       LEFT JOIN subscription_entitlements s ON s.user_id = u.id
-      WHERE u.id = $1`,
+       JOIN workspace_memberships wm ON wm.user_id=u.id AND wm.workspace_id=$2
+       JOIN workspaces w ON w.id=wm.workspace_id
+       LEFT JOIN program_entitlements pe ON pe.user_id=u.id
+       LEFT JOIN subscription_entitlements se ON se.user_id=u.id
+      WHERE u.id=$1`,
     [userId, workspaceId]
   );
   return row ? decideAccess(row, at) : null;

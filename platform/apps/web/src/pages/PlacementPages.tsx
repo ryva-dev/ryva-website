@@ -112,7 +112,7 @@ export function PlacementPage() {
             </tr>)}</tbody>
           </table></div>}
       </section>
-      <section className="panel"><p className="eyebrow">Human qualification</p><h2>Create a Placement Opportunity</h2>
+      <section className="panel"><p className="eyebrow">Qualification</p><h2>Create a Placement Opportunity</h2>
         <form className="form-grid" onSubmit={(event) => void create(event)}>
           <Field label="Active Agreement"><select required value={agreementId} onChange={(event) => { setAgreementId(event.target.value); setChannel(""); }}>
             <option value="">Select current authority</option>{agreements.map((item) => <option key={item.id} value={item.id}>{shown(item.brandName)} · {date(item.expiresAt)}</option>)}
@@ -123,7 +123,7 @@ export function PlacementPage() {
           <Field label="Qualified Business Buyer"><select required value={businessId} onChange={(event) => setBusinessId(event.target.value)}>
             <option value="">Select Business</option>{businesses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select></Field>
-          <Field label="Issued human decision"><select required value={decisionId} onChange={(event) => setDecisionId(event.target.value)}>
+          <Field label="Issued decision"><select required value={decisionId} onChange={(event) => setDecisionId(event.target.value)}>
             <option value="">Select decision</option>{business?.decisions.filter((item) => item.status === "issued").map((item) => <option key={item.id} value={item.id}>{shown(item.outcome)}</option>)}
           </select></Field>
           <Field label="Match thesis"><textarea required value={matchThesis} onChange={(event) => setMatchThesis(event.target.value)} /></Field>
@@ -203,7 +203,7 @@ export function PlacementDetailPage() {
 
   if (!detail && !error) return <Loading label="Loading Placement Opportunity" />;
   return <div className="page">
-    <PageHeader eyebrow="Placement Opportunity" title={detail ? `${shown(detail.placement.brandName)} → ${shown(detail.placement.businessName)}` : "Placement"} description="Every advancement rechecks authority, conflict state, three-party value, human decision, and next action." action={<Link className="secondary-button" to={`/outreach?placementId=${id}`}>Open Outreach</Link>} />
+    <PageHeader eyebrow="Placement Opportunity" title={detail ? `${shown(detail.placement.brandName)} → ${shown(detail.placement.businessName)}` : "Placement"} description="Every advancement rechecks authority, conflict state, three-party value, decision, and next action." action={<Link className="secondary-button" to={`/outreach?placementId=${id}`}>Open Outreach</Link>} />
     {error ? <ErrorPanel message={error} /> : null}
     {detail ? <>
       <section className="metric-row">
@@ -232,7 +232,7 @@ export function PlacementDetailPage() {
         <Field label="Next stage"><select value={toStage} onChange={(event) => setToStage(event.target.value)}>
           {["identified","qualified","prepared","contacted","engaged","information_sample_sent","buyer_review","terms_order_discussion","closed_lost","disqualified"].map((item) => <option key={item}>{item}</option>)}
         </select></Field>
-        <Field label="Fresh human decision"><select required value={decisionId} onChange={(event) => setDecisionId(event.target.value)}>
+        <Field label="Fresh decision"><select required value={decisionId} onChange={(event) => setDecisionId(event.target.value)}>
           <option value="">Select</option>{business?.decisions.filter((item) => item.status === "issued").map((item) => <option key={item.id} value={item.id}>{shown(item.outcome)}</option>)}
         </select></Field>
         <Field label="Next action"><select required={!["closed_lost","disqualified"].includes(toStage)} value={taskId} onChange={(event) => setTaskId(event.target.value)}>
@@ -240,7 +240,7 @@ export function PlacementDetailPage() {
         </select></Field>
         <Field label="Reason"><textarea required value={reason} onChange={(event) => setReason(event.target.value)} /></Field>
         <Field label="Evidence IDs for backward/closure/reopen"><input value={evidenceIds} onChange={(event) => setEvidenceIds(event.target.value)} /></Field>
-        <button className="primary-button" disabled={saving}>Record human-confirmed stage</button>
+        <button className="primary-button" disabled={saving}>Record confirmed stage</button>
       </form></section>
       <section className="panel"><h2>Stage history</h2>{detail.events.map((item, index) => <div className="timeline-item" key={`${shown(item.occurredAt)}-${index}`}><StatusPill value={String(item.toStage)} /><p>{shown(item.reason)}</p><small>{date(item.occurredAt)}</small></div>)}</section>
     </> : null}

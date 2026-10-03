@@ -72,9 +72,10 @@ const mergeType=z.enum([
 function providerReadiness(configuration:AppConfig){
   return [
     {key:"database_tls",configured:configuration.PGSSL!=="disable",required:true},
-    {key:"certification",configured:Boolean(configuration.CREDENTIAL_API_URL&&configuration.CREDENTIAL_API_TOKEN),required:true},
+    {key:"legacy_certification",configured:Boolean(configuration.CREDENTIAL_API_URL&&configuration.CREDENTIAL_API_TOKEN),required:false},
     {key:"billing",configured:Boolean(configuration.STRIPE_SECRET_KEY&&configuration.STRIPE_WEBHOOK_SECRET&&configuration.STRIPE_PRICE_ID),required:true},
     {key:"email",configured:Boolean(configuration.EMAIL_PROVIDER_URL&&configuration.EMAIL_PROVIDER_TOKEN&&configuration.EMAIL_WEBHOOK_SECRET&&configuration.EMAIL_FROM_ADDRESS),required:true},
+    {key:"transactional_identity_email",configured:Boolean(configuration.TRANSACTIONAL_EMAIL_PROVIDER_URL&&configuration.TRANSACTIONAL_EMAIL_PROVIDER_TOKEN&&configuration.TRANSACTIONAL_EMAIL_FROM_ADDRESS),required:true},
     {key:"object_storage",configured:configuration.STORAGE_DRIVER==="s3"&&Boolean(configuration.S3_BUCKET&&configuration.S3_REGION),required:true},
     {key:"malware_scanner",configured:Boolean(configuration.MALWARE_SCANNER_WEBHOOK_SECRET),required:true},
     {key:"ai",configured:Boolean(configuration.AI_GENERATION_ENABLED&&configuration.AI_PROVIDER_URL&&configuration.AI_PROVIDER_TOKEN),required:false},
@@ -315,11 +316,16 @@ export function registerPhase9Routes({
               wm.id AS "membershipId",wm.workspace_id AS "workspaceId",
               w.name AS "workspaceName",w.status AS "workspaceStatus",
               wm.role,wm.status AS "membershipStatus",
+              pe.status AS "programStatus",pe.granted_at AS "programGrantedAt",
+              pe.completed_at AS "programCompletedAt",
+              pe.pro_trial_started_at AS "proTrialStartedAt",
+              pe.pro_trial_ends_at AS "proTrialEndsAt",
               cc.status AS "credentialStatus",cc.expires_at AS "credentialExpiresAt",
               se.status AS "subscriptionStatus",se.current_period_end AS "subscriptionPeriodEnd"
          FROM users u
          LEFT JOIN workspace_memberships wm ON wm.user_id=u.id
          LEFT JOIN workspaces w ON w.id=wm.workspace_id
+         LEFT JOIN program_entitlements pe ON pe.user_id=u.id
          LEFT JOIN LATERAL (
            SELECT status,expires_at FROM certification_credentials
            WHERE user_id=u.id ORDER BY verified_at DESC LIMIT 1
