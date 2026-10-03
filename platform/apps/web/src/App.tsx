@@ -25,6 +25,7 @@ import {
   FinalSimulationPage,
   ProgramDashboardPage,
   ProgramItemPage,
+  ProgramLibraryPage,
   ProgramModulePage
 } from "./program/ProgramExperience";
 import { CreateAccountPage } from "./marketing/CreateAccountPage";
@@ -160,6 +161,7 @@ export function App() {
             <Route index element={<AuthenticatedLanding />} />
             <Route path="access" element={<AccessWorkspacePage />} />
             <Route path="program" element={<ProgramDashboardPage />} />
+            <Route path="program/library" element={<ProgramLibraryPage />} />
             <Route path="program/final-simulation" element={<FinalSimulationPage />} />
             <Route path="program/final-assessment" element={<FinalAssessmentPage />} />
             <Route path="program/:moduleSlug" element={<ProgramModulePage />} />

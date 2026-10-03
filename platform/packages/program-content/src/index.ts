@@ -1,5 +1,6 @@
 import { moduleOneItems } from "./module1.js";
 import { finalAssessment, finalSimulation, remainderModuleItems } from "./programRemainder.js";
+import { brandPlacementLibrary, enrichModuleItems } from "./premiumLearning.js";
 
 export type ProgramContentStatus = "draft" | "published";
 
@@ -45,7 +46,36 @@ export type ProgramContentBlock =
       areas: Array<{ id: string; label: string; purpose: string; fictionalRecord: string }>;
       prompts: string[];
     }
+  | {
+      type: "visual_briefing";
+      id: string;
+      title: string;
+      subtitle: string;
+      slides: VisualBriefingSlide[];
+    }
   | { type: "divider" };
+
+export type VisualBriefingSlide = {
+  id: string;
+  eyebrow?: string;
+  title: string;
+  body?: string;
+  points?: string[];
+  flow?: Array<{ label: string; detail: string }>;
+  columns?: Array<{ title: string; body: string }>;
+  table?: { columns: string[]; rows: string[][] };
+  teachingNote?: string;
+};
+
+export type ProgramLibraryResource = {
+  id: string;
+  title: string;
+  category: string;
+  summary: string;
+  sections: Array<{ title: string; body?: string; items?: string[] }>;
+};
+
+export { brandPlacementLibrary };
 
 export type KnowledgeCheckQuestion =
   | {
@@ -332,7 +362,10 @@ const modules: ProgramModule[] = moduleDefinitions.map((module, index) => ({
         }
       ]
     }] : []),
-    ...(index === 0 ? moduleOneItems : remainderModuleItems[module.id as keyof typeof remainderModuleItems] ?? draftItems(module.id, module.topics))
+    ...enrichModuleItems(
+      module.id,
+      index === 0 ? moduleOneItems : remainderModuleItems[module.id as keyof typeof remainderModuleItems] ?? draftItems(module.id, module.topics)
+    )
   ]
 }));
 

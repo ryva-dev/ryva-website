@@ -52,12 +52,17 @@ describe("Program learning access", () => {
   it("keeps paid content behind Program capabilities while preserving completed learner access", async () => {
     const accountOnly = await login("uncertified@synthetic.ryva.test");
     assert.equal((await accountOnly.agent.get("/api/program")).status, 403);
+    assert.equal((await accountOnly.agent.get("/api/program/library")).status, 403);
     assert.equal((await accountOnly.agent.get("/api/program/items/test-article-1")).status, 403);
 
     const learner = await login("grace@synthetic.ryva.test");
     const dashboard = await learner.agent.get("/api/program");
     assert.equal(dashboard.status, 200);
     assert.equal(dashboard.body.program.heading, "Step inside brand placement.");
+    const library = await learner.agent.get("/api/program/library");
+    assert.equal(library.status, 200);
+    assert.equal(library.body.resources.length, 32);
+    assert.equal(library.body.resources[0].title, "Brand Placement Glossary");
 
     const proInactive = await login("canceled-ended@synthetic.ryva.test");
     assert.equal(proInactive.response.body.access.canAccessOperatingPlatform, false);

@@ -67,7 +67,32 @@ type ContentBlock =
       areas: Array<{ id: string; label: string; purpose: string; fictionalRecord: string }>;
       prompts: string[];
     }
+  | {
+      type: "visual_briefing";
+      id: string;
+      title: string;
+      subtitle: string;
+      slides: VisualBriefingSlide[];
+    }
   | { type: "divider" };
+type VisualBriefingSlide = {
+  id: string;
+  eyebrow?: string;
+  title: string;
+  body?: string;
+  points?: string[];
+  flow?: Array<{ label: string; detail: string }>;
+  columns?: Array<{ title: string; body: string }>;
+  table?: { columns: string[]; rows: string[][] };
+  teachingNote?: string;
+};
+type LibraryResource = {
+  id: string;
+  title: string;
+  category: string;
+  summary: string;
+  sections: Array<{ title: string; body?: string; items?: string[] }>;
+};
 type KnowledgeCheckQuestion = (
   | { id: string; type: "single_choice"; prompt: string; options: Array<{ id: string; label: string }> }
   | { id: string; type: "multiple_select"; prompt: string; options: Array<{ id: string; label: string }> }
@@ -315,6 +340,55 @@ export function ProgramDashboardPage() {
         <blockquote>“Review, interpret, calculate.”</blockquote>
       </article> : null}
     </section>
+    <section className="ry-program-library-callout" aria-labelledby="library-callout-heading">
+      <div>
+        <p className="ry-program-overline">Reference library</p>
+        <h2 id="library-callout-heading">Brand Placement Library</h2>
+        <p>Return to the Program's field guides, worksheets, commercial checklists, and decision frameworks whenever you need them.</p>
+      </div>
+      <Link className="ry-program-secondary-link" to={appPath("/program/library")}>Open the library</Link>
+    </section>
+  </ProgramFrame>;
+}
+
+export function ProgramLibraryPage() {
+  const canAccess = useProgramAccess();
+  const [resources, setResources] = useState<LibraryResource[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!canAccess) return;
+    let active = true;
+    void api<{ resources: LibraryResource[] }>("/api/program/library")
+      .then((result) => { if (active) setResources(result.resources); })
+      .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : "The library could not be loaded."); });
+    return () => { active = false; };
+  }, [canAccess]);
+  if (!canAccess) return <Navigate to={appPath("/access")} replace />;
+  if (error) return <ProgramFrame><ProgramMasthead compact /><ErrorState message={error} /></ProgramFrame>;
+  if (!resources.length) return <LoadingState label="Opening the Brand Placement Library" />;
+  const categories = [...new Set(resources.map((resource) => resource.category))];
+  return <ProgramFrame>
+    <ProgramMasthead compact />
+    <main className="ry-program-library">
+      <header>
+        <Link to={appPath("/program")} className="ry-program-back">← Program journey</Link>
+        <p className="ry-program-overline">Permanent reference area</p>
+        <h1>Brand Placement Library</h1>
+        <p>Practical reference tools from across the eight modules. Open any resource for a print-friendly working guide.</p>
+        <Button type="button" onClick={() => window.print()}>Print open resources</Button>
+      </header>
+      {categories.map((category) => <section key={category} aria-labelledby={`library-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+        <h2 id={`library-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>{category}</h2>
+        <div className="ry-program-library-grid">{resources.filter((resource) => resource.category === category).map((resource) => <details key={resource.id} id={resource.id}>
+          <summary><span>{resource.title}</span><small>{resource.summary}</small></summary>
+          <div>{resource.sections.map((section) => <section key={section.title}>
+            <h3>{section.title}</h3>
+            {section.body ? <p>{section.body}</p> : null}
+            {section.items ? <ul>{section.items.map((item) => <li key={item}>{item}</li>)}</ul> : null}
+          </section>)}</div>
+        </details>)}</div>
+      </section>)}
+    </main>
   </ProgramFrame>;
 }
 
@@ -389,9 +463,48 @@ function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
       if (block.type === "commercial_journey") return <CommercialJourney block={block} key={key} />;
       if (block.type === "comparison") return <ComparisonVisual block={block} key={key} />;
       if (block.type === "workspace_preview") return <WorkspacePreview block={block} key={key} />;
+      if (block.type === "visual_briefing") return <VisualBriefing block={block} key={key} />;
       return <hr key={key} />;
     })}
   </div>;
+}
+
+export function VisualBriefing({ block }: { block: Extract<ContentBlock, { type: "visual_briefing" }> }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const active = block.slides[activeIndex];
+  const lastIndex = Math.max(0, block.slides.length - 1);
+  const move = (direction: number) => setActiveIndex((current) => Math.min(lastIndex, Math.max(0, current + direction)));
+  if (!active) return null;
+  return <section
+    className="ry-program-briefing"
+    aria-label={`${block.title} visual briefing`}
+    onKeyDown={(event) => {
+      if (event.key === "ArrowLeft") move(-1);
+      if (event.key === "ArrowRight") move(1);
+    }}
+    tabIndex={0}
+  >
+    <header>
+      <div><span>Visual Briefing</span><h2>{block.title}</h2><p>{block.subtitle}</p></div>
+      <strong>{String(activeIndex + 1).padStart(2, "0")} / {String(block.slides.length).padStart(2, "0")}</strong>
+    </header>
+    <progress value={activeIndex + 1} max={block.slides.length} aria-label={`Slide ${activeIndex + 1} of ${block.slides.length}`} />
+    <article className="ry-program-briefing-slide" aria-live="polite">
+      <span>{active.eyebrow}</span>
+      <h3>{active.title}</h3>
+      {active.body ? <p>{active.body}</p> : null}
+      {active.points ? <ul>{active.points.map((point) => <li key={point}>{point}</li>)}</ul> : null}
+      {active.flow ? <ol className="ry-program-briefing-flow">{active.flow.map((step, index) => <li key={step.label}><span>{String(index + 1).padStart(2, "0")}</span><strong>{step.label}</strong><p>{step.detail}</p></li>)}</ol> : null}
+      {active.columns ? <div className="ry-program-briefing-columns">{active.columns.map((column) => <section key={column.title}><h4>{column.title}</h4><p>{column.body}</p></section>)}</div> : null}
+      {active.table ? <CommercialTable block={{ type: "data_table", caption: active.title, columns: active.table.columns, rows: active.table.rows }} /> : null}
+    </article>
+    <footer>
+      <Button type="button" disabled={activeIndex === 0} onClick={() => move(-1)} aria-label="Previous slide">Previous</Button>
+      <div role="group" aria-label="Choose a slide">{block.slides.map((slide, index) => <button aria-label={`Go to slide ${index + 1}: ${slide.title}`} aria-pressed={index === activeIndex} key={slide.id} onClick={() => setActiveIndex(index)} type="button" />)}</div>
+      <Button type="button" disabled={activeIndex === lastIndex} onClick={() => move(1)} aria-label="Next slide">Next</Button>
+    </footer>
+    {active.teachingNote ? <aside><strong>Teaching note</strong><p>{active.teachingNote}</p></aside> : null}
+  </section>;
 }
 
 function FormulaWalkthrough({ block }: { block: Extract<ContentBlock, { type: "formula" }> }) {
@@ -1058,7 +1171,6 @@ export function ProgramItemPage({ itemIdentifier, moduleIdentifier }: { itemIden
   const activity = ["guided_exercise", "guided_practice", "reflection", "final_simulation"].includes(payload.item.type);
   const knowledgeCheck = payload.item.type === "knowledge_check";
   const finalAssessment = payload.item.type === "final_assessment";
-  const transcript = activeItem.media?.status === "available" ? activeItem.media.transcript : undefined;
   const inlineCheckSummary = associatedCheck(moduleItems, activeItem.id);
   const railItems = groupedModuleItems(moduleItems);
   const continuation = continuationFor(payload);
@@ -1111,16 +1223,7 @@ export function ProgramItemPage({ itemIdentifier, moduleIdentifier }: { itemIden
           <h1>{payload.item.title}</h1>
           <p>{payload.item.description}</p>
         </header>
-        {payload.item.media?.status === "awaiting_production" ? <div className="ry-program-video" role="group" aria-label="Planned lesson media">
-          <span>Media edition</span>
-          <strong>Video awaiting production</strong>
-          <p>This written edition contains the complete lesson now. When final media is published, this area can become the primary explanation and the written lesson can become concise field notes without resetting your progress.</p>
-        </div> : null}
         <ContentBlocks blocks={payload.item.blocks} />
-        {transcript?.length ? <details className="ry-program-transcript">
-          <summary>Read transcript</summary>
-          <ContentBlocks blocks={transcript} />
-        </details> : null}
         {activity ? <ActivityForm item={payload.item} initialResponses={payload.submission?.response?.steps ?? {}} key={payload.item.id} onCompleted={(didComplete, next) => { void activityCompleted(didComplete, next); }} /> : null}
         {knowledgeCheck ? <KnowledgeCheckForm
           continueTo={continuation}

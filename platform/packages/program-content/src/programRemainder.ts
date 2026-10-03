@@ -586,13 +586,59 @@ export const finalSimulation: ProgramLearningItem = {
   position: 1, type: "final_simulation", status: "published", required: true, estimatedMinutes: 85, contentVersion: 1, progressVersion: 1,
   blocks: [
     { type: "heading", level: 2, text: "Cedar Row Studio" },
-    { type: "paragraph", text: "Cedar Row Studio makes contemporary natural-material products for modern gifting and home environments. The opening order minimum is $1,500." },
-    { type: "data_table", caption: "Cedar Row Studio product line", columns: ["SKU / product", "Wholesale", "MSRP", "Case pack"], rows: [["CRS-101 · Stoneware Catchall", "$22", "$48", "4"], ["CRS-102 · Linen Desk Pouch", "$28", "$62", "4"], ["CRS-103 · Sculptural Candle", "$26", "$58", "6"], ["CRS-104 · Brass Bookmark Set", "$14", "$32", "6"], ["CRS-105 · Travel Tray", "$31", "$68", "4"], ["CRS-106 · Mini Gift Set", "$24", "$54", "6"]], note: "Opening order minimum: $1,500." },
+    { type: "paragraph", text: "Cedar Row Studio makes contemporary natural-material products for modern gifting and home environments. Its priority is to build a small group of aligned specialty accounts that can explain the materials and support replenishment. The brand does not want broad discount distribution or unsupported exclusivity promises." },
+    { type: "callout", title: "Case-file rules", text: "Treat every artifact as fictional educational evidence. Facts established in one stage remain relevant later. When the file is incomplete, name the missing information rather than inventing it." },
+    { type: "data_table", caption: "Brand and operating brief", columns: ["Area", "Confirmed fact", "Commercial implication"], rows: [
+      ["Position", "Modern gifting and home; natural materials; $32–$68 MSRP", "Best fit may combine design sensitivity with accessible gifting"],
+      ["Opening minimum", "$1,500", "A buyer's preferred $1,200 test needs discussion, not an assumed exception"],
+      ["Lead time", "In-stock items: 10 business days", "Requested dates should allow allocation and fulfillment"],
+      ["Replenishment", "Core items reviewed weekly; no guarantee until inventory is confirmed", "Do not promise a reorder ship date before checking"],
+      ["Territory", "Northeast specialty accounts; named national accounts excluded", "Check account scope before outreach"],
+      ["Commission", "12% of verified commissionable product sales; freight and tax excluded", "Order totals and commissionable base must remain distinct"]
+    ] },
+    { type: "data_table", caption: "Cedar Row Studio product line", columns: ["SKU / product", "Category", "Wholesale", "MSRP", "Case pack", "Availability"], rows: [
+      ["CRS-101 · Stoneware Catchall", "Home / desk", "$22", "$48", "4", "In stock"],
+      ["CRS-102 · Linen Desk Pouch", "Accessories", "$28", "$62", "4", "In stock"],
+      ["CRS-103 · Sculptural Candle", "Home fragrance", "$26", "$58", "6", "In stock"],
+      ["CRS-104 · Brass Bookmark Set", "Gift / stationery", "$14", "$32", "6", "In stock"],
+      ["CRS-105 · Travel Tray", "Travel / home", "$31", "$68", "4", "Limited: confirm before order"],
+      ["CRS-106 · Mini Gift Set", "Gift", "$24", "$54", "6", "In stock"]
+    ], note: "Opening order minimum: $1,500. Case packs cannot be broken without brand approval." },
+    { type: "heading", level: 2, text: "Account file" },
     { type: "comparison", columns: [
-      { id: "still", title: "Still House", body: "High-design home store; $70–$250 typical; buyer worries the line is too gift-oriented." },
-      { id: "paper", title: "Paper & Field", body: "Gift, stationery, lifestyle; $20–$65 sweet spot; modest opening budgets." },
-      { id: "hearth", title: "Hearthline", body: "Regional home chain; larger potential; requires dependable replenishment and documentation." },
-      { id: "edit", title: "Edit No. 4", body: "Fashion and accessories; beautiful environment; minimal home/gift category." }
+      { id: "still", title: "Still House", body: "Two high-design home stores; $70–$250 typical; buyer Mara Chen worries the line is too gift-oriented.", points: ["Strong visual fit", "Weak price architecture", "Known buyer"] },
+      { id: "paper", title: "Paper & Field", body: "One gift, stationery, and lifestyle store; $20–$65 sweet spot; owner-buyer Jonah Reed; modest opening budgets.", points: ["Strong category and price fit", "Interested in four core products", "Usually tests near $1,200"] },
+      { id: "hearth", title: "Hearthline", body: "Seven-store regional home chain; larger potential; buyer team requires dependable replenishment, insurance, and vendor documentation.", points: ["Scale potential", "Longer onboarding", "Operational readiness question"] },
+      { id: "edit", title: "Edit No. 4", body: "Fashion and accessories concept; strong environment; minimal home or gift category; buyer contact not confirmed.", points: ["Aesthetic signal", "Weak visible category need", "Decision-maker unknown"] }
+    ] },
+    { type: "data_table", caption: "Prior contact and placement status", columns: ["Account", "Last evidence", "Current state", "Missing information"], rows: [
+      ["Still House", "Sample review six weeks ago", "Buyer likes materials; questions gifting focus", "Whether a home-focused edit changes the view"],
+      ["Paper & Field", "Owner-buyer replied yesterday", "Interested; asks about a smaller test", "Authority to change minimum and final SKU quantities"],
+      ["Hearthline", "Vendor portal invitation", "Early qualification", "Replenishment capacity and onboarding timeline"],
+      ["Edit No. 4", "Store research only", "Uncontacted", "Category plan, buyer, budget, and timing"]
+    ] },
+    { type: "heading", level: 2, text: "Purchase-order artifact" },
+    { type: "paragraph", text: "After clarification, Paper & Field submits fictional PO PF-2048 for an approved four-SKU opening edit. Compare it with the line sheet and the approved conversation notes before accepting it." },
+    { type: "data_table", caption: "PO PF-2048 · received from Paper & Field", columns: ["PO line", "SKU / product", "Quantity", "PO wholesale", "PO extension", "Case-file issue"], rows: [
+      ["1", "CRS-101 · Stoneware Catchall", "24", "$22", "$528", "Matches line sheet"],
+      ["2", "CRS-103 · Sculptural Candle", "22", "$26", "$572", "Quantity is not a multiple of case pack 6"],
+      ["3", "CRS-104 · Brass Bookmark Set", "36", "$12", "$432", "Wrong wholesale price; approved price is $14"],
+      ["4", "CRS-106 · Mini Gift Set", "24", "$24", "$576", "Product omitted from PO attachment image but present in total worksheet"],
+      ["5", "Order discount", "—", "10%", "−$210.80", "Discount was requested but not approved"]
+    ], note: "PO requested ship date: five business days from receipt. Standard confirmed lead time is 10 business days. Recalculate only after resolving quantity, price, omitted-line, discount, and timing issues." },
+    { type: "callout", title: "Verification path", text: "Do not silently repair the buyer's document. Preserve the original, list each discrepancy, confirm the governing fact and owner, obtain a corrected PO or written resolution, and then record the verified order." },
+    { type: "heading", level: 2, text: "Performance and commission file" },
+    { type: "data_table", caption: "Eight-week account snapshot", columns: ["SKU", "Received", "Sold", "Visible signal", "Context still needed"], rows: [
+      ["CRS-101 Catchall", "24", "18", "75% sell-through", "Stockouts, placement, returns"],
+      ["CRS-103 Candle", "24", "17", "70.8% sell-through", "Tester/display, season"],
+      ["CRS-104 Bookmark", "36", "30", "83.3% sell-through", "Gift timing, on-hand accuracy"],
+      ["CRS-106 Gift Set", "24", "11", "45.8% sell-through", "Placement, promotion, remaining selling window"]
+    ] },
+    { type: "data_table", caption: "Verified reorder and commission inputs", columns: ["Record", "Confirmed input", "Use later in simulation"], rows: [
+      ["Reorder", "16 catchalls × $22; 18 candles × $26; 24 bookmark sets × $14", "Verify the $1,156 reorder total"],
+      ["Opening commissionable value", "$1,720", "Use the verified base, not the disputed PO total"],
+      ["Total commissionable sales", "$1,720 + $1,156 = $2,876", "Apply the agreed 12% rate"],
+      ["Expected commission", "$345.12", "Expected is not the same as approved or paid"]
     ] }
   ],
   activity: {

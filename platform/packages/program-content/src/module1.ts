@@ -16,7 +16,8 @@ function lesson(input: {
   blocks: ProgramContentBlock[];
   videoPlanned?: boolean;
 }): ProgramLearningItem {
-  const { videoPlanned, ...item } = input;
+  const { videoPlanned: _videoPlanned, ...item } = input;
+  void _videoPlanned;
   return {
     ...item,
     moduleId,
@@ -24,12 +25,7 @@ function lesson(input: {
     status: "published",
     required: true,
     contentVersion: 1,
-    progressVersion: 1,
-    ...(videoPlanned ? { media: {
-      status: "awaiting_production",
-      intendedRole: "primary_explanation",
-      writtenEdition: "substantive"
-    } as const } : {})
+    progressVersion: 1
   };
 }
 

@@ -30,6 +30,28 @@ test("Program learner follows the editorial dashboard into a published lesson", 
   await expect(page.getByRole("button", { name: "Complete Section" })).toBeVisible();
 });
 
+test("premium lesson briefings and the Brand Placement Library remain responsive", async ({ page }) => {
+  await login(page, "grace@synthetic.ryva.test");
+  await page.goto("/app/program/inside-brand-placement/what-brand-placement-is");
+  const briefing = page.getByRole("region", { name: "How Brand Placement Actually Works visual briefing" });
+  await expect(briefing).toBeVisible();
+  await expect(briefing.getByRole("button", { name: /^Go to slide/ })).toHaveCount(12);
+  await expect(briefing.getByRole("progressbar", { name: "Slide 1 of 12" })).toBeVisible();
+  await briefing.press("ArrowRight");
+  await expect(briefing.getByRole("progressbar", { name: "Slide 2 of 12" })).toBeVisible();
+  await expect(briefing.getByRole("heading", { name: "Two routes to market" })).toBeVisible();
+
+  await page.goto("/app/program/library");
+  await expect(page.getByRole("heading", { name: "Brand Placement Library" })).toBeVisible();
+  await expect(page.locator(".ry-program-library-grid details")).toHaveCount(32);
+  await page.getByText("Brand Placement Glossary", { exact: true }).click();
+  await expect(page.getByText("Sell-through: consumer sales relative to available retail inventory over a defined period.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Print open resources" })).toBeVisible();
+
+  const overflow = await page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth");
+  expect(overflow).toBeLessThanOrEqual(2);
+});
+
 test("Program learner completes a Module 1 knowledge check inline and continues", async ({ page }) => {
   await login(page, "grace@synthetic.ryva.test");
   await page.goto("/app/program/inside-brand-placement/what-brand-placement-is");

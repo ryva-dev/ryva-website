@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { calculateProgramProgress } from "../../packages/domain/src/programLearning.js";
-import { publishedItems, ryvaProgram } from "../../packages/program-content/src/index.js";
+import { brandPlacementLibrary, publishedItems, ryvaProgram } from "../../packages/program-content/src/index.js";
 import { draftFinalTestProgram, publishedTestProgram } from "../programFixture.js";
 
 describe("Program content architecture", () => {
@@ -29,7 +29,7 @@ describe("Program content architecture", () => {
     assert.ok(required.filter((item) => item.type === "knowledge_check").every((item) =>
       item.knowledgeCheck?.questions.every((question) => (question as { type: string }).type !== "structured_response")
     ));
-    assert.equal(required.filter((item) => item.media?.status === "awaiting_production").length, 4);
+    assert.equal(required.filter((item) => item.media?.status === "awaiting_production").length, 0);
     assert.ok(ryvaProgram.modules.slice(1).every((module) =>
       module.items.length > 0 && module.items.every((item) => item.status === "published")
     ));
@@ -44,6 +44,24 @@ describe("Program content architecture", () => {
     const remainder = ryvaProgram.modules.slice(1).flatMap((module) => module.items);
     assert.ok(remainder.some((item) => item.blocks.some((block) => block.type === "formula")));
     assert.ok(remainder.some((item) => item.blocks.some((block) => block.type === "data_table")));
+    const briefings = ryvaProgram.modules.flatMap((module) => module.items)
+      .flatMap((item) => item.blocks.filter((block) => block.type === "visual_briefing"));
+    assert.equal(briefings.length, 8);
+    assert.ok(briefings.every((briefing) => briefing.slides.length >= 12));
+    assert.ok(ryvaProgram.modules.every((module) => module.items
+      .filter((item) => item.type === "article" && item.required)
+      .every((item) => item.blocks.some((block) => block.type === "heading" && block.text === "Field Notes"))));
+    assert.ok(brandPlacementLibrary.length >= 20);
+    assert.equal(new Set(brandPlacementLibrary.map((resource) => resource.id)).size, brandPlacementLibrary.length);
+    const experienceSource = readFileSync("apps/web/src/program/ProgramExperience.tsx", "utf8");
+    const programCss = readFileSync("apps/web/src/program/program.css", "utf8");
+    assert.match(experienceSource, /event\.key === "ArrowLeft"/);
+    assert.match(experienceSource, /event\.key === "ArrowRight"/);
+    assert.match(experienceSource, /aria-label={`Slide \$\{activeIndex \+ 1\} of \$\{block\.slides\.length\}`}/);
+    assert.match(experienceSource, /\/api\/program\/library/);
+    assert.match(programCss, /\.ry-program-briefing-slide[\s\S]*?overflow|\.ry-program-data-table > div[\s\S]*?overflow-x:\s*auto/);
+    assert.match(programCss, /@media \(prefers-reduced-motion: reduce\)/);
+    assert.match(programCss, /@media print/);
     const retailerPractice = ryvaProgram.modules[2]!.items.find((item) => item.id === "module-3-retailer-fit");
     const retailerBriefing = retailerPractice?.blocks.find((block) => block.type === "comparison");
     assert.ok(retailerBriefing?.columns.every((profile) => profile.body.length > 150));

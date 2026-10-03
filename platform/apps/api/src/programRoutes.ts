@@ -11,7 +11,7 @@ import {
   completeProgramItem,
   submitProgramActivity
 } from "../../../packages/domain/src/index.js";
-import type { ProgramDefinition } from "../../../packages/program-content/src/index.js";
+import { brandPlacementLibrary, type ProgramDefinition } from "../../../packages/program-content/src/index.js";
 import { asyncRoute } from "./middleware.js";
 
 const identifierSchema = z.string().trim().min(1).max(160).regex(/^[a-z0-9-]+$/);
@@ -77,6 +77,15 @@ export function registerProgramRoutes({
         programCompletedAt: dashboard.programCompletedAt
       });
     })
+  );
+
+  app.get(
+    "/api/program/library",
+    authenticated,
+    read,
+    (_request, response) => {
+      response.json({ resources: brandPlacementLibrary });
+    }
   );
 
   app.get(
