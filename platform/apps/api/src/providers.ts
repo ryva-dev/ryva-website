@@ -166,14 +166,90 @@ export class ConfiguredAiProvider implements AiProvider {
   }
 }
 
-const emailSendResultSchema = z.object({
-  status: z.enum(["accepted", "uncertain", "rejected"]),
-  providerMessageId: z.string().trim().min(1).max(500).optional(),
-  safeDetail: z.string().trim().max(500).optional()
+const resendSendResultSchema = z.object({
+  id: z.string().trim().min(1).max(500)
 });
 
+type Fetcher = typeof fetch;
+
+export type ResendMessage = {
+  idempotencyKey: string;
+  from: string;
+  to: string;
+  subject: string;
+  text?: string | undefined;
+  html?: string | undefined;
+  headers?: Record<string, string> | undefined;
+};
+
+export class ResendEmailAdapter {
+  constructor(
+    private readonly providerUrl: string,
+    private readonly providerToken: string,
+    private readonly fetcher: Fetcher = fetch
+  ) {}
+
+  async send(input: ResendMessage): Promise<{ providerMessageId: string }> {
+    let response: Response;
+    try {
+      response = await this.fetcher(new URL("/emails", this.providerUrl), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.providerToken}`,
+          "content-type": "application/json",
+          "idempotency-key": input.idempotencyKey
+        },
+        body: JSON.stringify({
+          from: input.from,
+          to: [input.to],
+          subject: input.subject,
+          ...(input.text ? { text: input.text } : {}),
+          ...(input.html ? { html: input.html } : {}),
+          ...(input.headers && Object.keys(input.headers).length > 0
+            ? { headers: input.headers }
+            : {})
+        }),
+        signal: AbortSignal.timeout(15_000)
+      });
+    } catch {
+      throw new AppError(
+        503,
+        "email_provider_unavailable",
+        "The email provider is temporarily unavailable. The message remains safe to retry."
+      );
+    }
+    if (!response.ok) {
+      throw new AppError(
+        response.status >= 500 || response.status === 429 ? 503 : 422,
+        response.status >= 500 || response.status === 429
+          ? "email_provider_unavailable"
+          : "email_provider_rejected",
+        response.status >= 500 || response.status === 429
+          ? "The email provider is temporarily unavailable. The message remains safe to retry."
+          : "The email provider rejected this message. Review the recipient and content."
+      );
+    }
+    const parsed = resendSendResultSchema.safeParse(await response.json().catch(() => ({})));
+    if (!parsed.success) {
+      throw new AppError(502, "email_provider_invalid", "The email provider returned an invalid response.");
+    }
+    return { providerMessageId: parsed.data.id };
+  }
+}
+
 export class ConfiguredEmailProvider implements EmailProvider {
-  constructor(private readonly configuration: AppConfig) {}
+  private readonly adapter: ResendEmailAdapter;
+
+  constructor(
+    private readonly configuration: AppConfig,
+    fetcher: Fetcher = fetch
+  ) {
+    this.adapter = new ResendEmailAdapter(
+      configuration.EMAIL_PROVIDER_URL,
+      configuration.EMAIL_PROVIDER_TOKEN,
+      fetcher
+    );
+  }
 
   async send(input: {
     idempotencyKey: string;
@@ -194,36 +270,32 @@ export class ConfiguredEmailProvider implements EmailProvider {
         "Email delivery is not configured. The approved message remains queued and safe to retry."
       );
     }
-    const response = await fetch(new URL("/messages", this.configuration.EMAIL_PROVIDER_URL), {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.configuration.EMAIL_PROVIDER_TOKEN}`,
-        "content-type": "application/json",
-        "idempotency-key": input.idempotencyKey
-      },
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(15_000)
+    const result = await this.adapter.send({
+      idempotencyKey: input.idempotencyKey,
+      from: input.from,
+      to: input.to,
+      subject: input.subject,
+      text: input.body,
+      headers: input.headers
     });
-    if (!response.ok) {
-      throw new AppError(
-        response.status >= 500 ? 503 : 422,
-        response.status >= 500 ? "email_provider_unavailable" : "email_provider_rejected",
-        response.status >= 500
-          ? "The email provider is temporarily unavailable. The message remains safe to retry."
-          : "The email provider rejected this message. Review the recipient and content."
-      );
-    }
-    const parsed = emailSendResultSchema.safeParse(await response.json());
-    if (!parsed.success) {
-      throw new AppError(502, "email_provider_invalid", "The email provider returned an invalid response.");
-    }
-    return parsed.data;
+    return { status: "accepted", ...result };
   }
 }
 
 export class ConfiguredTransactionalIdentityEmailProvider
 implements TransactionalIdentityEmailProvider {
-  constructor(private readonly configuration: AppConfig) {}
+  private readonly adapter: ResendEmailAdapter;
+
+  constructor(
+    private readonly configuration: AppConfig,
+    fetcher: Fetcher = fetch
+  ) {
+    this.adapter = new ResendEmailAdapter(
+      configuration.TRANSACTIONAL_EMAIL_PROVIDER_URL,
+      configuration.TRANSACTIONAL_EMAIL_PROVIDER_TOKEN,
+      fetcher
+    );
+  }
 
   async send(
     input: TransactionalIdentityMessage & { idempotencyKey: string }
@@ -239,49 +311,35 @@ implements TransactionalIdentityEmailProvider {
         "Transactional email delivery is not configured. The message remains safe to retry."
       );
     }
-    const response = await fetch(
-      new URL("/messages", this.configuration.TRANSACTIONAL_EMAIL_PROVIDER_URL),
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.configuration.TRANSACTIONAL_EMAIL_PROVIDER_TOKEN}`,
-          "content-type": "application/json",
-          "idempotency-key": input.idempotencyKey
-        },
-        body: JSON.stringify({
-          messageType: input.kind,
-          from: this.configuration.TRANSACTIONAL_EMAIL_FROM_ADDRESS,
-          to: input.to,
-          subject: input.subject,
-          text: input.text
-        }),
-        signal: AbortSignal.timeout(15_000)
+    try {
+      return await this.adapter.send({
+        idempotencyKey: input.idempotencyKey,
+        from: this.configuration.TRANSACTIONAL_EMAIL_FROM_ADDRESS,
+        to: input.to,
+        subject: input.subject,
+        text: input.text,
+        headers: { "X-Ryva-Message-Type": input.kind }
+      });
+    } catch (error) {
+      if (error instanceof AppError) {
+        const unavailable = error.type === "email_provider_unavailable";
+        const invalid = error.type === "email_provider_invalid";
+        throw new AppError(
+          error.status,
+          unavailable
+            ? "transactional_email_unavailable"
+            : invalid
+              ? "transactional_email_invalid"
+              : "transactional_email_rejected",
+          unavailable
+            ? "Transactional email delivery is temporarily unavailable. The message remains safe to retry."
+            : invalid
+              ? "The transactional email provider returned an invalid response."
+              : "Transactional email delivery was rejected."
+        );
       }
-    );
-    if (!response.ok) {
-      throw new AppError(
-        response.status >= 500 ? 503 : 422,
-        response.status >= 500
-          ? "transactional_email_unavailable"
-          : "transactional_email_rejected",
-        response.status >= 500
-          ? "Transactional email delivery is temporarily unavailable. The message remains safe to retry."
-          : "Transactional email delivery was rejected."
-      );
+      throw error;
     }
-    const payload = z.object({
-      providerMessageId: z.string().trim().min(1).max(500).optional()
-    }).safeParse(await response.json().catch(() => ({})));
-    if (!payload.success) {
-      throw new AppError(
-        502,
-        "transactional_email_invalid",
-        "The transactional email provider returned an invalid response."
-      );
-    }
-    return payload.data.providerMessageId
-      ? { providerMessageId: payload.data.providerMessageId }
-      : {};
   }
 }
 

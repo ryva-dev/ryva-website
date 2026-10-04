@@ -241,6 +241,14 @@ describe("Identity P0A password reset", () => {
     const provider = new MemoryTransactionalEmailProvider();
     await processTransactionalIdentityEmail(database, configuration, provider, stored.rows[0]!.outbox_id);
     assert.equal(provider.messages.length, 1);
+    const delivered = await database.query<{ status: string; provider_message_id: string | null }>(
+      "SELECT status,provider_message_id FROM transactional_email_outbox WHERE id=$1",
+      [stored.rows[0]!.outbox_id]
+    );
+    assert.deepEqual(delivered.rows[0], {
+      status: "sent",
+      provider_message_id: "memory-1"
+    });
     const urlMatch = provider.messages[0]!.text.match(/https?:\/\/\S+reset-password\?token=[^\s]+/);
     assert.ok(urlMatch);
     const token = new URL(urlMatch[0]).searchParams.get("token")!;

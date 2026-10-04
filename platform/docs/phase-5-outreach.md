@@ -6,27 +6,34 @@ authority validator at approval and execution time.
 
 ## Delivery setup
 
-Configure `EMAIL_PROVIDER_URL`, `EMAIL_PROVIDER_TOKEN`,
-`EMAIL_WEBHOOK_SECRET`, and `EMAIL_FROM_ADDRESS`, then set
-`OUTREACH_SEND_ENABLED=1`. Run the API and durable worker separately:
+Configure `EMAIL_PROVIDER_URL=https://api.resend.com`, `EMAIL_PROVIDER_TOKEN`,
+`RESEND_WEBHOOK_SECRET`, and `EMAIL_FROM_ADDRESS`. Keep
+`OUTREACH_SEND_ENABLED=0` until commercial outreach is explicitly approved;
+transactional identity email uses its separate configuration and remains
+available. Run the API and durable worker separately:
 
 ```sh
 npm run start
 npm run start:worker
 ```
 
-The provider `POST /messages` contract receives an idempotency key, sender,
-recipient, subject, body, and safe headers. It returns:
+The internal provider contract receives an idempotency key, sender, recipient,
+subject, body, and safe headers. The Resend adapter translates that request to
+`POST /emails` and translates the provider response back to:
 
 ```json
 {"status":"accepted","providerMessageId":"provider-id"}
 ```
 
-`uncertain` results retry with the same idempotency key. They never create a
-second Email or advance a Placement. Provider callbacks use
-`POST /api/webhooks/email` with the raw-body HMAC SHA-256 in
-`x-ryva-signature`. Supported events are `accepted`, `delivered`, `bounced`,
-`complained`, `replied`, and `opted_out`.
+Retryable failures preserve the same idempotency key. They never create a
+second Email or advance a Placement. The Resend callback uses
+`POST /api/webhooks/email/resend`, with the provider's Svix signature over the
+raw body. Subscribed events are `email.delivered`, `email.bounced`, and
+`email.complained`. Reply, opt-out, and accepted callbacks are not inferred:
+acceptance comes from the synchronous send response, and Resend does not
+provide a reliable originating-message mapping for the other two normalized
+states. The legacy normalized callback remains available at
+`POST /api/webhooks/email` for provider-agnostic gateway integrations.
 
 ## Operational boundaries
 

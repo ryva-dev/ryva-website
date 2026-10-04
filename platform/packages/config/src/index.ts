@@ -40,6 +40,7 @@ const schema = z
     EMAIL_PROVIDER_URL: z.union([z.literal(""), z.string().url()]).default(""),
     EMAIL_PROVIDER_TOKEN: z.string().default(""),
     EMAIL_WEBHOOK_SECRET: z.string().default(""),
+    RESEND_WEBHOOK_SECRET: z.string().default(""),
     EMAIL_FROM_ADDRESS: z.union([z.literal(""), z.string().email()]).default(""),
     OUTREACH_SEND_ENABLED: booleanString,
     TRANSACTIONAL_EMAIL_PROVIDER_URL: z.union([z.literal(""), z.string().url()]).default(""),
@@ -96,7 +97,7 @@ const schema = z
       "STRIPE_PRICE_ID",
       "EMAIL_PROVIDER_URL",
       "EMAIL_PROVIDER_TOKEN",
-      "EMAIL_WEBHOOK_SECRET",
+      "RESEND_WEBHOOK_SECRET",
       "EMAIL_FROM_ADDRESS",
       "TRANSACTIONAL_EMAIL_PROVIDER_URL",
       "TRANSACTIONAL_EMAIL_PROVIDER_TOKEN",
@@ -152,13 +153,6 @@ const schema = z
         code: "custom",
         path: ["STORAGE_DRIVER"],
         message: "Production document storage must use the S3 adapter"
-      });
-    }
-    if (!value.OUTREACH_SEND_ENABLED) {
-      context.addIssue({
-        code: "custom",
-        path: ["OUTREACH_SEND_ENABLED"],
-        message: "OUTREACH_SEND_ENABLED must be enabled in production"
       });
     }
     if (value.AI_GENERATION_ENABLED && (

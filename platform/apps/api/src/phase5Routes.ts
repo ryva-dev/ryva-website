@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Express, RequestHandler } from "express";
 import express from "express";
+import { Webhook } from "svix";
 import { z } from "zod";
 import type { AppConfig } from "../../../packages/config/src/index.js";
 import type { Database } from "../../../packages/database/src/index.js";
@@ -51,11 +52,76 @@ function signatureMatches(raw: Buffer, provided: string | undefined, secret: str
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+const resendWebhookSchema = z.object({
+  type: z.string().trim().min(1).max(200),
+  data: z.record(z.string(), z.unknown()).default({})
+});
+
+const resendEventTypes = {
+  "email.delivered": "delivered",
+  "email.bounced": "bounced",
+  "email.complained": "complained"
+} as const;
+
+export function normalizeResendEmailEvent(input: unknown): {
+  eventType: "delivered" | "bounced" | "complained";
+  providerMessageId: string;
+} | null {
+  const parsed = resendWebhookSchema.parse(input);
+  const eventType = resendEventTypes[parsed.type as keyof typeof resendEventTypes];
+  if (!eventType) return null;
+  const providerMessageId = z.string().trim().min(1).max(500).parse(parsed.data.email_id);
+  return { eventType, providerMessageId };
+}
+
+export function verifyResendWebhook(
+  raw: Buffer,
+  headers: Record<string, string>,
+  secret: string
+): unknown {
+  if (!secret || !headers["svix-id"] || !headers["svix-timestamp"] || !headers["svix-signature"]) {
+    throw new AppError(401, "webhook_signature_invalid", "Webhook signature is invalid.");
+  }
+  try {
+    new Webhook(secret).verify(raw, headers);
+  } catch {
+    throw new AppError(401, "webhook_signature_invalid", "Webhook signature is invalid.");
+  }
+  return JSON.parse(raw.toString("utf8")) as unknown;
+}
+
 export function registerPhase5Webhook(
   app: Express,
   database: Database,
   configuration: AppConfig
 ): void {
+  app.post(
+    "/api/webhooks/email/resend",
+    express.raw({ type: "application/json", limit: "256kb" }),
+    asyncRoute(async (request, response) => {
+      const raw = request.body as Buffer;
+      const svixId = request.header("svix-id") ?? "";
+      const payload = verifyResendWebhook(raw, {
+        "svix-id": svixId,
+        "svix-timestamp": request.header("svix-timestamp") ?? "",
+        "svix-signature": request.header("svix-signature") ?? ""
+      }, configuration.RESEND_WEBHOOK_SECRET);
+      const normalized = normalizeResendEmailEvent(payload);
+      if (!normalized) {
+        response.status(202).json({ processed: false, reason: "unsupported_event" });
+        return;
+      }
+      const result = await processOutreachProviderEvent(database, {
+        providerEventId: svixId,
+        providerMessageId: normalized.providerMessageId,
+        eventType: normalized.eventType,
+        payloadDigest: publicDigest(raw.toString("utf8")),
+        requestId: request.requestId
+      });
+      response.status(202).json(result);
+    })
+  );
+
   app.post(
     "/api/webhooks/email",
     express.raw({ type: "application/json", limit: "256kb" }),
