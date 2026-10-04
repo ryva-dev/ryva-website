@@ -382,12 +382,41 @@ describe("fresh-user Program commerce path", () => {
       currency: "usd",
       billingCadence: "month"
     };
+    const offer = await subscriber.agent.get("/api/subscription");
+    assert.equal(offer.status, 200, offer.text);
+    assert.ok(offer.body.offer.firstChargeAt);
+    assert.equal(offer.body.offer.firstChargeAt, offer.body.access.proTrialEndsAt);
+    await database.query(
+      "UPDATE program_entitlements SET pro_trial_ends_at=clock_timestamp()+interval '47 hours' WHERE user_id=$1",
+      [userId]
+    );
+    const tooCloseToTrialEnd = await subscriber.agent.post("/api/subscription/checkout")
+      .set("x-csrf-token", subscriber.csrf).send(subscriptionConsent);
+    assert.equal(tooCloseToTrialEnd.status, 409, tooCloseToTrialEnd.text);
+    assert.equal(
+      tooCloseToTrialEnd.body.type,
+      "https://ryva.example/problems/subscription_checkout_timing_unavailable"
+    );
+    await database.query(
+      "UPDATE program_entitlements SET pro_trial_ends_at=clock_timestamp()+interval '30 days' WHERE user_id=$1",
+      [userId]
+    );
     const checkout = await subscriber.agent.post("/api/subscription/checkout")
       .set("x-csrf-token", subscriber.csrf)
       .set("user-agent", "Ryva subscription consent test")
       .send(subscriptionConsent);
     assert.equal(checkout.status, 201, checkout.text);
     assert.equal(checkout.body.url, "https://checkout.stripe.test/subscription/1");
+    const subscriptionCheckout = createdCheckouts.find(({ params }) => params.mode === "subscription");
+    assert.ok(subscriptionCheckout?.params.subscription_data?.trial_end);
+    const entitlement = await database.query<{ pro_trial_ends_at: Date }>(
+      "SELECT pro_trial_ends_at FROM program_entitlements WHERE user_id=$1",
+      [userId]
+    );
+    assert.equal(
+      subscriptionCheckout.params.subscription_data.trial_end,
+      Math.floor(entitlement.rows[0]!.pro_trial_ends_at.getTime() / 1000)
+    );
     const persisted = await database.query<{ count: number }>(
       `SELECT count(*)::int AS count FROM legal_acceptances
         WHERE user_id=$1 AND acceptance_context='ryva_pro_subscription'

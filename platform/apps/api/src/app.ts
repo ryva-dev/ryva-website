@@ -1261,7 +1261,10 @@ export function createApp(dependencies: Dependencies): express.Express {
           priceCents: configuration.RYVA_PRO_PRICE_CENTS,
           currency: configuration.RYVA_PRO_PRICE_CURRENCY,
           billingCadence: "month",
-          termsVersion: configuration.TERMS_DOCUMENT_VERSION
+          termsVersion: configuration.TERMS_DOCUMENT_VERSION,
+          firstChargeAt: request.access?.isProTrialActive
+            ? request.access.proTrialEndsAt
+            : null
         }
       });
     })
@@ -1305,6 +1308,16 @@ export function createApp(dependencies: Dependencies): express.Express {
       ) {
         throw new AppError(503, "subscription_price_invalid", "Ryva Pro checkout is temporarily unavailable because its price is misconfigured.");
       }
+      const trialEnd = request.access.isProTrialActive && request.access.proTrialEndsAt
+        ? Math.floor(new Date(request.access.proTrialEndsAt).getTime() / 1000)
+        : null;
+      if (trialEnd && trialEnd < Math.floor(Date.now() / 1000) + 48 * 60 * 60) {
+        throw new AppError(
+          409,
+          "subscription_checkout_timing_unavailable",
+          "Your included Ryva Pro access is almost complete. Return when it ends to begin paid billing without overlap."
+        );
+      }
       const result = await withTransaction(database, async (transaction) => {
         await transaction.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`subscription-checkout:${request.identity!.userId}`]);
         const existing = await oneOrNone<{ checkout_url: string | null }>(
@@ -1322,7 +1335,10 @@ export function createApp(dependencies: Dependencies): express.Express {
           success_url: `${configuration.APP_URL}/subscription?checkout=success`,
           cancel_url: `${configuration.APP_URL}/subscription/activate?checkout=canceled`,
           metadata: { ryvaUserId: request.identity!.userId, ryvaPurchaseKind: "ryva_pro" },
-          subscription_data: { metadata: { ryvaUserId: request.identity!.userId } }
+          subscription_data: {
+            metadata: { ryvaUserId: request.identity!.userId },
+            ...(trialEnd ? { trial_end: trialEnd } : {})
+          }
         }, { idempotencyKey: `subscription-checkout:${checkoutRecordId}` });
         if (!checkout.url) throw new AppError(502, "checkout_failed", "Billing checkout did not return a URL.");
         await transaction.query(

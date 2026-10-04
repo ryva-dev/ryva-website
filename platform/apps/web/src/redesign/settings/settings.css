@@ -74,6 +74,20 @@
   box-shadow: none;
 }
 
+.ry-settings-panel.emphasis-panel {
+  padding: var(--space-5);
+  border-radius: var(--radius-3);
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+}
+
+.ry-settings-panel.emphasis-panel h2,
+.ry-settings-panel.emphasis-panel p,
+.ry-settings-panel.emphasis-panel .eyebrow,
+.ry-settings-panel.emphasis-panel .ry-status-label {
+  color: var(--color-text-on-accent);
+}
+
 .ry-settings-panel-soft {
   padding: var(--space-4);
   border: var(--border-width-1) solid var(--color-border);
