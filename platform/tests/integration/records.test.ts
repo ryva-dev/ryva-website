@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import request, { type Response } from "supertest";
 import { createApp } from "../../apps/api/src/app.js";
@@ -146,34 +146,65 @@ describe("Phase 2 connected record kernel", () => {
     assert.equal(afterResult.rows[0]!.count, before.rows[0]!.count);
   });
 
-  it("hash-verifies document uploads and quarantines them until a clean scan", async () => {
+  it("hash-verifies uploads and blocks downloads unless the signed scan result is clean", async () => {
     const { agent, csrf } = await login();
     const brand = await agent.post("/api/records/brand").set("x-csrf-token", csrf).send({
       name: "Synthetic Document Brand"
     });
-    const content = Buffer.from("%PDF-1.4\nsynthetic fixture only\n");
-    const created = await agent.post("/api/documents").set("x-csrf-token", csrf).send({
-      subjectType: "brand",
-      subjectId: brand.body.record.id,
-      name: "synthetic-fixture.pdf",
-      documentType: "supporting_material",
-      mediaType: "application/pdf",
-      byteSize: content.byteLength,
-      sha256: createHash("sha256").update(content).digest("hex"),
-      confidentiality: "normal"
-    });
-    assert.equal(created.status, 201, created.text);
-    const uploaded = await agent
-      .put(created.body.upload.url)
-      .set("x-csrf-token", csrf)
-      .set("content-type", "application/pdf")
-      .send(content);
-    assert.equal(uploaded.status, 202, uploaded.text);
-    assert.equal(uploaded.body.access, "quarantined_until_clean");
-    assert.equal(
-      (await agent.get(`/api/documents/${created.body.document.id}/content`)).status,
-      404
+    const createAndUpload = async (name: string, content: Buffer) => {
+      const created = await agent.post("/api/documents").set("x-csrf-token", csrf).send({
+        subjectType: "brand",
+        subjectId: brand.body.record.id,
+        name,
+        documentType: "supporting_material",
+        mediaType: "application/pdf",
+        byteSize: content.byteLength,
+        sha256: createHash("sha256").update(content).digest("hex"),
+        confidentiality: "normal"
+      });
+      assert.equal(created.status, 201, created.text);
+      const uploaded = await agent
+        .put(created.body.upload.url)
+        .set("x-csrf-token", csrf)
+        .set("content-type", "application/pdf")
+        .send(content);
+      assert.equal(uploaded.status, 202, uploaded.text);
+      assert.equal(uploaded.body.access, "quarantined_until_clean");
+      return created.body.document.id as string;
+    };
+    const reportScan = async (documentId: string, status: "clean" | "quarantined" | "failed") => {
+      const raw = JSON.stringify({ documentId, status, engine: "ClamAV test", details: "Synthetic result" });
+      const signature = createHmac("sha256", configuration.MALWARE_SCANNER_WEBHOOK_SECRET)
+        .update(raw)
+        .digest("hex");
+      return request(app)
+        .post("/api/webhooks/malware-scan")
+        .set("content-type", "application/json")
+        .set("x-ryva-signature", `sha256=${signature}`)
+        .send(raw);
+    };
+
+    const cleanId = await createAndUpload(
+      "synthetic-clean.pdf",
+      Buffer.from("%PDF-1.4\nsynthetic clean fixture\n")
     );
+    assert.equal((await agent.get(`/api/documents/${cleanId}/content`)).status, 404);
+    assert.equal((await reportScan(cleanId, "clean")).status, 202);
+    assert.equal((await agent.get(`/api/documents/${cleanId}/content`)).status, 200);
+
+    const quarantinedId = await createAndUpload(
+      "synthetic-quarantined.pdf",
+      Buffer.from("%PDF-1.4\nsynthetic quarantined fixture\n")
+    );
+    assert.equal((await reportScan(quarantinedId, "quarantined")).status, 202);
+    assert.equal((await agent.get(`/api/documents/${quarantinedId}/content`)).status, 404);
+
+    const failedId = await createAndUpload(
+      "synthetic-failed.pdf",
+      Buffer.from("%PDF-1.4\nsynthetic failed fixture\n")
+    );
+    assert.equal((await reportScan(failedId, "failed")).status, 202);
+    assert.equal((await agent.get(`/api/documents/${failedId}/content`)).status, 404);
   });
 
   it("binds Buyer authority and human approval to exact workspace records and artifacts", async () => {

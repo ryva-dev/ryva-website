@@ -477,7 +477,16 @@ export class ConfiguredObjectStorage implements ObjectStorage {
       ChecksumSHA256: checksum,
       ServerSideEncryption: "AES256"
     });
-    const url = await getSignedUrl(this.s3, command, { expiresIn: 900 });
+    const requiredUploadHeaders = new Set([
+      "content-type",
+      "x-amz-checksum-sha256",
+      "x-amz-server-side-encryption"
+    ]);
+    const url = await getSignedUrl(this.s3, command, {
+      expiresIn: 900,
+      signableHeaders: requiredUploadHeaders,
+      unhoistableHeaders: requiredUploadHeaders
+    });
     return {
       method: "PUT",
       url,
