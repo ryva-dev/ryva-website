@@ -8,7 +8,11 @@ import { createDatabase } from "../../packages/database/src/index.js";
 import { migrate } from "../../packages/database/src/migrate.js";
 import { seedSynthetic, syntheticPassword } from "../../packages/database/src/seed.js";
 
-const configuration = loadConfig(process.env);
+const configuration = loadConfig({
+  ...process.env,
+  MALWARE_SCANNER_WEBHOOK_SECRET:
+    process.env.MALWARE_SCANNER_WEBHOOK_SECRET || "test-malware-secret"
+});
 const database = createDatabase(configuration);
 let app: ReturnType<typeof createApp>;
 
