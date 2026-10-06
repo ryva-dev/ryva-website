@@ -795,6 +795,7 @@ export function ApplicationShell() {
 
   return (
     <div
+      data-clarity-mask="true"
       className={[
         "ry-shell",
         shellCollapsed ? "ry-shell-collapsed" : "",

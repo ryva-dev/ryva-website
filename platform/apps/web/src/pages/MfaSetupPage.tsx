@@ -26,7 +26,7 @@ export function MfaSetupPage() {
     }
   }
 
-  return <main className="ry-auth-page ry-auth-setup-page">
+  return <main className="ry-auth-page ry-auth-setup-page" data-clarity-mask="true">
     <section className="ry-auth-panel ry-auth-setup-panel">
       <div className="ry-auth-form">
         <header className="ry-auth-form-header"><h1>Secure your staff account</h1><p>Scan the QR code with your authenticator, then enter the six-digit code to confirm setup.</p></header>

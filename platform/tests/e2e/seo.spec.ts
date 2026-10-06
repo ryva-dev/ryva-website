@@ -32,6 +32,18 @@ test("Google Analytics stays disabled when no measurement ID is configured", asy
   ).toBe(true);
 });
 
+test("Microsoft Clarity stays disabled when no project ID is configured", async ({ page }) => {
+  test.skip(Boolean(process.env.VITE_CLARITY_PROJECT_ID), "This assertion covers an unconfigured build.");
+  await page.goto("/");
+
+  await expect(page.locator("#ryva-clarity-script")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      "typeof window.clarity === 'undefined' && typeof window.__ryvaClarityProjectId === 'undefined'"
+    )
+  ).toBe(true);
+});
+
 test("Google Analytics sends one safe pageview per public SPA route", async ({ page }) => {
   test.skip(!process.env.VITE_GA_MEASUREMENT_ID, "This assertion covers a configured build.");
   await page.route("https://www.googletagmanager.com/gtag/js**", async (route) => {
@@ -60,6 +72,28 @@ test("Google Analytics sends one safe pageview per public SPA route", async ({ p
     page_path: "/the-program"
   });
   expect(JSON.stringify(pageviews)).not.toMatch(/@|email|user[_-]?id|password|token|stripe|answer/i);
+});
+
+test("Microsoft Clarity initializes once for public navigation and masks private surfaces", async ({ page, context }) => {
+  test.skip(!process.env.VITE_CLARITY_PROJECT_ID, "This assertion covers a configured build.");
+  await page.route("https://www.clarity.ms/tag/**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#ryva-clarity-script")).toHaveCount(1);
+  await page.getByRole("link", { name: "The Program" }).first().click();
+  await expect(page).toHaveURL(/\/the-program$/);
+  await expect(page.locator("#ryva-clarity-script")).toHaveCount(1);
+  await page.getByRole("link", { name: "Sign In" }).first().click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.locator("main[data-clarity-mask='true']")).toHaveCount(1);
+
+  const privatePage = await context.newPage();
+  await privatePage.goto("/login");
+  await expect(privatePage.locator("#ryva-clarity-script")).toHaveCount(0);
+  await expect(privatePage.locator("main[data-clarity-mask='true']")).toHaveCount(1);
+  await privatePage.close();
 });
 
 test("account and internal routes are noindex and omit canonicals", async ({ page, request }) => {

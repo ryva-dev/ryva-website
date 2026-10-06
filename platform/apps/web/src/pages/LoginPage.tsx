@@ -63,7 +63,7 @@ export function LoginPage() {
   }
 
   return (
-    <main className="ry-auth-page">
+    <main className="ry-auth-page" data-clarity-mask="true">
       <section className="ry-auth-editorial" aria-label="Step inside the world of brand placement.">
         <div className="ry-auth-editorial-visual" aria-hidden="true">
           <img className="ry-auth-editorial-fold" src={fabricVisual} alt="" decoding="async" />
