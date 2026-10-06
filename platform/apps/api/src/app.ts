@@ -531,11 +531,11 @@ export function createApp(dependencies: Dependencies): express.Express {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
+          scriptSrc: ["'self'", "https://www.googletagmanager.com"],
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-          imgSrc: ["'self'", "data:"],
-          connectSrc: ["'self'"],
+          imgSrc: ["'self'", "data:", "https://www.google-analytics.com", "https://*.google-analytics.com"],
+          connectSrc: ["'self'", "https://www.google-analytics.com", "https://*.google-analytics.com"],
           frameAncestors: ["'none'"],
           baseUri: ["'self'"],
           formAction: ["'self'"]

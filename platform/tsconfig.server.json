@@ -13,6 +13,8 @@
   },
   "include": [
     "apps/api/src/**/*.ts",
+    "apps/web/src/analytics/core.ts",
+    "apps/web/src/seo/routes.ts",
     "packages/**/*.ts",
     "tests/**/*.ts",
     "playwright.config.ts"
