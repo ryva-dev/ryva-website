@@ -1,6 +1,6 @@
 import { generateSecret, verify } from "otplib";
 import type { AppConfig } from "../../config/src/index.js";
-import type { Database } from "../../database/src/index.js";
+import type { Database, Transaction } from "../../database/src/index.js";
 import { oneOrNone, withTransaction } from "../../database/src/index.js";
 import { AppError, newId } from "../../shared/src/index.js";
 import { recordAudit } from "./audit.js";
@@ -15,7 +15,7 @@ import { enqueueJob } from "./jobs.js";
 import { revokeUserSessions } from "./sessions.js";
 
 export type TransactionalIdentityMessage = {
-  kind: "password_reset";
+  kind: "password_reset" | "account_closure_requested" | "account_closure_support_notification";
   to: string;
   subject: string;
   text: string;
@@ -26,6 +26,49 @@ export type TransactionalIdentityEmailProvider = {
     providerMessageId?: string;
   }>;
 };
+
+export async function queueTransactionalIdentityEmail(
+  client: Database | Transaction,
+  configuration: AppConfig,
+  input: {
+    userId: string;
+    workspaceId: string;
+    message: TransactionalIdentityMessage;
+    idempotencyKey: string;
+  }
+): Promise<{ outboxId: string; inserted: boolean }> {
+  if (!configuration.FIELD_ENCRYPTION_KEY) {
+    throw new AppError(503, "transactional_email_unavailable", "Transactional email is temporarily unavailable.");
+  }
+  const proposedId = newId();
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO transactional_email_outbox
+      (id,user_id,message_kind,recipient_address,encrypted_payload,idempotency_key,status)
+     VALUES ($1,$2,$3,$4,$5,$6,'queued')
+     ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
+    [
+      proposedId,
+      input.userId,
+      input.message.kind,
+      input.message.to,
+      encryptSecret(JSON.stringify(input.message), configuration.FIELD_ENCRYPTION_KEY),
+      input.idempotencyKey
+    ]
+  );
+  const outboxId = inserted.rows[0]?.id ?? (await oneOrNone<{ id: string }>(
+    client,
+    "SELECT id FROM transactional_email_outbox WHERE idempotency_key=$1",
+    [input.idempotencyKey]
+  ))?.id;
+  if (!outboxId) throw new Error("Idempotent transactional email lookup failed.");
+  await enqueueJob(client, {
+    workspaceId: input.workspaceId,
+    kind: "identity.transactional_email",
+    payload: { outboxId },
+    idempotencyKey: `identity:transactional-email:${outboxId}`
+  });
+  return { outboxId, inserted: Boolean(inserted.rows[0]) };
+}
 
 export type RegistrationInput = {
   firstName: string;

@@ -18,6 +18,7 @@ import {
   importRecordTypes,
   previewRecordMerge,
   publicDigest,
+  queueTransactionalIdentityEmail,
   recordAudit,
   reverseRecordMerge
 } from "../../../packages/domain/src/index.js";
@@ -498,27 +499,72 @@ export function registerPhase9Routes({
     const input=z.object({
       reason:z.string().trim().min(10).max(2000),requestExport:z.boolean()
     }).parse(request.body);
-    const hold=await database.query(
-      `SELECT id FROM legal_holds WHERE workspace_id=$1 AND status='active'
-       AND (subject_id IS NULL OR subject_id=$2) LIMIT 1`,
-      [request.identity!.workspaceId,request.identity!.userId]
-    );
-    const id=newId();
-    const legalHoldStatus=hold.rowCount?"active":"clear";
-    await database.query(
-      `INSERT INTO account_closure_requests
-       (id,workspace_id,user_id,reason,export_requested,legal_hold_status,status)
-       VALUES($1,$2,$3,$4,$5,$6,$7)`,
-      [id,request.identity!.workspaceId,request.identity!.userId,input.reason,input.requestExport,
-       legalHoldStatus,legalHoldStatus==="active"?"hold":input.requestExport?"export_pending":"identity_review"]
-    );
-    await recordAudit(database,{
-      workspaceId:request.identity!.workspaceId,actorUserId:request.identity!.userId,actorType:"user",
-      action:"account_closure.requested",targetType:"account_closure_request",targetId:id,
-      origin:"api",requestId:request.requestId,outcome:"succeeded",
-      metadata:{exportRequested:input.requestExport,legalHoldStatus}
+    const result=await withTransaction(database,async(transaction)=>{
+      const userResult=await transaction.query<{email:string;name:string}>(
+        "SELECT email,name FROM users WHERE id=$1 AND status='active' FOR UPDATE",
+        [request.identity!.userId]
+      );
+      const user=userResult.rows[0];
+      if(!user) throw new AppError(404,"account_not_found","The account could not be found.");
+      const existingResult=await transaction.query<{id:string;status:string;export_requested:boolean;requested_at:Date}>(
+        `SELECT id,status,export_requested,requested_at FROM account_closure_requests
+          WHERE workspace_id=$1 AND user_id=$2
+            AND status IN ('requested','identity_review','export_pending','hold','approved')
+          ORDER BY requested_at DESC LIMIT 1 FOR UPDATE`,
+        [request.identity!.workspaceId,request.identity!.userId]
+      );
+      let closure=existingResult.rows[0];
+      let legalHoldStatus="clear";
+      if(!closure){
+        const hold=await transaction.query(
+          `SELECT id FROM legal_holds WHERE workspace_id=$1 AND status='active'
+           AND (subject_id IS NULL OR subject_id=$2) LIMIT 1`,
+          [request.identity!.workspaceId,request.identity!.userId]
+        );
+        const id=newId();
+        legalHoldStatus=hold.rowCount?"active":"clear";
+        const status=legalHoldStatus==="active"?"hold":input.requestExport?"export_pending":"identity_review";
+        await transaction.query(
+          `INSERT INTO account_closure_requests
+           (id,workspace_id,user_id,reason,export_requested,legal_hold_status,status)
+           VALUES($1,$2,$3,$4,$5,$6,$7)`,
+          [id,request.identity!.workspaceId,request.identity!.userId,input.reason,input.requestExport,
+           legalHoldStatus,status]
+        );
+        closure={id,status,export_requested:input.requestExport,requested_at:new Date()};
+        await recordAudit(transaction,{
+          workspaceId:request.identity!.workspaceId,actorUserId:request.identity!.userId,actorType:"user",
+          action:"account_closure.requested",targetType:"account_closure_request",targetId:id,
+          origin:"api",requestId:request.requestId,outcome:"succeeded",
+          metadata:{exportRequested:input.requestExport,legalHoldStatus}
+        });
+      }
+      const requestedAt=new Date(closure.requested_at).toISOString();
+      await queueTransactionalIdentityEmail(transaction,configuration,{
+        userId:request.identity!.userId,
+        workspaceId:request.identity!.workspaceId,
+        idempotencyKey:`account-closure:${closure.id}:requester`,
+        message:{
+          kind:"account_closure_requested",
+          to:user.email,
+          subject:"We received your Ryva account closure request",
+          text:`Hello ${user.name},\n\nWe received your request to close your Ryva account on ${requestedAt}. Your account has not been closed yet. Ryva will review the request, preserve records required by law or contract, and contact you if identity verification or other information is needed.${closure.export_requested?" A data export was also requested and will be prepared before closure review.":""}\n\nRequest reference: ${closure.id}\n\nIf you did not make this request, contact ${configuration.SUPPORT_EMAIL} immediately.`
+        }
+      });
+      await queueTransactionalIdentityEmail(transaction,configuration,{
+        userId:request.identity!.userId,
+        workspaceId:request.identity!.workspaceId,
+        idempotencyKey:`account-closure:${closure.id}:support`,
+        message:{
+          kind:"account_closure_support_notification",
+          to:configuration.SUPPORT_EMAIL,
+          subject:"Ryva account closure request requires review",
+          text:`An account closure request requires review.\n\nRequest reference: ${closure.id}\nAccount email: ${user.email}\nRequested at: ${requestedAt}\nCurrent status: ${closure.status}\nData export requested: ${closure.export_requested?"yes":"no"}\n\nReview the request using the controlled account-closure process. Do not close the account without completing identity, legal-hold, retention, and contractual-rights review.`
+        }
+      });
+      return {id:closure.id,status:closure.status,existing:Boolean(existingResult.rows[0])};
     });
-    response.status(202).json({id,status:legalHoldStatus==="active"?"hold":input.requestExport?"export_pending":"identity_review"});
+    response.status(result.existing?200:202).json({...result,confirmationEmailQueued:true,supportNotificationQueued:true});
   }));
 
   app.get("/api/launch-readiness",authenticated,asyncRoute(async(_request,response)=>{

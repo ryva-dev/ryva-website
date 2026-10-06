@@ -251,11 +251,11 @@ export function SettingsWorkspacePage() {
     setError("");
     setClosureStatus("");
     try {
-      const result = await api<{ status: string }>("/api/account-closure", {
+      const result = await api<{ status: string; confirmationEmailQueued: boolean }>("/api/account-closure", {
         method: "POST",
         body: { reason: closureReason, requestExport: closureExport }
       });
-      setClosureStatus(result.status);
+      setClosureStatus(`${result.status.replaceAll("_", " ")}${result.confirmationEmailQueued ? `. A confirmation email has been queued for ${session?.user.email ?? "your account email"}` : ""}`);
       setClosureOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Account closure could not be requested.");
@@ -766,7 +766,7 @@ export function SettingsWorkspacePage() {
               Request account closure review
             </Button>
             {closureStatus ? (
-              <span role="status">Request recorded: {closureStatus.replaceAll("_", " ")}.</span>
+              <span role="status">Request recorded: {closureStatus}.</span>
             ) : null}
           </div>
         </section>

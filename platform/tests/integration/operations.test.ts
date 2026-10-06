@@ -191,4 +191,46 @@ describe("Phase 9 controlled data operations",()=>{
     assert.equal(readiness.body.status,"Not Ready");
     assert.ok(readiness.body.blockers.length>0);
   });
+
+  it("queues idempotent requester and support notifications for account closure",async()=>{
+    const {agent,csrf}=await login();
+    const first=await agent.post("/api/account-closure").set("x-csrf-token",csrf).send({
+      reason:"I no longer need this Ryva account and would like it reviewed for closure.",
+      requestExport:true
+    });
+    assert.equal(first.status,202,first.text);
+    assert.equal(first.body.status,"export_pending");
+    assert.equal(first.body.confirmationEmailQueued,true);
+    assert.equal(first.body.supportNotificationQueued,true);
+    const messages=await database.query<{message_kind:string;status:string}>(
+      `SELECT message_kind,status FROM transactional_email_outbox
+        WHERE idempotency_key LIKE $1 ORDER BY message_kind`,
+      [`account-closure:${first.body.id}:%`]
+    );
+    assert.equal(messages.rowCount,2);
+    assert.deepEqual(messages.rows.map((row)=>row.message_kind),[
+      "account_closure_requested","account_closure_support_notification"
+    ]);
+    assert.ok(messages.rows.every((row)=>row.status==="queued"));
+    const jobs=await database.query(
+      `SELECT id FROM durable_jobs WHERE idempotency_key IN (
+         SELECT 'identity:transactional-email:'||id FROM transactional_email_outbox
+          WHERE idempotency_key LIKE $1
+       )`,
+      [`account-closure:${first.body.id}:%`]
+    );
+    assert.equal(jobs.rowCount,2);
+
+    const repeated=await agent.post("/api/account-closure").set("x-csrf-token",csrf).send({
+      reason:"Repeating the request should return the existing open closure review.",
+      requestExport:true
+    });
+    assert.equal(repeated.status,200,repeated.text);
+    assert.equal(repeated.body.id,first.body.id);
+    const afterRepeat=await database.query(
+      "SELECT id FROM transactional_email_outbox WHERE idempotency_key LIKE $1",
+      [`account-closure:${first.body.id}:%`]
+    );
+    assert.equal(afterRepeat.rowCount,2);
+  });
 });

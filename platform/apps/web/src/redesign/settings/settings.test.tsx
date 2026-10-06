@@ -22,6 +22,7 @@ void describe("Ryva settings suite", () => {
     assert.match(source, /Request account closure review/);
     assert.match(source, /ConfirmationDialog/);
     assert.match(source, /\/api\/account-closure/);
+    assert.match(source, /A confirmation email has been queued/);
     assert.match(source, /\/api\/workspaces\/\$\{workspaceId\}\/profile/);
     assert.match(source, /firstName/);
     assert.match(source, /displayName/);
