@@ -8,7 +8,7 @@ import {
 
 function analyticsHarness() {
   const scripts = new Map<string, { id: string; src: string }>();
-  const dataLayer: unknown[][] = [];
+  const dataLayer: Array<ArrayLike<unknown>> = [];
   const runtime = { dataLayer };
   const environment = {
     runtime,

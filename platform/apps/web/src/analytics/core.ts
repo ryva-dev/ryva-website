@@ -4,7 +4,7 @@ const SCRIPT_ID = "ryva-ga4-script";
 const MEASUREMENT_ID_PATTERN = /^G-[A-Z0-9]+$/;
 
 export type AnalyticsRuntime = {
-  dataLayer?: unknown[][];
+  dataLayer?: Array<ArrayLike<unknown>>;
   gtag?: (...args: unknown[]) => void;
   __ryvaGa4MeasurementId?: string;
   __ryvaGa4LastPath?: string;
@@ -31,8 +31,10 @@ export function initializeGoogleAnalytics(
   if (runtime.__ryvaGa4MeasurementId === measurementId) return true;
 
   runtime.dataLayer ??= [];
-  runtime.gtag ??= (...args: unknown[]) => {
-    runtime.dataLayer!.push(args);
+  runtime.gtag ??= function () {
+    // Google tag consumes the standard Arguments object from its documented queue contract.
+    // eslint-disable-next-line prefer-rest-params
+    runtime.dataLayer!.push(arguments);
   };
 
   if (!environment.hasScript(SCRIPT_ID)) {
