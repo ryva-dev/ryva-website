@@ -52,8 +52,3 @@ export const PROGRAM_OFFER_INCLUDES = [
   "The Ryva learning environment",
   PLATFORM_ACCESS_INCLUDE
 ] as const;
-
-export const PROGRAM_SOCIAL_PROOF = [
-  { value: "100K+", label: "Have joined The Ryva Program" },
-  { value: "163 / 250", label: "Accepted this month" }
-] as const;

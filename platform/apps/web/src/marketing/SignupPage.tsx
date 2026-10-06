@@ -9,7 +9,6 @@ import {
   PROGRAM_CHECKOUT_PATH,
   PROGRAM_OFFER_INCLUDES,
   PROGRAM_REFUND_STATEMENT,
-  PROGRAM_SOCIAL_PROOF,
   formatProgramPrice
 } from "./programOffer";
 
@@ -149,14 +148,6 @@ export function SignupPage() {
               how brand placement sales works, from brands and products through buyers, placements,
               orders, accounts, and commissions.
             </p>
-            <dl className="ry-mkt-enroll-stats">
-              {PROGRAM_SOCIAL_PROOF.map((stat) => (
-                <div key={stat.value} className="ry-mkt-enroll-stat">
-                  <dt>{stat.value}</dt>
-                  <dd>{stat.label}</dd>
-                </div>
-              ))}
-            </dl>
           </div>
           <div className="ry-mkt-enroll-summary-wrap">
             <aside className="ry-mkt-enroll-summary" aria-label="Program offer">
