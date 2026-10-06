@@ -49,6 +49,9 @@ void describe("public SEO foundation", () => {
     assert.match(seo, /PUBLIC_SEO_ROUTES\[location\.pathname\]/);
     assert.match(api, /X-Robots-Tag/);
     assert.match(api, /indexablePublicPaths/);
+    assert.match(api, /app\.get\("\/sitemap\.xml"/);
+    assert.match(api, /set\("Content-Type", "application\/xml; charset=utf-8"\)/);
+    assert.match(api, /sendFile\(sitemapPath\)/);
   });
 
   void it("keeps a single descriptive homepage H1 and accessible decorative imagery", () => {

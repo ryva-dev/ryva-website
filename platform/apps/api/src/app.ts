@@ -3660,6 +3660,7 @@ export function createApp(dependencies: Dependencies): express.Express {
 
   if (configuration.NODE_ENV === "production") {
     const webRoot = path.resolve(process.cwd(), "dist/web");
+    const sitemapPath = path.join(webRoot, "sitemap.xml");
     const indexablePublicPaths = new Set([
       "/",
       "/the-program",
@@ -3671,6 +3672,13 @@ export function createApp(dependencies: Dependencies): express.Express {
       "/refund-policy",
       "/disclaimer"
     ]);
+    app.get("/sitemap.xml", (_request, response) => {
+      response
+        .status(200)
+        .set("Content-Type", "application/xml; charset=utf-8")
+        .set("Cache-Control", "public, max-age=3600")
+        .sendFile(sitemapPath);
+    });
     app.use(express.static(webRoot, { index: false, maxAge: "1h" }));
     app.get("*splat", (request, response) => {
       if (!indexablePublicPaths.has(request.path)) {
