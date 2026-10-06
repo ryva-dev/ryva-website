@@ -106,6 +106,11 @@ describe("canonical Program and Ryva Pro access policy", () => {
     const result = decideAccess({ ...base, role: "admin" }, at);
     assert.equal(result.reason, "staff");
     assert.ok(result.capabilities.includes("admin:access"));
+    assert.ok(result.capabilities.includes("program:read"));
+    assert.ok(result.capabilities.includes("operational:read"));
+    assert.ok(result.capabilities.includes("operational:write"));
+    assert.equal(result.canAccessProgram, true);
+    assert.equal(result.canAccessOperatingPlatform, true);
     assert.equal(result.proAccessState, "staff");
   });
 });

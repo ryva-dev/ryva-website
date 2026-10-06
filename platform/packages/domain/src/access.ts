@@ -86,6 +86,16 @@ function staffProductAccess(): CustomerProductAccess {
   };
 }
 
+function adminProductAccess(): CustomerProductAccess {
+  return {
+    ...staffProductAccess(),
+    canAccessProgram: true,
+    isProgramCompleted: true,
+    canAccessOperatingPlatform: true,
+    programStatus: "staff"
+  };
+}
+
 function decision(
   mode: AccessMode,
   reason: AccessReason,
@@ -122,13 +132,13 @@ export function decideAccess(row: AccessRow, at = new Date()): AccessDecision {
   }
   if (row.role === "admin") {
     return decision("full", "staff", [
-      ...accountCapabilities,
+      ...operatingCapabilities,
       "admin:access",
       "audit:read",
       "jobs:read",
       "jobs:manage",
       "support_grants:manage"
-    ], staffProductAccess());
+    ], adminProductAccess());
   }
   if (row.role === "support") {
     return decision("full", "staff", [
