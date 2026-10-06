@@ -248,9 +248,6 @@ export function App() {
 function AuthenticatedLanding() {
   const { session } = useAuth();
   if (!session) return null;
-  if (session.user.role === "admin") {
-    return <Navigate to={appPath("/admin")} replace />;
-  }
   if (session.user.role === "support") return <Navigate to={appPath("/access")} replace />;
   if (session.access.capabilities.includes("operational:read")) return <HomePage />;
   if (session.access.canAccessProgram) return <Navigate to={appPath("/program")} replace />;
