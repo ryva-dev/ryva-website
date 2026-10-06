@@ -41,6 +41,31 @@ test("Home command center preserves explainable priorities, currency separation,
   await captureIncrement7(page, "home-populated-desktop-1440x900.png", true);
 });
 
+test("Home platform guide explains the full workflow without disrupting the command center", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("button", { name: "Platform guide" }).click();
+  const guide = page.getByRole("dialog", { name: "How to use the Ryva platform" });
+  await expect(guide).toBeVisible();
+  await expect(guide.getByText("Step 1 of 8")).toBeVisible();
+  await guide.getByRole("button", { name: "Build your commercial foundation" }).click();
+  await expect(guide.getByRole("heading", { name: "2. Build your commercial foundation" })).toBeVisible();
+  await expect(guide.getByRole("link", { name: "Sources →" })).toHaveAttribute("href", "/app/sources");
+  await guide.getByRole("button", { name: "Account, access, and getting unstuck" }).click();
+  await expect(guide.getByText(/successful save and a blocked stage change/i)).toBeVisible();
+  await expectNoMainOverflow(page);
+  await guide.getByRole("button", { name: "Close guide" }).click();
+  await expect(guide).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+});
+
+test("non-admin users cannot open Platform Operations directly", async ({ page }) => {
+  await signIn(page);
+  await expect(page.getByRole("link", { name: "Operations" })).toHaveCount(0);
+  await page.goto("/app/admin");
+  await expect(page).toHaveURL(/\/app$/);
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+});
+
 test("Home exposes expandable priority reasons and responsive attention ordering", async ({ page }, testInfo) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => { if (message.type() === "error" && !message.text().includes("401 (Unauthorized)")) consoleErrors.push(message.text()); });

@@ -171,7 +171,7 @@ export function App() {
             <Route path="subscription/activate" element={<SubscriptionWorkspacePage activation />} />
             <Route path="profile" element={<ProfileWorkspacePage />} />
             <Route path="settings" element={<SettingsWorkspacePage />} />
-            <Route path="admin" element={<OperationsWorkspacePage />} />
+            <Route path="admin" element={<AdminOnlyRoute />} />
             <Route path="records/:type" element={<RecordsPage />} />
             <Route path="records/:type/:id" element={<RecordDetailPage />} />
             <Route path="products" element={<ProductRegisterPage />} />
@@ -260,6 +260,14 @@ function LegacyCertificationRoute() {
   return ["admin", "support"].includes(session.user.role)
     ? <CertificationWorkspacePage />
     : <Navigate to={appPath("/access")} replace />;
+}
+
+function AdminOnlyRoute() {
+  const { session } = useAuth();
+  if (!session) return null;
+  return session.user.role === "admin"
+    ? <OperationsWorkspacePage />
+    : <Navigate to={appPath("/")} replace />;
 }
 
 function LegacyAppSplatRedirect({ base }: { base: string }) {

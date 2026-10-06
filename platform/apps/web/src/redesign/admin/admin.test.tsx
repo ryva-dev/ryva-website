@@ -3,6 +3,13 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 void describe("Ryva Platform Operations", () => {
+  void it("route-blocks Platform Operations for non-admin users", () => {
+    const app = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
+    assert.match(app, /path="admin" element={<AdminOnlyRoute \/>}/);
+    assert.match(app, /session\.user\.role === "admin"/);
+    assert.match(app, /<Navigate to={appPath\("\/"\)} replace \/>/);
+  });
+
   void it("preserves restricted operational controls and APIs", () => {
     const source = readFileSync(new URL("./OperationsWorkspace.tsx", import.meta.url), "utf8");
     assert.match(source, /title="Platform operations"/);

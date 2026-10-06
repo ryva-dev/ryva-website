@@ -13,6 +13,7 @@ import {
   Skeleton
 } from "../../design-system";
 import { classes, platformCopy } from "../../design-system/shared";
+import { PlatformGuide } from "./PlatformGuide";
 
 export type CommandCenterPriority = {
   key: string;
@@ -1033,6 +1034,7 @@ export function CommandCenter({
   void saving;
   void onPriorityAction;
   const canWrite = session.access.mode === "full" && session.access.capabilities.includes("operational:write");
+  const [guideOpen, setGuideOpen] = useState(false);
   const topPriority = data?.priorities[0] ?? null;
   const priorityPreview = data ? topPriorityPreview(data.priorities) : [];
   const upcomingActivities = data ? nextScheduledActivities(data.today, data.generatedAt) : [];
@@ -1043,7 +1045,14 @@ export function CommandCenter({
     <div className="page ry-command-center-page">
       <PageHeader
         title={greeting(session.user.name)}
+        action={(
+          <Button variant="secondary" size="compact" onClick={() => setGuideOpen(true)}>
+            Platform guide
+          </Button>
+        )}
       />
+
+      <PlatformGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
 
       {error ? <ErrorState message={error} action={<Button variant="secondary" onClick={onReload}>Retry load</Button>} /> : null}
 

@@ -502,7 +502,7 @@ function MobileMoreMenu({
             <section className="ry-shell-admin">
               <h2>Administrative</h2>
               <ShellLink
-                item={{ label: "Operations", to: "/admin", icon: "settings" }}
+                item={{ label: "Operations", to: appPath("/admin"), icon: "settings" }}
                 collapsed={false}
                 pathname={currentPath}
                 search={currentSearch}
@@ -641,7 +641,7 @@ function DesktopSidebar({
             <section className="ry-shell-admin">
               <h2>Administrative</h2>
               <ShellLink
-                item={{ label: "Operations", to: "/admin", icon: "settings" }}
+                item={{ label: "Operations", to: appPath("/admin"), icon: "settings" }}
                 collapsed={visuallyCollapsed}
                 pathname={pathname}
                 search={search}

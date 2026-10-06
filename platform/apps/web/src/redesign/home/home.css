@@ -1165,6 +1165,152 @@
 .ry-command-loading { display: grid; gap: var(--space-4); }
 .ry-command-center-page .ry-relationship-mobile-action { display: none; }
 
+/* Platform guide — a quiet Home action opening an editorial reference overlay. */
+.ry-platform-guide-dialog {
+  width: min(var(--width-consequential), 100%);
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+
+.ry-platform-guide-dialog .ry-dialog-header h2 {
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-30);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-38);
+  color: var(--color-text-strong);
+}
+
+.ry-platform-guide-dialog .ry-dialog-header p:not(.eyebrow) {
+  max-width: var(--width-reading);
+  color: var(--color-text-muted);
+}
+
+.ry-platform-guide-layout {
+  display: grid;
+  grid-template-columns: minmax(var(--length-12rem), var(--length-14rem)) minmax(var(--size-0), 1fr);
+  gap: var(--space-6);
+  min-width: var(--size-0);
+  padding-top: var(--space-2);
+  border-top: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-platform-guide-nav {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+}
+
+.ry-platform-guide-nav button {
+  display: grid;
+  grid-template-columns: var(--length-1-75rem) minmax(var(--size-0), 1fr);
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-13);
+  line-height: var(--line-height-18);
+  text-align: left;
+  border: none;
+  border-inline-start: var(--border-width-2) solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  cursor: pointer;
+}
+
+.ry-platform-guide-nav button span {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-11);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.ry-platform-guide-nav button:hover,
+.ry-platform-guide-nav button:focus-visible {
+  color: var(--color-text-strong);
+  background: var(--color-surface-subtle);
+}
+
+.ry-platform-guide-nav button.active {
+  color: var(--color-accent-text);
+  font-weight: var(--font-weight-semibold);
+  border-inline-start-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.ry-platform-guide-nav button.active span { color: var(--color-accent); }
+
+.ry-platform-guide-content {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: var(--size-0);
+}
+
+.ry-platform-guide-step {
+  margin: var(--space-0);
+  color: var(--color-accent);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+}
+
+.ry-platform-guide-content h3 {
+  margin: calc(var(--space-3) * -1) var(--space-0) var(--space-0);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-30);
+  color: var(--color-text-strong);
+}
+
+.ry-platform-guide-summary {
+  max-width: var(--width-reading);
+  margin: var(--space-0);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-15);
+  line-height: var(--line-height-22);
+}
+
+.ry-platform-guide-content ol {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-0);
+  padding-inline-start: var(--space-5);
+  color: var(--color-text-default);
+  font-size: var(--font-size-14);
+  line-height: var(--line-height-22);
+}
+
+.ry-platform-guide-content li::marker {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+}
+
+.ry-platform-guide-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding-block: var(--space-3);
+  border-block: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-platform-guide-links a {
+  color: var(--color-accent-text);
+  font-size: var(--font-size-13);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.ry-platform-guide-links a:hover,
+.ry-platform-guide-links a:focus-visible { text-decoration: underline; }
+
+.ry-platform-guide-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 @media (max-width: 64rem) {
   .ry-command-layout { grid-template-columns: minmax(var(--size-0), 1fr); }
   .ry-command-rail { position: static; grid-row: 1; }
@@ -1236,6 +1382,30 @@
   }
 
   .ry-command-center-page .ry-relationship-mobile-action { display: none; }
+  .ry-platform-guide-dialog {
+    width: 100%;
+    max-height: calc(100dvh - (var(--space-4) * 2));
+    padding: var(--space-4);
+  }
+  .ry-platform-guide-dialog .ry-dialog-header h2 {
+    font-size: var(--font-size-24);
+    line-height: var(--line-height-30);
+  }
+  .ry-platform-guide-layout {
+    grid-template-columns: minmax(var(--size-0), 1fr);
+    gap: var(--space-4);
+  }
+  .ry-platform-guide-nav {
+    display: flex;
+    gap: var(--space-1);
+    overflow-x: auto;
+    padding-bottom: var(--space-2);
+  }
+  .ry-platform-guide-nav button {
+    grid-template-columns: auto;
+    flex: 0 0 var(--length-10rem);
+  }
+  .ry-platform-guide-content h3 { margin-top: var(--space-0); }
   .ry-command-pulse-row { grid-template-columns: minmax(0, 1fr); }
   .ry-command-pulse-item + .ry-command-pulse-item {
     padding-inline-start: var(--space-0);
