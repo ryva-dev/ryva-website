@@ -59,7 +59,8 @@ export function buildShellNavigation(session: Session): ShellNavGroup[] {
       items: [
         { label: "Products", to: appPath("/products"), icon: "product" },
         { label: "Brands", to: appPath("/brands"), icon: "brand" },
-        { label: "Businesses & Buyers", to: appPath("/buyers"), icon: "buyers" }
+        { label: "Businesses & Buyers", to: appPath("/buyers"), icon: "buyers" },
+        { label: "Sources", to: appPath("/sources"), icon: "sources" }
       ]
     },
     {

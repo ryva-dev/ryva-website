@@ -60,8 +60,10 @@ void describe("Ryva application shell", () => {
     assert.deepEqual(groups[2]!.items.map((item) => item.label), [
       "Products",
       "Brands",
-      "Businesses & Buyers"
+      "Businesses & Buyers",
+      "Sources"
     ]);
+    assert.equal(groups[2]!.items[3]!.to, "/app/sources");
     assert.deepEqual(groups[3]!.items.map((item) => item.label), [
       "Accounts",
       "Orders",
