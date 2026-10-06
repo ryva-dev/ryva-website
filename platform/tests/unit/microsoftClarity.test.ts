@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
   initializeMicrosoftClarity,
@@ -47,5 +48,12 @@ void describe("Microsoft Clarity", () => {
     assert.equal(initializeMicrosoftClarity("ytmwamei85", "/login", harness.environment), false);
     assert.equal(initializeMicrosoftClarity("ytmwamei85", "/app/program", harness.environment), false);
     assert.equal(harness.scripts.size, 0);
+  });
+
+  void it("keeps the complete Clarity loader and collection hosts in the production CSP", () => {
+    const apiSource = readFileSync(new URL("../../apps/api/src/app.ts", import.meta.url), "utf8");
+    assert.match(apiSource, /scriptSrc:.*https:\/\/\*\.clarity\.ms/);
+    assert.match(apiSource, /connectSrc:.*https:\/\/\*\.clarity\.ms/);
+    assert.match(apiSource, /imgSrc:.*https:\/\/c\.bing\.com/);
   });
 });
