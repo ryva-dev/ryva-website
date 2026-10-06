@@ -82,6 +82,7 @@ import {
   ReorderRegisterPage
 } from "./redesign/commerce";
 import { AiCopilotPage, AiSuggestionPage } from "./pages/AiPages";
+import { SeoHead } from "./seo/SeoHead";
 
 /** Legacy bare platform paths → `/app/*` (bookmarks + in-app links not yet rewritten). */
 const legacyPlatformRedirects = [
@@ -122,6 +123,7 @@ const legacyPlatformRedirects = [
 export function App() {
   return (
     <BrowserRouter>
+      <SeoHead />
       <AuthProvider>
         <a className="skip-link" href="#main-content">Skip to content</a>
         <Routes>

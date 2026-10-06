@@ -520,6 +520,12 @@ export function createApp(dependencies: Dependencies): express.Express {
   if (configuration.TRUST_PROXY) app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use(requestContext(logger));
+  app.use((request, response, next) => {
+    if (request.path === "/healthz" || request.path === "/readyz" || request.path === "/api" || request.path.startsWith("/api/")) {
+      response.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+    }
+    next();
+  });
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -3654,8 +3660,24 @@ export function createApp(dependencies: Dependencies): express.Express {
 
   if (configuration.NODE_ENV === "production") {
     const webRoot = path.resolve(process.cwd(), "dist/web");
+    const indexablePublicPaths = new Set([
+      "/",
+      "/the-program",
+      "/how-it-works",
+      "/curriculum",
+      "/faq",
+      "/terms",
+      "/privacy",
+      "/refund-policy",
+      "/disclaimer"
+    ]);
     app.use(express.static(webRoot, { index: false, maxAge: "1h" }));
-    app.get("*splat", (_request, response) => response.sendFile(path.join(webRoot, "index.html")));
+    app.get("*splat", (request, response) => {
+      if (!indexablePublicPaths.has(request.path)) {
+        response.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+      }
+      response.sendFile(path.join(webRoot, "index.html"));
+    });
   }
 
   app.use((error: unknown, request: Request, response: Response, next: NextFunction) => {

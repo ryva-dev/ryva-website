@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /api
+Disallow: /login
+Disallow: /signup
+Disallow: /join
+Disallow: /checkout
+Disallow: /create-account
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /mfa-setup
+
+Sitemap: https://www.ryvaforge.com/sitemap.xml

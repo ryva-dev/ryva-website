@@ -95,8 +95,8 @@ export function MarketingHomePage() {
               <span className="ry-mkt-display-accent">brand placement.</span>
             </h1>
             <p className="ry-mkt-lede">
-              Explore how brand placement works through industry education, commercial context, and
-              guided practice.
+              Explore how brand placement and wholesale sales work—from product positioning and
+              retail buyers to commercial relationships—through industry education and guided practice.
             </p>
             <div className="ry-mkt-cta-row">
               <Link className="ry-mkt-btn ry-mkt-btn-primary" to="/the-program">

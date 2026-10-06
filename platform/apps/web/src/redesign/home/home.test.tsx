@@ -93,7 +93,7 @@ void describe("Ryva Command Center", () => {
   void it("offers a complete platform guide from a quiet Home action", () => {
     const home = readFileSync(new URL("./CommandCenter.tsx", import.meta.url), "utf8");
     const guide = readFileSync(new URL("./PlatformGuide.tsx", import.meta.url), "utf8");
-    assert.match(home, />Platform guide<\/Button>/);
+    assert.match(home, />\s*Platform guide\s*<\/Button>/);
     assert.match(guide, /How to use the Ryva platform/);
     assert.match(guide, /Build your commercial foundation/);
     assert.match(guide, /Establish representation authority/);
