@@ -535,7 +535,7 @@ export function createApp(dependencies: Dependencies): express.Express {
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
           imgSrc: ["'self'", "data:", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.clarity.ms", "https://c.bing.com", "https://www.facebook.com", "https://analytics.tiktok.com"],
-          connectSrc: ["'self'", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.clarity.ms", "https://c.bing.com", "https://www.facebook.com", "https://connect.facebook.net", "https://analytics.tiktok.com", "https://analytics.us.tiktok.com"],
+          connectSrc: ["'self'", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://www.google.com", "https://*.clarity.ms", "https://c.bing.com", "https://www.facebook.com", "https://connect.facebook.net", "https://analytics.tiktok.com", "https://analytics.us.tiktok.com"],
           frameAncestors: ["'none'"],
           baseUri: ["'self'"],
           formAction: ["'self'"]

@@ -5,6 +5,7 @@ import {
   normalizeMeasurementId,
   trackPublicPageView
 } from "../../apps/web/src/analytics/core.js";
+import { readFileSync } from "node:fs";
 
 function analyticsHarness() {
   const scripts = new Map<string, { id: string; src: string }>();
@@ -80,5 +81,11 @@ void describe("Google Analytics 4", () => {
       page_path: "/"
     });
     assert.doesNotMatch(JSON.stringify(pageviews), /@|email|user[_-]?id|password|token|stripe|answer/i);
+  });
+
+  void it("allows the official Google collection fallback without widening script policy", () => {
+    const apiSource = readFileSync(new URL("../../apps/api/src/app.ts", import.meta.url), "utf8");
+    assert.match(apiSource, /connectSrc:.*https:\/\/www\.google\.com/);
+    assert.doesNotMatch(apiSource, /scriptSrc:.*https:\/\/www\.google\.com/);
   });
 });
