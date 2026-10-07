@@ -86,6 +86,7 @@ void describe("Google Analytics 4", () => {
   void it("allows the official Google collection fallback without widening script policy", () => {
     const apiSource = readFileSync(new URL("../../apps/api/src/app.ts", import.meta.url), "utf8");
     assert.match(apiSource, /connectSrc:.*https:\/\/www\.google\.com/);
+    assert.match(apiSource, /imgSrc:.*https:\/\/www\.googletagmanager\.com/);
     assert.doesNotMatch(apiSource, /scriptSrc:.*https:\/\/www\.google\.com/);
   });
 });
