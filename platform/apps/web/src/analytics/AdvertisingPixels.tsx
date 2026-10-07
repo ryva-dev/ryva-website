@@ -60,6 +60,28 @@ export function AdvertisingPixels() {
     trackTikTokPublicPageView(tikTokPixelId, location.pathname, advertisingEnvironment);
   }, [consent, isApprovedPublicRoute, location.pathname, metaPixelId, tikTokPixelId]);
 
+  useEffect(() => {
+    if (consent !== "granted" || !hasConfiguredPixel) return;
+
+    const preservePrivateRouteBoundary = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (!(event.target instanceof Element)) return;
+
+      const anchor = event.target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute("download")) return;
+
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin || PUBLIC_SEO_ROUTES[destination.pathname]) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      window.location.assign(destination.href);
+    };
+
+    document.addEventListener("click", preservePrivateRouteBoundary, true);
+    return () => document.removeEventListener("click", preservePrivateRouteBoundary, true);
+  }, [consent, hasConfiguredPixel]);
+
   if (!hasConfiguredPixel || !isApprovedPublicRoute) return null;
 
   const decide = (value: "granted" | "denied") => {

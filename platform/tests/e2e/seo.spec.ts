@@ -133,17 +133,10 @@ test("Meta and TikTok pixels require consent and track approved public routes on
 
   await page.getByRole("link", { name: "Sign In" }).first().click();
   await expect(page).toHaveURL(/\/login$/);
-  await expect.poll(async () => page.evaluate(
-    "window.fbq?.queue?.some((entry) => entry[0] === 'consent' && entry[1] === 'revoke') ?? false"
-  )).toBe(true);
-  const privateCommands = await page.evaluate("({ meta: window.fbq?.queue ?? [], tikTok: window.ttq ?? [] })") as {
-    meta: unknown[][];
-    tikTok: unknown[][];
-  };
-  expect(privateCommands.meta.filter((entry) => entry[0] === "track" && entry[1] === "PageView")).toHaveLength(2);
-  expect(privateCommands.tikTok.filter((entry) => entry[0] === "page")).toHaveLength(2);
-  expect(privateCommands.meta.at(-1)).toEqual(["consent", "revoke"]);
-  expect(privateCommands.tikTok.at(-1)).toEqual(["revokeConsent"]);
+  await expect(page.locator("#ryva-meta-pixel-script")).toHaveCount(0);
+  await expect(page.locator("#ryva-tiktok-pixel-script")).toHaveCount(0);
+  expect(await page.evaluate("window.fbq")).toBeUndefined();
+  expect(await page.evaluate("window.ttq")).toBeUndefined();
 
   const directPrivatePage = await context.newPage();
   await directPrivatePage.addInitScript(
