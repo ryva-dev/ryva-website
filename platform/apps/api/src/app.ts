@@ -531,11 +531,11 @@ export function createApp(dependencies: Dependencies): express.Express {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "https://www.googletagmanager.com", "https://*.clarity.ms"],
+          scriptSrc: ["'self'", "https://www.googletagmanager.com", "https://*.clarity.ms", "https://connect.facebook.net", "https://analytics.tiktok.com"],
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-          imgSrc: ["'self'", "data:", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.clarity.ms", "https://c.bing.com"],
-          connectSrc: ["'self'", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.clarity.ms", "https://c.bing.com"],
+          imgSrc: ["'self'", "data:", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.clarity.ms", "https://c.bing.com", "https://www.facebook.com", "https://analytics.tiktok.com"],
+          connectSrc: ["'self'", "https://www.google-analytics.com", "https://*.google-analytics.com", "https://*.clarity.ms", "https://c.bing.com", "https://www.facebook.com", "https://connect.facebook.net", "https://analytics.tiktok.com", "https://analytics.us.tiktok.com"],
           frameAncestors: ["'none'"],
           baseUri: ["'self'"],
           formAction: ["'self'"]

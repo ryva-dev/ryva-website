@@ -96,6 +96,65 @@ test("Microsoft Clarity initializes once for public navigation and masks private
   await privatePage.close();
 });
 
+test("Meta and TikTok pixels require consent and track approved public routes only", async ({ page, context }) => {
+  test.skip(
+    !process.env.VITE_META_PIXEL_ID || !process.env.VITE_TIKTOK_PIXEL_ID,
+    "This assertion covers a build with both advertising pixels configured."
+  );
+  await page.route("https://connect.facebook.net/en_US/fbevents.js", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
+  });
+  await page.route("https://analytics.tiktok.com/i18n/pixel/events.js**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: "" });
+  });
+
+  await page.goto("/");
+  await expect(page.getByRole("complementary", { name: "Optional advertising measurement" })).toBeVisible();
+  await expect(page.locator("#ryva-meta-pixel-script")).toHaveCount(0);
+  await expect(page.locator("#ryva-tiktok-pixel-script")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Allow measurement" }).click();
+  await expect(page.locator("#ryva-meta-pixel-script")).toHaveCount(1);
+  await expect(page.locator("#ryva-tiktok-pixel-script")).toHaveCount(1);
+  await page.getByRole("link", { name: "The Program" }).first().click();
+  await expect(page).toHaveURL(/\/the-program$/);
+
+  await expect.poll(async () => page.evaluate(
+    "window.fbq?.queue?.filter((entry) => entry[0] === 'track' && entry[1] === 'PageView').length ?? 0"
+  )).toBe(2);
+
+  const publicCommands = await page.evaluate("({ meta: window.fbq?.queue ?? [], tikTok: window.ttq ?? [] })") as {
+    meta: unknown[][];
+    tikTok: unknown[][];
+  };
+  expect(publicCommands.meta.filter((entry) => entry[0] === "track" && entry[1] === "PageView")).toHaveLength(2);
+  expect(publicCommands.tikTok.filter((entry) => entry[0] === "page")).toHaveLength(2);
+  expect(JSON.stringify(publicCommands)).not.toMatch(/@|email|name|phone|user[_-]?id|password|token|stripe|answer/i);
+
+  await page.getByRole("link", { name: "Sign In" }).first().click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect.poll(async () => page.evaluate(
+    "window.fbq?.queue?.some((entry) => entry[0] === 'consent' && entry[1] === 'revoke') ?? false"
+  )).toBe(true);
+  const privateCommands = await page.evaluate("({ meta: window.fbq?.queue ?? [], tikTok: window.ttq ?? [] })") as {
+    meta: unknown[][];
+    tikTok: unknown[][];
+  };
+  expect(privateCommands.meta.filter((entry) => entry[0] === "track" && entry[1] === "PageView")).toHaveLength(2);
+  expect(privateCommands.tikTok.filter((entry) => entry[0] === "page")).toHaveLength(2);
+  expect(privateCommands.meta.at(-1)).toEqual(["consent", "revoke"]);
+  expect(privateCommands.tikTok.at(-1)).toEqual(["revokeConsent"]);
+
+  const directPrivatePage = await context.newPage();
+  await directPrivatePage.addInitScript(
+    "window.localStorage.setItem('ryva.optional-advertising-measurement.v1', 'granted')"
+  );
+  await directPrivatePage.goto("/login");
+  await expect(directPrivatePage.locator("#ryva-meta-pixel-script")).toHaveCount(0);
+  await expect(directPrivatePage.locator("#ryva-tiktok-pixel-script")).toHaveCount(0);
+  await directPrivatePage.close();
+});
+
 test("account and internal routes are noindex and omit canonicals", async ({ page, request }) => {
   await page.goto("/login");
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow, noarchive");

@@ -2107,3 +2107,65 @@ a.ry-mkt-btn-primary:hover,
     white-space: normal;
   }
 }
+
+.ry-ad-consent {
+  --mkt-wine: #6b2435;
+  --mkt-wine-deep: #4a1824;
+  --mkt-ink: #141312;
+
+  position: fixed;
+  z-index: 1000;
+  right: clamp(1rem, 3vw, 2rem);
+  bottom: clamp(1rem, 3vw, 2rem);
+  width: min(31rem, calc(100vw - 2rem));
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--mkt-stone, #d4cbc0);
+  background: var(--mkt-cream, #f4efe8);
+  color: var(--mkt-ink, #141312);
+  box-shadow: 0 0.75rem 2rem rgb(30 24 22 / 14%);
+  font-family: var(--mkt-sans, var(--font-family-sans, "Manrope", system-ui, sans-serif));
+}
+
+.ry-ad-consent strong {
+  font-family: var(--mkt-serif, var(--font-family-serif, "Newsreader", Georgia, serif));
+  font-size: 1.1rem;
+}
+
+.ry-ad-consent p {
+  margin: 0.45rem 0 0;
+  color: var(--mkt-muted, #5c564f);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.ry-ad-consent a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.ry-ad-consent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+}
+
+.ry-ad-consent-actions .ry-mkt-btn {
+  min-height: 2.5rem;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.82rem;
+}
+
+.ry-ad-privacy-choices {
+  position: fixed;
+  z-index: 999;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid var(--mkt-stone, #d4cbc0);
+  background: var(--mkt-cream, #f4efe8);
+  color: var(--mkt-muted, #5c564f);
+  font: 500 0.7rem/1.2 var(--mkt-sans, var(--font-family-sans, "Manrope", system-ui, sans-serif));
+  cursor: pointer;
+}

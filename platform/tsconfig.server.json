@@ -15,6 +15,7 @@
     "apps/api/src/**/*.ts",
     "apps/web/src/analytics/core.ts",
     "apps/web/src/analytics/clarityCore.ts",
+    "apps/web/src/analytics/advertisingPixelsCore.ts",
     "apps/web/src/seo/routes.ts",
     "packages/**/*.ts",
     "tests/**/*.ts",

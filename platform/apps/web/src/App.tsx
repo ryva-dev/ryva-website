@@ -85,6 +85,7 @@ import { AiCopilotPage, AiSuggestionPage } from "./pages/AiPages";
 import { SeoHead } from "./seo/SeoHead";
 import { GoogleAnalytics } from "./analytics/GoogleAnalytics";
 import { MicrosoftClarity } from "./analytics/MicrosoftClarity";
+import { AdvertisingPixels } from "./analytics/AdvertisingPixels";
 
 /** Legacy bare platform paths → `/app/*` (bookmarks + in-app links not yet rewritten). */
 const legacyPlatformRedirects = [
@@ -128,6 +129,7 @@ export function App() {
       <SeoHead />
       <GoogleAnalytics />
       <MicrosoftClarity />
+      <AdvertisingPixels />
       <AuthProvider>
         <a className="skip-link" href="#main-content">Skip to content</a>
         <Routes>

@@ -2,6 +2,8 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 ARG VITE_GA_MEASUREMENT_ID
 ARG VITE_CLARITY_PROJECT_ID
+ARG VITE_META_PIXEL_ID
+ARG VITE_TIKTOK_PIXEL_ID
 COPY . .
 RUN npm ci && npm run build && npm prune --omit=dev
 
