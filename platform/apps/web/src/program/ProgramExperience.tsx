@@ -270,7 +270,9 @@ export function ProgramDashboardPage() {
   if (!canAccess) return <Navigate to={appPath("/access")} replace />;
   if (error) return <ProgramFrame><ProgramMasthead /><ErrorState message={error} /></ProgramFrame>;
   if (!dashboard) return <LoadingState label="Opening The Ryva Program" />;
-  const current = dashboard.modules.find((module) => module.state === "current") ?? dashboard.modules[0];
+  const coreModules = dashboard.modules.filter((module) => module.requiredItems > 0);
+  const implementationTracks = dashboard.modules.filter((module) => module.requiredItems === 0);
+  const current = coreModules.find((module) => module.state === "current") ?? coreModules[0];
   const continuePath = dashboard.continueTo
     ? normalJourneyPath(dashboard.continueTo, dashboard.modules)
     : current && current.state !== "locked" && current.state !== "preparing"
@@ -303,7 +305,7 @@ export function ProgramDashboardPage() {
         <p>Move from the shape of the industry toward the commercial relationships that sustain it.</p>
       </header>
       <ol>
-        {dashboard.modules.map((module) => {
+        {coreModules.map((module) => {
           const open = module.state !== "locked" && module.state !== "preparing";
           return <li className={`ry-program-module-row state-${module.state}`} key={module.id}>
             <span className="ry-program-module-number" aria-hidden="true">{String(module.position).padStart(2, "0")}</span>
@@ -340,6 +342,19 @@ export function ProgramDashboardPage() {
         <blockquote>“Review, interpret, calculate.”</blockquote>
       </article> : null}
     </section>
+    {implementationTracks.map((module) => {
+      const open = module.state !== "locked" && module.state !== "preparing";
+      return <section className={`ry-program-playbook-callout state-${module.state}`} aria-labelledby={`${module.id}-heading`} key={module.id}>
+        <div>
+          <p className="ry-program-overline">Optional implementation track</p>
+          <span className="ry-program-state">{stateLabel(module.state)}</span>
+          <h2 id={`${module.id}-heading`}>{module.title}</h2>
+          <p>{module.description}</p>
+          <small>{module.items.length} practical lessons · {module.estimatedMinutes} min · Does not change Program completion</small>
+        </div>
+        {open ? <Link className="ry-program-secondary-link" to={appPath(`/program/${module.slug}`)}>Open the Playbook</Link> : <span className="ry-program-playbook-lock">Complete the eight core modules to open</span>}
+      </section>;
+    })}
     <section className="ry-program-library-callout" aria-labelledby="library-callout-heading">
       <div>
         <p className="ry-program-overline">Reference library</p>
@@ -374,7 +389,7 @@ export function ProgramLibraryPage() {
         <Link to={appPath("/program")} className="ry-program-back">← Program journey</Link>
         <p className="ry-program-overline">Permanent reference area</p>
         <h1>Brand Placement Library</h1>
-        <p>Practical reference tools from across the eight modules. Open any resource for a print-friendly working guide.</p>
+        <p>Practical reference tools from across the eight core modules and the Launch Playbook. Open any resource for a print-friendly working guide.</p>
         <Button type="button" onClick={() => window.print()}>Print open resources</Button>
       </header>
       {categories.map((category) => <section key={category} aria-labelledby={`library-${category.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
@@ -414,13 +429,13 @@ export function ProgramModulePage() {
     <div className="ry-program-module-layout">
       <header>
         <Link to={appPath("/program")} className="ry-program-back">← Program journey</Link>
-        <p className="ry-program-overline">Module {module.position}</p>
+        <p className="ry-program-overline">{module.requiredItems ? `Module ${module.position}` : "Optional implementation track"}</p>
         <h1>{module.title}</h1>
         <p>{module.description}</p>
-        <ProgressMeter
-          value={module.requiredItems ? Math.round((module.completedRequiredItems / module.requiredItems) * 100) : 0}
+        {module.requiredItems ? <ProgressMeter
+          value={Math.round((module.completedRequiredItems / module.requiredItems) * 100)}
           label="Module progress"
-        />
+        /> : <p className="ry-program-optional-note">Optional guided practice · progress is saved without changing Program completion.</p>}
       </header>
       <section aria-labelledby="module-items-heading">
         <h2 id="module-items-heading">In this module</h2>
@@ -1258,7 +1273,7 @@ export function ProgramItemPage({ itemIdentifier, moduleIdentifier }: { itemIden
         </footer> : null}
       </main>
       {payload.module ? <aside className="ry-program-contents" aria-label="Module contents">
-        <span>Module {payload.module.position}</span>
+        <span>{payload.module.items.some((item) => item.required) ? `Module ${payload.module.position}` : "Optional implementation track"}</span>
         <h2>{payload.module.title}</h2>
         <ol>{railItems.map(({ item, check }, index) => {
           const current = item.id === activeItem.id || check?.id === activeItem.id;

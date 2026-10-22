@@ -328,7 +328,7 @@ function moduleSummaries(
     const items = publishedModuleItems(module);
     const required = items.filter((item) => item.required);
     const completedRequiredItems = required.filter((item) => isComplete(item, progress)).length;
-    const prerequisitesComplete = index === 0 || prerequisiteModulesComplete(modules, index, progress);
+    const prerequisitesComplete = required.length === 0 || index === 0 || prerequisiteModulesComplete(modules, index, progress);
     const completed = required.length > 0 && completedRequiredItems === required.length;
     let state: ProgramModuleSummary["state"];
     if (!items.length) state = "preparing";
@@ -387,9 +387,10 @@ function finalSimulationAvailable(
   progress: Map<string, ProgressRow>
 ): boolean {
   const modules = program.modules.filter((module) => module.status === "published");
-  return modules.length > 0 && modules.every((module) => {
+  const requiredModules = modules.filter((module) => requiredModuleItems(module).length > 0);
+  return requiredModules.length > 0 && requiredModules.every((module) => {
     const required = requiredModuleItems(module);
-    return required.length > 0 && required.every((item) => isComplete(item, progress));
+    return required.every((item) => isComplete(item, progress));
   });
 }
 
@@ -442,20 +443,33 @@ export async function getProgramDashboard(
       : finalAssessmentAvailable(program, progress)
         ? "available" as const
         : "locked" as const;
-  const accessibleItems = modules
+  const accessibleRequiredJourneyItems = modules
+    .filter((module) => module.requiredItems > 0)
     .filter((module) => module.state !== "locked" && module.state !== "preparing")
     .flatMap((module) => module.items.map((item) => ({ moduleSlug: module.slug, item })));
-  const last = accessibleItems.find(({ item }) => item.id === state.lastItemId);
-  const nextModuleItem = last && !last.item.completed
-    ? last
-    : accessibleItems.find(({ item }) => !item.completed) ?? null;
+  const last = accessibleRequiredJourneyItems.find(({ item }) => item.id === state.lastItemId);
+  const coreJourneyComplete = program.modules
+    .filter((module) => module.status === "published")
+    .flatMap((module) => requiredModuleItems(module))
+    .every((item) => isComplete(item, progress));
+  const nextModuleItem = coreJourneyComplete
+    ? null
+    : last && !last.item.completed
+      ? last
+      : accessibleRequiredJourneyItems.find(({ item }) => !item.completed) ?? null;
+  const optionalItem = modules
+    .filter((module) => module.requiredItems === 0 && module.state !== "locked" && module.state !== "preparing")
+    .flatMap((module) => module.items.map((item) => ({ moduleSlug: module.slug, item })))
+    .find(({ item }) => !item.completed) ?? null;
   const continueTo = nextModuleItem
     ? { moduleSlug: nextModuleItem.moduleSlug, itemSlug: nextModuleItem.item.slug }
     : finalState === "available"
       ? { moduleSlug: "final-simulation", itemSlug: program.finalSimulation.slug }
       : assessment && assessmentState === "available"
         ? { moduleSlug: "final-assessment", itemSlug: assessment.slug }
-        : null;
+        : optionalItem
+          ? { moduleSlug: optionalItem.moduleSlug, itemSlug: optionalItem.item.slug }
+          : null;
   return {
     program: {
       id: program.id,
@@ -502,7 +516,8 @@ function assertModuleAvailable(
     .filter((entry) => entry.status === "published")
     .sort((left, right) => left.position - right.position);
   const index = modules.findIndex((entry) => entry.id === module.id);
-  if (index < 0 || (index > 0 && !prerequisiteModulesComplete(modules, index, progress))) {
+  const isOptionalTrack = requiredModuleItems(module).length === 0;
+  if (index < 0 || (!isOptionalTrack && index > 0 && !prerequisiteModulesComplete(modules, index, progress))) {
     throw new AppError(403, "program_module_locked", "Complete the preceding module before continuing.");
   }
 }

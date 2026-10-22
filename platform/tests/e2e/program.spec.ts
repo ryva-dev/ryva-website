@@ -43,11 +43,29 @@ test("premium lesson briefings and the Brand Placement Library remain responsive
 
   await page.goto("/app/program/library");
   await expect(page.getByRole("heading", { name: "Brand Placement Library" })).toBeVisible();
-  await expect(page.locator(".ry-program-library-grid details")).toHaveCount(32);
+  await expect(page.locator(".ry-program-library-grid details")).toHaveCount(48);
   await page.getByText("Brand Placement Glossary", { exact: true }).click();
   await expect(page.getByText("Sell-through: consumer sales relative to available retail inventory over a defined period.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Print open resources" })).toBeVisible();
 
+  const overflow = await page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth");
+  expect(overflow).toBeLessThanOrEqual(2);
+});
+
+test("completed learner can use the optional Launch Playbook on desktop and mobile", async ({ page }) => {
+  await login(page, "canceled-ended@synthetic.ryva.test");
+  await expect(page.getByRole("heading", { name: "The Brand Placement Launch Playbook" })).toBeVisible();
+  await expect(page.getByText("Does not change Program completion", { exact: false })).toBeVisible();
+  await page.getByRole("link", { name: "Open the Playbook" }).click();
+  await expect(page.getByText("Optional implementation track", { exact: true }).first()).toBeVisible();
+  await expect(page.locator(".ry-program-item-list > li")).toHaveCount(11);
+  await page.getByRole("link", { name: "Finding Brands to Work With" }).click();
+  await expect(page.getByRole("heading", { name: "Finding Brands to Work With", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "A repeatable sourcing loop visual briefing" })).toBeVisible();
+  await expect(page.getByText("Brand Readiness Scorecard", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Finding Brands to Work With", exact: true })).toBeVisible();
   const overflow = await page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth");
   expect(overflow).toBeLessThanOrEqual(2);
 });

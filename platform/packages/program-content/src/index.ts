@@ -1,6 +1,7 @@
 import { moduleOneItems } from "./module1.js";
 import { finalAssessment, finalSimulation, remainderModuleItems } from "./programRemainder.js";
-import { brandPlacementLibrary, enrichModuleItems } from "./premiumLearning.js";
+import { brandPlacementLibrary as coreBrandPlacementLibrary, enrichModuleItems } from "./premiumLearning.js";
+import { launchPlaybookModule, launchPlaybookResources } from "./launchPlaybook.js";
 
 export type ProgramContentStatus = "draft" | "published";
 
@@ -75,7 +76,7 @@ export type ProgramLibraryResource = {
   sections: Array<{ title: string; body?: string; items?: string[] }>;
 };
 
-export { brandPlacementLibrary };
+export const brandPlacementLibrary = [...coreBrandPlacementLibrary, ...launchPlaybookResources];
 
 export type KnowledgeCheckQuestion =
   | {
@@ -326,7 +327,7 @@ function draftItems(moduleId: string, topics: readonly string[]): ProgramLearnin
   }));
 }
 
-const modules: ProgramModule[] = moduleDefinitions.map((module, index) => ({
+const coreModules: ProgramModule[] = moduleDefinitions.map((module, index) => ({
   id: module.id,
   slug: module.slug,
   title: module.title,
@@ -368,6 +369,8 @@ const modules: ProgramModule[] = moduleDefinitions.map((module, index) => ({
     )
   ]
 }));
+
+const modules: ProgramModule[] = [...coreModules, launchPlaybookModule];
 
 export const ryvaProgram: ProgramDefinition = {
   id: "ryva-program",

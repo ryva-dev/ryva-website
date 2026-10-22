@@ -6,8 +6,8 @@ import { brandPlacementLibrary, publishedItems, ryvaProgram } from "../../packag
 import { draftFinalTestProgram, publishedTestProgram } from "../programFixture.js";
 
 describe("Program content architecture", () => {
-  it("publishes the complete eight-module Program, final simulation, and final assessment", () => {
-    assert.equal(ryvaProgram.modules.length, 8);
+  it("publishes the eight-module core, optional Launch Playbook, final simulation, and final assessment", () => {
+    assert.equal(ryvaProgram.modules.length, 9);
     assert.deepEqual(ryvaProgram.modules.map((module) => module.title), [
       "Inside Brand Placement",
       "Brands, Products, Assortment & Commercial Readiness",
@@ -16,7 +16,8 @@ describe("Program content architecture", () => {
       "Outreach, Buyer Communication & Appointments",
       "Orders, Terms, Fulfillment & Reorders",
       "Account Development, Sell-Through & Commercial Performance",
-      "Commissions, Commercial Judgment & Working in Ryva"
+      "Commissions, Commercial Judgment & Working in Ryva",
+      "The Brand Placement Launch Playbook"
     ]);
     const moduleOne = ryvaProgram.modules[0]!;
     const required = moduleOne.items.filter((item) => item.status === "published" && item.required);
@@ -30,9 +31,27 @@ describe("Program content architecture", () => {
       item.knowledgeCheck?.questions.every((question) => (question as { type: string }).type !== "structured_response")
     ));
     assert.equal(required.filter((item) => item.media?.status === "awaiting_production").length, 0);
-    assert.ok(ryvaProgram.modules.slice(1).every((module) =>
+    assert.ok(ryvaProgram.modules.slice(1, 8).every((module) =>
       module.items.length > 0 && module.items.every((item) => item.status === "published")
     ));
+    const playbook = ryvaProgram.modules[8]!;
+    assert.equal(playbook.id, "launch-playbook");
+    assert.equal(playbook.items.length, 11);
+    assert.ok(playbook.items.every((item) => item.status === "published" && !item.required));
+    assert.ok(playbook.items.every((item) => item.type === "guided_practice" && item.activity?.steps.length));
+    assert.deepEqual(playbook.items.map((item) => item.title), [
+      "Getting Set Up to Represent Brands",
+      "Finding Brands to Work With",
+      "How to Reach Out to Brands",
+      "The First Brand Conversation",
+      "Commission Structures and Getting Paid",
+      "Documents to Request From a Brand",
+      "Agreements, Contracts, and Protecting the Relationship",
+      "Finding Retailers and Buyer Opportunities",
+      "Finding the Right Buyer Contact",
+      "Reaching Out to Retail Buyers",
+      "Building a Simple Prospecting System"
+    ]);
     assert.equal(ryvaProgram.finalSimulation.status, "published");
     assert.equal(ryvaProgram.finalSimulation.activity?.steps.length, 11);
     assert.equal(ryvaProgram.finalAssessment?.status, "published");
@@ -46,12 +65,14 @@ describe("Program content architecture", () => {
     assert.ok(remainder.some((item) => item.blocks.some((block) => block.type === "data_table")));
     const briefings = ryvaProgram.modules.flatMap((module) => module.items)
       .flatMap((item) => item.blocks.filter((block) => block.type === "visual_briefing"));
-    assert.equal(briefings.length, 8);
-    assert.ok(briefings.every((briefing) => briefing.slides.length >= 12));
-    assert.ok(ryvaProgram.modules.every((module) => module.items
+    assert.equal(briefings.length, 19);
+    assert.ok(briefings.slice(0, 8).every((briefing) => briefing.slides.length >= 12));
+    assert.ok(briefings.slice(8).every((briefing) => briefing.slides.length >= 5));
+    assert.ok(ryvaProgram.modules.slice(0, 8).every((module) => module.items
       .filter((item) => item.type === "article" && item.required)
       .every((item) => item.blocks.some((block) => block.type === "heading" && block.text === "Field Notes"))));
-    assert.ok(brandPlacementLibrary.length >= 20);
+    assert.equal(brandPlacementLibrary.length, 48);
+    assert.equal(brandPlacementLibrary.filter((resource) => resource.category === "Launch Playbook").length, 16);
     assert.equal(new Set(brandPlacementLibrary.map((resource) => resource.id)).size, brandPlacementLibrary.length);
     const experienceSource = readFileSync("apps/web/src/program/ProgramExperience.tsx", "utf8");
     const programCss = readFileSync("apps/web/src/program/program.css", "utf8");
@@ -72,7 +93,8 @@ describe("Program content architecture", () => {
     assert.equal(territoryBriefing?.columns.length, 10);
     assert.ok(territoryBriefing?.columns.every((profile) => profile.body.length > 180));
     assert.match(JSON.stringify(territoryPractice), /fit|timing|potential|territory|authority|Need:/);
-    const guidedPractices = remainder.filter((item) => item.type === "guided_practice" || item.type === "guided_exercise");
+    const guidedPractices = ryvaProgram.modules.slice(1, 8).flatMap((module) => module.items)
+      .filter((item) => item.type === "guided_practice" || item.type === "guided_exercise");
     assert.equal(guidedPractices.length, 9);
     assert.ok(guidedPractices.every((item) => item.blocks.length > 1), "every guided practice needs decision-supporting facts beyond the shared reasoning introduction");
     assert.ok(guidedPractices.every((item) => item.blocks.slice(1).some((block) => ["callout", "comparison", "data_table"].includes(block.type))), "every guided practice needs a structured scenario brief or reference data");

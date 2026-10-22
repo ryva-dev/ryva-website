@@ -61,7 +61,7 @@ describe("Program learning access", () => {
     assert.equal(dashboard.body.program.heading, "Step inside brand placement.");
     const library = await learner.agent.get("/api/program/library");
     assert.equal(library.status, 200);
-    assert.equal(library.body.resources.length, 32);
+    assert.equal(library.body.resources.length, 48);
     assert.equal(library.body.resources[0].title, "Brand Placement Glossary");
 
     const proInactive = await login("canceled-ended@synthetic.ryva.test");
@@ -246,7 +246,7 @@ describe("Final Brand Placement Assessment", () => {
     const learner = await loginTo(moduleOneApp, "active@synthetic.ryva.test");
     const userId = learner.response.body.user.id as string;
     const prerequisites = publishedItems(ryvaProgram).filter((item) => item.required && item.id !== "final-assessment");
-    for (const item of prerequisites) {
+    for (const item of prerequisites.filter((item) => item.id !== "final-simulation")) {
       await database.query(
         `INSERT INTO program_item_progress
           (id,user_id,learning_item_id,content_version,started_at,completed_at,last_viewed_at)
@@ -256,9 +256,28 @@ describe("Final Brand Placement Assessment", () => {
       );
     }
 
+    const beforeSimulation = await learner.agent.get("/api/program");
+    assert.equal(beforeSimulation.body.finalSimulation.state, "available");
+    assert.deepEqual(beforeSimulation.body.continueTo, { moduleSlug: "final-simulation", itemSlug: "final-simulation" });
+    assert.equal(beforeSimulation.body.modules[8].requiredItems, 0);
+    assert.notEqual(beforeSimulation.body.modules[8].state, "locked");
+
+    const finalSimulation = prerequisites.find((item) => item.id === "final-simulation")!;
+    await database.query(
+      `INSERT INTO program_item_progress
+        (id,user_id,learning_item_id,content_version,started_at,completed_at,last_viewed_at)
+       VALUES ($1,$2,$3,$4,clock_timestamp(),clock_timestamp(),clock_timestamp())
+       ON CONFLICT (user_id,learning_item_id,content_version) DO UPDATE SET completed_at=clock_timestamp()`,
+      [randomUUID(), userId, finalSimulation.id, itemProgressVersion(finalSimulation)]
+    );
+
     const dashboard = await learner.agent.get("/api/program");
     assert.equal(dashboard.status, 200, dashboard.text);
     assert.equal(dashboard.body.finalAssessment.state, "available");
+    assert.equal(dashboard.body.modules[8].id, "launch-playbook");
+    assert.equal(dashboard.body.modules[8].requiredItems, 0);
+    assert.notEqual(dashboard.body.modules[8].state, "locked");
+    assert.deepEqual(dashboard.body.continueTo, { moduleSlug: "final-assessment", itemSlug: "final-assessment" });
 
     const assessment = await learner.agent.get("/api/program/items/final-assessment");
     assert.equal(assessment.status, 200, assessment.text);
