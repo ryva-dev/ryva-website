@@ -65,10 +65,6 @@ const VALUE_BLOCKS = [
 
 const FAQS = [
   {
-    q: "Is this a certification?",
-    a: "No. The Ryva Program is an independent industry education and guided-practice experience. It is designed to help participants explore and understand brand placement concepts and workflows; it does not provide professional licensure, academic credit, or a state-recognized credential.",
-  },
-  {
     q: "Who is The Ryva Program for?",
     a: "Anyone curious about the business behind the brands, whether you are exploring brand placement for the first time, already interested in brands, retail, or sales, or simply want to understand how the industry works. No prior brand placement experience is required.",
   },
@@ -77,8 +73,12 @@ const FAQS = [
     a: "Guided practice lets you apply what you are learning through realistic commercial scenarios and structured decisions inside the Ryva environment, after you have built context through lessons and exercises.",
   },
   {
-    q: "Is this job training or placement?",
+    q: "Is this job training?",
     a: "No. Ryva does not place participants in jobs, guarantee career outcomes, or authorize professional practice. It is industry education and guided practice focused on understanding brand placement.",
+  },
+  {
+    q: "Is The Ryva Program a certification?",
+    a: "No. The Ryva Program is an independent industry education and guided-practice experience. It is designed to help participants explore and understand brand placement concepts and workflows; it does not provide professional licensure, academic credit, or a state-recognized credential.",
   },
 ] as const;
 

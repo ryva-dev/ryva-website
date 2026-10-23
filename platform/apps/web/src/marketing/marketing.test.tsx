@@ -48,7 +48,11 @@ void describe("Ryva public marketing site", () => {
     assert.match(home, /Join The Ryva Program/);
     assert.match(home, /to="\/signup"/);
     assert.doesNotMatch(home, /to="\/pricing"/);
-    assert.match(home, /Is this a certification\?/);
+    assert.match(home, /Is The Ryva Program a certification\?/);
+    assert.ok(
+      home.indexOf("Is this job training?") < home.indexOf("Is The Ryva Program a certification?"),
+      "job-training FAQ should appear immediately before certification at the bottom",
+    );
     assert.match(home, /does not provide professional licensure/);
     assert.match(home, /Industry education, exploration, and guided practice/);
     assert.match(home, /ry-mkt-flow-sequence/);

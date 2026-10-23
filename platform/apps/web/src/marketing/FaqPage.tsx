@@ -18,20 +18,6 @@ const FAQS: { q: string; a: string[] }[] = [
     ],
   },
   {
-    q: "Is The Ryva Program a certification?",
-    a: [
-      "No.",
-      "The Ryva Program is independent industry education and guided practice. It is not a professional certification, occupational license, or state-approved credential.",
-    ],
-  },
-  {
-    q: "Is this job training?",
-    a: [
-      "Ryva teaches you about the brand placement sales industry and gives you opportunities to work through guided commercial scenarios.",
-      "It is not employer-specific job training and does not represent that completing the program qualifies someone for a particular job or occupation.",
-    ],
-  },
-  {
     q: "Does Ryva guarantee employment?",
     a: [
       "No.",
@@ -144,6 +130,20 @@ const FAQS: { q: string; a: string[] }[] = [
       "No. The Ryva Program is digital education delivered immediately after purchase, and all Program sales are final.",
       "By completing checkout you request immediate access and acknowledge that you will not receive a refund except where a refund is required by law.",
       "This policy is also stated on the enrollment page before you pay.",
+    ],
+  },
+  {
+    q: "Is this job training?",
+    a: [
+      "Ryva teaches you about the brand placement sales industry and gives you opportunities to work through guided commercial scenarios.",
+      "It is not employer-specific job training and does not represent that completing the program qualifies someone for a particular job or occupation.",
+    ],
+  },
+  {
+    q: "Is The Ryva Program a certification?",
+    a: [
+      "No.",
+      "The Ryva Program is independent industry education and guided practice. It is not a professional certification, occupational license, or state-approved credential.",
     ],
   },
 ];
