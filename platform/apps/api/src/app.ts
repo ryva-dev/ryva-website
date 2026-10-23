@@ -3679,6 +3679,10 @@ export function createApp(dependencies: Dependencies): express.Express {
         .set("Cache-Control", "public, max-age=3600")
         .sendFile(sitemapPath);
     });
+    // Standalone educational page: serve HTML before the SPA's noindex fallback.
+    app.get("/brand-placement-training/", (_request, response) => {
+      response.sendFile(path.join(webRoot, "brand-placement-training/index.html"));
+    });
     app.use(express.static(webRoot, { index: false, maxAge: "1h" }));
     app.get("*splat", (request, response) => {
       if (!indexablePublicPaths.has(request.path)) {
