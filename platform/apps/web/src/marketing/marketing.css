@@ -78,6 +78,26 @@
   border-bottom: 1px solid rgb(255 255 255 / 10%);
 }
 
+.ry-mkt-availability-banner {
+  display: flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem var(--mkt-pad);
+  background: var(--mkt-wine);
+  color: #fdf8f4;
+  text-align: center;
+}
+
+.ry-mkt-availability-banner p {
+  margin: 0;
+  font-size: clamp(0.6875rem, 1.8vw, 0.75rem);
+  font-weight: 600;
+  letter-spacing: 0.075em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
 .ry-mkt-header-inner {
   display: grid;
   grid-template-columns: auto 1fr auto;

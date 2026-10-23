@@ -23,6 +23,9 @@ export function MarketingHeader() {
 
   return (
     <header className="ry-mkt-header">
+      <div className="ry-mkt-availability-banner" role="status">
+        <p>Only 27 spots remain for 2026.</p>
+      </div>
       <div className="ry-mkt-header-inner">
         <Link to="/" className="ry-mkt-wordmark">
           ryva
