@@ -906,6 +906,130 @@
   padding: var(--space-0) var(--space-2);
 }
 
+.ry-commission-chart {
+  display: grid;
+  gap: var(--space-5);
+  margin-block-end: var(--space-6);
+  padding: var(--space-6);
+  border: var(--border-width-1) solid var(--color-border);
+  border-radius: var(--radius-3);
+  background: var(--color-surface);
+}
+
+.ry-commission-chart-header,
+.ry-commission-chart-total {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ry-commission-chart-eyebrow,
+.ry-commission-chart-year,
+.ry-commission-chart-total > span,
+.ry-commission-chart-label {
+  color: var(--color-text-muted);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-11);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--length-0-06em);
+  line-height: var(--line-height-16);
+  text-transform: uppercase;
+}
+
+.ry-commission-chart h2 {
+  margin: var(--space-1) var(--space-0) var(--space-0);
+  color: var(--color-text);
+  font-family: var(--font-family-serif);
+  font-size: var(--font-size-24);
+  line-height: var(--line-height-28);
+}
+
+.ry-commission-chart-year {
+  color: var(--color-accent);
+}
+
+.ry-commission-chart-series {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  padding-block-start: var(--space-4);
+  border-block-start: var(--border-width-1) solid var(--color-border);
+}
+
+.ry-commission-chart-total strong {
+  color: var(--color-accent);
+  font-size: var(--font-size-20);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-24);
+}
+
+.ry-commission-chart-scroll {
+  overflow-x: auto;
+  padding-block-start: var(--space-2);
+}
+
+.ry-commission-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(var(--length-3rem), 1fr));
+  gap: var(--space-2);
+  min-width: var(--length-42rem);
+}
+
+.ry-commission-chart-month {
+  display: grid;
+  grid-template-rows: var(--line-height-16) var(--length-10rem) var(--line-height-16);
+  gap: var(--space-2);
+  min-width: 0;
+  text-align: center;
+}
+
+.ry-commission-chart-value {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-11);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-16);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ry-commission-chart-track {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-1);
+  background: var(--color-surface-subtle);
+}
+
+.ry-commission-chart-track::after {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  height: var(--border-width-1);
+  background: var(--color-border);
+  content: "";
+}
+
+.ry-commission-chart-bar {
+  position: absolute;
+  inset-inline: var(--space-1);
+  inset-block-end: 0;
+  height: var(--ry-commission-bar-height);
+  border-radius: var(--radius-1) var(--radius-1) 0 0;
+  background: var(--color-accent);
+  transition: height var(--duration-standard) var(--ease-standard);
+}
+
+@media (max-width: 48rem) {
+  .ry-commission-chart {
+    padding: var(--space-4);
+  }
+
+  .ry-commission-chart-month {
+    grid-template-rows: var(--line-height-16) var(--length-8rem) var(--line-height-16);
+  }
+}
+
 .ry-commerce-currency-summary {
   display: flex;
   flex-wrap: nowrap;

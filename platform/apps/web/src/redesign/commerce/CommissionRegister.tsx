@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../api";
 import { useAuth } from "../../auth";
@@ -56,6 +56,100 @@ const columnOptions = [
   { id: "dispute", label: "Dispute" }
 ];
 
+const commissionMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+type MonthlyCommissionSeries = {
+  currency: string;
+  months: number[];
+  total: number;
+  maximum: number;
+};
+
+function monthlyPaidCommission(records: Row[], year: number): MonthlyCommissionSeries[] {
+  const series = new Map<string, number[]>();
+  for (const item of records) {
+    const amount = Number(item.paidAmount ?? 0);
+    const paymentDate = shown(field(item, "paymentDate", "payment_date"), "");
+    const dateMatch = /^(\d{4})-(\d{2})/.exec(paymentDate);
+    if (!dateMatch || Number(dateMatch[1]) !== year || !Number.isFinite(amount) || amount <= 0) continue;
+    const monthIndex = Number(dateMatch[2]) - 1;
+    if (monthIndex < 0 || monthIndex > 11) continue;
+    const code = shown(item.currency, "Unknown");
+    const months = series.get(code) ?? Array.from({ length: 12 }, () => 0);
+    months[monthIndex] = (months[monthIndex] ?? 0) + amount;
+    series.set(code, months);
+  }
+  return [...series.entries()].map(([currencyCode, months]) => ({
+    currency: currencyCode,
+    months,
+    total: months.reduce((sum, amount) => sum + amount, 0),
+    maximum: Math.max(...months)
+  }));
+}
+
+function compactCommissionValue(value: number, currencyCode: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currencyCode,
+      notation: "compact",
+      maximumFractionDigits: 1
+    }).format(value);
+  } catch {
+    return value.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
+  }
+}
+
+function MonthlyCommissionChart({ records, year }: { records: Row[]; year: number }) {
+  const series = useMemo(() => monthlyPaidCommission(records, year), [records, year]);
+  if (series.length === 0) return null;
+
+  return (
+    <section className="ry-commission-chart" aria-labelledby="ry-commission-chart-title">
+      <div className="ry-commission-chart-header">
+        <div>
+          <span className="ry-commission-chart-eyebrow">Year at a glance</span>
+          <h2 id="ry-commission-chart-title">Monthly paid commission</h2>
+        </div>
+        <span className="ry-commission-chart-year">{year}</span>
+      </div>
+      {series.map(({ currency: currencyCode, months, total, maximum }) => (
+        <div className="ry-commission-chart-series" key={currencyCode}>
+          <div className="ry-commission-chart-total">
+            <span>{currencyCode} total</span>
+            <strong><CurrencyValue value={total} currency={currencyCode} status="actual" /></strong>
+          </div>
+          <div className="ry-commission-chart-scroll">
+            <div className="ry-commission-chart-grid" role="img" aria-label={`${year} monthly paid commission in ${currencyCode}`}>
+              {months.map((amount, index) => {
+                const height = maximum > 0 && amount > 0 ? Math.max(5, (amount / maximum) * 100) : 0;
+                const fullValue = new Intl.NumberFormat("en-US", {
+                  style: "currency",
+                  currency: currencyCode
+                }).format(amount);
+                return (
+                  <div className="ry-commission-chart-month" key={commissionMonths[index]} aria-label={`${commissionMonths[index]}: ${fullValue}`}>
+                    <span className="ry-commission-chart-value" aria-hidden="true">
+                      {amount > 0 ? compactCommissionValue(amount, currencyCode) : "—"}
+                    </span>
+                    <div className="ry-commission-chart-track" aria-hidden="true">
+                      <span
+                        className="ry-commission-chart-bar"
+                        style={{ "--ry-commission-bar-height": `${height}%` } as CSSProperties}
+                      />
+                    </div>
+                    <span className="ry-commission-chart-label" aria-hidden="true">{commissionMonths[index]}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function commissionValue(item: Row, sortField: string): string {
   if (sortField === "status") return shown(item.status).toLowerCase();
   if (sortField === "expected") return String(Number(item.expectedAmount ?? 0)).padStart(18, "0");
@@ -91,15 +185,14 @@ export function CommissionRegisterPage() {
     setLoading(true);
     setError("");
     try {
-      const suffix = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : "";
-      const result = await api<{ commissions: Row[] }>(`/api/commissions${suffix}`);
+      const result = await api<{ commissions: Row[] }>("/api/commissions");
       setRecords(result.commissions);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Commissions could not be loaded.");
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -177,6 +270,7 @@ export function CommissionRegisterPage() {
       />
       {!canWrite ? <Alert tone="warning" title="Read-only Commission register">{session?.access.reason ?? "This session cannot approve, mark payable/paid, or open disputes."}</Alert> : null}
       {error ? <ErrorState message={error} action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>} /> : null}
+      {!loading && !error ? <MonthlyCommissionChart records={records} year={new Date().getFullYear()} /> : null}
 
       <section className="ry-register-surface" aria-label="Commissions register">
         <div className="ry-register-commandbar">

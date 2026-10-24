@@ -169,6 +169,12 @@ void describe("Ryva Commerce", () => {
     assert.match(source, /\/api\/commercial-export\/commission/);
     assert.match(source, /RegisterMobileList/);
     assert.match(source, /Order value is not commission owed/);
+    assert.match(source, /Monthly paid commission/);
+    assert.match(source, /commissionMonths/);
+    assert.match(source, /paymentDate/);
+    assert.match(source, /monthlyPaidCommission/);
+    assert.match(source, /series\.get\(code\)/);
+    assert.match(source, /Array\.from\(\{ length: 12 \}/);
   });
 
   void it("commission detail preserves consequential transitions and calculation transparency", () => {
