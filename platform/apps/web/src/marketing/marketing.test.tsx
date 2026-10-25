@@ -29,6 +29,10 @@ void describe("Ryva public marketing site", () => {
     assert.match(header, /APP_BASE/);
     assert.match(header, /Only 27 spots remain for 2026\./);
     assert.match(header, /ry-mkt-availability-banner/);
+    assert.match(header, /The first and only online/);
+    assert.match(header, /brand placement program/);
+    assert.match(header, /ry-mkt-brand-descriptor/);
+    assert.doesNotMatch(header, /ry-shell/);
   });
 
   void it("ships homepage sections and careful non-credentialing copy", () => {

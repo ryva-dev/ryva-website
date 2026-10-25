@@ -27,9 +27,14 @@ export function MarketingHeader() {
         <p>Only 27 spots remain for 2026.</p>
       </div>
       <div className="ry-mkt-header-inner">
-        <Link to="/" className="ry-mkt-wordmark">
-          ryva
-        </Link>
+        <div className="ry-mkt-brand-lockup">
+          <Link to="/" className="ry-mkt-wordmark">
+            ryva
+          </Link>
+          <span className="ry-mkt-brand-descriptor">
+            The first and only online<br />brand placement program
+          </span>
+        </div>
 
         <nav className="ry-mkt-nav" aria-label="Primary">
           {navItems.map((item) => (

@@ -126,6 +126,25 @@
   color: var(--mkt-wine);
 }
 
+.ry-mkt-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.65rem, 1.4vw, 0.95rem);
+  min-width: 0;
+}
+
+.ry-mkt-brand-descriptor {
+  padding-inline-start: clamp(0.65rem, 1.4vw, 0.95rem);
+  border-inline-start: 1px solid rgb(255 255 255 / 18%);
+  color: var(--mkt-on-dark-muted);
+  font-size: clamp(0.5rem, 0.85vw, 0.6rem);
+  font-weight: 500;
+  letter-spacing: 0.065em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .ry-mkt-nav {
   display: none;
   justify-content: center;
@@ -2064,6 +2083,19 @@ a.ry-mkt-btn-primary:hover,
 
   .ry-mkt-program-sim {
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 460px) {
+  .ry-mkt-brand-lockup {
+    gap: 0.5rem;
+  }
+
+  .ry-mkt-brand-descriptor {
+    padding-inline-start: 0.5rem;
+    font-size: 0.45rem;
+    letter-spacing: 0.04em;
+    line-height: 1.35;
   }
 }
 
